@@ -236,7 +236,7 @@ principals and roles the bootstrap already creates.
 | Catalog role `olf-write` | each `lakehouse_<stage>` | `CATALOG_MANAGE_CONTENT` on the catalog | bootstrap, platform |
 | Catalog role `olf-read` | each `lakehouse_<stage>` | On the catalog: `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES`, `VIEW_READ_PROPERTIES` | bootstrap, platform |
 | Catalog role `olf-gold-read` | each `lakehouse_<stage>` | `NAMESPACE_LIST` on the catalog; on **each Gold namespace**: `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES`, `VIEW_READ_PROPERTIES` | catalog grant: bootstrap, platform; namespace grants: `olf infra catalog sync-namespaces`, artifacts |
-| Principal `trino-people-<stage>` | realm | No catalog role. The people catalog's own credential, used for the configuration call | bootstrap, platform |
+| Principal `trino-catalog-<stage>` | realm | No catalog role. The credential of the stage Trino's catalogs (the people catalog and, since #982, the workload catalog), used for the configuration call. Replaces `trino-people-<stage>`, which the bootstrap deletes | bootstrap, platform |
 | Principal-roles mapper | Polaris chart values | `quarkus.oidc.roles.role-claim-path` `groups,federated_claims/connector_id`; `filter` matching every claim value in `role_mapping` and the connector id; one mapping per claim value, `^<quoted value>$` to `PRINCIPAL_ROLE:olf-<role>`, plus `^github$` to `PRINCIPAL_ROLE:olf-signed-in`, rendered by the local root from `role_mapping`, so keyed by canonical role | Terraform, platform |
 
 `TABLE_READ_DATA` implies `TABLE_READ_PROPERTIES` and `TABLE_LIST` in Polaris's
@@ -364,15 +364,28 @@ holds a storage key", is extended from the person path to every path.
    Built so far (#980): dbt and Gold maintenance mint the processing principal's
    token (`openlakeforge_runtime/polaris_token.py`, once per dbt invocation) and
    send it as the `token` extra credential; Gold models are `view_security: invoker`,
-   enforced by `olf check dbt`. Today's keyed catalogs ignore the credential;
-   Floe and the keyless Trino catalogs are not yet built.
+   enforced by `olf check dbt`.
    Built so far (#981): `olf infra query` and every `olf e2e` Trino call run
    the CLI in the coordinator, which mints the stage processing principal's
-   token from the credential its pod holds and passes it as the `token` extra
-   credential with curl (`cli_script` in `olf/infra/trino.py`); a failed mint fails the query. The token is on no
+   token and passes it as the `token` extra credential with curl (`cli_script`
+   in `olf/infra/trino.py`); a failed mint fails the query. The token is on no
    `kubectl` argument and in no log. `olf query` and the platform API already
-   send the person's token on every call, discovery included. Today's keyed
-   catalogs ignore it.
+   send the person's token on every call, discovery included.
+   Built (#982) on the local root: the stage's workload catalog
+   `lakehouse_<stage>` takes the people-catalog shape, and both use the
+   grantless `trino-catalog-<stage>` credential, so the coordinator holds no
+   S3 key and no credential with a grant. `olf infra query` and `olf e2e` read
+   the processing principal's credential from its Secret and send it to the
+   in-pod mint on stdin. The pods carry no AWS or storage key in their
+   environment and no service-account annotation (a module precondition and
+   `modules/query/trino/tests/keyless.tftest.hcl`), and the stage's
+   default-deny NetworkPolicy gives them no route to an instance metadata
+   endpoint. The e2e isolation probes run the #964 cases: no token and another
+   stage's token are refused, a location override and `register_table` into
+   another stage's bucket fail. The people catalog keeps its own name only
+   while Trino's rules separate e-mail and service users (#983). An AWS stage
+   on Glue keeps its keyed catalog until AWS moves to Polaris (#681); Azure's
+   shared coordinator takes the keyless shape too, unverified at runtime.
 4. **Superset per user** (#968, import and sign-in token built in #987; the
    shared credential is removed in #983). The imported database points at the
    stage's people catalog on the stage's Trino with no user and no password,

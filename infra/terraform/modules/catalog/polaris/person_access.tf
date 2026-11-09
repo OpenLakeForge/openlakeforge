@@ -30,10 +30,6 @@ locals {
     [for name in compact([try(var.person_access.principal_name, "")]) : { regex = local.person_claim_regex[name], replacement = "PRINCIPAL_ROLE:olf-signed-in" }],
   )
 
-  # The credential of each stage's Trino people catalog (ADR 0019, section 4,
-  # step 7), in this namespace beside Trino's own.
-  people_secret_names = { for stage in keys(local.stage_catalogs) : stage => "polaris-${stage}-trino-people-creds" if local.person_access_enabled }
-
   person_values = !local.person_access_enabled ? [] : [yamlencode({
     authentication = { type = "mixed" }
     oidc = {

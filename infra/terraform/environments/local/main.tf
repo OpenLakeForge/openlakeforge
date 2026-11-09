@@ -294,7 +294,7 @@ module "platform_api" {
   # the caller verifies it against ca_file. Each stage's people catalog is named
   # after the stage (modules/query/trino/people.tf). Read server-side only.
   query_endpoints = {
-    for stage in keys(module.polaris.people_credentials_secret_names) : stage => {
+    for stage in keys(local.enabled_stages) : stage => {
       statement_url = "https://${module.trino[stage].service_name}.${local.stage_namespaces[stage]}.svc.cluster.local:${local.trino_tls_port}/v1/statement"
       catalog       = stage
     }
@@ -472,7 +472,7 @@ module "polaris" {
   stage_catalogs = {
     for name in keys(local.stage_storage) : name => {
       catalog_name                     = "lakehouse_${name}"
-      trino_credentials_secret_name    = "polaris-${name}-processing-creds"
+      trino_credentials_secret_name    = "polaris-${name}-trino-catalog-creds"
       floe_credentials_secret_name     = "polaris-${name}-processing-creds"
       deployer_credentials_secret_name = "polaris-${name}-deployer-creds"
     }
@@ -518,14 +518,14 @@ module "trino" {
     secret_namespace = kubernetes_namespace_v1.shared.metadata[0].name
   } : null
   # People's queries (ADR 0019): Dex tokens issued to olf-cli, and the stage's
-  # people catalog on the credential the Polaris bootstrap created for it.
+  # people catalog.
   people_access = local.identity_dex && local.trino_workload_authentication == "password" ? {
     issuer_url = local.identity_oidc.issuer_url
     client_id  = local.identity_oidc.clients["olf-cli"].client_id
     # Dex's own Service, not the ingress: Traefik takes Trino's route, so it
     # is created after Trino, which needs the keys to start (flow F31).
     keys_url = "http://${one(module.dex[*].service_name)}.${kubernetes_namespace_v1.shared.metadata[0].name}.svc.cluster.local:${one(module.dex[*].http_port)}/keys"
-    catalogs = { (each.key) = module.polaris.people_credentials_secret_names[each.key] }
+    stages   = [each.key]
   } : null
 
   depends_on = [

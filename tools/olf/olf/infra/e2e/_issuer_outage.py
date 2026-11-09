@@ -185,7 +185,7 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
 
     def person_query() -> None:
         # Trino outlived the outage. A people catalog that kept presenting its own credential instead of the
-        # person's token fails here with Polaris's refusal of `trino-people-<stage>`, not in the next run.
+        # person's token fails here with Polaris's refusal of `trino-catalog-<stage>`, not in the next run.
         urls = {ref: r["url"] for ref, r in contracts["shared"]["access"]["routes"].items()}
         run = person_runner(route, cfg, identity, urls, {team_role: login})
         if run is None:

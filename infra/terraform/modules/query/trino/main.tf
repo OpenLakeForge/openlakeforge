@@ -12,16 +12,19 @@ locals {
     dev = var.catalog_contract
   })
 
-  # Named, not AWS_*: the people catalogs carry no key and must read only with
-  # the credentials Polaris vends, and the S3 client's default chain would
-  # otherwise find this key in the environment (ADR 0019).
-  storage_secret_env = var.storage_contract.credentials_secret_name == null ? [] : [
+  # A Glue catalog has no vended credentials and keeps reading with the storage
+  # key until AWS moves to Polaris (#681). Named, not AWS_*: the keyless REST
+  # catalogs read only with what Polaris vends, and the S3 client's default
+  # chain would otherwise find this key in the environment (ADR 0019).
+  glue_enabled = anytrue([for contract in values(local.stage_catalog_contracts) : try(contract.catalog_type, "rest") == "glue"])
+  storage_secret_env = var.storage_contract.credentials_secret_name == null || !local.glue_enabled ? [] : [
     for name, key in {
       OPENLAKEFORGE_S3_ACCESS_KEY_ID     = coalesce(var.storage_contract.access_key_id_key, "AWS_ACCESS_KEY_ID")
       OPENLAKEFORGE_S3_SECRET_ACCESS_KEY = coalesce(var.storage_contract.secret_access_key_key, "AWS_SECRET_ACCESS_KEY")
     } : { name = name, valueFrom = { secretKeyRef = { name = var.storage_contract.credentials_secret_name, key = key } } }
   ]
 
+  # The catalog's own credential, trino-catalog-<stage>, holds no grant.
   catalog_secret_env = flatten([
     for stage, contract in local.stage_catalog_contracts : try(contract.trino_credentials_secret_name, null) == null ? [] : [
       {
@@ -29,7 +32,7 @@ locals {
         valueFrom = {
           secretKeyRef = {
             name = contract.trino_credentials_secret_name
-            key  = coalesce(try(contract.trino_client_id_key, null), "POLARIS_TRINO_CLIENT_ID")
+            key  = coalesce(try(contract.trino_client_id_key, null), "POLARIS_CLIENT_ID")
           }
         }
       },
@@ -38,21 +41,59 @@ locals {
         valueFrom = {
           secretKeyRef = {
             name = contract.trino_credentials_secret_name
-            key  = coalesce(try(contract.trino_client_secret_key, null), "POLARIS_TRINO_CLIENT_SECRET")
+            key  = coalesce(try(contract.trino_client_secret_key, null), "POLARIS_CLIENT_SECRET")
           }
         }
       },
     ]
   ])
 
-  s3_catalog_properties = join("\n", compact([
+  s3_properties = join("\n", compact([
     "fs.native-s3.enabled=true",
     var.storage_contract.endpoint == null ? "" : "s3.endpoint=${var.storage_contract.endpoint}",
     var.storage_contract.path_style_access == null ? "" : "s3.path-style-access=${var.storage_contract.path_style_access}",
     "s3.region=${var.storage_contract.region}",
-    var.storage_contract.credentials_secret_name == null ? "" : "s3.aws-access-key=$${ENV:OPENLAKEFORGE_S3_ACCESS_KEY_ID}",
-    var.storage_contract.credentials_secret_name == null ? "" : "s3.aws-secret-key=$${ENV:OPENLAKEFORGE_S3_SECRET_ACCESS_KEY}",
   ]))
+  glue_s3_properties = join("\n", compact([
+    local.s3_properties,
+    length(local.storage_secret_env) == 0 ? "" : "s3.aws-access-key=$${ENV:OPENLAKEFORGE_S3_ACCESS_KEY_ID}",
+    length(local.storage_secret_env) == 0 ? "" : "s3.aws-secret-key=$${ENV:OPENLAKEFORGE_S3_SECRET_ACCESS_KEY}",
+  ]))
+
+  # Keyless (ADR 0019 section 9): every table request carries the caller's own
+  # Polaris token (the `token` extra credential) and reads files only with the
+  # credentials Polaris vends for that table. The catalog's credential serves
+  # only the configuration call, and a request without a token falls through
+  # to a token exchange Polaris refuses (#964). Keyed by stage: the people
+  # catalog (people.tf) is the same catalog under the stage's name.
+  rest_catalog_properties = {
+    for stage, contract in local.stage_catalog_contracts : stage => <<-CATALOG
+      # openlakeforge.catalog-provider=${coalesce(try(contract.catalog_provider, null), "polaris")}
+      connector.name=iceberg
+      iceberg.catalog.type=rest
+      iceberg.rest-catalog.uri=${try(contract.rest_uri, "")}
+      iceberg.rest-catalog.warehouse=${try(contract.warehouse, "")}
+      iceberg.rest-catalog.security=OAUTH2
+      iceberg.rest-catalog.oauth2.credential=$${ENV:OPENLAKEFORGE_CATALOG_${upper(stage)}_CLIENT_ID}:$${ENV:OPENLAKEFORGE_CATALOG_${upper(stage)}_CLIENT_SECRET}
+      iceberg.rest-catalog.oauth2.server-uri=${try(contract.token_uri, "")}
+      iceberg.rest-catalog.oauth2.scope=${try(contract.oauth_scope, "")}
+      iceberg.rest-catalog.session=USER
+      # Zero rebuilds the session from the token each query carries; the
+      # default hour would keep presenting the first one.
+      iceberg.rest-catalog.session-timeout=0s
+      # Iceberg builds the caller's session from a copy of the catalog's
+      # config, credential included, and reads the token's `exp`. A token
+      # already expired when the session is built is "refreshed" with that
+      # credential (OAuth2Util.AuthSession.refresh, refreshExpiredToken),
+      # which swaps the caller for trino-catalog-<stage>. Off, an expired
+      # token reaches Polaris as itself and is refused (#1012).
+      iceberg.rest-catalog.oauth2.token-refresh-enabled=false
+      iceberg.rest-catalog.vended-credentials-enabled=true
+      iceberg.rest-catalog.nested-namespace-enabled=true
+      ${local.s3_properties}
+    CATALOG
+    if try(contract.catalog_type, "rest") != "glue"
+  }
 
   iceberg_catalog_properties = {
     for stage, contract in local.stage_catalog_contracts : contract.catalog_name => (
@@ -62,22 +103,9 @@ locals {
         iceberg.catalog.type=glue
         hive.metastore.glue.region=${coalesce(try(contract.glue_region, null), var.storage_contract.region)}
         hive.metastore.glue.catalogid=${try(contract.glue_catalog_id, "")}
-        ${local.s3_catalog_properties}
+        ${local.glue_s3_properties}
       CATALOG
-      : <<-CATALOG
-        # openlakeforge.catalog-provider=${coalesce(try(contract.catalog_provider, null), "polaris")}
-        connector.name=iceberg
-        iceberg.catalog.type=rest
-        iceberg.rest-catalog.uri=${try(contract.rest_uri, "")}
-        iceberg.rest-catalog.warehouse=${try(contract.warehouse, "")}
-        iceberg.rest-catalog.security=OAUTH2
-        iceberg.rest-catalog.oauth2.credential=$${ENV:OPENLAKEFORGE_CATALOG_${upper(stage)}_CLIENT_ID}:$${ENV:OPENLAKEFORGE_CATALOG_${upper(stage)}_CLIENT_SECRET}
-        iceberg.rest-catalog.oauth2.server-uri=${try(contract.token_uri, "")}
-        iceberg.rest-catalog.oauth2.scope=${try(contract.oauth_scope, "")}
-        iceberg.rest-catalog.vended-credentials-enabled=false
-        iceberg.rest-catalog.nested-namespace-enabled=true
-        ${local.s3_catalog_properties}
-      CATALOG
+      : local.rest_catalog_properties[stage]
     )
   }
   # Every stage-scoped client (dbt, Dagster, Superset, and the e2e suite)
@@ -286,7 +314,7 @@ resource "helm_release" "trino" {
     file(var.base_values_file),
     ], local.sizing_values, [
     yamlencode({
-      env = concat(local.storage_secret_env, local.catalog_secret_env, local.internal_secret_env, local.oidc_env, local.people_catalog_env)
+      env = concat(local.storage_secret_env, local.catalog_secret_env, local.internal_secret_env, local.oidc_env)
 
       catalogs = merge(local.iceberg_catalog_properties, local.people_catalog_properties)
 
@@ -310,6 +338,12 @@ resource "helm_release" "trino" {
   )
 
   lifecycle {
+    # A keyless catalog reads through the AWS SDK default chain outside vended
+    # credentials (#963), so a role on the pods would read storage with it.
+    precondition {
+      condition     = length(local.rest_catalog_properties) == 0 || (length(var.service_account_annotations) == 0 && var.service_account_name == "")
+      error_message = "A keyless (Polaris) Trino catalog runs with no cloud workload identity: unset service_account_annotations and service_account_name."
+    }
     # The TLS and password values (below) point every node at the coordinator
     # as localhost and mount the certificate on the coordinator only, so a
     # worker would register with itself. Multi-node with authentication is #367.

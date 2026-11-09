@@ -2,8 +2,9 @@
 
 ## Status
 
-**To be retired (#960).** Trino authenticates workloads because one
-coordinator holds every stage's Polaris credential and a static S3 key.
+**To be retired (#960).** Trino authenticated workloads because one
+coordinator held every stage's Polaris credential and a static S3 key; on the
+local root, each stage now has its own keyless coordinator (#976, #982).
 ADR 0019 section 9 removes both causes: one Trino per stage (#965) makes the
 stage boundary a network boundary, and a keyless engine (#967) leaves Trino no
 credential to protect, so Polaris decides every call from the caller's own

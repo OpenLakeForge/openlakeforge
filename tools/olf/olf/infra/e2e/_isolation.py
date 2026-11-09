@@ -19,10 +19,10 @@ from typing import Any
 from openlakeforge_services.base import ServiceClientError
 
 from olf.common import config, log
-from olf.infra import k8s
+from olf.infra import k8s, trino
 from olf.infra.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
 from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
-from olf.infra.e2e._trino import list_tables, trino_query
+from olf.infra.e2e._trino import PROBE_SCHEMA, list_tables, processing_credential, trino_query
 
 
 def _sibling_stage(cfg: E2EConfig) -> str | None:
@@ -104,6 +104,75 @@ def check_trino_workload_authentication(cfg: E2EConfig, this_stage: str, sibling
     _expect_trino_unauthenticated(
         cfg, sql=sibling_sql, what=f"{this_stage}'s user name with a wrong password", stage=this_stage, password="wrong"
     )
+
+
+POLARIS_REFUSAL_MARKERS = ("forbidden", "not authorized", "403")
+
+
+def _expect_trino_refused(cfg: E2EConfig, sql: str, *, what: str, markers: tuple[str, ...] = (), **kw: Any) -> str:
+    """Require `sql` to fail, and with `markers`, to fail as one of them; return the refusal."""
+    try:
+        trino_query(cfg, sql, **kw)
+    except E2EError as exc:
+        text = str(exc)
+        if markers and not any(marker in text.lower() for marker in markers):
+            raise E2EError(f"{what} failed, but not as a Polaris refusal ({exc}).") from exc
+        return text
+    raise E2EError(f"isolation breach: {what} succeeded ({sql!r}).")
+
+
+def check_keyless_trino(cfg: E2EConfig, provider_contracts: dict[str, Any], this_stage: str, sibling: str) -> None:
+    """Polaris decides every table access on the keyless catalog, from the token the caller sends (#964, #982).
+
+    Each refusal is paired with the same statement succeeding with this stage's own token, so a broken
+    coordinator cannot pass for a refusal.
+    """
+    catalog = f"lakehouse_{this_stage}"
+    tables = [table for layer, table in _materialized_tables(cfg, catalog) if layer == "gold"]
+    if not tables:
+        raise E2EError(f"no Gold table in {catalog} to check the keyless catalog against.")
+    select = f"SELECT count(*) FROM {catalog}.{tables[0]}"
+    log.step(f"Checking the keyless {catalog} refuses a call with no token or {sibling}'s token...")
+    trino_query(cfg, select)
+    _expect_trino_refused(cfg, select, what="a query with no Polaris token", credential=trino.decode_credential(""))
+    sibling_catalog = provider_contracts["stages"][sibling]["catalog"]
+    lookup = trino.processing_credential_args(
+        {
+            "OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME": sibling_catalog["floe_credentials_secret_name"],
+            "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_ID_KEY": sibling_catalog["floe_client_id_key"],
+            "OPENLAKEFORGE_CATALOG_FLOE_CLIENT_SECRET_KEY": sibling_catalog["floe_client_secret_key"],
+        },
+        f"olf-{sibling}",
+    )
+    assert lookup is not None
+    _expect_trino_refused(
+        cfg,
+        select,
+        what=f"{sibling}'s processing token on {catalog}",
+        markers=POLARIS_REFUSAL_MARKERS,
+        credential=processing_credential(cfg, lookup),
+    )
+
+    log.step(f"Checking {catalog} refuses a table located in {sibling}'s storage...")
+    schema = f"{catalog}.{PROBE_SCHEMA}"
+    trino_query(cfg, f"CREATE SCHEMA IF NOT EXISTS {schema}")
+    elsewhere = f"s3://{_stage_bucket(provider_contracts, sibling, 'silver')}/zz-olf-e2e-location-probe"
+    for sql, what in (
+        (
+            f"CREATE TABLE {schema}.location_probe (probe integer) WITH (location = '{elsewhere}')",
+            "a location override",
+        ),
+        (
+            f"CALL {catalog}.system.register_table(schema_name => '{PROBE_SCHEMA}', "
+            f"table_name => 'register_probe', table_location => '{elsewhere}')",
+            "register_table",
+        ),
+    ):
+        try:
+            _expect_trino_refused(cfg, sql, what=f"{what} into {sibling}'s bucket")
+        finally:
+            for table in ("location_probe", "register_probe"):
+                trino_query(cfg, f"DROP TABLE IF EXISTS {schema}.{table}")
 
 
 def _expect_s3_denied(call, *, who: str, what: str) -> None:  # noqa: ANN001
@@ -377,6 +446,7 @@ def check_stage_isolation(cfg: E2EConfig) -> None:
     # Positive control: the same identity must still reach its own catalog.
     trino_query(cfg, f"SELECT 1 FROM lakehouse_{this_stage}.information_schema.tables LIMIT 1")
     check_trino_workload_authentication(cfg, this_stage, sibling)
+    check_keyless_trino(cfg, provider_contracts, this_stage, sibling)
 
     log.step(f"Checking SeaweedFS cross-stage isolation ({this_stage} -> {sibling})...")
     identity = _s3_identity(cfg.namespace, f"seaweedfs-{this_stage}-s3-creds", environ=cfg.environ)

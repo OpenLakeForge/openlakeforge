@@ -63,7 +63,7 @@ LEGACY_DBT_SECRET = "polaris-dbt-creds"
 # its own principal role and catalog role. A stage keeps none of them.
 LEGACY_ROLES = (("data-engineer", "catalog-admin"), ("data-writer", "catalog-writer"))
 # What a removed stage leaves in Polaris, which `--allow-stage-removal` revokes: the principal name of each kind.
-STAGE_PRINCIPALS = re.compile(r"olf-(.+)-processing|deployer-(.+)|trino-people-(.+)")
+STAGE_PRINCIPALS = re.compile(r"olf-(.+)-processing|deployer-(.+)|trino-(?:catalog|people)-(.+)")
 
 
 @dataclass(frozen=True)
@@ -112,6 +112,9 @@ class StageCatalog:
     # The one data writer of the stage: Floe's Silver and Trino's Gold (dbt runs through it), on this catalog only.
     processing: Credential
     deployer: Credential
+    # The stage Trino's catalog credential, trino-catalog-<stage>. It holds no grant: Trino uses it only for the
+    # catalog's configuration call, and every table request carries the caller's own token (ADR 0019 section 9).
+    catalog: Credential
     # The Trino and Floe credentials of earlier deployments, removed once the stage has `processing`.
     legacy: tuple[Credential, ...] = ()
 
@@ -121,7 +124,6 @@ class PersonAccess:
     principal: str
     # Principal role -> catalog -> the one catalog role it holds there; a role with no entry holds none.
     assigned: Mapping[str, Mapping[str, str]]
-    people: tuple[Credential, ...]
 
 
 @dataclass(frozen=True)
@@ -217,8 +219,9 @@ def ensure_catalog(client: PolarisClient, stage: StageCatalog, sts: CatalogSts |
     if sts is not None and (current.get("storageConfigInfo") or {}).get("stsUnavailable") is not False:
         # Polaris refuses to add a role ARN to an existing catalog (ADR 0019).
         log.warn(
-            f"Catalog {stage.catalog_name} was created without STS and vends no credentials; "
-            "a stack redeployed from scratch gets it."
+            f"Catalog {stage.catalog_name} was created without STS and vends no credentials, so every query on "
+            "its keyless Trino catalog fails with 'no credentials are available'. Remove the stage "
+            "(`olf infra deploy --allow-stage-removal` without it) or the stack, and deploy again to recreate it."
         )
     properties = current.get("properties") or {}
     if any(properties.get(key) != value for key, value in REQUIRED_CATALOG_PROPERTIES.items()):
@@ -370,10 +373,6 @@ def reconcile_person_access(
                         client.management("DELETE", f"{held}/{_q(catalog_role)}", ok_statuses=(204,))
                 elif catalog_role == wanted:
                     _assign_catalog_role(client, role, catalog, catalog_role)
-    # Each stage's Trino people catalog credential holds no principal role and so no grant: Trino uses it
-    # only for the catalog's configuration call, and every table request carries the person's own token.
-    for person in access.people:
-        ensure_credential(client, person, environ=environ)
 
 
 def revoke_removed_stages(client: PolarisClient, stages: tuple[str, ...]) -> None:
@@ -399,6 +398,7 @@ def run_bootstrap(
             Grant(stage.processing.principal, f"processing-{stage.stage}", "catalog-processing", MANAGE_CONTENT),
             stage.catalog_name,
         )
+        ensure_credential(client, stage.catalog, environ=environ)
         for old in stage.legacy:
             _call(client, "DELETE", f"/principals/{_q(old.principal)}", ok=(204,), absent=(404,))
             k8s.delete_secret(old.secret, old.namespace, environ=environ)
@@ -466,9 +466,7 @@ def _stage_credential(stage: StageContract, role: str, principal: str | None = N
     )
 
 
-def _person_access(
-    contracts: ProviderContracts, stages: Mapping[str, str], namespaces: Mapping[str, str], shared: str
-) -> PersonAccess | None:
+def _person_access(contracts: ProviderContracts, stages: Mapping[str, str]) -> PersonAccess | None:
     """data_access as Polaris roles and grants, for the Dex that GitHub sign-in deploys (ADR 0019)."""
     identity = contracts.shared.values.get("identity") or {}
     if identity.get("adapter") != "dex":
@@ -483,17 +481,7 @@ def _person_access(
         assigned[f"olf-{role}"] = {
             stages[stage]: catalog_role(layers) for stage, layers in rows.items() if stage in stages
         }
-    people = tuple(
-        _credential(
-            f"trino-people-{stage}",
-            f"polaris-{stage}-trino-people-creds",
-            "POLARIS",
-            namespaces[stage],
-            recreatable=namespaces[stage] != shared,
-        )
-        for stage in sorted(stages)
-    )
-    return PersonAccess(DEX_CONNECTOR, assigned, people)
+    return PersonAccess(DEX_CONNECTOR, assigned)
 
 
 def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
@@ -539,6 +527,13 @@ def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
                 # namespace both run in.
                 processing=_stage_credential(stage, "floe", f"olf-{stage.name.value}-processing"),
                 deployer=_stage_credential(stage, "deployer"),
+                catalog=_credential(
+                    f"trino-catalog-{stage.name.value}",
+                    f"polaris-{stage.name.value}-trino-catalog-creds",
+                    "POLARIS",
+                    trino_namespaces[stage.name.value],
+                    recreatable=trino_namespaces[stage.name.value] != shared,
+                ),
                 legacy=(
                     _credential(
                         f"trino-{stage.name.value}",
@@ -552,13 +547,19 @@ def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
                         "POLARIS_FLOE",
                         stage.namespace,
                     ),
+                    _credential(
+                        f"trino-people-{stage.name.value}",
+                        f"polaris-{stage.name.value}-trino-people-creds",
+                        "POLARIS",
+                        trino_namespaces[stage.name.value],
+                    ),
                 ),
             )
             for stage in stages
         ),
         openmetadata=_credential("openmetadata", "polaris-om-creds", "POLARIS_OM", shared),
         sts=sts,
-        person_access=_person_access(contracts, catalogs, trino_namespaces, shared),
+        person_access=_person_access(contracts, catalogs),
     )
 
 
@@ -600,9 +601,8 @@ def bootstrap_from_contract(
 
 
 def trino_credentials(plan: BootstrapPlan) -> set[Credential]:
-    """The credentials Trino's pods read from their environment, so only at start: each stage's workload
-    catalog and, with people's access, each stage's people catalog."""
-    return {stage.processing for stage in plan.stages} | set(plan.person_access.people if plan.person_access else ())
+    """The credentials Trino's pods read from their environment, so only at start: each stage's catalog one."""
+    return {stage.catalog for stage in plan.stages}
 
 
 def _roll_trino_onto_its_credentials(plan: BootstrapPlan, *, environ: Mapping[str, str]) -> None:

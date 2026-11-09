@@ -235,7 +235,7 @@ def test_trino_query_reads_no_credential_unless_the_contract_names_one(
     _trino.trino_query(e2e_cfg(tmp_path), "SELECT 1")
 
     assert all(args[:2] != ["get", "secret"] for args, _ in calls)
-    assert calls[-1][1]["input_text"] is None
+    assert calls[-1][1]["input_text"] == "\n\n"
 
 
 @pytest.mark.parametrize(("stage", "namespace"), [("dev", "olf-dev"), ("prod", "olf-prod")])

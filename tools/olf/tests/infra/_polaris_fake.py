@@ -62,17 +62,19 @@ def conformance_plan(*, person_access: bool = True, sts: bool = True) -> Any:
                 f"olf-{stage}",
                 recreatable=True,
             ),
+            # Each stage runs its own Trino (#1021), which reads it through a namespace-local secretKeyRef.
+            catalog=credential(
+                f"trino-catalog-{stage}",
+                f"polaris-{stage}-trino-catalog-creds",
+                "POLARIS",
+                f"olf-{stage}",
+                recreatable=True,
+            ),
             legacy=(
                 credential(f"trino-{stage}", f"polaris-{stage}-trino-creds", "POLARIS_TRINO", f"olf-{stage}"),
                 credential(f"floe-{stage}", f"polaris-{stage}-floe-creds", "POLARIS_FLOE", f"olf-{stage}"),
+                credential(f"trino-people-{stage}", f"polaris-{stage}-trino-people-creds", "POLARIS", f"olf-{stage}"),
             ),
-        )
-        for stage in STAGES
-    )
-    # Each stage runs its own Trino (#1021), which reads these through a namespace-local secretKeyRef.
-    people = tuple(
-        credential(
-            f"trino-people-{stage}", f"polaris-{stage}-trino-people-creds", "POLARIS", f"olf-{stage}", recreatable=True
         )
         for stage in STAGES
     )
@@ -81,7 +83,7 @@ def conformance_plan(*, person_access: bool = True, sts: bool = True) -> Any:
         stages=stages,
         openmetadata=credential("openmetadata", "polaris-om-creds", "POLARIS_OM", "olf-system"),
         sts=pb.CatalogSts(**STS) if sts else None,
-        person_access=pb.PersonAccess("github", ASSIGNED, people) if person_access else None,
+        person_access=pb.PersonAccess("github", ASSIGNED) if person_access else None,
     )
 
 

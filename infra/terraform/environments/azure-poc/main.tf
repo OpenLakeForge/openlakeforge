@@ -215,7 +215,7 @@ module "polaris" {
   stage_catalogs = {
     for name in keys(local.stage_storage) : name => {
       catalog_name                     = "lakehouse_${name}"
-      trino_credentials_secret_name    = "polaris-${name}-processing-creds"
+      trino_credentials_secret_name    = "polaris-${name}-trino-catalog-creds"
       floe_credentials_secret_name     = "polaris-${name}-processing-creds"
       deployer_credentials_secret_name = "polaris-${name}-deployer-creds"
     }

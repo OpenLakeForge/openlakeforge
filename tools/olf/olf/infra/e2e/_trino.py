@@ -209,12 +209,15 @@ def trino_query(
     stage: str | None = None,
     password: str | None = None,
     session_user: str | None = None,
+    credential: str | None = None,
 ) -> str:
     """Run `sql` as a stage's runtime principal, with its password read from its Secret.
 
     The overrides are for the isolation probes: another stage's principal,
-    a password that is not the principal's (`""` sends none), and a claimed
-    session user apart from the authenticated principal.
+    a password that is not the principal's (`""` sends none), a claimed
+    session user apart from the authenticated principal, and the processing
+    credential the coordinator mints its Polaris token from, as `cli_script`
+    reads it (`trino.decode_credential("")` sends no token).
     """
     catalog = stage_catalog_name(cfg)
     service, namespace = _trino_service(cfg, stage)
@@ -228,6 +231,12 @@ def trino_query(
         stage=stage or trino.stage_from_catalog(catalog),
         service=service,
     )
+    # The applied contract names only its own stage's processing Secret, so a query on another stage's
+    # coordinator carries no token unless the caller passes one.
+    stdin = credential if credential is not None else trino.decode_credential("")
+    lookup = trino.processing_credential_args(cfg.environ, namespace)
+    if credential is None and lookup is not None and target.stage == trino.stage_from_catalog(stage_catalog_name(cfg)):
+        stdin = processing_credential(cfg, lookup)
     # Only a contract that carries the credential name is at the password level; the principal
     # Secrets exist at `off` and `tls` too, but nothing there asks for them.
     if not config.env("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", environ=cfg.environ):
@@ -239,8 +248,13 @@ def trino_query(
         trino.exec_args(target, sql, output_format="CSV_UNQUOTED", session_user=session_user),
         capture=True,
         retry_transient=True,
-        input_text=None if password is None else f"{password}\n",
+        input_text=stdin if password is None else f"{stdin}{password}\n",
     )
+
+def processing_credential(cfg: E2EConfig, lookup: list[str]) -> str:
+    """The processing credential `lookup` (`trino.processing_credential_args`) prints, as `cli_script` reads it."""
+    return trino.decode_credential(kubectl(cfg, lookup, capture=True, retry_transient=True))
+
 
 def parse_trino_scalar(output: str) -> str:
     values = [line.strip().replace("\r", "") for line in output.splitlines() if line.strip()]

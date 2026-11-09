@@ -91,7 +91,7 @@ def test_run_sql_returns_output_and_targets_the_kube_context() -> None:
     assert all(command[:3] == ["kubectl", "--context", "kind-openlakeforge-local"] for command in seen)
 
 
-def test_run_sql_reads_no_secret_and_sends_no_stdin_without_a_named_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_sql_reads_no_secret_and_sends_no_credential_without_a_named_one(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
     calls: list[tuple[list[str], str]] = []
 
@@ -103,7 +103,29 @@ def test_run_sql_reads_no_secret_and_sends_no_stdin_without_a_named_credential(m
 
     ((query, stdin),) = calls
     assert "get" not in query
-    assert stdin == ""
+    assert stdin == "\n\n"  # no processing credential: no token
+
+
+def test_run_sql_sends_the_stage_processing_credential_on_stdin_never_in_the_argv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import base64
+
+    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
+    monkeypatch.setenv("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "polaris-prod-processing-creds")
+    calls: list[tuple[list[str], str]] = []
+
+    def runner(command, stdin):  # noqa: ANN001, ANN202
+        calls.append((list(command), stdin))
+        encoded = "\n".join(base64.b64encode(value).decode() for value in (b"the-id", b"the-secret"))
+        return _result(command, 0, stdout=encoded if "get" in command else "1\n", stderr="")
+
+    trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
+
+    (lookup, _), (query, stdin) = calls
+    assert "polaris-prod-processing-creds" in lookup
+    assert stdin == "the-id\nthe-secret\n"
+    assert "the-secret" not in " ".join(query)
 
 
 def test_run_sql_sends_the_principals_password_on_stdin_never_in_the_argv(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -122,7 +144,7 @@ def test_run_sql_sends_the_principals_password_on_stdin_never_in_the_argv(monkey
 
     (lookup, _), (query, stdin) = calls
     assert "trino-credential-olf-prod-runtime" in lookup
-    assert stdin == "s3cret\n"
+    assert stdin == "\n\ns3cret\n"
     assert not any("s3cret" in part for part in query)
 
 
@@ -237,20 +259,19 @@ def test_the_pod_mints_the_stage_token_and_fails_the_query_when_it_cannot(tmp_pa
     )
     (tmp_path / "glue.properties").write_text("iceberg.catalog.type=glue\n")
 
-    def run(catalog: str) -> sp.CompletedProcess[str]:
+    def run(catalog: str, credential: str = "the-id\nthe-secret\n") -> sp.CompletedProcess[str]:
         script = trino.cli_script(str(tmp_path / "absent-ca"), stage="dev", catalog=catalog)
         script = script.replace(trino.TRINO_CATALOG_DIR, str(tmp_path))
+        # The coordinator holds no credential with a grant: the caller's stdin carries it.
         return sp.run(
             ["sh", "-c", script, "trino", "--user", "u"],
+            input=credential,
             capture_output=True,
             text=True,
-            env={
-                "PATH": f"{tmp_path}:/usr/bin:/bin",
-                "OPENLAKEFORGE_CATALOG_DEV_CLIENT_ID": "the-id",
-                "OPENLAKEFORGE_CATALOG_DEV_CLIENT_SECRET": "the-secret",
-            },
+            env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
         )
 
+    assert run("lakehouse_dev", trino.decode_credential("")).stdout.strip() == "--user u"  # no credential, no token
     ok = run("lakehouse_dev")
     assert ok.stdout.strip() == "--extra-credential token=polaris-token --user u"
     sent = (tmp_path / "curl.stdin").read_text()

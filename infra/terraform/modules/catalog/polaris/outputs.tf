@@ -43,8 +43,8 @@ output "stage_contracts" {
       token_uri                        = local.token_uri
       oauth_scope                      = local.oauth_scope
       trino_credentials_secret_name    = binding.trino_credentials_secret_name
-      trino_client_id_key              = "POLARIS_PROCESSING_CLIENT_ID"
-      trino_client_secret_key          = "POLARIS_PROCESSING_CLIENT_SECRET"
+      trino_client_id_key              = "POLARIS_CLIENT_ID"
+      trino_client_secret_key          = "POLARIS_CLIENT_SECRET"
       floe_credentials_secret_name     = binding.floe_credentials_secret_name
       floe_client_id_key               = "POLARIS_PROCESSING_CLIENT_ID"
       floe_client_secret_key           = "POLARIS_PROCESSING_CLIENT_SECRET"
@@ -53,9 +53,4 @@ output "stage_contracts" {
       deployer_client_secret_key       = "POLARIS_DEPLOYER_CLIENT_SECRET"
     }
   }
-}
-
-output "people_credentials_secret_names" {
-  description = "Stage -> the Secret, in this namespace, of that stage's trino-people principal (keys POLARIS_CLIENT_ID, POLARIS_CLIENT_SECRET). Empty without person_access."
-  value       = local.people_secret_names
 }
