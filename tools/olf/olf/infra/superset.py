@@ -12,10 +12,8 @@ import contextlib
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from openlakeforge_services import reports
-from openlakeforge_services.reports import TLS_EXTRA
 from openlakeforge_services.superset import SupersetClient
 
 from olf.common import config, layers, log
@@ -40,9 +38,6 @@ class StageReportTarget:
     namespace: str
     sqlalchemy_uri: str
     schema_prefix: str
-    # Superset's per-database `extra`: the HTTPS scheme and the CA to verify
-    # against, set only while Trino serves HTTPS (ADR 0016).
-    extra: dict[str, Any] | None = None
 
 
 def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") -> StageReportTarget:
@@ -92,11 +87,9 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
     # when the caller exported one and which can belong to another stage.
     # No user and no password: each viewer's own token reaches the stage's
     # people catalog, named after the stage (ADR 0019 section 9).
-    tls_port = environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT", "")
-    tls = bool(tls_port and environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP"))
     sqlalchemy_uri = "trino://{host}:{port}/{catalog}".format(
         host=connection["OPENLAKEFORGE_QUERY_TRINO_HOST"],
-        port=tls_port if tls else connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
+        port=connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
         catalog=resolved_stage,
     )
     return StageReportTarget(
@@ -104,7 +97,6 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
         namespace=namespace,
         sqlalchemy_uri=sqlalchemy_uri,
         schema_prefix=environ.get("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", ""),
-        extra=TLS_EXTRA if tls else None,
     )
 
 
@@ -146,7 +138,6 @@ def deploy_reports(
     admin_username: str,
     admin_password: str,
     schema_prefix: str = "",
-    extra: dict[str, Any] | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> None:
     # Computed before touching the cluster: a declared-but-unmounted bundle
@@ -180,7 +171,6 @@ def deploy_reports(
             work_dir=work_dir,
             sqlalchemy_uri=sqlalchemy_uri,
             schema_prefix=schema_prefix,
-            extra=extra,
             progress=log,
         )
 

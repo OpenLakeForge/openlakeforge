@@ -352,10 +352,9 @@ locals {
       "${local.route_scheme}://superset-${name}.${local.base_domain}/api/v1/database/oauth2/",
     ]])
     openmetadata = local.governance_enabled ? ["${local.route_scheme}://openmetadata.${local.base_domain}/callback"] : [] # OpenMetadata's code-flow callback
-    trino        = [for name in keys(local.enabled_stages) : "${local.route_scheme}://trino-${name}.${local.base_domain}/oauth2/callback"]
   }
   identity_client_redirects = {
-    for name in ["perimeter", "superset", "openmetadata", "trino"] : name => {
+    for name in ["perimeter", "superset", "openmetadata"] : name => {
       redirect_uris = name == "perimeter" ? ["${local.route_scheme}://${local.perimeter_callback_host}/oauth2/callback"] : local.identity_consumer_redirects[name]
     }
   }

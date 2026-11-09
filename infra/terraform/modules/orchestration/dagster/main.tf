@@ -185,10 +185,7 @@ locals {
     : "${var.query_contract.service_name}.${var.query_contract.service_namespace}"
   )
 
-  query_tls = try(var.query_contract.tls_port, null) != null && try(var.query_contract.ca_configmap_name, null) != null
-  query_ca  = "/etc/olf/query-ca/ca.crt"
-
-  query_env = concat([
+  query_env = [
     {
       name  = "OPENLAKEFORGE_QUERY_TRINO_HOST"
       value = local.query_host
@@ -201,21 +198,7 @@ locals {
       name  = "OPENLAKEFORGE_QUERY_TRINO_CATALOG"
       value = var.query_contract.catalog_name
     },
-    ], local.query_tls ? [
-    {
-      # Not the PORT above, which other callers still pair with http.
-      name  = "OPENLAKEFORGE_QUERY_TRINO_TLS_PORT"
-      value = tostring(var.query_contract.tls_port)
-    },
-    {
-      name  = "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME"
-      value = "https"
-    },
-    {
-      name  = "OPENLAKEFORGE_QUERY_TRINO_CA"
-      value = local.query_ca
-    },
-  ] : [])
+  ]
 
   dbt_env = concat([
     {
@@ -249,21 +232,6 @@ locals {
       value = "dagster"
     },
   ] : [])
-
-  # dbt-trino's ldap method sends the username and password to a PASSWORD-authenticated Trino.
-  query_password = try(var.query_contract.credential_secret_name, null) != null
-  query_password_env = concat(
-    local.query_password ? [{ name = "OPENLAKEFORGE_DBT_TRINO_METHOD", value = "ldap" }] : [],
-    local.query_password ? [{
-      name = "OPENLAKEFORGE_DBT_TRINO_PASSWORD"
-      valueFrom = {
-        secretKeyRef = {
-          name = var.query_contract.credential_secret_name
-          key  = "password"
-        }
-      }
-    }] : [],
-  )
 
   dbt_secret_env = local.governance_enabled ? [
     {
@@ -329,7 +297,7 @@ locals {
     }
   ]
 
-  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env, local.query_password_env, local.namespace_env, local.floe_job_env)
+  runtime_env = concat(local.storage_env, local.artifact_env, local.generic_catalog_env, local.glue_catalog_env, local.polaris_catalog_env, local.query_env, local.dbt_env, local.dbt_secret_env, local.namespace_env, local.floe_job_env)
 
   runtime_env_secrets = concat(
     var.storage_contract.credentials_secret_name == null ? [] : [

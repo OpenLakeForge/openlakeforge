@@ -14,11 +14,9 @@ from __future__ import annotations
 import json
 import secrets
 import select
-import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
@@ -41,8 +39,6 @@ from olf.infra.e2e._trino import stage_catalog_name, trino_scalar
 
 REASON = "e2e issuer-outage drill"  # plus a per-run suffix: records are never deleted
 PORTS = {"trino": 15558, "dagster": 15557}
-LOCAL_CA_CONFIGMAP = "olf-local-ca"
-# Trino's certificate names `localhost`, not the address the forward listens on.
 HOST = "localhost"
 RESTORE_ATTEMPTS = 30
 
@@ -133,7 +129,6 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
     reason = f"{REASON} {secrets.token_hex(3)}"
     issuer_host = urlsplit(identity["issuer_url"]).hostname
     stage = next(iter(contracts["stages"]))
-    tls_port = break_glass.trino_tls_port(contracts, stage)
     # The stage's own coordinator (#976), as `olf infra break-glass trino` opens it.
     trino_service = trino.contract_service(contracts, stage, namespace=namespace)
     cluster = break_glass.Cluster(
@@ -225,63 +220,47 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
             except E2EError as exc:
                 log.info(str(exc))
 
-    with tempfile.TemporaryDirectory() as scratch:
-        ca = Path(scratch) / "ca.crt"
+    def reach(service: str) -> int | None:
+        path = "/v1/info" if service == "trino" else "/server_info"
+        url = f"http://{HOST}:{PORTS[service]}{path}"
+        return probe(url, service=service, cluster=cluster, reason=reason, trino_service=trino_service)
 
-        def reach(service: str) -> int | None:
-            https = service == "trino" and tls_port is not None
-            if https and not ca.exists():
-                args = ["get", "configmap", LOCAL_CA_CONFIGMAP, "-n", namespace, "-o", "jsonpath={.data.ca\\.crt}"]
-                ca.write_text(kubectl(cfg, args, capture=True))
-            path = "/v1/info" if service == "trino" else "/server_info"
-            url = f"{'https' if https else 'http'}://{HOST}:{PORTS[service]}{path}"
-            verify = str(ca) if https else True
-            return probe(
-                url,
-                verify=verify,
-                service=service,
-                cluster=cluster,
-                tls_port=tls_port,
+    def records() -> list[dict[str, str]]:
+        return break_glass.recent(cluster.kubectl, namespace, limit=20, **cluster.kw) or []
+
+    # The route carries the local CA and the proxy exemption for the sign-in and the checks.
+    with (
+        access.service_route(
+            "shared/portal",
+            service="portal",
+            remote_port=80,
+            namespace=namespace,
+            log_path=f"/tmp/openlakeforge-{cfg.env}-outage-port-forward.log",
+            shared_namespace=namespace,
+            kube_context=cfg.kube_context,
+            environ=cfg_environ(cfg),
+            through_ingress=True,
+        ) as route,
+        github_stub(cfg, {login: team}),
+    ):
+        try:
+            timings = run_drill(
+                scale_dex=lambda n: kubectl(cfg, ["scale", *dex, f"--replicas={n}"]),
+                wait_dex=wait_dex,
+                signed_in=signed_in,
+                ingresses=ingresses,
+                still_protected=still_protected,
+                person_path_closed=person_path_closed,
+                person_query=person_query,
+                refused=refused,
+                reach=reach,
+                records=records,
+                replicas=replicas,
                 reason=reason,
-                trino_service=trino_service,
             )
-
-        def records() -> list[dict[str, str]]:
-            return break_glass.recent(cluster.kubectl, namespace, limit=20, **cluster.kw) or []
-
-        # The route carries the local CA and the proxy exemption for the sign-in and the checks.
-        with (
-            access.service_route(
-                "shared/portal",
-                service="portal",
-                remote_port=80,
-                namespace=namespace,
-                log_path=f"/tmp/openlakeforge-{cfg.env}-outage-port-forward.log",
-                shared_namespace=namespace,
-                kube_context=cfg.kube_context,
-                environ=cfg_environ(cfg),
-                through_ingress=True,
-            ) as route,
-            github_stub(cfg, {login: team}),
-        ):
-            try:
-                timings = run_drill(
-                    scale_dex=lambda n: kubectl(cfg, ["scale", *dex, f"--replicas={n}"]),
-                    wait_dex=wait_dex,
-                    signed_in=signed_in,
-                    ingresses=ingresses,
-                    still_protected=still_protected,
-                    person_path_closed=person_path_closed,
-                    person_query=person_query,
-                    refused=refused,
-                    reach=reach,
-                    records=records,
-                    replicas=replicas,
-                    reason=reason,
-                )
-            except E2EError:
-                logs_of_failure()
-                raise
+        except E2EError:
+            logs_of_failure()
+            raise
     log.info(
         f"Issuer-outage drill: first break-glass answer {timings.outage_to_break_glass_seconds:.0f}s after "
         f"Dex was down; sign-in worked {timings.restore_to_sign_in_seconds:.0f}s after Dex was Ready again."
@@ -291,10 +270,8 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
 def probe(
     url: str,
     *,
-    verify: str | bool,
     service: str,
     cluster: break_glass.Cluster,
-    tls_port: int | None,
     reason: str,
     trino_service: tuple[str, str] | None = None,
 ) -> int | None:
@@ -307,7 +284,7 @@ def probe(
             wait_forwarding(process, PORTS[service], service)
             for _attempt in range(30):
                 try:
-                    status = requests.get(url, verify=verify, timeout=3).status_code
+                    status = requests.get(url, timeout=3).status_code
                     # An exited forward (e.g. the port was taken) means a stale listener answered, not this session.
                     if process.poll() is None:
                         answered.append(status)
@@ -325,7 +302,6 @@ def probe(
         reason,
         1,
         local_port=PORTS[service],
-        tls_port=tls_port,
         run=reach,
         trino_service=trino_service,
     )

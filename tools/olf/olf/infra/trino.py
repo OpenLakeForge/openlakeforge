@@ -19,17 +19,8 @@ from urllib.parse import urlsplit
 from olf.common.deployment.errors import ExecutableNotFoundError
 from olf.common.tooling.process import CommandResult, ProcessRunner, unsets_of
 
-# The coordinator mounts its serving certificate's CA only when workload
-# authentication is on (ADR 0016), so the pod itself says which listener to use
-# - no contract field has to be threaded to the workstation.
-TRINO_CA = "/etc/trino/tls/ca.crt"
-
 LEGACY_CATALOG = "iceberg"
 STAGE_CATALOG_PREFIX = "lakehouse_"
-
-# The coordinator mounts its password file here when password authentication is
-# on (the chart's auth.passwordAuthSecret), which is how the pod says so.
-TRINO_PASSWORD_FILE = "/etc/trino/auth/password/password.db"
 
 # Where the chart writes the coordinator's catalog properties; the Polaris token endpoint and scope are read from them.
 TRINO_CATALOG_DIR = "/etc/trino/catalog"
@@ -137,32 +128,19 @@ def glue_namespace_prefix(provider: str, catalog: str) -> str:
     return f"{catalog}_" if provider == "aws" else ""
 
 
-def cli_script(ca_path: str | None = None, *, stage: str | None = None, catalog: str | None = None) -> str:
-    """The shell the coordinator pod runs, choosing the listener the pod itself offers.
-
-    With password authentication on, the password arrives on stdin and goes to
-    the CLI as TRINO_PASSWORD, so it is on no command line. An empty line sends
-    no password at all, which is what the header-only isolation probe needs.
+def cli_script(*, stage: str | None = None, catalog: str | None = None) -> str:
+    """The shell the coordinator pod runs: the Trino CLI on its plain HTTP listener (ADR 0016).
 
     With a `stage` and `catalog`, stdin starts with the stage processing principal's client id and secret, one
     line each, and the CLI carries the token minted from them as the `token` extra credential (#967). Two empty
     lines send no token.
     """
-    ca = ca_path or TRINO_CA
     props = f"{TRINO_CATALOG_DIR}/{catalog}.properties"
     mint = ""
     if stage and catalog:
         code = _MINT_TOKEN.format(props=props, catalog=catalog)
         mint = f"IFS= read -r I; IFS= read -r K; if [ -f {props} ]; then {code}fi; unset I K; "
-    return (
-        f"{mint}"
-        f"if [ -f {TRINO_PASSWORD_FILE} ]; then "
-        "IFS= read -r TRINO_PASSWORD; export TRINO_PASSWORD; "
-        'if [ -n "$TRINO_PASSWORD" ]; then set -- --password "$@"; fi; fi; '
-        f"if [ -f {ca} ]; then "
-        f'exec trino --server https://localhost:8443 --truststore-path {ca} "$@"; '
-        'else exec trino "$@"; fi'
-    )
+    return f'{mint}exec trino "$@"'
 
 
 def processing_credential_args(environ: Mapping[str, str] | None, namespace: str) -> list[str] | None:
@@ -188,35 +166,11 @@ def decode_credential(raw: str) -> str:
     return "".join(f"{line}\n" for line in (lines + ["", ""])[:2])
 
 
-def password_secret(target: TrinoTarget) -> str:
-    """The Secret in the coordinator's namespace holding the stage principal's password (ADR 0016)."""
-    return f"trino-credential-{target.user}"
-
-
-def password_args(target: TrinoTarget) -> list[str]:
-    """`kubectl` arguments that print the principal's base64 password; empty while no credential exists."""
-    return [
-        "get",
-        "secret",
-        password_secret(target),
-        "-n",
-        target.namespace,
-        "--ignore-not-found",
-        "-o",
-        "jsonpath={.data.password}",
-    ]
-
-
-def decode_password(raw: str) -> str:
-    return base64.b64decode(raw).decode("utf-8") if raw.strip() else ""
-
-
-def exec_args(target: TrinoTarget, sql: str, *, output_format: str, session_user: str | None = None) -> list[str]:
+def exec_args(target: TrinoTarget, sql: str, *, output_format: str) -> list[str]:
     """Arguments for `kubectl` (after `--context`) that run `sql` as the stage's runtime user.
 
     The stage catalog is the session default, so SQL can name `<schema>.<table>`.
-    `session_user` is a claimed identity sent apart from the authenticated
-    principal, for the isolation probes. `-i` carries the password on stdin.
+    `-i` carries the processing credential on stdin.
     """
     return [
         "exec",
@@ -235,7 +189,6 @@ def exec_args(target: TrinoTarget, sql: str, *, output_format: str, session_user
         output_format,
         "--user",
         target.user,
-        *(["--session-user", session_user] if session_user else []),
         "--execute",
         sql,
     ]
@@ -286,16 +239,6 @@ def run_sql(
                     "olf infra query needs RBAC permission to get that Secret."
                 )
             stdin = decode_credential(lookup.stdout or "")
-        # Only a contract that names a credential has a password to send.
-        if (os.environ if environ is None else environ).get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET"):
-            lookup = run([*base, *password_args(target)], "")
-            if lookup.returncode != 0:
-                raise TrinoQueryError(
-                    f"cannot read the password Secret {password_secret(target)} in namespace {target.namespace}: "
-                    f"{(lookup.stderr or lookup.stdout or '').strip()}\n"
-                    "olf infra query needs RBAC permission to get that Secret."
-                )
-            stdin += f"{decode_password(lookup.stdout or '')}\n"
         result = run([*base, *exec_args(target, sql, output_format=output_format)], stdin)
     except (OSError, ExecutableNotFoundError) as exc:
         raise TrinoQueryError(f"could not run kubectl: {exc}") from exc

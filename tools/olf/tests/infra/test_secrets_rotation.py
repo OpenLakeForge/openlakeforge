@@ -11,7 +11,7 @@ from olf.cli import app
 from olf.infra import secrets_rotation
 
 SECRET_VALUE = "hunter2-do-not-print"
-CLIENTS = [f"dex-client-{c}" for c in ("perimeter", "trino", "superset", "openmetadata")]
+CLIENTS = [f"dex-client-{c}" for c in ("perimeter", "superset", "openmetadata")]
 KEY_OUTPUT = "go-template=" + secrets_rotation.KEY_PRESENT
 IDENTITY_OUTPUT = "jsonpath={.metadata.uid}/{.metadata.resourceVersion}"
 
@@ -94,24 +94,6 @@ def test_a_client_is_deleted_regenerated_by_a_targeted_apply_and_its_consumers_r
     assert rotation.secret == "dex-client-perimeter"
 
 
-def test_trino_restarts_the_coordinator(tmp_path: Path) -> None:
-    kubectl = FakeKubectl()
-    rotate(tmp_path, kubectl, "dex-client-trino", coordinators=lambda _ctx: (secrets_rotation.SHARED_COORDINATOR,))
-    assert ("restart", "deployment/trino-coordinator", None) in kubectl.calls
-
-
-def test_trino_restarts_every_stages_coordinator(tmp_path: Path) -> None:
-    kubectl = FakeKubectl()
-    each = tuple(
-        secrets_rotation.Restart(f"deployment/trino-{stage}-coordinator", namespace=f"olf-{stage}")
-        for stage in ("dev", "prod")
-    )
-
-    rotation = rotate(tmp_path, kubectl, "dex-client-trino", coordinators=lambda _ctx: each)
-
-    assert rotation.restarted == (secrets_rotation.DEX, *each)
-
-
 def test_a_drifted_platform_state_refuses_before_anything_is_deleted(tmp_path: Path) -> None:
     kubectl = FakeKubectl()
 
@@ -134,7 +116,7 @@ def test_a_target_without_the_client_secret_key_refuses_without_reading_a_value(
     assert secrets_rotation.KEY_PRESENT.count("yes") == 1 and "client-secret" in secrets_rotation.KEY_PRESENT
 
 
-@pytest.mark.parametrize("missing", ["dex-client-trino", "dex-client-superset", "dex-client-openmetadata"])
+@pytest.mark.parametrize("missing", ["dex-client-superset", "dex-client-openmetadata"])
 def test_a_missing_sibling_client_refuses_so_the_shared_job_regenerates_only_the_target(
     tmp_path: Path, missing: str
 ) -> None:

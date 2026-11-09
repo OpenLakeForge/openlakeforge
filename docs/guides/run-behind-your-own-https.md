@@ -43,7 +43,7 @@ Examples of an edge: Caddy or nginx on the host, a Cloudflare Tunnel, a cloud lo
 | Caller | Behaviour with `external` |
 | --- | --- |
 | Browsers, `olf`, the perimeter proxy, Polaris, the platform API | Work as with `local-ca`; the in-cluster callers reach Dex at its Service |
-| OpenMetadata, Superset, Trino's Web UI | Still call `https://auth.<base_domain>` from inside the cluster. The cluster's DNS must resolve that name to your edge and the edge's certificate must be publicly trusted. Tracked on the remaining items of #991 |
+| OpenMetadata, Superset | Still call `https://auth.<base_domain>` from inside the cluster. The cluster's DNS must resolve that name to your edge and the edge's certificate must be publicly trusted. Tracked on the remaining items of #991 |
 
 OpenLakeForge adds no CoreDNS rewrite for `external`: Traefik behind your edge serves no TLS for a pod to reach.
 

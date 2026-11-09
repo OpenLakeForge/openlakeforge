@@ -49,11 +49,6 @@ def test_values_too_short_to_scan_for_are_rejected_without_printing_them() -> No
 IDENTITY = {"clients": {"perimeter": {"secret_ref": {"name": "dex-client-perimeter", "key": "client-secret"}}}}
 
 
-def _kubectl_stub(_cfg: Any, _args: list[str]) -> str:
-    """The Secret name listing: one Trino principal."""
-    return "secret/trino-credential-olf-dev-runtime"
-
-
 def _cfg() -> Any:
     return SimpleNamespace(platform_namespace="olf-system", kube_context="ctx", environ=None)
 
@@ -62,8 +57,6 @@ def test_credentials_come_from_the_secrets_the_contract_and_deployment_name(monk
     values = {
         ("dex-client-perimeter", "client-secret"): CLIENT,
         ("oauth2-proxy-cookie", "cookie-secret"): "k" * 32,
-        ("trino-credential-olf-dev-runtime", "password"): "d" * 32,
-        ("trino-internal-secret", "internal-communication\\.shared-secret"): "i" * 32,
     }
 
     def secret_value(name: str, key: str, _namespace: str, **_kwargs: Any) -> str:
@@ -72,14 +65,11 @@ def test_credentials_come_from_the_secrets_the_contract_and_deployment_name(monk
         return values[(name, key)]
 
     monkeypatch.setattr(exposure.k8s, "secret_value", secret_value)
-    monkeypatch.setattr(exposure, "_kubectl_text", _kubectl_stub)
     monkeypatch.setattr(exposure.log, "info", lambda _message: None)
 
     assert exposure._credentials(_cfg(), IDENTITY) == {
         "dex-client-perimeter/client-secret": CLIENT,
         "oauth2-proxy-cookie/cookie-secret": "k" * 32,
-        "trino-credential-olf-dev-runtime/password": "d" * 32,
-        "trino-internal-secret/internal-communication.shared-secret": "i" * 32,
     }
 
 
@@ -112,11 +102,11 @@ def test_every_stage_namespace_is_scanned_not_only_the_selected_one() -> None:
     assert exposure.scan_namespaces(cfg, {"stages": {"dev": {}}}) == ("olf-system", "olf-dev")
 
 
-def test_failing_to_list_the_secrets_is_an_error_not_no_trino_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failing_to_list_the_secrets_is_an_error_not_no_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(exposure, "_kubectl_text", lambda _cfg, _args: None)
 
-    with pytest.raises(E2EError, match="cannot list the Secrets"):
-        exposure._trino_secret_refs(_cfg())
+    with pytest.raises(E2EError, match="cannot list the Secrets in olf-dev"):
+        exposure.migrated_credentials(_cfg(), ("olf-dev",))
 
 
 def test_migrated_credentials_are_found_in_every_namespace_by_name_and_key(monkeypatch: pytest.MonkeyPatch) -> None:

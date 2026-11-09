@@ -124,13 +124,6 @@
             "key": "client-secret",
             "name": "dex-client-superset"
           }
-        },
-        "trino": {
-          "client_id": "trino",
-          "secret_ref": {
-            "key": "client-secret",
-            "name": "dex-client-trino"
-          }
         }
       },
       "implementation": "identity.oidc",

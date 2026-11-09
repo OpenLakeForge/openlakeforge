@@ -39,8 +39,6 @@ _POLARIS_JOB_PREFIXES = (
     "oauth2-proxy-cookie-",
     "postgresql-credentials-",
 )
-# Each stage's Trino mints its credentials in the stage's namespace.
-_TRINO_JOB_PREFIX = "trino-credentials-"
 # Every root's shared-services namespace was named "lakehouse" and addressed
 # as `kubernetes_namespace_v1.lakehouse` before the stage-aware rewrite.
 _LEGACY_SHARED_NAMESPACE = "lakehouse"
@@ -799,10 +797,7 @@ def platform_up(
                     continue
                 log.step(f"Uninstalling stuck Helm release {namespace}/{release} before the apply...")
                 tools.helm.uninstall(release, namespace=namespace, kube_context=config.kube_context, env=env)
-        for prefix, namespace in (
-            *((prefix, config.context.shared_namespace) for prefix in _POLARIS_JOB_PREFIXES),
-            *((_TRINO_JOB_PREFIX, namespace) for namespace in config.context.owned_namespaces),
-        ):
+        for prefix, namespace in ((prefix, config.context.shared_namespace) for prefix in _POLARIS_JOB_PREFIXES):
             kube_ops.cleanup_failed_jobs_by_prefix(
                 tools.kubectl,
                 prefix,

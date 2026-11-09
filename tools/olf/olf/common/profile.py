@@ -743,7 +743,7 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
     if "client_ids" in document:
         if issuer != "external":
             raise DeploymentProfileError(f"{where}.client_ids requires issuer 'external'")
-        consumers = {"perimeter", "superset", "openmetadata", "trino", "olf-cli"}
+        consumers = {"perimeter", "superset", "openmetadata", "olf-cli"}
         if not isinstance(client_ids, Mapping) or not client_ids or set(client_ids) - consumers:
             raise DeploymentProfileError(f"{where}.client_ids must be a non-empty object keyed by {sorted(consumers)}")
         if not all(isinstance(v, str) and v for v in client_ids.values()):

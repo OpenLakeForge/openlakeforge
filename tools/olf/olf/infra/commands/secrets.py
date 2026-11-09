@@ -13,7 +13,7 @@ app = typer.Typer(help="Rotate workload secrets.")
 
 @app.command("rotate")
 def rotate(
-    target: str = typer.Argument(..., help="dex-client-perimeter, dex-client-trino or github-app."),
+    target: str = typer.Argument(..., help="dex-client-perimeter or github-app."),
     profile_file: str = typer.Option(
         "", "--file", "-f", help="Deployment Profile v1 path, as for `olf infra platform apply -f`."
     ),

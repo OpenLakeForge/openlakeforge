@@ -55,10 +55,7 @@ def run_bootstrap(
 
 def _trino_namespaces(query: Mapping[str, Any]) -> list[str]:
     host_port = query["endpoint"].removeprefix("http://").split("/", 1)[0]
-    namespaces = [f"trino://{host_port}"]
-    if tls_port := query.get("tls_port"):
-        namespaces.append(f"trino://{host_port.rsplit(':', 1)[0]}:{tls_port}")
-    return namespaces
+    return [f"trino://{host_port}"]
 
 
 def bootstrap_inputs(contracts: ProviderContracts) -> tuple[CatalogSeed, tuple[StageServices, ...]] | None:

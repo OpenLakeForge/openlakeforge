@@ -131,7 +131,7 @@ Formation (#681).
 | `internal_url` | optional; Dex's in-cluster Service base URL, set only for an issuer OpenLakeForge deploys. In-cluster consumers fetch keys (`/keys`) and redeem codes (`/token`) here over plain HTTP and compare the token's `iss` with `issuer_url` as a string. Absent or null for `external`, which is reached at `issuer_url` |
 | `role_claim` | the claim holding role values (`groups`, `cognito:groups`, ...) |
 | `role_mapping` | canonical role to a list of claim values; keys outside `precedence` are rejected |
-| `clients` | exactly `perimeter`, `superset`, `openmetadata`, `trino`, each `client_id` plus `secret_ref{name,key}`, and `olf-cli`, a public client: `client_id` only, no `secret_ref` |
+| `clients` | exactly `perimeter`, `superset`, `openmetadata`, each `client_id` plus `secret_ref{name,key}`, and `olf-cli`, a public client: `client_id` only, no `secret_ref` |
 
 Nothing in these fields is Dex-specific. Dex: `groups` holding
 `<organisation>:<team-slug>`. Entra ID: group object IDs. Cognito:
@@ -158,8 +158,8 @@ generic OIDC) is a checklist, not a schema change:**
 1. Emit `implementation: identity.oidc` with the adapter in `adapter`.
 2. Provide `issuer_url`, `role_claim`, and `role_mapping` keyed by canonical
    role, in the issuer's own claim values.
-3. Provide all five `clients`: `perimeter`, `superset`, `openmetadata` and
-   `trino` with `client_id` and `secret_ref{name,key}`, and the public `olf-cli`
+3. Provide all four `clients`: `perimeter`, `superset` and `openmetadata`
+   with `client_id` and `secret_ref{name,key}`, and the public `olf-cli`
    with `client_id` only (a `secret_ref` on it is rejected); secret values never enter Terraform outputs, the provider contract, logs
    or CI. Secrets the adapter generates are created in-cluster by a bootstrap
    Job, not by Terraform, so they are not in Terraform state.
@@ -179,7 +179,7 @@ no perimeter (a quickstart). `external` takes optional `client_ids`
 ### Local cluster notes for any issuer
 
 `spec.identity.issuer: external` deploys no issuer: the contract comes from the
-profile, and the operator provides the four client Secrets under the names the
+profile, and the operator provides the three client Secrets under the names the
 contract references (`oidc-client-<consumer>`, key `client-secret`).
 
 Two local-cluster risks were checked rather than assumed. `*.localhost` is
@@ -237,7 +237,7 @@ repository admin grants nothing: only the mapped teams count.
 | `role_mapping` | rendered by the root from `spec.identity.github`: each canonical role to `<organisation>:<slug>` of its teams, `role_claim: groups`. The `identity.oidc` shape does not change, so no consumer changes how it reads roles |
 | Scopes | Dex returns the `groups` claim only for the `groups` scope and a refresh token only for `offline_access`. The perimeter's default `--scope=openid email profile` becomes `openid email profile groups offline_access` for Dex, and so do the Superset and OpenMetadata clients; without it every user is denied and no refresh re-reads teams. For Dex the perimeter alone also requests `federated:id audience:server:client_id:olf-cli` (module variable `login_audience`), so its ID token carries `aud` `olf-cli` and the connector id Polaris names the principal by (ADR 0019). An external issuer gets neither scope |
 | Token lifetimes | Pinned to the session policy, not Dex's defaults (24 h ID tokens): `expiry.idTokens: 5m`, `expiry.refreshTokens.validIfNotUsedFor: 30m`, `expiry.refreshTokens.absoluteLifetime: 10h`, and `reuseInterval` kept (Dex default 3s) because the floor-specific oauth2-proxy instances can redeem the same cookie's refresh token concurrently. Asserted by the adapter's e2e, including parallel refreshes. **Revises the 10 h absolute bound for this adapter:** it ends the OpenLakeForge session chain, but a new one starts without a prompt while the person's GitHub session is valid, because Dex cannot force GitHub to re-authenticate. Re-authentication frequency and 2FA are therefore governed by GitHub and the organisation's policy, not by the platform |
-| Clients | `perimeter`, `superset`, `openmetadata`, `trino` as static Dex clients, secrets from the existing bootstrap Job (#181); `olf-cli` as a public static client (`public: true`, no secret, no `redirectURIs`), for which Dex accepts loopback redirects (`127.0.0.1`, `localhost`, `[::1]`) on any port and issues refresh tokens without a secret. Dex does not enforce PKCE: the client must send it. `olf-cli` lists `perimeter` and `superset` in `trustedPeers` (module variable `trusted_peers`), so the perimeter's login, and Superset's per-user data access (#968, scope `audience:server:client_id:olf-cli`, token `aud` `[olf-cli, superset]`), may ask for a token whose audience is `olf-cli`: the browser session's token is then the one Trino, Polaris and the platform API accept, and none of them lists the perimeter's client id. `aud` `olf-cli` no longer implies the token was issued to the CLI; `azp` says which client asked |
+| Clients | `perimeter`, `superset`, `openmetadata` as static Dex clients, secrets from the existing bootstrap Job (#181); `olf-cli` as a public static client (`public: true`, no secret, no `redirectURIs`), for which Dex accepts loopback redirects (`127.0.0.1`, `localhost`, `[::1]`) on any port and issues refresh tokens without a secret. Dex does not enforce PKCE: the client must send it. `olf-cli` lists `perimeter` and `superset` in `trustedPeers` (module variable `trusted_peers`), so the perimeter's login, and Superset's per-user data access (#968, scope `audience:server:client_id:olf-cli`, token `aud` `[olf-cli, superset]`), may ask for a token whose audience is `olf-cli`: the browser session's token is then the one Trino, Polaris and the platform API accept, and none of them lists the perimeter's client id. `aud` `olf-cli` no longer implies the token was issued to the CLI; `azp` says which client asked |
 | Login entry | The portal at the base domain is the front door. An unauthenticated visit is sent by the perimeter (`--skip-provider-button`) to Dex; with one connector and `alwaysShowLoginScreen` off, Dex goes straight to GitHub, and `skipApprovalScreen` removes its consent page. The person sees GitHub's authorize page once per app, then lands back on the portal. Dex's own login page is never shown, so it needs no branding |
 | Single sign-on | Dex keeps no browser session of its own by default; GitHub's session is what makes the next login silent. A native Superset or OpenMetadata login bounces through Dex to GitHub and back without a prompt while the GitHub session lasts. To be verified with the adapter |
 | Logout | **Revises the platform-wide logout policy for this adapter.** Sign-out still ends the perimeter cookie and the native Superset and OpenMetadata sessions, so user B never reaches a surviving session of user A. Dex has no end-session endpoint and the GitHub session belongs to the person, not the platform: OpenLakeForge does not end it. The signed-out page links to GitHub's sign-out, and states that on a shared browser the next sign-in reuses the GitHub account still signed in there |
@@ -527,9 +527,13 @@ step (skipped when the realm has its own SMTP, which a realm update would
 corrupt), completes onboarding through the mailed link as the new member,
 and empties `smtpServer` again.
 
-Trino workload authentication (#26 decision gate): [ADR 0016](0016-trino-workload-authentication.md)
-selects password-file authentication over HTTPS for the class-2 Trino callers.
-Human OAuth2 for the Trino UI stays separate; no seam here changed.
+Trino workload authentication (#26 decision gate, #983): Trino has no
+authentication of its own ([ADR 0016](0016-trino-workload-authentication.md)).
+Every caller sends its own Polaris token as the `token` extra credential, and
+the Web UI signs in as the fixed user `olf-web` behind the perimeter; AWS's
+shared coordinator keeps claim-based rules for Glue. The Dex `trino` client,
+which served only the Web UI's OAuth2 sign-in, is gone, so `clients` names
+four consumers; no other seam here changed.
 
 Service permissions (#25 specification): the allowed and denied actions per
 role for Superset and OpenMetadata, the exact native roles behind `Alpha`,

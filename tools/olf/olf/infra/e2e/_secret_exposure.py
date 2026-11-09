@@ -30,12 +30,10 @@ MIN_VALUE_LENGTH = 16
 # The perimeter module names its cookie Secret from a release name the contract
 # does not carry (docs/architecture/identity/identity-credentials.md).
 COOKIE_SECRET = ("oauth2-proxy-cookie", "cookie-secret")
-TRINO_INTERNAL_SECRET = ("trino-internal-secret", "internal-communication.shared-secret")
 # Created in-cluster by the Polaris module: "<release>-token-broker", release "polaris".
 POLARIS_TOKEN_KEY_SECRET = ("polaris-token-broker", "symmetric.key")
 # Created in-cluster by the OpenMetadata module: "<release>-fernet-key", release "openmetadata".
 OPENMETADATA_FERNET_SECRET = ("openmetadata-fernet-key", "fernet-key")
-TRINO_CREDENTIAL_PREFIX = "trino-credential-"
 # Generated in-cluster by Jobs since #400, so they are in no Terraform state: (Secret, key) in the platform
 # namespace, then in every scanned namespace. The database Secrets are listed because their names carry the stage.
 MIGRATED_PLATFORM_SECRETS = (
@@ -134,8 +132,8 @@ def check_files_for_exposure(
 
 
 def scan_namespaces(cfg: E2EConfig, contracts: Mapping[str, Any]) -> tuple[str, ...]:
-    """The shared namespace and every stage's, not only the selected one: the Trino passwords of all stages are
-    scanned for, so a PROD password leaked in PROD's namespace must be found by a run that selected DEV."""
+    """The shared namespace and every stage's, not only the selected one: every stage's credentials are scanned
+    for, so a PROD credential leaked in PROD's namespace must be found by a run that selected DEV."""
     stages = (spec.get("namespace") for spec in (contracts.get("stages") or {}).values())
     return tuple(dict.fromkeys((*health_namespaces(cfg), *filter(None, stages))))
 
@@ -155,7 +153,6 @@ def migrated_credentials(cfg: E2EConfig, namespaces: tuple[str, ...]) -> dict[st
     platform_names = {name for name, _ in MIGRATED_PLATFORM_SECRETS}
     for namespace in namespaces:
         refs += [(namespace, name, key) for name, key in MIGRATED_SCANNED_SECRETS]
-        refs += [(namespace, name, key) for name, key in _trino_secret_refs(cfg, namespace)]
         refs += [
             (namespace, name, "postgresql-password")
             for name in _secret_names(cfg, namespace)
@@ -185,11 +182,10 @@ def _credentials(cfg: E2EConfig, identity: Mapping[str, Any]) -> dict[str, str]:
 
     specs = [spec for spec in identity.get("clients", {}).values() if "secret_ref" in spec]
     clients = [(spec["secret_ref"]["name"], spec["secret_ref"]["key"]) for spec in specs]
-    # An external issuer's client Secrets are operator-provided, so they may be absent or short; without an
-    # issuer the Trino credentials are still deployed and scanned.
+    # An external issuer's client Secrets are operator-provided, so they may be absent or short.
     found: dict[str, str] = {}
     known = [COOKIE_SECRET, POLARIS_TOKEN_KEY_SECRET, OPENMETADATA_FERNET_SECRET]
-    for name, key in [*known, *clients, *_trino_secret_refs(cfg)]:
+    for name, key in [*known, *clients]:
         try:
             value = read(name, key)
         except k8s.KubectlError:
@@ -201,17 +197,6 @@ def _credentials(cfg: E2EConfig, identity: Mapping[str, Any]) -> dict[str, str]:
             continue
         found[f"{name}/{key}"] = value
     return found
-
-
-def _trino_secret_refs(cfg: E2EConfig, namespace: str | None = None) -> list[tuple[str, str]]:
-    """The Trino workload credentials (ADR 0016) are named by principal, and which
-    principals exist is the Job's call, so the Secrets themselves are listed. None
-    exist until the credential Job has run, which is not an error. Each stage's
-    coordinator keeps its own in the stage namespace."""
-    names = _secret_names(cfg, namespace or cfg.platform_namespace)
-    return [(name, "password") for name in names if name.startswith(TRINO_CREDENTIAL_PREFIX)] + [
-        TRINO_INTERNAL_SECRET
-    ]
 
 
 def _secret_names(cfg: E2EConfig, namespace: str) -> list[str]:

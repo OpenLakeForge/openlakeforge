@@ -39,13 +39,6 @@
         "key": "client-secret"
       }
     },
-    "trino": {
-      "client_id": "olf-trino",
-      "secret_ref": {
-        "name": "oidc-trino-client",
-        "key": "client-secret"
-      }
-    },
     "olf-cli": {
       "client_id": "olf-cli-public"
     }

@@ -199,7 +199,7 @@ reference:
 }
 ```
 
-(`clients` must name all of `perimeter`, `superset`, `openmetadata`, `trino`, and `olf-cli`, which has a `client_id` and no `secret_ref`.)
+(`clients` must name all of `perimeter`, `superset`, `openmetadata` and `olf-cli`, which has a `client_id` and no `secret_ref`.)
 
 | Rule | Why |
 | --- | --- |

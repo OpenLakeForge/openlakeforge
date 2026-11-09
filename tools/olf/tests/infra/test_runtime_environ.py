@@ -94,7 +94,7 @@ def _runtime_contract(tmp_path: Path, log: Path, *, credential: bool = True) -> 
         "DAGSTER_LOCAL_PORT": "4242",
     }
     if credential:
-        values["OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET"] = "trino-credential"
+        values["OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME"] = "polaris-prod-processing-creds"
     return _contract(tmp_path, values)
 
 
@@ -125,21 +125,21 @@ def test_query_runs_kubectl_with_the_contract_environment(
 
     assert result.exit_code == 0, result.output
     assert "rows-from-trino" in result.output
-    password_lookup, execution = _calls(kubectl_log)
-    # The contract names a credential Secret, so the password is read before the query runs.
-    assert "secret" in password_lookup["argv"]
+    credential_lookup, execution = _calls(kubectl_log)
+    # The contract names the stage processing credential, so it is read before the query runs.
+    assert "polaris-prod-processing-creds" in credential_lookup["argv"]
     assert execution["argv"][execution["argv"].index("--catalog") + 1] == "lakehouse_prod"
-    for call in (password_lookup, execution):
+    for call in (credential_lookup, execution):
         assert call["argv"][:2] == ["--context", "ctx-from-contract"]
         assert call["kubeconfig"] == str(tmp_path / "contract/kubeconfig")
         assert call["marker"] == "from-contract"
 
 
-def test_query_sends_no_password_when_the_contract_names_no_credential(
+def test_query_reads_no_credential_when_the_contract_names_none(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kubectl_log: Path
 ) -> None:
     _apply(monkeypatch, _runtime_contract(tmp_path, kubectl_log, credential=False))
-    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "ambient-credential")
+    monkeypatch.setenv("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "ambient-credential")
     profile = tmp_path / "openlakeforge.yaml"
     _write_profile(profile)
 

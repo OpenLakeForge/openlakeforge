@@ -498,7 +498,7 @@ def test_a_caller_exported_query_uri_never_reaches_the_target(stale: str | None)
     assert target.sqlalchemy_uri == "trino://trino:8080/prod"
 
 
-def _applied_environment(**tls: str) -> dict[str, str]:
+def _applied_environment() -> dict[str, str]:
     return {
         "OPENLAKEFORGE_ANALYTICS_ENABLED": "true",
         "OPENLAKEFORGE_CONTRACT_STAGE": "dev",
@@ -507,34 +507,22 @@ def _applied_environment(**tls: str) -> dict[str, str]:
         "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino.olf-system",
         "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
         "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "lakehouse_dev",
-        **tls,
     }
 
 
-def test_a_tls_query_contract_targets_https_with_the_ca_and_an_off_one_is_unchanged(tmp_path: Path) -> None:
-    plain = superset.resolve_stage_report_target(_applied_environment(), stage="dev")
-    tls = superset.resolve_stage_report_target(
-        _applied_environment(
-            OPENLAKEFORGE_QUERY_TRINO_TLS_PORT="8443", OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP="olf-local-ca"
-        ),
-        stage="dev",
-    )
+def test_the_stage_report_target_reaches_trino_over_plain_http(tmp_path: Path) -> None:
+    target = superset.resolve_stage_report_target(_applied_environment(), stage="dev")
 
-    assert plain.sqlalchemy_uri == "trino://trino.olf-system:8080/dev"
-    assert plain.extra is None
-    assert tls.sqlalchemy_uri == "trino://trino.olf-system:8443/dev"
-    assert tls.extra == {
-        "engine_params": {"connect_args": {"http_scheme": "https", "verify": reports.SUPERSET_QUERY_CA}}
-    }
+    assert target.sqlalchemy_uri == "trino://trino.olf-system:8080/dev"
 
     source = tmp_path / "report"
     (source / "databases").mkdir(parents=True)
     (source / "databases" / "trino.yaml").write_text("database_name: trino\nuuid: database-id\n")
     bundle_path = tmp_path / "bundle.zip"
-    reports.build_report_bundle(source, bundle_path, "b", tls.sqlalchemy_uri, extra=tls.extra)
+    reports.build_report_bundle(source, bundle_path, "b", target.sqlalchemy_uri)
     with ZipFile(bundle_path) as bundle:
         database = yaml.safe_load(bundle.read("b/databases/trino.yaml"))
-    assert database["extra"] == {"per_user_caching": True, "metadata_cache_timeout": {}, **tls.extra}
+    assert database["extra"] == {"per_user_caching": True, "metadata_cache_timeout": {}}
     assert (database["impersonate_user"], database["allow_run_async"]) == (True, False)
 
 
@@ -612,14 +600,7 @@ def test_bundle_schema_perms_joins_datasets_to_databases_case_insensitively(tmp_
 
 
 def test_the_target_names_no_trino_user_and_no_password() -> None:
-    target = superset.resolve_stage_report_target(
-        _applied_environment(
-            OPENLAKEFORGE_QUERY_TRINO_TLS_PORT="8443",
-            OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP="olf-local-ca",
-            OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET="trino-credential",
-        ),
-        stage="dev",
-    )
+    target = superset.resolve_stage_report_target(_applied_environment(), stage="dev")
 
-    assert target.sqlalchemy_uri == "trino://trino.olf-system:8443/dev"
+    assert target.sqlalchemy_uri == "trino://trino.olf-system:8080/dev"
     assert not hasattr(target, "credential_secret")
