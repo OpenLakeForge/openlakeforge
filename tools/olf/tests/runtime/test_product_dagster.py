@@ -345,6 +345,7 @@ def test_gold_connects_with_the_dbt_identity(monkeypatch: pytest.MonkeyPatch) ->
         auth=SimpleNamespace(BasicAuthentication=lambda user, password: (user, password)),
     )
     monkeypatch.setitem(__import__("sys").modules, "trino", trino)
+    monkeypatch.setattr(product_dagster.gold_maintenance, "mint_token", lambda: "polaris-token")
     for name, value in {
         "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino",
         "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
@@ -368,6 +369,7 @@ def test_gold_connects_with_the_dbt_identity(monkeypatch: pytest.MonkeyPatch) ->
         "http_scheme": "https",
         "auth": ("olf-prod-runtime", "pw"),
         "verify": "/ca.crt",
+        "extra_credential": [("token", "polaris-token")],
     }
 
 

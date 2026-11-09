@@ -63,14 +63,17 @@ def conformance_plan(*, person_access: bool = True, sts: bool = True) -> Any:
                 recreatable=True,
             ),
             legacy=(
-                credential(f"trino-{stage}", f"polaris-{stage}-trino-creds", "POLARIS_TRINO", "olf-system"),
+                credential(f"trino-{stage}", f"polaris-{stage}-trino-creds", "POLARIS_TRINO", f"olf-{stage}"),
                 credential(f"floe-{stage}", f"polaris-{stage}-floe-creds", "POLARIS_FLOE", f"olf-{stage}"),
             ),
         )
         for stage in STAGES
     )
+    # Each stage runs its own Trino (#1021), which reads these through a namespace-local secretKeyRef.
     people = tuple(
-        credential(f"trino-people-{stage}", f"polaris-{stage}-trino-people-creds", "POLARIS", "olf-system")
+        credential(
+            f"trino-people-{stage}", f"polaris-{stage}-trino-people-creds", "POLARIS", f"olf-{stage}", recreatable=True
+        )
         for stage in STAGES
     )
     return pb.BootstrapPlan(
