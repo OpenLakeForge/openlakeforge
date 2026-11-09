@@ -410,6 +410,9 @@ def import_reports(
         schema_perms |= bundle_schema_perms(bundle_path)
         catalog_perms |= bundle_schema_perms(bundle_path, with_catalog=True)
         dashboards += bundle_dashboard_uuids(bundle_path)
+    # First: the handover updates the datasets, which is when Superset 6.1.0 gives them the connection's catalog
+    # and creates the `[database].[catalog].[schema]` permission the grant below needs.
+    _hand_over(client, dashboards, progress)
     if schema_perms:
         # The role exists only when Superset runs with sign-in (identity.oidc).
         def grant(role: str) -> bool:
@@ -419,7 +422,6 @@ def import_reports(
             progress.info("Superset sign-in is off; no data-access role to grant")
         if grant(PLATFORM_API_ROLE):
             progress.info(f"Granted {PLATFORM_API_ROLE} the report schemas, so the platform API can export them")
-    _hand_over(client, dashboards, progress)
 
 
 def _hand_over(client: SupersetClient, dashboards: Sequence[str], progress: Progress) -> None:
