@@ -93,7 +93,10 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    `X-Forwarded-Proto` and `-Host` only from `forwardedHeaders.trustedIPs`, set
    from the profile's `spec.access.trusted_proxies` (required with `external`,
    refused otherwise, never `0.0.0.0/0`); Traefik discards those headers from any other peer, so
-   a forged one is never read as HTTPS). One wildcard
+   a forged one is never read as HTTPS; the perimeter's forward-auth middleware
+   keeps them (`trustForwardHeader`) only in this mode, since otherwise it
+   rebuilds them from its own HTTP connection and oauth2-proxy would send
+   the browser back to `http://`). One wildcard
    certificate, `*.<base_domain>` plus the bare `<base_domain>` (a wildcard
    does not match the apex), is issued in the shared namespace by
    cert-manager's ingress-shim and is Traefik's default certificate

@@ -8,7 +8,7 @@ This guide puts OpenLakeForge behind a reverse proxy, tunnel or load balancer th
 | --- | --- |
 | A public name, `base_domain`, and a wildcard record `*.<base_domain>` plus the bare name pointing at your edge | Serves plain HTTP on Traefik's `web` entrypoint, with no TLS store and no host port 443 |
 | A certificate your browsers trust for both names, installed on the edge | Generates every route URL, OIDC redirect URI and the sign-in cookie as `https://`, the cookie `Secure` |
-| A proxy that forwards to Traefik and sets `X-Forwarded-Proto: https` and `X-Forwarded-Host` | Trusts those two headers from `trusted_proxies`, and from no one else |
+| A proxy that forwards to Traefik and sets `X-Forwarded-Proto: https` and `X-Forwarded-Host` | Trusts those two headers from `trusted_proxies`, and from no one else. The sign-in proxy behind Traefik then reads the same headers, so its redirects stay `https://` |
 
 Examples of an edge: Caddy or nginx on the host, a Cloudflare Tunnel, a cloud load balancer. A request that reaches Traefik from an address outside the range you name is handled as plain HTTP, whatever `X-Forwarded-Proto` it carries.
 
