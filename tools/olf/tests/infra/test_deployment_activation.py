@@ -898,6 +898,8 @@ _RUNTIME_NAMES_SET_ELSEWHERE = {
     "OPENLAKEFORGE_LOG_BASE_URI": "log archiver",
     "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS": "log archiver",
     "OPENLAKEFORGE_DBT_EXECUTABLE": "Terraform runtime env",
+    # Optional per-stage override of the dbt profile's thread count; unset means 1.
+    "OPENLAKEFORGE_DBT_THREADS": "operator, optional",
     # The image's ENV, or openlakeforge_runtime.product_dagster's default; never a stage value.
     "OPENLAKEFORGE_DBT_PACKAGES_DIR": "project-code image",
     # Only `olf check project-code` sets it; pods read the image's baked profile.

@@ -107,6 +107,7 @@ STAGE_DERIVED_EXPORTS = frozenset(
 # no stage identity, so there is nothing to compare them against here.
 CAPABILITY_GATED_EXPORTS = frozenset(
     {
+        "OPENLAKEFORGE_DBT_EXECUTABLE",  # dbt-ol only where lineage has an endpoint
         "OPENLAKEFORGE_GOVERNANCE_ENABLED",
         "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY",
         "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",

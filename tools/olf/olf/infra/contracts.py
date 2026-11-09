@@ -202,7 +202,6 @@ def _apply_default_contract_env(env: _Env, base: Mapping[str, str], repo_root: P
     env.default("POLARIS_WAREHOUSE", env.get("OPENLAKEFORGE_CATALOG_WAREHOUSE"))
     env.default("POLARIS_OAUTH_SCOPE", env.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE"))
     env.default("OPENLAKEFORGE_DBT_TRINO_USER", "openlakeforge-dbt")
-    env.default("OPENLAKEFORGE_DBT_EXECUTABLE", "dbt-ol")
     env.default("OPENLAKEFORGE_GOVERNANCE_ENABLED", "true")
     env.default("OPENLAKEFORGE_ANALYTICS_ENABLED", "true")
     if env.get("OPENLAKEFORGE_GOVERNANCE_ENABLED") == "true":
@@ -411,6 +410,10 @@ def build_contract_env(
         env.set(CONTRACT_STAGE_ENV, StageName(stage).value if stage is not None else StageName.DEV.value)
     elif env.raw(CONTRACT_STAGE_ENV) is not None:
         env.unset(CONTRACT_STAGE_ENV)
+    # After the contract: the OpenLineage wrapper only has somewhere to send events when governance is on, so
+    # the default cannot be fixed before the contract says which it is. An explicit value still wins.
+    governance_on = env.get("OPENLAKEFORGE_GOVERNANCE_ENABLED") == "true"
+    env.default("OPENLAKEFORGE_DBT_EXECUTABLE", "dbt-ol" if governance_on else "dbt")
     if env.get("OPENLAKEFORGE_STORAGE_IMPLEMENTATION") == "storage.aws_s3":
         env.set("OPENLAKEFORGE_STORAGE_ENDPOINT", "")
         env.set("OPENLAKEFORGE_STORAGE_VIRTUAL_HOST_ENDPOINT", "")
