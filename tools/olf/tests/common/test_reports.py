@@ -45,7 +45,7 @@ def _write_bundle(root: Path) -> None:
 
 def test_import_reports_imports_each_bundle_and_grants_its_schemas(tmp_path: Path, fake_superset: FakeSuperset) -> None:
     _write_bundle(tmp_path)
-    fake_superset.permissions[1] = ("schema_access", "[Trino].[lakehouse_dev_order_revenue_gold]")
+    fake_superset.permissions[1] = ("schema_access", "[Trino].[lakehouse_dev].[lakehouse_dev_order_revenue_gold]")
     progress = _Recorder()
 
     reports.import_reports(
@@ -163,7 +163,7 @@ def test_import_reports_grants_the_platform_api_its_schemas_and_hands_each_dashb
     (tmp_path / _REPORT_DIR / "dashboards" / "dash.yaml").write_text(
         f"dashboard_title: Orders\nuuid: {_DASHBOARD_UUID}\n"
     )
-    fake_superset.permissions[1] = ("schema_access", "[Trino].[order_revenue_gold]")
+    fake_superset.permissions[1] = ("schema_access", "[Trino].[lakehouse_dev].[order_revenue_gold]")
     _platform_api_superset(fake_superset)
     progress = _Recorder()
 
@@ -198,7 +198,7 @@ def test_without_the_platform_api_user_nothing_is_handed_over(tmp_path: Path, fa
         f"dashboard_title: Orders\nuuid: {_DASHBOARD_UUID}\n"
     )
     fake_superset.dashboards[_DASHBOARD_UUID] = 4
-    fake_superset.permissions[1] = ("schema_access", "[Trino].[order_revenue_gold]")
+    fake_superset.permissions[1] = ("schema_access", "[Trino].[lakehouse_dev].[order_revenue_gold]")
     progress = _Recorder()
 
     reports.import_reports(
@@ -301,7 +301,8 @@ def test_the_client_imports_sparsely_lists_databases_and_reads_its_own_schema_ac
 ) -> None:
     fake_superset.databases = {_DATABASE_UUID: "Trino"}
     fake_superset.my_roles = {
-        "olf_platform_api": [["can_import_", "ImportExportRestApi"], ["schema_access", "[Trino].[order_revenue_gold]"]]
+        "olf_platform_api": [["can_import_", "ImportExportRestApi"], ["schema_access", "[Trino].[order_revenue_gold]"]],
+        "olf_data_access": [["schema_access", "[Trino].[lakehouse_dev].[customer_gold]"]],
     }
     bundle = tmp_path / "b.zip"
     bundle.write_bytes(reports.prepare_upload(_upload(_UPLOAD), {_DATABASE_UUID: "Trino"}).bundle)
@@ -311,7 +312,7 @@ def test_the_client_imports_sparsely_lists_databases_and_reads_its_own_schema_ac
 
     assert fake_superset.import_forms == [{"sparse": "true"}]
     assert client.databases() == {_DATABASE_UUID: "Trino"}
-    assert client.my_schema_access() == {"[Trino].[order_revenue_gold]"}
+    assert client.my_schema_access() == {"[Trino].[order_revenue_gold]", "[Trino].[customer_gold]"}
 
 
 @pytest.mark.parametrize("prefix", ["", "lakehouse_dev_"])

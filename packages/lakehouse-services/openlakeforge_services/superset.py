@@ -163,9 +163,13 @@ class SupersetClient(JsonHttpClient):
                 return found
 
     def my_schema_access(self) -> set[str]:
-        """The `[database].[schema]` view menus this user's roles hold `schema_access` on."""
+        """The `[database].[schema]` this user's roles hold `schema_access` on, without any catalog in the view menu.
+
+        An upload names only a database and a schema; the stage's database fixes the catalog.
+        """
         roles = self.request("GET", "/api/v1/me/roles/").get("result", {}).get("roles", {})
-        return {str(view) for permissions in roles.values() for name, view in permissions if name == "schema_access"}
+        views = (str(view) for permissions in roles.values() for name, view in permissions if name == "schema_access")
+        return {"].[".join((parts[0], parts[-1])) for parts in (view.split("].[") for view in views)}
 
     def user_id(self, username: str) -> int | None:
         """The id of the Superset user `username`, or None when there is none."""

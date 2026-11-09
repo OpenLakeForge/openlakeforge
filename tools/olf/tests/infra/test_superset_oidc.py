@@ -239,3 +239,11 @@ def test_the_sign_in_token_seeds_the_trino_row_and_leaves_the_cookie(monkeypatch
 
     assert "oauth" not in session
     assert manager.stored == [(7, response)]
+
+
+def test_the_sign_in_token_names_trino_only_with_a_people_catalog() -> None:
+    plain = {"scope": "openid offline_access", "client_id": "superset"}
+    assert olf_oidc._sign_in_scope(plain) == "openid offline_access"
+
+    scopes = olf_oidc._sign_in_scope({**plain, "people_catalog": "dev"}).split()
+    assert {"audience:server:client_id:olf-cli", "audience:server:client_id:superset"} <= set(scopes)

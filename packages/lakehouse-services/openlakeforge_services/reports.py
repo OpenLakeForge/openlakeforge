@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile, ZipInfo
 
@@ -323,7 +324,10 @@ def canonical_uuid(value: object) -> str | None:
 
 
 def bundle_schema_perms(bundle_path: Path) -> set[str]:
-    """The `[database].[schema]` view menus of every dataset the bundle imports.
+    """The schema-access view menus of every dataset the bundle imports.
+
+    Superset names a schema `[database].[catalog].[schema]` when the database's
+    URI sets a default catalog, and `[database].[schema]` otherwise.
 
     Report datasets are the Gold marts a dashboard reads, so the bundle (after
     `build_report_bundle` applied any schema prefix) is the source of truth for
@@ -344,7 +348,9 @@ def bundle_schema_perms(bundle_path: Path) -> set[str]:
             if not isinstance(document, dict):
                 continue
             if parts[1] == "databases":
-                databases[canonical_uuid(document["uuid"]) or ""] = str(document["database_name"])
+                catalog = urlsplit(str(document.get("sqlalchemy_uri", ""))).path.strip("/")
+                name_parts = [str(document["database_name"]), *([catalog] if catalog else [])]
+                databases[canonical_uuid(document["uuid"]) or ""] = "].[".join(name_parts)
             else:
                 datasets.append(document)
     return {
