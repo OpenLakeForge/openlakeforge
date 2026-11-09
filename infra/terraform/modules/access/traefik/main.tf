@@ -166,8 +166,11 @@ resource "helm_release" "edge" {
     file(var.base_values_file),
     yamlencode({
       # Otherwise the chart names the Service edge-traefik, and the CoreDNS rewrite would point at nothing.
-      fullnameOverride    = local.edge_name
-      ingressClass        = { enabled = false }
+      fullnameOverride = local.edge_name
+      ingressClass     = { enabled = false }
+      # The file provider needs no API access. The chart's default ClusterRole would read Secrets cluster-wide,
+      # which ADR 0017 grants only to the platform's Traefik (E4).
+      rbac                = { enabled = false }
       additionalArguments = ["--accesslog=true"] # the only record of what the fixture forwarded
       providers = {
         kubernetesIngress = { enabled = false }
