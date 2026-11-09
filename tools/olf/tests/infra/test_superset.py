@@ -558,7 +558,10 @@ def test_deploy_reports_grants_imported_schemas_once_and_keeps_other_grants(
     write_report_bundle(tmp_path)
     _serve(monkeypatch, fake_superset)
     fake_superset.permissions.update(
-        {1: ("schema_access", "[Trino].[lakehouse_dev].[order_revenue_gold]"), 2: ("schema_access", "[Trino].[other_silver]")}
+        {
+            1: ("schema_access", "[Trino].[lakehouse_dev].[order_revenue_gold]"),
+            2: ("schema_access", "[Trino].[other_silver]"),
+        }
     )
     fake_superset.roles["olf_data_access"] = {7}
     fake_superset.roles["Gamma"] = {8}
