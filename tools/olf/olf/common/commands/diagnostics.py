@@ -13,6 +13,9 @@ app = typer.Typer(help="Inspect the checkout.")
 def tree() -> None:
     """Print the checkout tree without delegating to a shell utility."""
     root = config.repo_root()
-    for path in sorted(root.rglob("*")):
-        if ".git" not in path.parts:
+    excluded = {".git", ".venv", ".terraform", "__pycache__", ".pytest_cache"}
+    for directory, dirnames, filenames in root.walk():
+        dirnames[:] = sorted(name for name in dirnames if name not in excluded)
+        for name in sorted([*dirnames, *filenames]):
+            path = directory / name
             typer.echo(str(path.relative_to(root)))
