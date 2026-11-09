@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable
 from typing import Any
 
 from openlakeforge_runtime.dbt.render_profiles import discover_project_dirs
+from openlakeforge_runtime.polaris_token import mint_token
 
 # Trino refuses `expire_snapshots` / `remove_orphan_files` below
 # `iceberg.expire-snapshots.min-retention` / `iceberg.remove-orphan-files.min-retention`,
@@ -43,6 +44,7 @@ def connect() -> Any:
         http_scheme="https" if https else "http",
         auth=trino.auth.BasicAuthentication(user, password) if ldap else None,
         verify=env.get("OPENLAKEFORGE_QUERY_TRINO_CA") or True,
+        extra_credential=[("token", mint_token())],
     )
 
 
