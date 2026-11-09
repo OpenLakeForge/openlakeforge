@@ -74,7 +74,7 @@ def test_the_baked_manifest_is_parsed_with_placeholders_not_the_callers_stage(
     from openlakeforge_runtime.dbt import render_profiles
 
     project = tmp_path / "gold/demo/dbt"
-    (project / "target").mkdir()
+    (project / "target").mkdir(parents=True)
     (project / "target/partial_parse.msgpack").write_bytes(b"stale")
     monkeypatch.setenv("OPENLAKEFORGE_CATALOG_NAME", "lakehouse_prod")
     monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_HOST", "trino.prod")
@@ -97,7 +97,7 @@ def test_a_manifest_already_there_is_used_as_is_and_still_gets_a_profile(
     from openlakeforge_runtime.dbt import render_profiles
 
     project = tmp_path / "gold/demo/dbt"
-    (project / "target").mkdir()
+    (project / "target").mkdir(parents=True)
     (project / "dbt_project.yml").write_text("name: demo\nprofile: demo\n")
     (project / "target/manifest.json").write_text("{}")
     monkeypatch.setattr(render_profiles.subprocess, "run", lambda *args, **kwargs: pytest.fail("re-parsed"))
