@@ -35,15 +35,16 @@ TRINO_PASSWORD_FILE = "/etc/trino/auth/password/password.db"
 TRINO_CATALOG_DIR = "/etc/trino/catalog"
 
 # Mints the stage processing principal's Polaris token inside the coordinator, with the curl and sed its image has
-# (no python, jq or wget), from the credential its pod already holds. The credential goes to curl as a config on stdin
-# and the token lands only in the pod's shell and the CLI's argv there, never in a `kubectl` argument, a stdin of
-# ours or a log. A catalog with no token endpoint has no token to send; a mint that fails fails the query.
+# (no python, jq or wget). The coordinator holds no credential with a grant (ADR 0019 section 9), so the caller sends
+# the principal's client id and secret as the first two lines of stdin; they go on to curl as a config on stdin, and
+# the token lands only in the pod's shell and the CLI's argv there, never in a `kubectl` argument or a log. A catalog
+# with no token endpoint, or a caller with no credential, sends no token; a mint that fails fails the query.
 _MINT_TOKEN = (
-    r"""U=$(sed -n 's/^iceberg.rest-catalog.oauth2.server-uri=//p' {props}); if [ -n "$U" ]; then """
+    r"""U=$(sed -n 's/^iceberg.rest-catalog.oauth2.server-uri=//p' {props}); if [ -n "$U" ] && [ -n "$I" ]; then """
     r"""S=$(sed -n 's/^iceberg.rest-catalog.oauth2.scope=//p' {props}); """
     r"""T=$(printf 'url = "%s"\ndata-urlencode = "grant_type=client_credentials"\ndata-urlencode = "client_id=%s"\n"""
     r"""data-urlencode = "client_secret=%s"\ndata-urlencode = "scope=%s"\n' "$U" """
-    r""""$OPENLAKEFORGE_CATALOG_{stage}_CLIENT_ID" "$OPENLAKEFORGE_CATALOG_{stage}_CLIENT_SECRET" "$S" """
+    r""""$I" "$K" "$S" """
     r"""| curl -sf -m 30 -K - 2>/dev/null """
     r"""| sed -n 's/.*"access_token" *: *"\([^"]*\)".*/\1/p'); """
     r"""if [ -z "$T" ]; then echo "olf: cannot mint the Polaris token for catalog {catalog} from $U: """
@@ -143,15 +144,16 @@ def cli_script(ca_path: str | None = None, *, stage: str | None = None, catalog:
     the CLI as TRINO_PASSWORD, so it is on no command line. An empty line sends
     no password at all, which is what the header-only isolation probe needs.
 
-    With a `stage` and `catalog`, the CLI also carries the stage's Polaris token as the `token` extra credential
-    (#967), which a keyless catalog reads and a keyed one ignores.
+    With a `stage` and `catalog`, stdin starts with the stage processing principal's client id and secret, one
+    line each, and the CLI carries the token minted from them as the `token` extra credential (#967). Two empty
+    lines send no token.
     """
     ca = ca_path or TRINO_CA
     props = f"{TRINO_CATALOG_DIR}/{catalog}.properties"
     mint = ""
     if stage and catalog:
-        code = _MINT_TOKEN.format(props=props, stage=stage.upper(), catalog=catalog)
-        mint = f"if [ -f {props} ]; then {code}fi; "
+        code = _MINT_TOKEN.format(props=props, catalog=catalog)
+        mint = f"IFS= read -r I; IFS= read -r K; if [ -f {props} ]; then {code}fi; unset I K; "
     return (
         f"{mint}"
         f"if [ -f {TRINO_PASSWORD_FILE} ]; then "
@@ -161,6 +163,29 @@ def cli_script(ca_path: str | None = None, *, stage: str | None = None, catalog:
         f'exec trino --server https://localhost:8443 --truststore-path {ca} "$@"; '
         'else exec trino "$@"; fi'
     )
+
+
+def processing_credential_args(environ: Mapping[str, str] | None, namespace: str) -> list[str] | None:
+    """`kubectl` arguments that print the stage processing principal's base64 client id and secret, one per line.
+
+    The Secret is the applied contract's, in the coordinator's namespace; None when the contract names none.
+    """
+    source = os.environ if environ is None else environ
+    secret = source.get("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "")
+    if not secret:
+        return None
+    keys = [
+        source.get(f"OPENLAKEFORGE_CATALOG_FLOE_CLIENT_{field}_KEY") or f"POLARIS_PROCESSING_CLIENT_{field}"
+        for field in ("ID", "SECRET")
+    ]
+    jsonpath = "".join(f"{{.data.{key}}}{{\"\\n\"}}" for key in keys)
+    return ["get", "secret", secret, "-n", namespace, "-o", f"jsonpath={jsonpath}"]
+
+
+def decode_credential(raw: str) -> str:
+    """The two lines `cli_script` reads first: client id and secret, decoded; two empty lines when there is none."""
+    lines = [base64.b64decode(line).decode("utf-8") if line.strip() else "" for line in raw.splitlines()]
+    return "".join(f"{line}\n" for line in (lines + ["", ""])[:2])
 
 
 def password_secret(target: TrinoTarget) -> str:
@@ -250,10 +275,18 @@ def run_sql(
     base = [kubectl, "--context", target.kube_context]
     run = runner or (lambda command, stdin: _subprocess_runner(command, stdin, environ=environ))
     try:
-        # Only a contract that names a credential has a password to send; an unauthenticated
-        # coordinator is queried with no Secret read and no stdin.
-        password = ""
-        stdin = ""
+        stdin = decode_credential("")
+        credential = processing_credential_args(environ, target.namespace)
+        if credential is not None:
+            lookup = run([*base, *credential], "")
+            if lookup.returncode != 0:
+                raise TrinoQueryError(
+                    f"cannot read the stage's processing credential in namespace {target.namespace}: "
+                    f"{(lookup.stderr or lookup.stdout or '').strip()}\n"
+                    "olf infra query needs RBAC permission to get that Secret."
+                )
+            stdin = decode_credential(lookup.stdout or "")
+        # Only a contract that names a credential has a password to send.
         if (os.environ if environ is None else environ).get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET"):
             lookup = run([*base, *password_args(target)], "")
             if lookup.returncode != 0:
@@ -262,8 +295,7 @@ def run_sql(
                     f"{(lookup.stderr or lookup.stdout or '').strip()}\n"
                     "olf infra query needs RBAC permission to get that Secret."
                 )
-            password = decode_password(lookup.stdout or "")
-            stdin = f"{password}\n"
+            stdin += f"{decode_password(lookup.stdout or '')}\n"
         result = run([*base, *exec_args(target, sql, output_format=output_format)], stdin)
     except (OSError, ExecutableNotFoundError) as exc:
         raise TrinoQueryError(f"could not run kubectl: {exc}") from exc

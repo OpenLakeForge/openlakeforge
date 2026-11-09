@@ -25,58 +25,17 @@ locals {
     local.people_https ? ["jwk.http-client.trust-store-path=/etc/trino/tls/ca.crt"] : [],
   )
 
-  people_catalog_env = flatten([
-    for stage, secret in try(var.people_access.catalogs, {}) : [
-      for field in ["ID", "SECRET"] : {
-        name      = "OPENLAKEFORGE_PEOPLE_${upper(stage)}_CLIENT_${field}"
-        valueFrom = { secretKeyRef = { name = secret, key = "POLARIS_CLIENT_${field}" } }
-      }
-    ]
-  ])
-
-  # The workload catalogs' storage lines without their key.
-  people_s3_properties = join("\n", compact([
-    "fs.native-s3.enabled=true",
-    var.storage_contract.endpoint == null ? "" : "s3.endpoint=${var.storage_contract.endpoint}",
-    var.storage_contract.path_style_access == null ? "" : "s3.path-style-access=${var.storage_contract.path_style_access}",
-    "s3.region=${var.storage_contract.region}",
-  ]))
-
-  # The catalog's own credential, trino-people-<stage>, holds no grant: Trino
-  # uses it only for the catalog's configuration call. Every table request
-  # carries the person's token (the `token` extra credential), and a request
-  # without it falls through to a token exchange Polaris refuses.
+  # The stage's keyless catalog (main.tf) under the stage's name. Two names
+  # only because Trino's rules still keep e-mail users and service users on
+  # separate catalogs until its authentication goes (#983).
   people_catalog_properties = {
-    for stage, secret in try(var.people_access.catalogs, {}) : stage => <<-CATALOG
-      connector.name=iceberg
-      iceberg.catalog.type=rest
-      iceberg.rest-catalog.uri=${try(local.stage_catalog_contracts[stage].rest_uri, "")}
-      iceberg.rest-catalog.warehouse=${try(local.stage_catalog_contracts[stage].warehouse, "")}
-      iceberg.rest-catalog.security=OAUTH2
-      iceberg.rest-catalog.oauth2.credential=$${ENV:OPENLAKEFORGE_PEOPLE_${upper(stage)}_CLIENT_ID}:$${ENV:OPENLAKEFORGE_PEOPLE_${upper(stage)}_CLIENT_SECRET}
-      iceberg.rest-catalog.oauth2.server-uri=${try(local.stage_catalog_contracts[stage].token_uri, "")}
-      iceberg.rest-catalog.oauth2.scope=${try(local.stage_catalog_contracts[stage].oauth_scope, "")}
-      iceberg.rest-catalog.session=USER
-      # Zero rebuilds the session from the token each query carries; the
-      # default hour would keep presenting the first one.
-      iceberg.rest-catalog.session-timeout=0s
-      # Iceberg builds the person's session from a copy of the catalog's
-      # config, credential included, and reads the token's `exp`. A token
-      # already expired when the session is built is "refreshed" with that
-      # credential (OAuth2Util.AuthSession.refresh, refreshExpiredToken),
-      # which swaps the person for trino-people-<stage>. Off, an expired token
-      # reaches Polaris as itself and is refused as that person.
-      iceberg.rest-catalog.oauth2.token-refresh-enabled=false
-      iceberg.rest-catalog.vended-credentials-enabled=true
-      iceberg.rest-catalog.nested-namespace-enabled=true
-      ${local.people_s3_properties}
-    CATALOG
+    for stage in try(var.people_access.stages, []) : stage => local.rest_catalog_properties[stage]
   }
 
   # A person, whose user is an e-mail, may use the people catalogs and nothing
   # else; service principals never reach them.
   people_catalog_rules = [
-    for name in compact([join("|", keys(try(var.people_access.catalogs, {})))]) : {
+    for name in compact([join("|", try(var.people_access.stages, []))]) : {
       user = ".*@.*", catalog = "(${name})", allow = "all"
     }
   ]

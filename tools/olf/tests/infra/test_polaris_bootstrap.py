@@ -48,6 +48,7 @@ _DEV = StageCatalog(
     "lakehouse-dev-gold",
     _STAGE,
     _STAGE,
+    _STAGE,
 )
 
 
@@ -315,7 +316,7 @@ def test_a_fresh_stack_gets_every_principal_role_grant_and_secret(
         **{f"deployer-{s}": [f"namespace-admin-{s}"] for s in STAGES},
         "openmetadata": ["data-reader"],
         "github": sorted(ASSIGNED),
-        **{f"trino-people-{s}": [] for s in STAGES},
+        **{f"trino-catalog-{s}": [] for s in STAGES},
     }
     assert state["catalog_roles"]["lakehouse_dev"] == {
         "catalog-processing": ["CATALOG_MANAGE_CONTENT"],
@@ -343,7 +344,7 @@ def test_a_fresh_stack_gets_every_principal_role_grant_and_secret(
         expected |= _secret(f"olf-{s}", f"polaris-{s}-processing-creds", "POLARIS_PROCESSING", f"olf-{s}-processing")
         expected |= _secret(f"olf-{s}", f"polaris-{s}-deployer-creds", "POLARIS_DEPLOYER", f"deployer-{s}")
         # Beside the stage's own Trino, which reads it (#1021).
-        expected |= _secret(f"olf-{s}", f"polaris-{s}-trino-people-creds", "POLARIS", f"trino-people-{s}")
+        expected |= _secret(f"olf-{s}", f"polaris-{s}-trino-catalog-creds", "POLARIS", f"trino-catalog-{s}")
     expected |= _secret("olf-system", "polaris-om-creds", "POLARIS_OM", "openmetadata")
     assert cluster.state(fake) == expected
 
@@ -365,7 +366,7 @@ def test_a_rerun_of_the_whole_bootstrap_changes_nothing(
     assert [argv for argv in cluster.argv if argv[0] in {"create", "apply"}] == []
     assert {argv[2] for argv in cluster.argv if argv[0] == "delete"} == {
         "polaris-dbt-creds",
-        *(f"polaris-{s}-{kind}-creds" for s in STAGES for kind in ("trino", "floe")),
+        *(f"polaris-{s}-{kind}-creds" for s in STAGES for kind in ("trino", "floe", "trino-people")),
     }
 
 
@@ -431,7 +432,7 @@ def test_a_stage_removal_revokes_the_principals_of_the_stage_that_left(
     _bootstrap(client)
     full = conformance_plan()
     left = replace(full, stages=full.stages[:1], person_access=None)
-    gone = {"olf-prod-processing", "deployer-prod", "trino-people-prod"}
+    gone = {"olf-prod-processing", "deployer-prod", "trino-catalog-prod"}
 
     run_bootstrap(client, left, environ=_ENVIRON)
     assert gone <= set(fake.principals)
@@ -461,7 +462,7 @@ def test_a_narrowed_data_access_row_loses_the_grant_it_no_longer_names(
     plan = conformance_plan()
     assert plan.person_access is not None
     wider = {**ASSIGNED, "olf-analyst": {"lakehouse_dev": "olf-read", "lakehouse_prod": "olf-read"}}
-    _bootstrap(client, replace(plan, person_access=PersonAccess("github", wider, plan.person_access.people)))
+    _bootstrap(client, replace(plan, person_access=PersonAccess("github", wider)))
     fake.principal_roles["olf-signed-in"]["lakehouse_dev"] = ["olf-write"]
 
     _bootstrap(client, plan)
@@ -499,9 +500,9 @@ def test_a_stage_coordinators_credentials_are_written_beside_it() -> None:
 
     assert plan is not None and plan.person_access is not None
     assert {stage.stage: stage.processing.namespace for stage in plan.stages} == {"dev": "olf-dev", "prod": "olf-prod"}
-    assert {c.principal: c.namespace for c in plan.person_access.people} == {
-        "trino-people-dev": "olf-dev",
-        "trino-people-prod": "olf-prod",
+    assert {stage.catalog.principal: stage.catalog.namespace for stage in plan.stages} == {
+        "trino-catalog-dev": "olf-dev",
+        "trino-catalog-prod": "olf-prod",
     }
     assert all(credential.recreatable for credential in (stage.processing for stage in plan.stages))
 
@@ -578,13 +579,13 @@ def test_trino_restarts_when_a_credential_it_reads_changes(
     for namespace in ("olf-dev", "olf-prod"):
         assert ["rollout", "status", "deployment/trino-worker", "-n", namespace, "--timeout=300s"] in cluster.argv
     cluster.argv.clear()
-    # The window the pending marker exists for: PROD's people credential is rotated on the next run. The marker
+    # The window the pending marker exists for: PROD's catalog credential is rotated on the next run. The marker
     # sits beside the credential, in the namespace of the Trino that reads it.
     cluster.put(
         "configmap",
         "olf-prod",
-        "polaris-prod-trino-people-creds-bootstrap-pending",
-        {"principal": "trino-people-prod"},
+        "polaris-prod-trino-catalog-creds-bootstrap-pending",
+        {"principal": "trino-catalog-prod"},
     )
 
     bootstrap_from_contract(_contracts(), environ=_ENVIRON)
@@ -605,8 +606,8 @@ def test_a_rerun_restarts_trino_when_the_run_that_rotated_its_credential_failed(
     cluster.put(
         "configmap",
         "olf-prod",
-        "polaris-prod-trino-people-creds-bootstrap-pending",
-        {"principal": "trino-people-prod"},
+        "polaris-prod-trino-catalog-creds-bootstrap-pending",
+        {"principal": "trino-catalog-prod"},
     )
     # The run stores Trino's new credential, then fails before Trino restarts.
     with monkeypatch.context() as failing:

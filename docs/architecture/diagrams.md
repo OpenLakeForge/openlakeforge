@@ -233,7 +233,8 @@ release readiness; pull requests also run the bounded slim kind smoke.
 
 | Principal | Secret | Roles |
 | --- | --- | --- |
-| olf-\<stage\>-processing (Trino and Floe) | `polaris-<stage>-processing-creds` | processing-\<stage\> / catalog-processing |
+| olf-\<stage\>-processing (dbt through Trino, and Floe) | `polaris-<stage>-processing-creds` | processing-\<stage\> / catalog-processing |
+| trino-catalog-\<stage\> (the stage Trino's catalogs) | `polaris-<stage>-trino-catalog-creds` | none: each query carries its caller's token |
 | openmetadata | `polaris-om-creds` | data-reader / catalog-reader |
 | (root) | `polaris-bootstrap-credentials` | the metastore Job and `olf`'s bootstrap only |
 

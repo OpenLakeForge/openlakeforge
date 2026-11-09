@@ -66,9 +66,7 @@ def plan_from_contract(
         secrets.append((shared_namespace, ROOT_CREDENTIALS_SECRET))
         credentials = [polaris.openmetadata]
         for stage in polaris.stages:
-            credentials += [stage.processing, stage.deployer]
-        if polaris.person_access is not None:
-            credentials += polaris.person_access.people
+            credentials += [stage.processing, stage.deployer, stage.catalog]
         secrets += [(credential.namespace, credential.secret) for credential in credentials]
     secrets += [(stage.namespace, "superset-credentials") for stage in contracts.analytics_stages.values()]
     for name, analytics in sorted(contracts.analytics_stages.items(), key=lambda item: item[0].value):

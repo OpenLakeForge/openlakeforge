@@ -59,11 +59,69 @@ def test_isolation_uses_the_selected_stage_bucket_from_the_contract(
     monkeypatch.setattr(_isolation.k8s, "port_forward", _port_forward)
     monkeypatch.setattr(_isolation, "check_stage_data_is_its_own", lambda *_args: None)
     monkeypatch.setattr(_isolation, "check_dagster_state_isolation", lambda *_args: None)
+    monkeypatch.setattr(_isolation, "check_keyless_trino", lambda *_args: None)
 
     _isolation.check_stage_isolation(cfg)
 
     assert client.head_buckets == ["lakehouse-prod-bronze", "lakehouse-dev-bronze"]
     assert client.prefixes == ["activations/prod/", "activations/dev/"]
+
+
+OWN = "dev-id\ndev-secret\n"
+PROD = "prod-id\nprod-secret\n"
+_KEYLESS_CONTRACTS = {
+    "stages": {
+        stage: {
+            "storage": {"silver": {"bucket_name": f"lakehouse-{stage}-silver"}},
+            "catalog": {
+                "floe_credentials_secret_name": f"polaris-{stage}-processing-creds",
+                "floe_client_id_key": "POLARIS_PROCESSING_CLIENT_ID",
+                "floe_client_secret_key": "POLARIS_PROCESSING_CLIENT_SECRET",
+            },
+        }
+        for stage in ("dev", "prod")
+    }
+}
+
+
+def _keyless(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, tokenless_reads: bool = False) -> list[str]:
+    """A stand-in for DEV's keyless catalog: Polaris answers only DEV's own token, and no location outside DEV."""
+    statements: list[str] = []
+
+    def _trino_query(_cfg, sql: str, credential: str | None = None, **_kw) -> str:  # noqa: ANN001, ANN003
+        statements.append(sql)
+        if "lakehouse-prod-silver" in sql:
+            raise E2EError("Query failed: Location not allowed")
+        if credential == PROD or (credential is not None and credential != OWN and not tokenless_reads):
+            raise E2EError("Query failed: Forbidden: Principal 'olf-prod-processing' is not authorized")
+        return "1"
+
+    monkeypatch.setattr(_isolation, "trino_query", _trino_query)
+    monkeypatch.setattr(_isolation, "_materialized_tables", lambda *_a: [("gold", "customer_health_gold.alpha")])
+    monkeypatch.setattr(
+        _isolation,
+        "processing_credential",
+        lambda _cfg, lookup: PROD if "polaris-prod-processing-creds" in lookup else OWN,
+    )
+    return statements
+
+
+def test_the_keyless_catalog_refuses_no_token_another_stage_and_a_foreign_location(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    statements = _keyless(monkeypatch, tmp_path)
+
+    _isolation.check_keyless_trino(e2e_cfg(tmp_path), _KEYLESS_CONTRACTS, "dev", "prod")
+
+    assert any("register_table" in sql and "lakehouse-prod-silver" in sql for sql in statements)
+    assert any("location = 's3://lakehouse-prod-silver/" in sql for sql in statements)
+
+
+def test_a_tokenless_read_is_an_isolation_breach(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _keyless(monkeypatch, tmp_path, tokenless_reads=True)
+
+    with pytest.raises(E2EError, match="isolation breach: a query with no Polaris token"):
+        _isolation.check_keyless_trino(e2e_cfg(tmp_path), _KEYLESS_CONTRACTS, "dev", "prod")
 
 
 def test_trino_isolation_probe_rejects_a_non_denial_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
