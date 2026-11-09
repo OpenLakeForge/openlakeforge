@@ -480,8 +480,9 @@ extra:
   metadata_params: {{}}
   engine_params: {{}}
   metadata_cache_timeout: {{}}
+  per_user_caching: true
   schemas_allowed_for_file_upload: []
-impersonate_user: false
+impersonate_user: true
 uuid: {_SUPERSET_TRINO_DATABASE_UUID}
 version: 1.0.0
 """

@@ -29,6 +29,10 @@ SUPERSET_QUERY_CA = "/etc/olf/query-ca/ca.crt"
 # Superset's per-database `extra` while Trino serves HTTPS (ADR 0016). Export
 # strips exactly these keys, so they live beside the code that adds them.
 TLS_EXTRA = {"engine_params": {"connect_args": {"http_scheme": "https", "verify": SUPERSET_QUERY_CA}}}
+# What every imported database carries (ADR 0019 section 9): the viewer's own token reaches Trino, cached
+# per user, with no shared credential. A background query has no request to take a token from.
+PER_USER_DATABASE = {"impersonate_user": True, "allow_run_async": False}
+PER_USER_EXTRA = {"per_user_caching": True, "metadata_cache_timeout": {}}
 # The placeholder a checked-in database YAML carries. `build_report_bundle`
 # replaces it with the target stage's connection, and `unpack_export_bundle`
 # puts it back so an exported bundle promotes unchanged.
@@ -106,8 +110,8 @@ def build_report_bundle(
                 raise ValueError(f"{relative}: is not a YAML mapping")
             if rewrite_database:
                 document["sqlalchemy_uri"] = sqlalchemy_uri
-                if extra:
-                    document["extra"] = {**(document.get("extra") or {}), **extra}
+                document.update(PER_USER_DATABASE)
+                document["extra"] = {**(document.get("extra") or {}), **PER_USER_EXTRA, **(extra or {})}
             else:
                 schema = document.get("schema")
                 if not isinstance(schema, str) or not schema:
@@ -374,7 +378,6 @@ def import_reports(
     sqlalchemy_uri: str,
     schema_prefix: str = "",
     extra: dict[str, Any] | None = None,
-    database_password: str = "",
     progress: Progress = SILENT,
 ) -> None:
     """Build and import each report bundle, then grant the data-access role its schemas."""
@@ -393,7 +396,7 @@ def import_reports(
         )
 
         progress.step(f"Importing Superset report assets from {bundle_path}")
-        client.import_assets(bundle_path, database_password=database_password)
+        client.import_assets(bundle_path)
         progress.info(f"Deployed Superset report assets from {report_dir}")
         schema_perms |= bundle_schema_perms(bundle_path)
         dashboards += bundle_dashboard_uuids(bundle_path)

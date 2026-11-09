@@ -8,6 +8,8 @@ without either.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 # Dex tokens expire on their own clock; refreshing a minute early keeps a query
 # from starting with a token that dies mid-request.
 EXPIRY_MARGIN_SECONDS = 60
@@ -43,6 +45,34 @@ def db_connection_mutator(uri, params, username, security_manager, source):
     if uri.password:
         uri = uri.set(password=None)
     return uri, params
+
+
+def store_login_token(user_id: int, token: dict) -> None:
+    """Seed the user's Trino OAuth2 row from the sign-in token response.
+
+    The user then opens a dashboard without a second consent. One database
+    only: Dex rotates refresh tokens, so two rows sharing one would invalidate
+    each other. A stack with no per-user database yet stores nothing.
+    """
+    from superset import db
+    from superset.models.core import Database, DatabaseUserOAuth2Tokens
+
+    database = next(
+        (d for d in db.session.query(Database).filter(Database.impersonate_user.is_(True)).order_by(Database.id)
+         if d.backend == "trino"),
+        None,
+    )  # fmt: skip
+    if database is None:
+        return
+    row = db.session.query(DatabaseUserOAuth2Tokens).filter_by(user_id=user_id, database_id=database.id).one_or_none()
+    row = row or DatabaseUserOAuth2Tokens(user_id=user_id, database_id=database.id)
+    row.access_token = token["access_token"]
+    row.access_token_expiration = datetime.now() + timedelta(
+        seconds=max(token.get("expires_in", 0) - EXPIRY_MARGIN_SECONDS, 0)
+    )
+    row.refresh_token = token.get("refresh_token") or row.refresh_token
+    db.session.add(row)
+    db.session.commit()
 
 
 def install(app=None) -> None:

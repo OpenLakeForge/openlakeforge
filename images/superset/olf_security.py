@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import time
 
-from flask import current_app, redirect, session
+from flask import current_app, g, redirect, session
 from flask_appbuilder import expose
 from flask_appbuilder.security.views import AuthOAuthView
 from olf_oidc import DATA_ROLE, NO_ACCESS_ROLE, SESSION_SECONDS, VIEWER_ROLE
+from olf_trino import store_login_token
 from superset.security import SupersetSecurityManager
 
 
@@ -59,6 +60,11 @@ class OlfSecurityManager(SupersetSecurityManager):
             "role_keys": [values] if isinstance(values, str) else list(values),
         }
 
+    def set_oauth_session(self, provider, oauth_response):
+        super().set_oauth_session(provider, oauth_response)
+        # The sign-in token is also the user's Trino token (ADR 0019 section 9).
+        g.olf_login_token = oauth_response
+
     def auth_user_oauth(self, userinfo):
         # FAB adds the registration role to every user, so without this check
         # a user with no recognised role would still sign in.
@@ -68,6 +74,11 @@ class OlfSecurityManager(SupersetSecurityManager):
         user = super().auth_user_oauth(userinfo)
         if user:
             session["olf_login_at"] = time.time()
+            if token := g.pop("olf_login_token", None):
+                # userinfo() is done; FAB's signed (not encrypted) cookie must
+                # not carry the access token, the database row does.
+                session.pop("oauth", None)
+                store_login_token(user.id, token)
         return user
 
 
