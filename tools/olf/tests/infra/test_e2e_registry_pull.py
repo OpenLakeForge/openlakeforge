@@ -133,12 +133,12 @@ class Cluster:
     def __init__(self, *, secret_on_deployment: bool = True, purge_works: bool = True) -> None:
         self.cache: dict[str, set[str]] = {"cp": set(), "w1": {IMAGE}, "w2": {IMAGE}}
         self.cordoned: set[str] = set()
-        self.stale: dict[str, list[str]] = {}
-        self.config_digest = "sha256:1"
+        # Names `kind load` left in containerd on the image, which the CRI record keeps listing after `crictl rmi`.
+        self.held: dict[str, list[str]] = {}
+        self.unrelated = "import-2026-06-02@sha256:other"
         self.cri_cache_stale = False
-        self.ghost: set[str] = set()
+        self.ghost: dict[str, list[str]] = {}
         self.restart_clears_ghost = True
-        self.blobs_unreadable = False
         self.restarts: list[str] = []
         self.calls: list[tuple[str, str]] = []
         self.purge_works = purge_works
@@ -162,53 +162,44 @@ class Cluster:
         self.pods[name] = {"kind": "Pod", "metadata": {"name": name, "labels": labels}, "spec": spec}
         return name
 
+    def _record_names(self, node: str) -> list[str]:
+        names = [IMAGE] if IMAGE in self.cache[node] else []
+        names += [f"docker.io/library/{name}" for name in self.held.get(node, [])]
+        return names or self.ghost.get(node, [])
+
     def docker(self, args: list[str]) -> str:
         node = args[1]
         if args[2] == "systemctl":
             self.restarts.append(node)
             self.calls.append(("restart", node))
             if self.restart_clears_ghost:
-                self.ghost.discard(node)
+                self.ghost.pop(node, None)
             return ""
         if args[2] == "ctr":
             return self.ctr(node, args[5:])
         if args[3] == "info":
             return ""
         if args[3] == "images":
-            # The CRI only lists, under this image ID, the names whose image really has that ID.
-            same_image = self.config_digest == "sha256:1"
-            cri_names = [f"docker.io/library/{name}" for name in self.stale.get(node, [])] if same_image else []
-            images = [{"id": "sha256:1", "repoDigests": [IMAGE, *cri_names]}] if IMAGE in self.cache[node] else []
-            if node in self.ghost:
-                images = [{"id": "sha256:1", "repoDigests": ["docker.io/library/import-2026-11-09@sha256:0836"]}]
-            return json.dumps({"images": images})
+            names = self._record_names(node)
+            return json.dumps({"images": [{"id": "sha256:1", "repoDigests": names}] if names else []})
         self.calls.append(("rmi", node))
         if self.purge_works:
             self.cache[node].discard(IMAGE)
-            if self.cri_cache_stale:
-                self.ghost.add(node)
         return ""
 
     def ctr(self, node: str, args: list[str]) -> str:
-        names = {f"{REPOSITORY}@sha256:reg": "sha256:reg"} if IMAGE in self.cache[node] else {}
-        names |= {name: "sha256:imp" for name in self.stale.get(node, [])}
-        if args[0] == "get":
-            if self.blobs_unreadable:
-                raise E2EError("content get failed")
-            # The registry manifest names the config directly; the kind import is an index over a different
-            # manifest, so its manifest digest differs while the config digest (the image ID) is the same.
-            config = {"config": {"digest": self.config_digest}}
-            if args[1] == "sha256:reg" or args[1] == "sha256:child":
-                return json.dumps(config)
-            return json.dumps({"manifests": [{"digest": "sha256:child"}]})
         if args[0] == "rm":
             self.calls.append(("ctr-rm", node))
-            self.stale[node] = [n for n in self.stale.get(node, []) if n not in args]
+            removed = [name for name in self.held.get(node, []) if name in args]
+            self.held[node] = [name for name in self.held.get(node, []) if name not in args]
+            assert self.unrelated not in args, "an import name of another image must not be removed"
+            if self.cri_cache_stale and removed:
+                self.ghost[node] = [f"docker.io/library/{name}" for name in removed]
             return ""
+        names = [f"{REPOSITORY}@sha256:reg"] if IMAGE in self.cache[node] else []
+        names += [*self.held.get(node, []), self.unrelated]
         header = "REF TYPE DIGEST SIZE PLATFORMS LABELS"
-        return "\n".join(
-            [header, *(f"{n} application/vnd.oci.image.index.v1+json {d} 360MiB - -" for n, d in names.items())]
-        )
+        return "\n".join([header, *(f"{n} application/vnd.oci.image.index.v1+json sha256:x 360MiB - -" for n in names)])
 
     def kubectl(self, cfg: object, args: list[str], *, capture: bool = False, **_: object) -> str:
         verb = args[0]
@@ -352,42 +343,6 @@ def test_a_run_job_created_after_activation_without_the_secret_fails(
         registry_pull.check(_cfg())
 
 
-def test_a_kind_import_name_with_another_manifest_digest_but_the_same_image_id_is_removed(cluster: Cluster) -> None:
-    stale = "import-2026-11-09@sha256:0836"
-    cluster.stale = {"w1": [stale], "w2": [stale]}
-
-    registry_pull.purge_image(_cfg(), IMAGE)
-
-    assert cluster.stale["w1"] == [] and cluster.stale["w2"] == []
-
-
-def test_an_import_name_for_another_image_is_left_alone(cluster: Cluster) -> None:
-    stale = "import-2026-11-09@sha256:0836"
-    cluster.stale = {"w1": [stale], "w2": [stale]}
-    cluster.config_digest = "sha256:other"
-
-    registry_pull.purge_image(_cfg(), IMAGE)
-
-    assert cluster.stale["w1"] == [stale]
-
-
-def test_the_config_digest_is_found_through_an_index() -> None:
-    blobs = {"sha256:child": json.dumps({"config": {"digest": "sha256:cfg"}})}
-
-    found = registry_pull.config_digest(json.dumps({"manifests": [{"digest": "sha256:child"}]}), blobs.__getitem__)
-
-    assert found == "sha256:cfg"
-
-
-def test_only_names_under_the_repository_or_left_by_kind_load_are_candidates() -> None:
-    refs = {f"{REPOSITORY}@sha256:a": "x", "import-1@sha256:b": "y", "registry.k8s.io/pause:3.9": "z"}
-
-    assert registry_pull.names_of_images(refs, REPOSITORY) == [
-        f"{REPOSITORY}@sha256:a",
-        "import-1@sha256:b",
-    ]
-
-
 def test_containerd_names_are_matched_to_digests_by_column() -> None:
     listing = "REF TYPE DIGEST SIZE\na t sha256:1 1MiB\nb t sha256:2 1MiB\n"
 
@@ -428,50 +383,35 @@ def test_a_code_location_that_never_becomes_ready_names_the_cause(
         registry_pull.check(_cfg())
 
 
-def test_the_cri_record_is_removed_by_id_before_ctr_and_containerd_is_restarted_after(cluster: Cluster) -> None:
-    cluster.stale = {"w1": ["import-2026-11-09@sha256:0836"]}
+def test_the_names_a_record_keeps_after_rmi_are_removed_with_ctr_and_nothing_else(cluster: Cluster) -> None:
+    held = ["import-2026-11-09@sha256:37378c", "import-2026-11-09@sha256:ea8f63"]
+    cluster.held = {"w1": list(held), "w2": list(held)}
 
     registry_pull.purge_image(_cfg(), IMAGE)
 
-    w1 = [call for call in cluster.calls if call[1] == "w1"]
-    assert w1 == [("rmi", "w1"), ("ctr-rm", "w1"), ("restart", "w1")]
+    assert cluster.held == {"w1": [], "w2": []}
+    assert cluster.restarts == []
+    assert [call[0] for call in cluster.calls if call[1] == "w1"] == ["rmi", "ctr-rm"]
 
 
-def test_a_stale_cri_record_is_rebuilt_by_the_restart_on_each_node_that_had_the_image(cluster: Cluster) -> None:
-    cluster.cri_cache_stale = True
-
-    registry_pull.purge_image(_cfg(), IMAGE)
-
-    assert cluster.ghost == set()
-    assert cluster.restarts == ["w1", "w2"]
-
-
-def test_a_cri_record_that_survives_the_restart_fails_the_purge_naming_node_id_and_names(cluster: Cluster) -> None:
+def test_a_record_that_survives_rmi_ctr_and_a_restart_fails_the_purge_naming_node_id_and_names(
+    cluster: Cluster,
+) -> None:
+    cluster.held = {"w1": ["import-2026-11-09@sha256:37378c"]}
     cluster.cri_cache_stale = True
     cluster.restart_clears_ghost = False
 
     with pytest.raises(E2EError, match=r"w1: the CRI image record survived.*sha256:1.*import-2026-11-09"):
         registry_pull.purge_image(_cfg(), IMAGE)
 
-
-def test_import_names_are_removed_by_the_cri_records_own_names_when_their_manifests_cannot_be_read(
-    cluster: Cluster,
-) -> None:
-    stale = "import-2026-11-09@sha256:0836"
-    cluster.stale = {"w1": [stale], "w2": [stale]}
-    cluster.blobs_unreadable = True
-
-    registry_pull.purge_image(_cfg(), IMAGE)
-
-    assert cluster.stale["w1"] == [] and cluster.stale["w2"] == []
+    assert [call[0] for call in cluster.calls if call[1] == "w1"] == ["rmi", "ctr-rm", "rmi", "restart"]
 
 
-def test_an_unrelated_import_name_is_left_alone_when_its_manifest_cannot_be_read(cluster: Cluster) -> None:
-    other = "import-2026-06-02@sha256:aaaa"
-    cluster.stale = {"w1": [other]}
-    cluster.cache["w1"] = {IMAGE}
-    cluster.blobs_unreadable = True
+def test_containerd_is_restarted_only_when_a_record_still_lists_and_that_rebuilds_it(cluster: Cluster) -> None:
+    cluster.held = {"w1": ["import-2026-11-09@sha256:37378c"]}
+    cluster.cri_cache_stale = True
 
     registry_pull.purge_image(_cfg(), IMAGE)
 
-    assert cluster.stale["w1"] == []
+    assert cluster.restarts == ["w1"]
+    assert cluster.ghost == {}
