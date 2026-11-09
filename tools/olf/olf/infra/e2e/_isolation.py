@@ -106,7 +106,9 @@ def check_trino_workload_authentication(cfg: E2EConfig, this_stage: str, sibling
     )
 
 
-POLARIS_REFUSAL_MARKERS = ("forbidden", "not authorized", "403")
+# Trino reports Polaris's 403 on a table as a generic "Failed to load table" and keeps the reason in the cause
+# chain; the paired control just loaded that table with the stage's own token, so it is not a missing table.
+POLARIS_REFUSAL_MARKERS = ("forbidden", "not authorized", "403", "failed to load table")
 
 
 def _expect_trino_refused(cfg: E2EConfig, sql: str, *, what: str, markers: tuple[str, ...] = (), **kw: Any) -> str:
