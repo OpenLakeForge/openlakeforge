@@ -56,7 +56,8 @@ MANIFEST_ACCEPT = ", ".join(
 ANONYMOUS_PROBE_TIMEOUT_SECONDS = 20
 CONTAINERD_RESTART_ATTEMPTS = 30
 NODE_READY_TIMEOUT = "120s"
-KIND_IMPORT_PREFIX = "docker.io/library/import-"
+DOCKER_HUB_LIBRARY = "docker.io/library/"
+KIND_IMPORT_PREFIX = "import-"
 
 
 def _pod_spec(item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -202,9 +203,18 @@ def config_digest(manifest: str, read_blob: Callable[[str], str]) -> str | None:
     return None
 
 
+def _bare(name: str) -> str:
+    """`name` without the `docker.io/library/` the CRI adds; `ctr` lists the name as `kind load` wrote it."""
+    return name.removeprefix(DOCKER_HUB_LIBRARY)
+
+
 def names_of_images(refs: Mapping[str, str], repository: str) -> list[str]:
     """Containerd names that can belong to the project image: under `repository`, or left by `kind load`."""
-    return sorted(name for name in refs if name.startswith((f"{repository}:", f"{repository}@", KIND_IMPORT_PREFIX)))
+    return sorted(
+        name
+        for name in refs
+        if name.startswith((f"{repository}:", f"{repository}@")) or _bare(name).startswith(KIND_IMPORT_PREFIX)
+    )
 
 
 def pod_diagnostics(pods: Sequence[Mapping[str, Any]], events: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -343,7 +353,11 @@ def purge_image(cfg: E2EConfig, image: str) -> None:
     with _without_host_credentials(cfg) as docker:
         for node in _nodes(cfg):
             exec_ = ["exec", node.name]
-            ids = image_ids(docker([*exec_, "crictl", "images", "-o", "json"]), repository)
+            listing = docker([*exec_, "crictl", "images", "-o", "json"])
+            ids = image_ids(listing, repository)
+            # Every name the CRI itself gives these IDs, including the `import-*` ones: evidence by ID that needs no
+            # manifest to be readable.
+            known = {_bare(name) for names in records_with_ids(listing, ids).values() for name in names}
             if ids:
                 docker([*exec_, "crictl", "rmi", *ids])
             refs = containerd_refs(docker([*exec_, *ctr, "images", "ls"]))
@@ -357,7 +371,7 @@ def purge_image(cfg: E2EConfig, image: str) -> None:
                     config = config_digest(read_blob(refs[name]), read_blob)
                 except (E2EError, ValueError, KeyError):
                     config = None
-                if name.startswith((f"{repository}:", f"{repository}@")) or config in ids:
+                if name.startswith((f"{repository}:", f"{repository}@")) or config in ids or _bare(name) in known:
                     doomed.append(name)
             if doomed:
                 docker([*exec_, *ctr, "images", "rm", "--sync", *doomed])

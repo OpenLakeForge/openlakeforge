@@ -138,6 +138,7 @@ class Cluster:
         self.cri_cache_stale = False
         self.ghost: set[str] = set()
         self.restart_clears_ghost = True
+        self.blobs_unreadable = False
         self.restarts: list[str] = []
         self.calls: list[tuple[str, str]] = []
         self.purge_works = purge_works
@@ -174,7 +175,10 @@ class Cluster:
         if args[3] == "info":
             return ""
         if args[3] == "images":
-            images = [{"id": "sha256:1", "repoDigests": [IMAGE]}] if IMAGE in self.cache[node] else []
+            # The CRI only lists, under this image ID, the names whose image really has that ID.
+            same_image = self.config_digest == "sha256:1"
+            cri_names = [f"docker.io/library/{name}" for name in self.stale.get(node, [])] if same_image else []
+            images = [{"id": "sha256:1", "repoDigests": [IMAGE, *cri_names]}] if IMAGE in self.cache[node] else []
             if node in self.ghost:
                 images = [{"id": "sha256:1", "repoDigests": ["docker.io/library/import-2026-11-09@sha256:0836"]}]
             return json.dumps({"images": images})
@@ -189,6 +193,8 @@ class Cluster:
         names = {f"{REPOSITORY}@sha256:reg": "sha256:reg"} if IMAGE in self.cache[node] else {}
         names |= {name: "sha256:imp" for name in self.stale.get(node, [])}
         if args[0] == "get":
+            if self.blobs_unreadable:
+                raise E2EError("content get failed")
             # The registry manifest names the config directly; the kind import is an index over a different
             # manifest, so its manifest digest differs while the config digest (the image ID) is the same.
             config = {"config": {"digest": self.config_digest}}
@@ -347,7 +353,7 @@ def test_a_run_job_created_after_activation_without_the_secret_fails(
 
 
 def test_a_kind_import_name_with_another_manifest_digest_but_the_same_image_id_is_removed(cluster: Cluster) -> None:
-    stale = "docker.io/library/import-2026-11-09@sha256:0836"
+    stale = "import-2026-11-09@sha256:0836"
     cluster.stale = {"w1": [stale], "w2": [stale]}
 
     registry_pull.purge_image(_cfg(), IMAGE)
@@ -356,7 +362,7 @@ def test_a_kind_import_name_with_another_manifest_digest_but_the_same_image_id_i
 
 
 def test_an_import_name_for_another_image_is_left_alone(cluster: Cluster) -> None:
-    stale = "docker.io/library/import-2026-11-09@sha256:0836"
+    stale = "import-2026-11-09@sha256:0836"
     cluster.stale = {"w1": [stale], "w2": [stale]}
     cluster.config_digest = "sha256:other"
 
@@ -374,11 +380,11 @@ def test_the_config_digest_is_found_through_an_index() -> None:
 
 
 def test_only_names_under_the_repository_or_left_by_kind_load_are_candidates() -> None:
-    refs = {f"{REPOSITORY}@sha256:a": "x", "docker.io/library/import-1@sha256:b": "y", "registry.k8s.io/pause:3.9": "z"}
+    refs = {f"{REPOSITORY}@sha256:a": "x", "import-1@sha256:b": "y", "registry.k8s.io/pause:3.9": "z"}
 
     assert registry_pull.names_of_images(refs, REPOSITORY) == [
-        "docker.io/library/import-1@sha256:b",
         f"{REPOSITORY}@sha256:a",
+        "import-1@sha256:b",
     ]
 
 
@@ -423,7 +429,7 @@ def test_a_code_location_that_never_becomes_ready_names_the_cause(
 
 
 def test_the_cri_record_is_removed_by_id_before_ctr_and_containerd_is_restarted_after(cluster: Cluster) -> None:
-    cluster.stale = {"w1": ["docker.io/library/import-2026-11-09@sha256:0836"]}
+    cluster.stale = {"w1": ["import-2026-11-09@sha256:0836"]}
 
     registry_pull.purge_image(_cfg(), IMAGE)
 
@@ -446,3 +452,26 @@ def test_a_cri_record_that_survives_the_restart_fails_the_purge_naming_node_id_a
 
     with pytest.raises(E2EError, match=r"w1: the CRI image record survived.*sha256:1.*import-2026-11-09"):
         registry_pull.purge_image(_cfg(), IMAGE)
+
+
+def test_import_names_are_removed_by_the_cri_records_own_names_when_their_manifests_cannot_be_read(
+    cluster: Cluster,
+) -> None:
+    stale = "import-2026-11-09@sha256:0836"
+    cluster.stale = {"w1": [stale], "w2": [stale]}
+    cluster.blobs_unreadable = True
+
+    registry_pull.purge_image(_cfg(), IMAGE)
+
+    assert cluster.stale["w1"] == [] and cluster.stale["w2"] == []
+
+
+def test_an_unrelated_import_name_is_left_alone_when_its_manifest_cannot_be_read(cluster: Cluster) -> None:
+    other = "import-2026-06-02@sha256:aaaa"
+    cluster.stale = {"w1": [other]}
+    cluster.cache["w1"] = {IMAGE}
+    cluster.blobs_unreadable = True
+
+    registry_pull.purge_image(_cfg(), IMAGE)
+
+    assert cluster.stale["w1"] == []
