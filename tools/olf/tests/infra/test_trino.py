@@ -220,3 +220,49 @@ def test_exec_runs_in_the_coordinator_of_the_targets_service() -> None:
     args = trino.exec_args(target, "select 1", output_format="CSV")
 
     assert args[args.index("-n") + 1 : args.index("--")] == ["olf-prod", "deploy/trino-prod-coordinator"]
+
+
+def test_the_pod_mints_the_stage_token_and_fails_the_query_when_it_cannot(tmp_path: Path) -> None:
+    import subprocess as sp
+
+    (tmp_path / "trino").write_text('#!/bin/sh\nprintf "%s\\n" "$*"\n')
+    # Echoes the config curl was given on stdin to a file, so the test can see the secret never rode an argument.
+    (tmp_path / "curl").write_text(
+        '#!/bin/sh\ncat > "$0.stdin"\n[ -f "$0.fail" ] && exit 22\necho \'{"access_token":"polaris-token","x":1}\'\n'
+    )
+    for tool in ("trino", "curl"):
+        (tmp_path / tool).chmod(0o755)
+    (tmp_path / "lakehouse_dev.properties").write_text(
+        "iceberg.rest-catalog.oauth2.server-uri=http://polaris/tokens\niceberg.rest-catalog.oauth2.scope=S\n"
+    )
+    (tmp_path / "glue.properties").write_text("iceberg.catalog.type=glue\n")
+
+    def run(catalog: str) -> sp.CompletedProcess[str]:
+        script = trino.cli_script(str(tmp_path / "absent-ca"), stage="dev", catalog=catalog)
+        script = script.replace(trino.TRINO_CATALOG_DIR, str(tmp_path))
+        return sp.run(
+            ["sh", "-c", script, "trino", "--user", "u"],
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": f"{tmp_path}:/usr/bin:/bin",
+                "OPENLAKEFORGE_CATALOG_DEV_CLIENT_ID": "the-id",
+                "OPENLAKEFORGE_CATALOG_DEV_CLIENT_SECRET": "the-secret",
+            },
+        )
+
+    ok = run("lakehouse_dev")
+    assert ok.stdout.strip() == "--extra-credential token=polaris-token --user u"
+    sent = (tmp_path / "curl.stdin").read_text()
+    assert "client_secret=the-secret" in sent and "http://polaris/tokens" in sent
+    assert run("glue").stdout.strip() == "--user u"  # no token endpoint: nothing to send
+    assert run("absent").stdout.strip() == "--user u"
+
+    (tmp_path / "curl.fail").touch()
+    failed = run("lakehouse_dev")
+    assert failed.returncode == 1 and failed.stdout == ""
+    assert "cannot mint the Polaris token" in failed.stderr
+    assert "the-secret" not in failed.stderr + failed.stdout
+
+    argv = trino.exec_args(_target(stage="dev", catalog="lakehouse_dev"), "SELECT 1", output_format="CSV")
+    assert "polaris-token" not in " ".join(argv)
