@@ -26,7 +26,6 @@ from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.distribution import distribution_version_at
 from olf.common.profile import StageName
 from olf.common.provider_contracts import CodeLocation, ProviderContractError, StageContract, parse_provider_contracts
-from olf.common.runtime_contract import QUERY_CA_DIR as _QUERY_CA_DIR
 from olf.common.runtime_contract import RUNTIME_ALIASES as _RUNTIME_ALIASES
 from olf.common.runtime_contract import RUNTIME_ENV as _RUNTIME_ENV
 from olf.common.runtime_contract import RuntimeContractError, runtime_contract_at
@@ -286,28 +285,6 @@ def _user_values(
         }
         - {""}
     )
-    # The CA that signs Trino's certificate, for dbt in the run pods; the
-    # profile reads these names (openlakeforge_runtime/dbt/profiles/trino.yml).
-    ca_configmap = contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP", "")
-    tls_pod: dict[str, Any] = {}
-    if ca_configmap and contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT"):
-        env.append({"name": "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME", "value": "https"})
-        env.append({"name": "OPENLAKEFORGE_QUERY_TRINO_CA", "value": f"{_QUERY_CA_DIR}/ca.crt"})
-        tls_pod = {
-            "volumes": [{"name": "query-ca", "configMap": {"name": ca_configmap}}],
-            "volumeMounts": [{"name": "query-ca", "mountPath": _QUERY_CA_DIR, "readOnly": True}],
-        }
-        # The stage's own Trino credential, by reference: the Secret lives in
-        # this stage's namespace and holds only this stage's principal.
-        credential = contract_environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "")
-        if credential:
-            env.append({"name": "OPENLAKEFORGE_DBT_TRINO_METHOD", "value": "ldap"})
-            env.append(
-                {
-                    "name": "OPENLAKEFORGE_DBT_TRINO_PASSWORD",
-                    "valueFrom": {"secretKeyRef": {"name": credential, "key": "password"}},
-                }
-            )
     return {
         "global": dict(platform_globals),
         "extraManifests": [_log_archive_manifest(
@@ -340,7 +317,6 @@ def _user_values(
                 "includeConfigInLaunchedRuns": {"enabled": True},
                 "env": env,
                 "envSecrets": [{"name": secret} for secret in secrets],
-                **tls_pod,
                 "deploymentLabels": {
                     "openlakeforge.io/project-revision": activation.project_revision,
                     _ACTIVATION_LABEL: activation.activation_revision,

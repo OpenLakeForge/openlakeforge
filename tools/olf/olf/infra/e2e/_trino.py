@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from openlakeforge_core import Domain, Product
 
-from olf.common import config, log
+from olf.common import log
 from olf.infra import trino
 from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
@@ -207,17 +207,13 @@ def trino_query(
     sql: str,
     *,
     stage: str | None = None,
-    password: str | None = None,
-    session_user: str | None = None,
     credential: str | None = None,
 ) -> str:
-    """Run `sql` as a stage's runtime principal, with its password read from its Secret.
+    """Run `sql` on a stage's coordinator with the stage processing principal's Polaris token.
 
-    The overrides are for the isolation probes: another stage's principal,
-    a password that is not the principal's (`""` sends none), a claimed
-    session user apart from the authenticated principal, and the processing
-    credential the coordinator mints its Polaris token from, as `cli_script`
-    reads it (`trino.decode_credential("")` sends no token).
+    The overrides are for the isolation probes: another stage's coordinator, and
+    the processing credential the coordinator mints its Polaris token from, as
+    `cli_script` reads it (`trino.decode_credential("")` sends no token).
     """
     catalog = stage_catalog_name(cfg)
     service, namespace = _trino_service(cfg, stage)
@@ -237,18 +233,12 @@ def trino_query(
     lookup = trino.processing_credential_args(cfg.environ, namespace)
     if credential is None and lookup is not None and target.stage == trino.stage_from_catalog(stage_catalog_name(cfg)):
         stdin = processing_credential(cfg, lookup)
-    # Only a contract that carries the credential name is at the password level; the principal
-    # Secrets exist at `off` and `tls` too, but nothing there asks for them.
-    if not config.env("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", environ=cfg.environ):
-        password = None
-    elif password is None:
-        password = trino.decode_password(kubectl(cfg, trino.password_args(target), capture=True, retry_transient=True))
     return kubectl(
         cfg,
-        trino.exec_args(target, sql, output_format="CSV_UNQUOTED", session_user=session_user),
+        trino.exec_args(target, sql, output_format="CSV_UNQUOTED"),
         capture=True,
         retry_transient=True,
-        input_text=stdin if password is None else f"{stdin}{password}\n",
+        input_text=stdin,
     )
 
 def processing_credential(cfg: E2EConfig, lookup: list[str]) -> str:

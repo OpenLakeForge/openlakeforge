@@ -19,16 +19,11 @@ from olf.infra import k8s, trino
 
 JOB_NAME = "openmetadata-trino-ingestion"
 REFRESH_SCHEDULE = "0 * * * *"
-_CA_DIR = "/etc/olf/query-ca"
 # The bot JWT is the only secret. It reaches the container through a
 # secretKeyRef and is substituted into the config inside the pod, so neither
 # the Job spec nor Terraform state holds it.
 _TOKEN_ENV = "OM_BOT_JWT"
 _TOKEN_PLACEHOLDER = "__OM_BOT_JWT__"
-# The `openmetadata` principal's password (ADR 0016) travels the same way. Its
-# Secret is in the namespace Trino runs in, named from the stage credential's, so the Job runs there too.
-_PASSWORD_ENV = "TRINO_PASSWORD"
-_PASSWORD_PLACEHOLDER = "__TRINO_PASSWORD__"
 # Trino carries no policy of its own: the crawl presents the `openmetadata` Polaris principal's token as the `token`
 # extra credential (ADR 0019 section 9). The pod mints it from the principal's client credentials just before the
 # crawl, so the token is in neither the Job spec nor the stored service; the 3600 s deadline fits its one hour.
@@ -43,38 +38,23 @@ _MINT = (
 )
 
 
-def _password_secret(environ: Mapping[str, str]) -> str:
-    credential = environ.get("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "")
-    return f"{credential}-openmetadata" if credential else ""
-
-
 def _polaris(environ: Mapping[str, str]) -> bool:
     return bool(environ.get("OPENLAKEFORGE_CATALOG_TOKEN_URI"))
 
 
-def _tls(environ: Mapping[str, str]) -> bool:
-    keys = ("OPENLAKEFORGE_QUERY_TRINO_TLS_PORT", "OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP")
-    return all(environ.get(key) for key in keys)
-
-
 def ingestion_config(environ: Mapping[str, str], *, service: str, om_api: str) -> dict[str, Any]:
     """The workflow `metadata ingest -c` runs, as the pipeline client generates it."""
-    tls = _tls(environ)
-    port = environ["OPENLAKEFORGE_QUERY_TRINO_TLS_PORT"] if tls else environ["OPENLAKEFORGE_QUERY_TRINO_PORT"]
+    port = environ["OPENLAKEFORGE_QUERY_TRINO_PORT"]
     connection: dict[str, Any] = {
         "type": "Trino",
         "hostPort": f"{environ['OPENLAKEFORGE_QUERY_TRINO_HOST']}:{port}",
         "username": "openmetadata",
     }
     arguments: dict[str, Any] = {}
-    if tls:
-        arguments = {"http_scheme": "https", "verify": f"{_CA_DIR}/ca.crt"}
     if _polaris(environ):
         arguments["extra_credential"] = [["token", _POLARIS_TOKEN_PLACEHOLDER]]
     if arguments:
         connection["connectionArguments"] = arguments
-    if _password_secret(environ):
-        connection["authType"] = {"password": _PASSWORD_PLACEHOLDER}
     return {
         "source": {
             "type": "trino",
@@ -121,9 +101,7 @@ def ingestion_job(
             "-c",
             f'{mint}printf \'%s\' "$OM_WORKFLOW" | sed -e "s|{_TOKEN_PLACEHOLDER}|${_TOKEN_ENV}|"'
             + (f' -e "s|{_POLARIS_TOKEN_PLACEHOLDER}|$POLARIS_JWT|"' if mint else "")
-            +
-            f' -e "s|{_PASSWORD_PLACEHOLDER}|${{{_PASSWORD_ENV}:-}}|" > /tmp/workflow.yaml'
-            " && metadata ingest -c /tmp/workflow.yaml",
+            + " > /tmp/workflow.yaml && metadata ingest -c /tmp/workflow.yaml",
         ],
         "env": [
             {"name": "OM_WORKFLOW", "value": yaml.safe_dump(workflow)},
@@ -148,19 +126,7 @@ def ingestion_job(
         for name in ("CLIENT_ID", "CLIENT_SECRET"):
             ref = {"secretKeyRef": {"name": POLARIS_SECRET, "key": f"POLARIS_OM_{name}"}}
             container["env"].append({"name": f"POLARIS_{name}", "valueFrom": ref})
-    if password_secret := _password_secret(environ):
-        container["env"].append(
-            {
-                "name": _PASSWORD_ENV,
-                "valueFrom": {"secretKeyRef": {"name": password_secret, "key": "password"}},
-            }
-        )
     pod: dict[str, Any] = {"restartPolicy": "Never", "containers": [container]}
-    if _tls(environ):
-        container["volumeMounts"] = [{"name": "query-ca", "mountPath": _CA_DIR, "readOnly": True}]
-        pod["volumes"] = [
-            {"name": "query-ca", "configMap": {"name": environ["OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP"]}}
-        ]
     labels = {"openlakeforge.io/job": JOB_NAME}
     return {
         "apiVersion": "batch/v1",

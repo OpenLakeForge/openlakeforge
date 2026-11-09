@@ -664,21 +664,7 @@ def _parse_stage(
         document["query"],
         where=f"stages.{name.value}.query",
         required={"service_ref", "catalog_ref", "catalog_name", "endpoint", "runtime_identity_ref"},
-        optional={"tls_port", "ca_configmap_name", "credential_secret_name"},
     )
-    if "credential_secret_name" in query:
-        if not is_secret_name(query["credential_secret_name"]):
-            raise ProviderContractError(
-                f"stages.{name.value}.query.credential_secret_name is not a valid Kubernetes Secret name"
-            )
-        if not ("tls_port" in query and "ca_configmap_name" in query):
-            raise ProviderContractError(
-                f"stages.{name.value}.query.credential_secret_name requires tls_port and ca_configmap_name: "
-                "a password must not be sent over plain HTTP"
-            )
-        _tcp_port(query["tls_port"], where=f"stages.{name.value}.query.tls_port")
-        if not is_secret_name(query["ca_configmap_name"]):
-            raise ProviderContractError(f"stages.{name.value}.query.ca_configmap_name must be a valid name")
     _http_host_port_uri(query["endpoint"], where=f"stages.{name.value}.query.endpoint")
     # Both shapes are accepted while AWS and Azure keep one shared Trino and the
     # local root moves to one Trino per stage (#965).

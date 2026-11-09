@@ -1936,46 +1936,19 @@ def test_an_http_issuer_url_is_rejected_unless_the_issuer_is_none() -> None:
         parse_provider_contracts(contract, _topology(contract))
 
 
-@pytest.mark.parametrize("name", ["", "Not_A_Name", 7])
-def test_a_credential_secret_must_be_a_valid_secret_name(name: object) -> None:
-    contract = _fixture("local-provider-contracts-v3.json")
-    topology = _topology(contract)
-    contract["stages"]["dev"]["query"].update(credential_secret_name=name, tls_port="8443", ca_configmap_name="ca")
-
-    with pytest.raises(ProviderContractError, match="credential_secret_name is not a valid Kubernetes Secret name"):
-        parse_provider_contracts(contract, topology)
-
-
-def test_a_credential_secret_requires_both_tls_fields() -> None:
-    contract = _fixture("local-provider-contracts-v3.json")
-    topology = _topology(contract)
-    contract["stages"]["dev"]["query"].update(credential_secret_name="trino-credential", tls_port="8443")
-
-    with pytest.raises(ProviderContractError, match="credential_secret_name requires tls_port and ca_configmap_name"):
-        parse_provider_contracts(contract, topology)
-
-
 @pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("tls_port", None),
-        ("tls_port", ""),
-        ("tls_port", "not-a-port"),
-        ("tls_port", 0),
-        ("tls_port", 70000),
-        ("ca_configmap_name", None),
-        ("ca_configmap_name", ""),
-        ("ca_configmap_name", "Bad_Name"),
-    ],
+    "field",
+    [{"tls_port": "8443"}, {"ca_configmap_name": "ca"}, {"credential_secret_name": "trino-credential"}],
+    ids=lambda field: next(iter(field)),
 )
-def test_a_credential_secret_requires_valid_tls_fields(field: str, value: object) -> None:
+def test_a_stage_query_carries_no_trino_tls_or_password_fields(field: dict[str, str]) -> None:
+    """Trino takes no password and serves no HTTPS (ADR 0016): the fields that configured them are unknown keys."""
     contract = _fixture("local-provider-contracts-v3.json")
     topology = _topology(contract)
-    query = contract["stages"]["dev"]["query"]
-    query.update(credential_secret_name="trino-credential", tls_port="8443", ca_configmap_name="ca")
-    query[field] = value
+    contract["stages"]["dev"]["query"].update(field)
+    unknown = rf"stages\.dev\.query contains unsupported fields \['{next(iter(field))}'\]"
 
-    with pytest.raises(ProviderContractError, match=field):
+    with pytest.raises(ProviderContractError, match=unknown):
         parse_provider_contracts(contract, topology)
 
 

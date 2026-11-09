@@ -92,7 +92,7 @@ def test_run_sql_returns_output_and_targets_the_kube_context() -> None:
 
 
 def test_run_sql_reads_no_secret_and_sends_no_credential_without_a_named_one(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
+    monkeypatch.delenv("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", raising=False)
     calls: list[tuple[list[str], str]] = []
 
     def runner(command, stdin):  # noqa: ANN001, ANN202
@@ -111,7 +111,6 @@ def test_run_sql_sends_the_stage_processing_credential_on_stdin_never_in_the_arg
 ) -> None:
     import base64
 
-    monkeypatch.delenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", raising=False)
     monkeypatch.setenv("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "polaris-prod-processing-creds")
     calls: list[tuple[list[str], str]] = []
 
@@ -128,68 +127,45 @@ def test_run_sql_sends_the_stage_processing_credential_on_stdin_never_in_the_arg
     assert "the-secret" not in " ".join(query)
 
 
-def test_run_sql_sends_the_principals_password_on_stdin_never_in_the_argv(monkeypatch: pytest.MonkeyPatch) -> None:
-    import base64
-
-    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
-
-    calls: list[tuple[list[str], str]] = []
-
-    def runner(command, stdin):  # noqa: ANN001, ANN202
-        calls.append((list(command), stdin))
-        stdout = base64.b64encode(b"s3cret").decode() if "get" in command else "1\n"
-        return _result(command, 0, stdout=stdout, stderr="")
-
-    trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
-
-    (lookup, _), (query, stdin) = calls
-    assert "trino-credential-olf-prod-runtime" in lookup
-    assert stdin == "\n\ns3cret\n"
-    assert not any("s3cret" in part for part in query)
-
-
-def test_the_pod_script_reads_the_password_only_when_the_pod_enforces_one(tmp_path: Path) -> None:
+def test_the_pod_script_runs_the_cli_on_its_plain_listener_with_the_callers_arguments(tmp_path: Path) -> None:
     import subprocess as sp
 
     (tmp_path / "trino").write_text('#!/bin/sh\nprintf "%s|%s\\n" "$TRINO_PASSWORD" "$*"\n')
     (tmp_path / "trino").chmod(0o755)
-    password_file = tmp_path / "password.db"
 
-    def run(stdin: str) -> str:
-        script = trino.cli_script(str(tmp_path / "absent-ca")).replace(trino.TRINO_PASSWORD_FILE, str(password_file))
-        return sp.run(
-            ["sh", "-c", script, "trino", "--user", "u"],
-            input=stdin,
-            capture_output=True,
-            text=True,
-            check=True,
-            env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
-        ).stdout.strip()
+    out = sp.run(
+        ["sh", "-c", trino.cli_script(), "trino", "--user", "u"],
+        input="pw\n",
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
+    ).stdout.strip()
 
-    assert run("ignored\n") == "|--user u"
-    password_file.write_text("u hash")
-    assert run("pw\n") == "pw|--password --user u"
-    assert run("\n") == "|--user u"
+    # Without a stage there is nothing to mint: stdin is not read, no password or HTTPS listener is chosen.
+    assert out == "|--user u"
 
 
-def test_run_sql_stops_when_the_password_secret_cannot_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "trino-credential")
+def test_run_sql_stops_when_the_processing_credential_cannot_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "polaris-prod-processing-creds")
     calls: list[list[str]] = []
 
-    def runner(command, stdin):  # noqa: ANN001, ANN202
+    def runner(command, stdin):  # noqa: ANN001, ANN202, ARG001
         calls.append(list(command))
         return _result(command, 1, stdout="", stderr="forbidden")
 
-    with pytest.raises(trino.TrinoQueryError, match=r"(?s)trino-credential-olf-prod-runtime.*RBAC"):
+    with pytest.raises(trino.TrinoQueryError, match=r"(?s)processing credential in namespace olf-system.*RBAC"):
         trino.run_sql(_target(), "SELECT 1", output_format="CSV_HEADER", kubectl="kubectl", runner=runner)
     assert len(calls) == 1
 
 
-def test_run_sql_reads_the_credential_secret_from_the_given_environ(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", "from-os-environ")
+def test_run_sql_reads_the_processing_credential_secret_from_the_given_environ(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_CATALOG_FLOE_CREDENTIALS_SECRET_NAME", "from-os-environ")
     calls: list[list[str]] = []
 
-    def runner(command, stdin):  # noqa: ANN001, ANN202
+    def runner(command, stdin):  # noqa: ANN001, ANN202, ARG001
         calls.append(list(command))
         return _result(command, 0, stdout="1\n", stderr="")
 
@@ -260,7 +236,7 @@ def test_the_pod_mints_the_stage_token_and_fails_the_query_when_it_cannot(tmp_pa
     (tmp_path / "glue.properties").write_text("iceberg.catalog.type=glue\n")
 
     def run(catalog: str, credential: str = "the-id\nthe-secret\n") -> sp.CompletedProcess[str]:
-        script = trino.cli_script(str(tmp_path / "absent-ca"), stage="dev", catalog=catalog)
+        script = trino.cli_script(stage="dev", catalog=catalog)
         script = script.replace(trino.TRINO_CATALOG_DIR, str(tmp_path))
         # The coordinator holds no credential with a grant: the caller's stdin carries it.
         return sp.run(

@@ -889,10 +889,11 @@ _RUNTIME_NAMES_SET_ELSEWHERE = {
     "OPENLAKEFORGE_KUBE_NAMESPACE": "activation",
     "OPENLAKEFORGE_PROJECT_CODE_IMAGE": "activation",
     "OPENLAKEFORGE_STAGE": "activation",
-    "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME": "activation, only with the Trino CA",
-    "OPENLAKEFORGE_QUERY_TRINO_CA": "activation, only with the Trino CA",
-    "OPENLAKEFORGE_DBT_TRINO_METHOD": "activation, only with a Trino credential",
-    "OPENLAKEFORGE_DBT_TRINO_PASSWORD": "activation, by secretKeyRef",
+    # Trino takes no password and serves no HTTPS (ADR 0016): never set, the runtime's plain-HTTP default applies.
+    "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME": "unset, default applies",
+    "OPENLAKEFORGE_QUERY_TRINO_CA": "unset, default applies",
+    "OPENLAKEFORGE_DBT_TRINO_METHOD": "unset, default applies",
+    "OPENLAKEFORGE_DBT_TRINO_PASSWORD": "unset, default applies",
     # openlakeforge_runtime.k8s_log_archive runs in its own CronJob (`_archive_env`).
     "OPENLAKEFORGE_LOG_BASE_URI": "log archiver",
     "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS": "log archiver",
@@ -943,28 +944,18 @@ def test_the_runtime_allowlist_names_only_what_runtime_code_reads() -> None:
     assert not set(_RUNTIME_ENV) - _names_runtime_code_reads()
 
 
-def test_trino_https_reaches_the_code_server_with_the_ca_volume() -> None:
-    values = _values(
-        {"OPENLAKEFORGE_QUERY_TRINO_TLS_PORT": "8443", "OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP": "olf-local-ca"}
-    )
-    deployment = values["deployments"][0]
-    env = {e["name"]: e.get("value") for e in deployment["env"]}
-
-    assert env["OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME"] == "https"
-    assert env["OPENLAKEFORGE_QUERY_TRINO_TLS_PORT"] == "8443"
-    ca = env["OPENLAKEFORGE_QUERY_TRINO_CA"]
-    assert deployment["volumes"] == [{"name": "query-ca", "configMap": {"name": "olf-local-ca"}}]
-    (mount,) = deployment["volumeMounts"]
-    assert ca == f"{mount['mountPath']}/ca.crt"
-
-
-def test_without_trino_https_the_code_server_gets_no_ca_volume_or_https_env() -> None:
+def test_the_code_server_reaches_trino_over_plain_http_with_no_ca_or_password() -> None:
     deployment = _values()["deployments"][0]
 
     assert "volumes" not in deployment
     assert "volumeMounts" not in deployment
     names = {e["name"] for e in deployment["env"]}
-    assert not names & {"OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME", "OPENLAKEFORGE_QUERY_TRINO_CA"}
+    assert not names & {
+        "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME",
+        "OPENLAKEFORGE_QUERY_TRINO_CA",
+        "OPENLAKEFORGE_DBT_TRINO_METHOD",
+        "OPENLAKEFORGE_DBT_TRINO_PASSWORD",
+    }
 
 
 def test_governed_stage_maps_the_bot_jwt_to_the_name_openlineage_reads() -> None:
@@ -1414,48 +1405,6 @@ def test_a_deleted_release_is_uninstalled_rather_than_restored(
         harness.deploy("dev")
 
     assert harness.helm.uninstalled == ["olf-dev"]
-
-
-def test_stage_query_tls_fields_of_a_real_contract_reach_the_code_server() -> None:
-    """The fields sit only under stages.<stage>.query, as `terraform output` emits them."""
-    import json
-
-    from test_provider_conformance import REPO_ROOT, _topology_of
-
-    from olf.infra.contracts import build_contract_env
-
-    contract = json.loads((Path(__file__).parents[1] / "fixtures/local-provider-contracts-v3.json").read_text())
-    contract["stages"]["dev"]["query"].update(tls_port="8443", ca_configmap_name="olf-local-ca")
-
-    exports, _ = build_contract_env({}, contract, repo_root=REPO_ROOT, topology=_topology_of(contract), stage="dev")
-    deployment = _values({k: v for k, v in exports.items() if "QUERY_TRINO" in k})["deployments"][0]
-
-    env = {e["name"]: e.get("value") for e in deployment["env"]}
-    assert env["OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME"] == "https"
-    assert deployment["volumes"][0]["configMap"]["name"] == "olf-local-ca"
-
-
-def test_a_password_contract_gives_dbt_the_stage_secret_by_reference() -> None:
-    values = _values(
-        {
-            "OPENLAKEFORGE_QUERY_TRINO_TLS_PORT": "8443",
-            "OPENLAKEFORGE_QUERY_TRINO_CA_CONFIGMAP": "olf-local-ca",
-            "OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET": "trino-credential",
-        }
-    )
-    env = {e["name"]: e for e in values["deployments"][0]["env"]}
-
-    assert env["OPENLAKEFORGE_DBT_TRINO_METHOD"]["value"] == "ldap"
-    assert env["OPENLAKEFORGE_DBT_TRINO_PASSWORD"] == {
-        "name": "OPENLAKEFORGE_DBT_TRINO_PASSWORD",
-        "valueFrom": {"secretKeyRef": {"name": "trino-credential", "key": "password"}},
-    }
-
-
-def test_without_a_password_contract_dbt_gets_no_trino_password() -> None:
-    names = {e["name"] for e in _values()["deployments"][0]["env"]}
-
-    assert not names & {"OPENLAKEFORGE_DBT_TRINO_METHOD", "OPENLAKEFORGE_DBT_TRINO_PASSWORD"}
 
 
 def test_run_pods_can_bind_floe_domain_jobs_to_their_own_image_namespace_and_secrets() -> None:

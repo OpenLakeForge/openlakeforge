@@ -60,52 +60,6 @@ def _expect_trino_denied(cfg: E2EConfig, *, user: str, sql: str, what: str, sibl
     raise E2EError(f"isolation breach: {user} was not denied {what} ({sql!r} succeeded).")
 
 
-UNAUTHENTICATED_MARKERS = ("401", "unauthorized", "authentication failed", "invalid credentials")
-
-
-def _expect_trino_unauthenticated(cfg: E2EConfig, *, sql: str, what: str, **identity: str | None) -> None:
-    """Require Trino to refuse the credentials themselves (HTTP 401), before any access rule applies.
-
-    A refusal for another reason (a broken pod, a missing catalog) must not pass
-    as a proof that a claimed name is not enough.
-    """
-    try:
-        trino_query(cfg, sql, **identity)
-    except E2EError as exc:
-        if not any(marker in str(exc).lower() for marker in UNAUTHENTICATED_MARKERS):
-            raise E2EError(f"Trino refused {what}, but not as unauthenticated ({exc}).") from exc
-        return
-    raise E2EError(f"authentication breach: Trino accepted {what} ({sql!r} succeeded).")
-
-
-def check_trino_workload_authentication(cfg: E2EConfig, this_stage: str, sibling: str) -> None:
-    """With password authentication on, a user name is a claim and the password is the proof (ADR 0016).
-
-    The positive controls are the caller's: this stage's principal reaching its
-    own catalog with its Secret's password, and the unattended pipeline runs
-    that authenticate the same way.
-    """
-    if not config.env("OPENLAKEFORGE_QUERY_TRINO_CREDENTIAL_SECRET", environ=cfg.environ):
-        log.info("Skipping Trino workload authentication probes: Trino takes no password here.")
-        return
-    log.step(f"Checking Trino workload authentication ({this_stage} claiming {sibling})...")
-    sibling_sql = f"SELECT 1 FROM lakehouse_{sibling}.information_schema.tables LIMIT 1"
-    # The principal is this stage's, the claimed session user is the sibling's.
-    try:
-        trino_query(cfg, sibling_sql, session_user=f"olf-{sibling}-runtime")
-    except E2EError as exc:
-        if "cannot become user" not in str(exc):
-            raise E2EError(f"{this_stage}'s credential claiming {sibling} failed for another reason ({exc}).") from exc
-    else:
-        raise E2EError(f"isolation breach: {this_stage}'s password acted as {sibling}'s runtime user.")
-    _expect_trino_unauthenticated(
-        cfg, sql=sibling_sql, what=f"{sibling}'s user name with no password", stage=sibling, password=""
-    )
-    _expect_trino_unauthenticated(
-        cfg, sql=sibling_sql, what=f"{this_stage}'s user name with a wrong password", stage=this_stage, password="wrong"
-    )
-
-
 # Trino reports Polaris's 403 on a table as a generic "Failed to load table" and keeps the reason in the cause
 # chain; the paired control just loaded that table with the stage's own token, so it is not a missing table.
 POLARIS_REFUSAL_MARKERS = ("forbidden", "not authorized", "403", "failed to load table")
@@ -447,7 +401,6 @@ def check_stage_isolation(cfg: E2EConfig) -> None:
     )
     # Positive control: the same identity must still reach its own catalog.
     trino_query(cfg, f"SELECT 1 FROM lakehouse_{this_stage}.information_schema.tables LIMIT 1")
-    check_trino_workload_authentication(cfg, this_stage, sibling)
     check_keyless_trino(cfg, provider_contracts, this_stage, sibling)
 
     log.step(f"Checking SeaweedFS cross-stage isolation ({this_stage} -> {sibling})...")

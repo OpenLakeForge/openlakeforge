@@ -4,7 +4,6 @@ locals {
   version    = var.chart_package_path != null ? null : var.chart_version
 
   trust_volumes = concat(
-    var.trino_ca_configmap_name == null ? [] : [{ name = "query-ca", path = "/etc/olf/query-ca", configmap = var.trino_ca_configmap_name }],
     var.oidc == null ? [] : [{ name = "oidc-ca", path = "/etc/olf/oidc-ca", configmap = var.oidc.ca_configmap_name }],
   )
 
