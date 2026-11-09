@@ -17,7 +17,7 @@ import json
 import os
 import socket
 import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -73,6 +73,8 @@ class Route:
     # requests reads `no_proxy` from the call, not from `Session.proxies`, so `session()` injects it per request.
     proxies: Mapping[str, str] = field(default_factory=dict)
     verify: bool | str = True
+    # Re-establishes a port-forward that died; None for an ingress URL, which has nothing to re-establish.
+    revive: Callable[[], None] | None = field(default=None, compare=False)
 
     def session(self) -> requests.Session:
         return _RouteSession(self)
@@ -146,6 +148,7 @@ def service_route(
     local_port: int | None = None,
     kube_context: str | None = None,
     through_ingress: bool = False,
+    revivable: bool = False,
     environ: Mapping[str, str] | None = None,
 ) -> Iterator[Route]:
     """Yield the `Route` to the service bound at contract `ref` for the block.
@@ -157,6 +160,9 @@ def service_route(
     from `shared_namespace`, where cert-manager keeps the ClusterIssuer's
     Secret; callers pass it explicitly because `config.shared_namespace()`
     falls back to the stage namespace.
+
+    A `revivable` port-forward route carries `Route.revive`, for a caller that holds the route across minutes of
+    other work and must survive `kubectl port-forward` dying underneath it.
     """
     env = os.environ if environ is None else environ
     access = json.loads(env.get(ACCESS_ENV) or "{}")
@@ -165,16 +171,28 @@ def service_route(
     )
     url = None if bypass else access.get("routes", {}).get(ref)
     if url is None:
-        with k8s.port_forward(
-            service,
-            remote_port,
-            namespace,
-            local_port=local_port,
-            log_path=log_path,
-            kube_context=kube_context,
-            environ=environ,
-        ) as port:
-            yield Route(f"http://127.0.0.1:{port}")
+        if revivable:
+            with k8s.supervised_port_forward(
+                service,
+                remote_port,
+                namespace,
+                local_port=local_port,
+                log_path=log_path,
+                kube_context=kube_context,
+                environ=environ,
+            ) as forward:
+                yield Route(f"http://127.0.0.1:{forward.port}", revive=forward.revive)
+        else:
+            with k8s.port_forward(
+                service,
+                remote_port,
+                namespace,
+                local_port=local_port,
+                log_path=log_path,
+                kube_context=kube_context,
+                environ=environ,
+            ) as port:
+                yield Route(f"http://127.0.0.1:{port}")
         return
     # A deliberate ambient pin, process-wide and never restored; outside the scope of #559.
     socket.getaddrinfo = _pinned_getaddrinfo
