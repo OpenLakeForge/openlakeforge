@@ -147,6 +147,26 @@ def test_disabled_governance_and_analytics_unset_their_runtime_dependencies() ->
         assert name in unsets
 
 
+def test_dbt_runs_through_the_openlineage_wrapper_only_where_governance_is_on() -> None:
+    off, _ = build_contract_env({}, load_fixture("local-provider-contracts-v3.json"), repo_root=REPO_ROOT)
+    on, _ = build_contract_env({}, load_fixture("aws-provider-contracts-v3.json"), repo_root=REPO_ROOT)
+
+    assert off["OPENLAKEFORGE_GOVERNANCE_ENABLED"] == "false"
+    assert off["OPENLAKEFORGE_DBT_EXECUTABLE"] == "dbt"
+    assert on["OPENLAKEFORGE_GOVERNANCE_ENABLED"] == "true"
+    assert on["OPENLAKEFORGE_DBT_EXECUTABLE"] == "dbt-ol"
+
+
+def test_an_explicit_dbt_executable_wins_over_the_governance_default() -> None:
+    exports, _ = build_contract_env(
+        {"OPENLAKEFORGE_DBT_EXECUTABLE": "/opt/dbt"},
+        load_fixture("local-provider-contracts-v3.json"),
+        repo_root=REPO_ROOT,
+    )
+
+    assert exports["OPENLAKEFORGE_DBT_EXECUTABLE"] == "/opt/dbt"
+
+
 def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     exports, unsets = build_contract_env({}, load_fixture("aws-provider-contracts-v3.json"), repo_root=REPO_ROOT)
     # storage.aws_s3 blanks S3-compatible endpoint plumbing

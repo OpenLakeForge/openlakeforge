@@ -219,8 +219,10 @@ locals {
 
   dbt_env = concat([
     {
-      name  = "OPENLAKEFORGE_DBT_EXECUTABLE"
-      value = "dbt-ol"
+      name = "OPENLAKEFORGE_DBT_EXECUTABLE"
+      # dbt-ol only wraps dbt to post OpenLineage events, and OPENLINEAGE_URL below exists only with governance;
+      # without it the wrapper would parse run artifacts after every build to emit events to nowhere.
+      value = local.governance_enabled ? "dbt-ol" : "dbt"
     },
     {
       name  = "OPENLAKEFORGE_DBT_TRINO_USER"
