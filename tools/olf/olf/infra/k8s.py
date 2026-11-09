@@ -17,7 +17,7 @@ import re
 import socket
 import tempfile
 import time
-from collections.abc import Collection, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -475,6 +475,97 @@ def _wait_for_port_forward(process: Popen[bytes], port: int, log_path: str) -> N
             time.sleep(PORT_FORWARD_READY_POLL_SECONDS)
 
 
+# A re-established forward that dies again each time is a cluster problem, not a blip.
+PORT_FORWARD_MAX_REVIVALS = 3
+
+
+class PortForwardHandle:
+    """A running `kubectl port-forward` that can be re-established when it dies.
+
+    `kubectl port-forward` exits, or stops accepting, when its stream to the pod
+    breaks (an idle timeout, a kubelet/apiserver hiccup) while the pod stays
+    Ready, so a long e2e step that reuses one forward fails with "connection
+    refused" against a healthy service. `revive` replaces the dead process on
+    the same local port, at most `PORT_FORWARD_MAX_REVIVALS` times.
+    """
+
+    def __init__(self, launch: Callable[[], Popen[bytes]], port: int, log_path: str, *, label: str) -> None:
+        self.port = port
+        self._launch = launch
+        self._log_path = log_path
+        self._label = label
+        self._revivals = 0
+        self._process = launch()
+
+    def alive(self) -> bool:
+        if self._process.poll() is not None:
+            return False
+        try:
+            with socket.create_connection(("127.0.0.1", self.port), timeout=PORT_FORWARD_READY_POLL_SECONDS):
+                return True
+        except OSError:
+            return False
+
+    def wait_ready(self) -> None:
+        _wait_for_port_forward(self._process, self.port, self._log_path)
+
+    def revive(self) -> None:
+        """Re-establish the forward if it is dead; a no-op while it still accepts connections."""
+        if self.alive():
+            return
+        if self._revivals >= PORT_FORWARD_MAX_REVIVALS:
+            raise _port_forward_failure(
+                self._log_path,
+                f"port-forward to {self._label} on localhost:{self.port} died again after "
+                f"{PORT_FORWARD_MAX_REVIVALS} re-establishments.",
+            )
+        self._revivals += 1
+        self._stop()
+        self._process = self._launch()
+        self.wait_ready()
+
+    def close(self) -> None:
+        self._stop()
+
+    def _stop(self) -> None:
+        self._process.terminate()
+        with contextlib.suppress(TimeoutExpired):
+            self._process.wait(timeout=10)
+        if self._process.poll() is None:
+            self._process.kill()
+
+
+@contextlib.contextmanager
+def supervised_port_forward(
+    service: str,
+    remote_port: int,
+    namespace: str,
+    *,
+    local_port: int | None = None,
+    log_path: str = "/tmp/openlakeforge-port-forward.log",
+    kube_context: str | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Iterator[PortForwardHandle]:
+    """Run `kubectl port-forward` for the block; the handle re-establishes it if it dies."""
+    port = local_port or _free_local_port()
+    command = _resolved_kubectl_argv(
+        ["port-forward", f"svc/{service}", f"{port}:{remote_port}", "-n", namespace],
+        kube_context=kube_context,
+        environ=environ,
+    )
+
+    def launch() -> Popen[bytes]:
+        with open(log_path, "w", encoding="utf-8") as log_file:
+            return ProcessRunner().popen(command, stdout=log_file, stderr=STDOUT, env=environ, unset=unsets_of(environ))
+
+    handle = PortForwardHandle(launch, port, log_path, label=f"{namespace}/{service}")
+    try:
+        handle.wait_ready()
+        yield handle
+    finally:
+        handle.close()
+
+
 @contextlib.contextmanager
 def port_forward(
     service: str,
@@ -491,29 +582,16 @@ def port_forward(
     The yielded localhost port is accepting connections. Callers still own the
     service-specific health probe (Polaris OAuth, OpenMetadata JWKS, S3 bucket).
     """
-    port = local_port or _free_local_port()
-    command = _resolved_kubectl_argv(
-        [
-            "port-forward",
-            f"svc/{service}",
-            f"{port}:{remote_port}",
-            "-n",
-            namespace,
-        ],
+    with supervised_port_forward(
+        service,
+        remote_port,
+        namespace,
+        local_port=local_port,
+        log_path=log_path,
         kube_context=kube_context,
         environ=environ,
-    )
-    with open(log_path, "w", encoding="utf-8") as log_file:
-        process = ProcessRunner().popen(command, stdout=log_file, stderr=STDOUT, env=environ, unset=unsets_of(environ))
-    try:
-        _wait_for_port_forward(process, port, log_path)
-        yield port
-    finally:
-        process.terminate()
-        with contextlib.suppress(TimeoutExpired):
-            process.wait(timeout=10)
-        if process.poll() is None:
-            process.kill()
+    ) as handle:
+        yield handle.port
 
 
 def wait_for_rollout(

@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -541,8 +542,10 @@ def test_launch_and_poll_dagster_jobs_defaults_to_previous_shell_timeout(
     monkeypatch.setattr(_dagster.k8s, "http_wait", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         _dagster.k8s,
-        "port_forward",
-        lambda *_args, **_kwargs: __import__("contextlib").nullcontext(),
+        "supervised_port_forward",
+        lambda *_args, **_kwargs: __import__("contextlib").nullcontext(
+            SimpleNamespace(port=13000, revive=lambda: None)
+        ),
     )
 
     local_cfg = E2EConfig(
@@ -653,3 +656,57 @@ def test_dagster_launch_sends_the_run_config() -> None:
     client.launch("silver_maintenance", repository=("loc", "__repository__"))
 
     assert [call["executionParams"]["runConfigData"] for call in calls] == [run_config, {}]
+
+
+def _dead_then_alive_session(route_url: str, failures: int):  # noqa: ANN202
+    import requests
+
+    class Session:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def post(self, *_args: object, **_kwargs: object) -> Any:
+            self.calls += 1
+            if self.calls <= failures:
+                raise requests.ConnectionError("Connection refused")
+            return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": {"ok": True}})
+
+    return Session()
+
+
+def test_graphql_transport_revives_a_dead_forward_and_retries_the_request() -> None:
+    from olf.infra import access
+
+    revived: list[int] = []
+    session = _dead_then_alive_session("http://127.0.0.1:13000", failures=1)
+    route = access.Route("http://127.0.0.1:13000", revive=lambda: revived.append(session.calls))
+    object.__setattr__(route, "session", lambda: session)
+
+    assert _dagster._graphql_over(route)("{ ok }", None) == {"data": {"ok": True}}
+    assert revived == [1]
+    assert session.calls == 2
+
+
+def test_graphql_transport_surfaces_a_forward_that_cannot_be_revived() -> None:
+    from olf.infra import access
+
+    def revive() -> None:
+        raise E2EError("port-forward could not be re-established")
+
+    session = _dead_then_alive_session("http://127.0.0.1:13000", failures=5)
+    route = access.Route("http://127.0.0.1:13000", revive=revive)
+    object.__setattr__(route, "session", lambda: session)
+
+    with pytest.raises(E2EError, match="could not be re-established"):
+        _dagster._graphql_over(route)("{ ok }", None)
+
+
+def test_graphql_transport_without_a_forward_reports_the_refusal_as_transient() -> None:
+    from olf.infra import access
+
+    session = _dead_then_alive_session("https://dagster.olf.localhost", failures=5)
+    route = access.Route("https://dagster.olf.localhost")
+    object.__setattr__(route, "session", lambda: session)
+
+    with pytest.raises(DagsterTransientError, match="Connection refused"):
+        _dagster._graphql_over(route)("{ ok }", None)

@@ -35,14 +35,25 @@ def _graphql_over(route: access.Route) -> Callable[[str, Mapping[str, Any] | Non
     """DagsterClient's GraphQL transport, sent through the route's proxy exemption and CA."""
     session = route.session()
 
+    def post(query: str, variables: Mapping[str, Any] | None) -> requests.Response:
+        return session.post(
+            f"{route.url}/graphql",
+            json={"query": query, "variables": variables or {}},
+            headers={"Accept": "application/json"},
+            timeout=30,
+        )
+
     def request_json(query: str, variables: Mapping[str, Any] | None) -> Mapping[str, Any]:
         try:
-            response = session.post(
-                f"{route.url}/graphql",
-                json={"query": query, "variables": variables or {}},
-                headers={"Accept": "application/json"},
-                timeout=30,
-            )
+            try:
+                response = post(query, variables)
+            except requests.ConnectionError:
+                # The webserver pod is Ready but the kubectl forward in front of it can die mid-suite; a plain
+                # retry against the dead local port would only repeat "connection refused".
+                if route.revive is None:
+                    raise
+                route.revive()
+                response = post(query, variables)
             response.raise_for_status()
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
@@ -77,6 +88,7 @@ def dagster_client(cfg: E2EConfig) -> Iterator[DagsterClient]:
         namespace=cfg.namespace,
         local_port=cfg.dagster_local_port,
         log_path=log_path,
+        revivable=True,
         shared_namespace=cfg.platform_namespace,
         kube_context=cfg.kube_context,
         environ=cfg_environ(cfg),

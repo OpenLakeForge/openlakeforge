@@ -117,7 +117,7 @@ def test_wait_for_port_forward_retries_until_the_listener_accepts(
 
 def test_wait_for_port_forward_reports_an_early_process_exit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     log_path = tmp_path / "port-forward.log"
-    log_path.write_text("error: services \"missing\" not found\n")
+    log_path.write_text('error: services "missing" not found\n')
     process = Mock()
     process.poll.return_value = 1
 
@@ -237,9 +237,7 @@ def test_kubectl_captures_output_and_raises_with_stderr_on_failure(
         k8s._kubectl(["get", "pods"], capture=True, kube_context="ctx")
 
 
-def test_kubectl_uncaptured_output_reaches_the_terminal(
-    capfd: pytest.CaptureFixture[str], fake_kubectl: Path
-) -> None:
+def test_kubectl_uncaptured_output_reaches_the_terminal(capfd: pytest.CaptureFixture[str], fake_kubectl: Path) -> None:
     assert k8s._kubectl(["apply", "-f", "x"], kube_context="ctx") == ""
 
     out, err = capfd.readouterr()
@@ -468,3 +466,91 @@ def test_scaling_without_remember_leaves_no_annotation(monkeypatch: pytest.Monke
     k8s.scale_deployment("dagster-daemon", "olf-dev", 1)
 
     assert daemon.annotations == {}
+
+
+class _FakeForwarder:
+    """Stands in for `kubectl port-forward`: each launch is a process that stays up until `die()`."""
+
+    def __init__(self) -> None:
+        self.processes: list[Mock] = []
+        self.listening = False
+
+    def popen(self, *_args: object, **_kwargs: object) -> Mock:
+        process = Mock()
+        process.poll.side_effect = lambda: None if process in self.alive else 1
+        self.processes.append(process)
+        self.alive.append(process)
+        return process
+
+    alive: list[Mock]
+
+    def die(self) -> None:
+        self.alive.clear()
+
+
+@pytest.fixture
+def forwarder(monkeypatch: pytest.MonkeyPatch) -> _FakeForwarder:
+    fake = _FakeForwarder()
+    fake.alive = []
+    monkeypatch.setattr(k8s.ProcessRunner, "popen", lambda _self, *a, **kw: fake.popen(*a, **kw))
+    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
+    monkeypatch.setattr(k8s, "_wait_for_port_forward", Mock())
+    # The local port accepts exactly while the newest launch is running.
+    monkeypatch.setattr(
+        k8s.socket,
+        "create_connection",
+        lambda *_a, **_kw: MagicMock() if fake.alive else (_ for _ in ()).throw(OSError("refused")),
+    )
+    return fake
+
+
+def _forward(tmp_path: Path):  # noqa: ANN202
+    return k8s.supervised_port_forward(
+        "dagster-webserver", 80, "lakehouse", local_port=18000, log_path=str(tmp_path / "pf.log"), kube_context="ctx"
+    )
+
+
+def test_revive_leaves_a_healthy_forward_alone(forwarder: _FakeForwarder, tmp_path: Path) -> None:
+    with _forward(tmp_path) as handle:
+        handle.revive()
+    assert len(forwarder.processes) == 1
+
+
+def test_revive_relaunches_a_forward_whose_process_exited(forwarder: _FakeForwarder, tmp_path: Path) -> None:
+    with _forward(tmp_path) as handle:
+        forwarder.die()
+        handle.revive()
+        assert handle.port == 18000
+        assert handle.alive()
+    assert len(forwarder.processes) == 2
+    forwarder.processes[0].terminate.assert_called_once_with()
+
+
+def test_revive_relaunches_a_forward_whose_process_is_up_but_refuses(
+    forwarder: _FakeForwarder, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with _forward(tmp_path) as handle:
+        refusing = iter((OSError("refused"),))
+
+        def create_connection(*_a: object, **_kw: object) -> MagicMock:
+            for error in refusing:
+                raise error
+            return MagicMock()
+
+        monkeypatch.setattr(k8s.socket, "create_connection", create_connection)
+        handle.revive()
+    assert len(forwarder.processes) == 2
+
+
+def test_revive_gives_up_with_a_clear_error_after_the_bounded_number_of_attempts(
+    forwarder: _FakeForwarder, tmp_path: Path
+) -> None:
+    (tmp_path / "pf.log").write_text("error: lost connection to pod\n")
+    with _forward(tmp_path) as handle:
+        for _ in range(k8s.PORT_FORWARD_MAX_REVIVALS):
+            forwarder.die()
+            handle.revive()
+        forwarder.die()
+        with pytest.raises(k8s.KubectlError, match=r"lakehouse/dagster-webserver.*died again after 3"):
+            handle.revive()
+    assert len(forwarder.processes) == 1 + k8s.PORT_FORWARD_MAX_REVIVALS
