@@ -294,20 +294,23 @@ olf infra e2e registry-pull -f openlakeforge.yaml --stage dev
 It reads the image from the stage's active revision and the Secret from
 `spec.project.image.pull_secret_ref`, then:
 
-1. checks that every Deployment, StatefulSet, CronJob, Job and Pod running the
-   image lists the Secret, and so does the stage's `dagster` ServiceAccount,
-   which Floe Jobs inherit it from. `--static-only` stops after step 2 and
-   removes nothing from the nodes;
+1. checks that every Deployment, StatefulSet and CronJob running the image
+   lists the Secret, and so does the stage's `dagster` ServiceAccount, which
+   Floe Jobs inherit it from. `--static-only` stops after step 2 and removes
+   nothing from the nodes;
 2. asks the registry for the image's manifest without credentials. If that
    works, the image is public, the Secret is not what lets the cluster pull
    it, and the check fails with `image is public: pull-secret path not
    exercised` unless you pass `--allow-public`;
-3. removes the image from every node (`crictl rmi` through `docker exec`, with
-   an empty `DOCKER_CONFIG` so no host login is involved), deletes the code
-   location pods, and requires each new pod to show a `Successfully pulled`
-   event rather than `already present on machine`;
+3. removes the image from every node (`crictl rmi` and `ctr images rm` through
+   `docker exec`, with an empty `DOCKER_CONFIG` so no host login is involved,
+   then a containerd restart on a node whose CRI image record survives),
+   deletes the code location pods, and requires a `Successfully pulled` event
+   from a pod on each node rather than only `already present on machine`;
 4. removes the image again, launches one run of the project's first product
-   and requires its run pod to pull the same way;
+   and requires the pods it creates to pull the same way (the first pod on a
+   node pulls, later pods there find that pull) and to list the Secret, which
+   Floe pods get from the ServiceAccount;
 5. removes the image again, cordons the node that runs a code location, deletes
    the pod and requires it to start on another node with a real pull.
 

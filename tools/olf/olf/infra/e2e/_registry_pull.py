@@ -6,8 +6,9 @@ node (`load_digest_image_into_kind`), so a missing or wrong `imagePullSecrets` e
 gone. This check removes the cache and proves the kubelet pulls again, with the Secret.
 
 Static: every Deployment, StatefulSet and CronJob that runs the active project image lists the Secret, and the
-`dagster` ServiceAccount does too (Floe Jobs are created at run time and can only inherit it from there). Run Jobs and
-Pods are judged only when created after the check starts: earlier ones are immutable history. Live: remove the image
+`dagster` ServiceAccount does too (Floe Jobs are created at run time and can only inherit it from there). Of what a
+run creates, the Pods are judged, not the Jobs (a Floe Job's template cannot list an inherited Secret), and only those
+created after the check starts: earlier ones are immutable history. Live: remove the image
 from every node, restart the code locations, launch a run, and require a real pull event for each new pod. The check is
 meaningless for a public image, so it refuses one unless told otherwise. It never reads a Secret's data.
 """
@@ -54,7 +55,9 @@ MANIFEST_ACCEPT = ", ".join(
     )
 )
 ANONYMOUS_PROBE_TIMEOUT_SECONDS = 20
-KIND_IMPORT_PREFIX = "docker.io/library/import-"
+CONTAINERD_RESTART_ATTEMPTS = 30
+NODE_READY_TIMEOUT = "120s"
+DOCKER_HUB_LIBRARY = "docker.io/library/"
 
 
 def _pod_spec(item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -188,21 +191,9 @@ def containerd_refs(listing: str) -> dict[str, str]:
     return refs
 
 
-def config_digest(manifest: str, read_blob: Callable[[str], str]) -> str | None:
-    """Config digest (the image ID) of an image manifest, or of the first manifest in an index that has one."""
-    document = json.loads(manifest)
-    if "config" in document:
-        return str(document["config"]["digest"])
-    for child in document.get("manifests") or []:
-        found = config_digest(read_blob(child["digest"]), read_blob)
-        if found:
-            return found
-    return None
-
-
-def names_of_images(refs: Mapping[str, str], repository: str) -> list[str]:
-    """Containerd names that can belong to the project image: under `repository`, or left by `kind load`."""
-    return sorted(name for name in refs if name.startswith((f"{repository}:", f"{repository}@", KIND_IMPORT_PREFIX)))
+def _bare(name: str) -> str:
+    """`name` without the `docker.io/library/` the CRI adds; `ctr` lists the name as `kind load` wrote it."""
+    return name.removeprefix(DOCKER_HUB_LIBRARY)
 
 
 def pod_diagnostics(pods: Sequence[Mapping[str, Any]], events: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -226,12 +217,27 @@ def pod_diagnostics(pods: Sequence[Mapping[str, Any]], events: Sequence[Mapping[
     return lines
 
 
-def pull_failures(events: Sequence[Mapping[str, Any]], pods: Sequence[str], image: str) -> list[str]:
-    """Pods with no `Successfully pulled` event for `image`, or one that found it already on the node."""
+def records_with_ids(listing: str, ids: Sequence[str]) -> dict[str, list[str]]:
+    """Image ID to its remaining names for each of `ids` that `crictl images -o json` lists, whatever the names."""
+    wanted = set(ids)
+    return {
+        image["id"]: [*(image.get("repoTags") or []), *(image.get("repoDigests") or [])]
+        for image in json.loads(listing).get("images", [])
+        if image["id"] in wanted
+    }
+
+
+def pull_failures(events: Sequence[Mapping[str, Any]], pods: Sequence[Mapping[str, Any]], image: str) -> list[str]:
+    """Nodes where no pod pulled `image` for real, naming the pods there and whether they found it in the cache.
+
+    Judged per node, not per pod: the image was removed from every node first, so the first pod a node runs must pull
+    it, and the next pod on that node (a run launches several) rightly finds the image that pull left behind. A node
+    where no pod pulled means the removal left a cache, so the Secret was not what made the pods start.
+    """
     repository = image.split("@", 1)[0]
-    problems = []
-    for pod in pods:
-        messages = [
+
+    def messages(pod: str) -> list[str]:
+        return [
             str(event.get("message", ""))
             for event in events
             if event.get("involvedObject", {}).get("kind") == "Pod"
@@ -239,10 +245,20 @@ def pull_failures(events: Sequence[Mapping[str, Any]], pods: Sequence[str], imag
             and event.get("reason") in ("Pulled", "Pulling")
             and repository in str(event.get("message", ""))
         ]
-        if any("already present on machine" in message for message in messages):
-            problems.append(f"{pod}: reported the image already present on the node")
-        elif not any("Successfully pulled" in message for message in messages):
-            problems.append(f"{pod}: no 'Successfully pulled' event")
+
+    by_node: dict[str, list[str]] = {}
+    for pod in pods:
+        by_node.setdefault(str(pod.get("spec", {}).get("nodeName")), []).append(pod["metadata"]["name"])
+    problems = []
+    for node, names in by_node.items():
+        found = {name: messages(name) for name in names}
+        if any("Successfully pulled" in message for texts in found.values() for message in texts):
+            continue
+        cached = [name for name, texts in found.items() if any("already present on machine" in t for t in texts)]
+        if cached:
+            problems.append(f"{', '.join(cached)} (node {node}): reported the image already present on the node")
+        else:
+            problems.append(f"{', '.join(names)} (node {node}): no 'Successfully pulled' event")
     return problems
 
 
@@ -293,39 +309,73 @@ def _without_host_credentials(cfg: E2EConfig) -> Iterator[Callable[[list[str]], 
         yield lambda args: _run([docker, *args], capture=True, env=environ)
 
 
-def purge_image(cfg: E2EConfig, image: str) -> None:
-    """Remove `image` (every tag and digest name of it) from every node's containerd.
+def _restart_containerd(cfg: E2EConfig, docker: Callable[[list[str]], str], node: str) -> None:
+    """Restart containerd in kind node `node` and wait until its CRI answers and the node is Ready again.
 
-    `kind load` also leaves an `import-<date>@sha256:...` name that carries the image ID (config digest) but a
-    different manifest digest than the registry's, so it matches neither by name nor by target. `crictl rmi` leaves it,
-    and kubelet's next pull reuses the image ID while CreateContainer resolves the stale name, whose manifest is gone:
-    `CreateContainerError ... image "docker.io/library/import-...@sha256:..." not found`. So every name whose config
-    digest is one of the image's IDs goes too, before `crictl rmi` so the CRI store sees each name deleted.
+    The CRI plugin keeps its image records in memory and does not resync them when names are removed underneath it
+    with `ctr`: in run 42610541413 `crictl rmi` by ID exited 0 and the record still carried two `kind load` `import-*`
+    names. A restart rebuilds the records from containerd's own images. Running containers keep their shims across a
+    containerd restart, so the node's pods are not recreated by it.
+    """
+    docker(["exec", node, "systemctl", "restart", "containerd"])
+    for _ in range(CONTAINERD_RESTART_ATTEMPTS):
+        try:
+            docker(["exec", node, "crictl", "info"])
+            break
+        except E2EError:
+            time.sleep(2)
+    else:
+        raise E2EError(f"{node}: containerd did not answer after being restarted.")
+    kubectl(cfg, ["wait", "--for=condition=Ready", f"node/{node}", f"--timeout={NODE_READY_TIMEOUT}"])
+
+
+def purge_image(cfg: E2EConfig, image: str) -> None:
+    """Remove `image` (every tag and digest name of it) from every node's containerd and the CRI image store.
+
+    Kind-only drill. `kind load` leaves an `import-<date>@sha256:...` name on the image, with a different manifest
+    digest than the registry's. `crictl rmi` by ID leaves it (the CRI record still lists it), and kubelet's next pull
+    then reuses the image ID, so CreateContainer resolves that name: `CreateContainerError ... image
+    "docker.io/library/import-...@sha256:..." not found`.
+
+    So: `crictl rmi` by ID first, while the names exist, so the CRI plugin deletes what it can itself. Whatever the
+    record of those IDs still lists afterwards is what keeps the image alive, and exactly those names go to
+    `ctr images rm`; other `import-*` names belong to other images and stay. Then `crictl rmi` again, and only if a
+    record still lists, a containerd restart, because the CRI cache does not resync when names are removed underneath
+    it with `ctr`. A record that survives even that fails the purge, naming node, ID and names.
     """
     repository = image.split("@", 1)[0]
     ctr = ["ctr", "--namespace=k8s.io"]
     with _without_host_credentials(cfg) as docker:
         for node in _nodes(cfg):
             exec_ = ["exec", node.name]
+
+            def kept(ids: Sequence[str], exec_: list[str] = exec_) -> dict[str, list[str]]:
+                return records_with_ids(docker([*exec_, "crictl", "images", "-o", "json"]), ids)
+
             ids = image_ids(docker([*exec_, "crictl", "images", "-o", "json"]), repository)
-            refs = containerd_refs(docker([*exec_, *ctr, "images", "ls"]))
-
-            def read_blob(digest: str, exec_: list[str] = exec_) -> str:
-                return docker([*exec_, *ctr, "content", "get", digest])
-
-            doomed = []
-            for name in names_of_images(refs, repository):
-                try:
-                    config = config_digest(read_blob(refs[name]), read_blob)
-                except (E2EError, ValueError, KeyError):
-                    config = None
-                if name.startswith((f"{repository}:", f"{repository}@")) or config in ids:
-                    doomed.append(name)
+            if ids:
+                docker([*exec_, "crictl", "rmi", *ids])
+            listed = kept(ids)
+            held = {_bare(name): name for name in containerd_refs(docker([*exec_, *ctr, "images", "ls"]))}
+            doomed = sorted({held[_bare(name)] for names in listed.values() for name in names if _bare(name) in held})
             if doomed:
                 docker([*exec_, *ctr, "images", "rm", "--sync", *doomed])
-            remaining = image_ids(docker([*exec_, "crictl", "images", "-o", "json"]), repository)
-            if remaining:
-                docker([*exec_, "crictl", "rmi", *remaining])
+            listed = kept(ids) if listed else listed
+            if listed:
+                docker([*exec_, "crictl", "rmi", *listed])
+                listed = kept(ids)
+            if listed:
+                log.warn(f"{node.name}: the CRI record survived crictl rmi; restarting containerd to rebuild it.")
+                _restart_containerd(cfg, docker, node.name)
+                listed = kept(ids)
+            if listed:
+                detail = "; ".join(f"{image_id} ({', '.join(names)})" for image_id, names in listed.items())
+                imports = containerd_refs(docker([*exec_, *ctr, "images", "ls"]))
+                still = ", ".join(name for name in imports if _bare(name).startswith("import-"))
+                raise E2EError(
+                    f"{node.name}: the CRI image record survived crictl rmi and a containerd restart: {detail}. "
+                    f"containerd still lists: {still or 'no import names'}."
+                )
             log.info(f"{node.name}: removed {len(ids)} cached image(s) and {len(doomed)} containerd name(s).")
 
 
@@ -378,7 +428,7 @@ def _replace_pods(cfg: E2EConfig, doomed: Sequence[str]) -> list[dict[str, Any]]
     return _code_location_pods(cfg)
 
 
-def _require_pulled(cfg: E2EConfig, pods: Sequence[str], image: str, *, what: str) -> None:
+def _require_pulled(cfg: E2EConfig, pods: Sequence[Mapping[str, Any]], image: str, *, what: str) -> None:
     events = json.loads(kubectl(cfg, ["get", "events", "-n", cfg.namespace, "-o", "json"], capture=True)).get(
         "items", []
     )
@@ -396,7 +446,7 @@ def _check_restart(cfg: E2EConfig, image: str) -> None:
     log.step("Removing the image from every node and restarting the code locations...")
     purge_image(cfg, image)
     replacements = _replace_pods(cfg, _names(_code_location_pods(cfg)))
-    _require_pulled(cfg, _names(replacements), image, what="code locations")
+    _require_pulled(cfg, replacements, image, what="code locations")
 
 
 def _check_run(cfg: E2EConfig, image: str) -> None:
@@ -417,13 +467,15 @@ def _check_run(cfg: E2EConfig, image: str) -> None:
     ]
     if not run_pods:
         raise E2EError(f"run {run_id} left no pod running {image} to inspect.")
-    _require_pulled(cfg, _names(run_pods), image, what=f"run {run_id}")
-    # Floe Jobs exist only while a run is in flight, so the pods this run left are the only live look at them.
-    fresh = created_since(_workloads(cfg), before)
+    _require_pulled(cfg, run_pods, image, what=f"run {run_id}")
+    # Pods, not Jobs: a Floe Job never lists the Secret in its template, it inherits it from the dagster ServiceAccount
+    # (activation links it there), and the ServiceAccount controller injects it into each Pod. The Pod is the spec the
+    # kubelet pulls with, whichever way it got the Secret.
+    fresh = [item for item in created_since(_workloads(cfg), before) if item.get("kind") == "Pod"]
     missing, users = workloads_missing_entry(fresh, image, _pull_secret_name(cfg))
     if missing:
         raise E2EError(f"after the run, {', '.join(missing)} run {image} without the pull Secret.")
-    log.info(f"{users} workload(s) created by the run list the pull Secret.")
+    log.info(f"{users} pod(s) created by the run list the pull Secret.")
 
 
 def _check_fresh_node(cfg: E2EConfig, image: str) -> None:
@@ -446,7 +498,7 @@ def _check_fresh_node(cfg: E2EConfig, image: str) -> None:
     moved = [pod for pod in replacements if pod["spec"]["nodeName"] == cordoned]
     if moved:
         raise E2EError(f"{', '.join(_names(moved))} were scheduled back onto cordoned node {cordoned}.")
-    _require_pulled(cfg, _names(replacements), image, what=f"code locations rescheduled off {cordoned}")
+    _require_pulled(cfg, replacements, image, what=f"code locations rescheduled off {cordoned}")
 
 
 def check(cfg: E2EConfig, *, allow_public: bool = False, static_only: bool = False) -> None:
