@@ -404,6 +404,8 @@ models:
     +database: "{{{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}}}"
     +materialized: table
     +on_table_exists: replace
+    # A definer view is re-read by Polaris without the caller's token (#967).
+    +view_security: invoker
     +meta:
       dagster:
         group: {product}
