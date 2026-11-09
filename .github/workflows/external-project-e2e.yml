@@ -190,14 +190,10 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -euo pipefail
-          # The build log: the project layer ran and named the added package,
-          # and the conflict check against the platform lock did not fail.
-          grep -q "psycopg2-binary" "${E2E_DIR}/3-artifacts.log" \
-            || { echo "::error::psycopg2-binary is not in the image build log"; exit 1; }
-          if grep -q "conflicts with the platform dependency pins" "${E2E_DIR}/3-artifacts.log"; then
-            echo "::error::requirements.txt conflicts with the platform lock"
-            exit 1
-          fi
+          # No grep on 3-artifacts.log: olf never streams the docker build
+          # output, so the package name cannot appear there. A requirements.txt
+          # that conflicts with the platform lock raises before the build
+          # (check_project_requirements) and fails step 3 on its own.
           # The running code location: the package is installed, the runtime
           # package is the platform's, and no top-level libs package exists.
           pod="$(kubectl --kubeconfig "${OLF_KUBECONFIG}" -n olf-dev get pods -o json \
