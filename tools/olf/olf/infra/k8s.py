@@ -237,8 +237,14 @@ def scale_deployment(
             _kubectl(["annotate", f"deployment/{deployment}", "-n", namespace, forget], environ=environ)
         return
     deadline = time.monotonic() + timeout_seconds
+    # A finished pod never goes away and can carry the Deployment's labels: platform-api's superset-users Job pod
+    # does, which made a restore wait out its timeout for a Deployment that had already stopped. A terminating
+    # pod is still Running, so it is still waited for.
+    running = "status.phase!=Succeeded,status.phase!=Failed"
     while _kubectl(
-        ["get", "pods", "-l", selector, "-n", namespace, "-o", "name"], capture=True, environ=environ
+        ["get", "pods", "-l", selector, "--field-selector", running, "-n", namespace, "-o", "name"],
+        capture=True,
+        environ=environ,
     ).strip():
         if time.monotonic() >= deadline:
             raise KubectlError(

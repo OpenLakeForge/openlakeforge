@@ -62,7 +62,9 @@ def backup(
             )
             if raw is None:
                 raise BackupError("no provider contracts found; deploy the stack first.")
-            contracts = parse_provider_contracts(raw, context.topology)
+            contracts = parse_provider_contracts(
+                raw, context.topology, distribution_root=context.paths.distribution_root
+            )
             plan = plan_from_contract(
                 contracts,
                 shared_namespace=context.shared_namespace,
