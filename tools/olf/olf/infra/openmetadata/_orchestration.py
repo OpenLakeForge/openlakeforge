@@ -16,13 +16,11 @@ from openlakeforge_services.openmetadata import OpenMetadataClient
 from olf.common import log
 from olf.infra.openmetadata._config import OpenMetadataConfig, resolve_metadata_descriptor_paths
 
-# The local overrides have to be repeated: `deployment_context` applies only
-# explicit option values, so a retry without them silently targets the
-# default cluster and kubeconfig.
+# Stage-neutral: the rerun must repeat the deployment and provider options the
+# original run used (local, AWS or Azure), which this tool cannot know here.
 _RERUN_HINT = (
-    "then rerun 'olf infra openmetadata deploy-metadata "
-    '--cluster-name "${CLUSTER_NAME:-openlakeforge-local}" '
-    '--kubeconfig-path "${LOCAL_KUBECONFIG_PATH:-.tmp/kubeconfigs/local.yaml}"\'.'
+    "then rerun the 'olf infra openmetadata deploy-metadata' command with the same "
+    "deployment and provider options as the original run."
 )
 
 
