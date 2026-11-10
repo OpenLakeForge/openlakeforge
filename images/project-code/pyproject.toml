@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openlakeforge-project-code"
-version = "0.5.1a2"
+version = "0.5.1a3"
 description = "OpenLakeForge project-code runtime package."
 requires-python = ">=3.12,<3.13"
 dependencies = [

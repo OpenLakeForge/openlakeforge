@@ -14,11 +14,11 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
-### Changed
+## [0.5.1-alpha.3] - 2026-11-10
 
-- The perimeter proxy, Polaris and the platform API reach Dex at its Service (`identity.oidc.internal_url`) instead of
-  through Traefik and the local CA; the platform API reads keys from a new optional `jwks_url` setting (#991).
-  OpenMetadata, Superset and Trino's Web UI still use the public URL.
+This release republishes the Superset image so a fresh install works again:
+the image pinned since `0.5.0-alpha.1` predates #999, and Superset crashed on
+it with `ImportError: cannot import name 'trino_settings'` (#1018).
 
 ### Added
 
@@ -71,6 +71,9 @@ for how a release is cut and verified.
 
 ### Changed
 
+- The perimeter proxy, Polaris and the platform API reach Dex at its Service (`identity.oidc.internal_url`) instead of
+  through Traefik and the local CA; the platform API reads keys from a new optional `jwks_url` setting (#991).
+  OpenMetadata, Superset and Trino's Web UI still use the public URL.
 - Local and Azure bucket names follow one rule: `<metadata.name>-<stage>-<layer>` for the stage buckets and
   `<metadata.name>-ops` for the ops bucket (#993). They were `lakehouse-<stage>-<layer>` and `openlakeforge-ops`. The
   resolver derives every name once and the roots take it as the `bucket_names` variable; a provider contract whose
