@@ -79,10 +79,11 @@ catalog credentials, so assign `data-engineer` on that basis.
 
 `platform-admin` and `data-engineer` open the Trino web UI. `analyst` and
 `viewer` do not. The UI opens as the fixed user `olf-web` behind the
-perimeter. The roles do not change what a
-query may read: Trino's catalog access is decided by the service principals,
-not by the person (see [CLI and automation](#cli-and-automation)). Your own
-queries go through `olf query` instead
+perimeter. Opening it changes nothing about what a query may read: Trino
+holds no credential and no access rules of its own, and Polaris decides each
+table access from the token the query carries (see
+[CLI and automation](#cli-and-automation)). Your own queries go through
+`olf query`
 ([What each role reads and writes](#what-each-role-reads-and-writes)).
 
 ### Superset
