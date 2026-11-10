@@ -69,8 +69,7 @@ principal and stage scope; Secret reference; rotation.
 | Trino to Polaris | Trino pod | Polaris REST in the shared namespace | OAuth client credentials of the stage's processing principal | One stage catalog | `trino_credentials_secret_name`, keys `POLARIS_PROCESSING_CLIENT_ID` / `_SECRET`, in the stage namespace | Rotate the Polaris principal; `olf`'s bootstrap then restarts Trino. A deleted Secret is not a rotation: the bootstrap stops until it is restored, since the principal's client may still be in use. Only a create interrupted before its Secret was written (a `-bootstrap-pending` marker) is rotated |
 | Floe runner to Polaris | Floe Job | Polaris REST | OAuth client credentials of the stage's processing principal | One stage catalog | `floe_credentials_secret_name`, keys `POLARIS_PROCESSING_CLIENT_ID` / `_SECRET`, in the stage namespace (the Secret Trino reads) | Rotate the Polaris principal. A stage namespace recreated on re-enable has lost the Secret, so `olf`'s bootstrap rotates the principal and writes a new one |
 | Floe and Trino to SeaweedFS | Pods | S3 API on the in-cluster Service | Per-stage S3 key | One stage's buckets | Stage S3 Secrets | Terraform-generated |
-| OpenMetadata to Trino | OpenMetadata pods; the OLF-owned `openmetadata-trino-ingestion` Job and its hourly CronJob | Trino as user `openmetadata` | No password, over plain HTTP; with a Polaris catalog the Job mints a Polaris token and sends it as the `token` extra credential ([ADR 0016](../../adr/0016-trino-workload-authentication.md)) | All stage catalogs, read | `polaris-om-creds`, for the Polaris token | Rotate the Polaris principal |
-| Polaris `om` principal | Nothing | n/a | A principal the Polaris bootstrap creates with read-only privileges (`TABLE_READ_DATA` and the property reads) on every stage catalog. OpenMetadata crawls through Trino, and no module or `olf` command reads its Secret ([ADR 0015](../../adr/0015-polaris-identity-provider-evaluation.md)) | All stage catalogs, read | `om_credentials_secret_name` | Dormant; removal is follow-up scope |
+| OpenMetadata to Trino | OpenMetadata pods; the OLF-owned `openmetadata-trino-ingestion` Job and its hourly CronJob | Trino as user `openmetadata` | No password, over plain HTTP; with a Polaris catalog the Job mints a Polaris token from the `openmetadata` principal's client credentials and sends it as the `token` extra credential ([ADR 0016](../../adr/0016-trino-workload-authentication.md)). The bootstrap grants that principal `TABLE_READ_DATA` and the property reads on every stage catalog | All stage catalogs, read | `polaris-om-creds` in the shared namespace, copied beside each governed stage's coordinator, where the Job runs | Rotate the Polaris principal |
 | OpenMetadata ingestion bot | Floe and Dagster pods, governed stages | OpenMetadata API (OpenLineage) | Bot JWT, sent as `OPENLINEAGE_API_KEY` / Floe `secret_name` | Governed stages only | `openmetadata-ingestion-bot`, key from the contract | The OpenMetadata bootstrap Job regenerates it on each run. **To verify** that the bot token keeps validating once OIDC is enabled (#25) |
 | Dagster | Pods, `olf e2e`, and anyone who can reach the Service | Dagster webserver, ClusterIP port 80, and its GraphQL API | **No native authentication or per-user authorization.** None is configured in `infra/helm/values/local/dagster.yaml`, and Dagster OSS has none. The ingress route is protected by the perimeter (#176); this in-cluster path is protected by the stage namespace's default-deny NetworkPolicy, which admits only the stage's own namespace and Traefik ([ADR 0017](../../adr/0017-local-network-policy-and-rbac.md)), and by Kubernetes RBAC for `pods/portforward` and `exec`. See [Dagster boundary](#dagster-boundary) | n/a | None | n/a |
 | Dagster run launcher | Dagster pod | Kubernetes API, creating run Jobs | The pod's ServiceAccount | Jobs and pods in its own stage namespace only, no Secret verbs: exception E3 in [ADR 0017](../../adr/0017-local-network-policy-and-rbac.md) | None | n/a |
@@ -159,10 +158,13 @@ roles to `full`.
 ## Known limitations
 
 - **Shared service accounts.** Every class-2 credential is shared by all
-  users of the component it fronts: any Superset user queries Trino as the
-  stage runtime principal, whatever their role. This is the direct cause of
-  analysts sharing data access. Per-user data access is the data-plane
-  authorization deferral (#179); it is not solved by anything in v0.5-alpha.
+  users of the component it fronts. Data access no longer rests on one:
+  Superset sends each signed-in viewer's own token to Trino and Polaris grants
+  that person's role
+  ([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) section 9).
+  What stays shared is what has no person behind it: dbt and Floe write as the
+  stage's processing principal, and the OpenMetadata crawl reads as the
+  `openmetadata` principal.
 - **Trino principal is a claim.** Trino has no authentication of its own and
   accepts any `X-Trino-User`. On the local root it has no access rules either:
   every caller sends its own Polaris token as the `token` extra credential, and

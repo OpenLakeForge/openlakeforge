@@ -64,11 +64,11 @@ class TrinoTarget:
 
     @property
     def user(self) -> str:
-        # Trino's file-based access control (modules/query/trino/main.tf) grants
-        # catalog access to "olf-<stage>-runtime", not to the Kubernetes
-        # namespace: the cloud POC roots serve every stage from one shared
-        # namespace, so deriving the user from it would be denied by the
-        # default-deny catalog rule there.
+        # Only a Glue coordinator still decides by this name: its file-based
+        # access control (modules/query/trino/main.tf) grants catalog access to
+        # "olf-<stage>-runtime", not to the Kubernetes namespace, which every
+        # stage shares on AWS. Behind Polaris the name only labels the session,
+        # and the token the caller sends decides (ADR 0016).
         return f"olf-{self.stage}-runtime"
 
 

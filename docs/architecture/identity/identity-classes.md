@@ -43,7 +43,7 @@ in.
 | Enforcement | The perimeter (oauth2-proxy behind Traefik forwardAuth) refuses a route the role does not hold; with GitHub sign-in, Superset also maps the role to its native roles, and OpenMetadata gets its native roles only from the GitHub role sync. With `issuer: external`, Superset and OpenMetadata get no OIDC configuration: users pass the perimeter and then need each service's own login |
 | Lifetime | Perimeter cookie 30 min idle, 10 h absolute; access token 5 min; with Dex, a revocation reaches the perimeter within about 5 min. With an external issuer, a removed role can last up to the issuer's 10 h SSO lifetime when its refresh responses carry no ID token with the role claim ([identity-sessions-and-recovery.md](identity-sessions-and-recovery.md)) |
 | Operations | [Add, change or remove a member](../../guides/identity/manage-members.md) |
-| Command line | The `olf-cli` public OIDC client (no secret): the perimeter accepts its bearer tokens and applies the same role floor as for a session. `olf query` uses it: Trino authenticates the token, and Polaris grants the role's `data_access` row ([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md)). `olf infra query` stays class 2 |
+| Command line | The `olf-cli` public OIDC client (no secret): the perimeter accepts its bearer tokens and applies the same role floor as for a session. `olf query` uses it: the perimeter checks the token, Trino has no authentication of its own and passes the token on, and Polaris grants the role's `data_access` row ([ADR 0016](../../adr/0016-trino-workload-authentication.md), [ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) section 9). `olf infra query` stays class 2 |
 
 ## Class 2: in-cluster workload and automation
 
@@ -64,9 +64,11 @@ ingress hostname (`access.service_url()`). Who may automate is
 who holds `pods/portforward` and the Secret reads in RBAC.
 
 Known limitation: a service credential is shared by every user of the
-component it fronts. Every Superset query reaches Trino as the stage's runtime
-principal, whatever the person's role. Per-user data access is deferred in
-[ADR 0019](../../adr/0019-data-plane-authorization-deferral.md).
+component it fronts, so it cannot tell two people apart. Data access is not
+decided by one: Superset sends each signed-in viewer's own token to Trino, a
+query that carries no token is refused, and Polaris grants what that person's
+role reads
+([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) section 9).
 
 ## Class 3: cloud workload
 
