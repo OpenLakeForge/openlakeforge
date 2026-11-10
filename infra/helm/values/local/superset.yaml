@@ -15,7 +15,7 @@ extraEnv:
 # (release/component-catalog.yaml, superset).
 image:
   repository: ghcr.io/openlakeforge/openlakeforge/superset
-  tag: "0.5.0-alpha.1@sha256:ef312c379b0f58faa77e70192cc909b730f4a228fed1ce1614b5bed0118eb08e"
+  tag: "0.5.1-alpha.3@sha256:e884c3ee1c3fa9ad78685a6867b9b809a125661df76b65f19dc17e2057b3698b"
 
 initImage:
   repository: apache/superset

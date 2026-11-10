@@ -7,8 +7,10 @@ inputs that have drifted from `release/component-catalog.yaml`.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -486,6 +488,79 @@ def _check_images_match_deployment_sources(repo_root: Path, catalog: dict[str, A
     return CheckResult("catalog images match their deployment sources", True)
 
 
+_IMAGE_SOURCE_PIN_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+# Catalog images built from a tracked directory, and the catalog pins that
+# are inputs to that build. `superset` is the only one today: its digest is
+# pinned while a release builds the image from `images/superset`, so a change
+# to that directory ships only when someone remembers to republish and repin
+# - #999 edited the directory and shipped three days before anyone noticed,
+# and a deploy from `main` crashed Superset with ImportError (#1018). The
+# recorded fingerprint turns that skew into a failing check.
+_IMAGE_SOURCE_PINS: dict[str, tuple[str, ...]] = {
+    "superset": ("superset_base",),
+}
+_SOURCE_PIN_README = "README.md"
+
+
+def _image_source_fingerprint(repo_root: Path, image: str, build_inputs: Mapping[str, str]) -> str:
+    """A deterministic fingerprint of everything a catalog image is built from.
+
+    Covers every file under `images/<image>` except the README - documentation
+    never enters the build context - and `__pycache__` - the tests load these
+    modules with importlib, which litters the directory without touching the
+    build - plus the catalog pins of its build-input images, so a base-image
+    bump changes the fingerprint too.
+    """
+    directory = repo_root / "images" / image
+    lines = [
+        f"{path.relative_to(repo_root).as_posix()}:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+        for path in directory.rglob("*")
+        if path.is_file() and path.name != _SOURCE_PIN_README and "__pycache__" not in path.parts
+    ]
+    lines.extend(f"components.images.{key}:{value}" for key, value in sorted(build_inputs.items()))
+    return "sha256:" + hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()
+
+
+def _check_image_source_pins(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
+    """Every image built from a tracked directory records the fingerprint of
+    the source its pinned digest was built from, and that fingerprint matches
+    the checkout: editing `images/superset` without republishing the image and
+    repinning its digest fails the gate instead of shipping an ImportError.
+    """
+    components = catalog.get("components") or {}
+    images = components.get("images") or {}
+    sources = components.get("image_sources")
+    sources = sources if isinstance(sources, dict) else {}
+
+    problems: list[str] = []
+    for image, input_keys in sorted(_IMAGE_SOURCE_PINS.items()):
+        recorded = sources.get(image)
+        if not isinstance(recorded, str) or not _IMAGE_SOURCE_PIN_PATTERN.match(recorded):
+            problems.append(f"components.image_sources.{image} must record the source fingerprint of images/{image}")
+            continue
+        missing_inputs = sorted(key for key in input_keys if not images.get(key))
+        if missing_inputs:
+            problems.append(f"{image}: catalog build-input image(s) missing: {', '.join(missing_inputs)}")
+        elif not (repo_root / "images" / image).is_dir():
+            problems.append(f"{image}: images/{image} does not exist")
+        else:
+            expected = _image_source_fingerprint(repo_root, image, {key: images[key] for key in input_keys})
+            if recorded != expected:
+                problems.append(
+                    f"{image}: images/{image} changed since the pinned digest was built "
+                    f"(recorded {recorded}, now {expected}); republish the image, repin its digest, "
+                    f"and record {expected}"
+                )
+    unregistered = sorted(set(sources) - set(_IMAGE_SOURCE_PINS))
+    if unregistered:
+        problems.append(f"image_sources entries with no fingerprint scheme: {', '.join(unregistered)}")
+    if problems:
+        return CheckResult("image source fingerprints match the checkout", False, "; ".join(problems))
+    checked = f"{len(_IMAGE_SOURCE_PINS)} image(s) checked"
+    return CheckResult("image source fingerprints match the checkout", True, checked)
+
+
 def _check_actions_sha_pinned(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
     workflows_dir = repo_root / ".github" / "workflows"
     if not workflows_dir.is_dir():
@@ -611,12 +686,13 @@ def run_release_check(
 
     Validates: catalog version matches the tag (when a tag is given), every
     catalog image is digest-pinned and matches its Helm deployment source
-    (where one exists), every workflow action is SHA-pinned and recorded in
-    the catalog, every Terraform root's required_version matches the catalog,
-    provider-using Terraform roots retain their lockfiles, effective wrapper
-    chart versions match the rendered Terraform-module values, no Dockerfile
-    FROM/ARG is unpinned outside of build-arg indirection, and the
-    compatibility matrix doc matches a fresh render.
+    (where one exists) and, for images built from a tracked directory, the
+    recorded source fingerprint, every workflow action is SHA-pinned and
+    recorded in the catalog, every Terraform root's required_version matches
+    the catalog, provider-using Terraform roots retain their lockfiles,
+    effective wrapper chart versions match the rendered Terraform-module
+    values, no Dockerfile FROM/ARG is unpinned outside of build-arg
+    indirection, and the compatibility matrix doc matches a fresh render.
     Lockfile/pyproject.toml sync is validated separately by
     `scripts/test/check-lockfiles.sh` using `uv` directly.
     """
@@ -631,6 +707,7 @@ def run_release_check(
     report.results.append(_check_images_digest_pinned(catalog))
     report.results.append(_check_toolchain_pinned(catalog))
     report.results.append(_check_images_match_deployment_sources(root, catalog))
+    report.results.append(_check_image_source_pins(root, catalog))
     report.results.append(_check_actions_sha_pinned(root, catalog))
     report.results.append(_check_dockerfiles_pinned(root))
     report.results.append(_check_terraform_required_versions_match_catalog(root, catalog))

@@ -131,6 +131,100 @@ def test_check_images_match_deployment_sources_ignores_build_only_images() -> No
     assert result.ok, result.detail
 
 
+_SUPERSET_BASE_REF = "apache/superset:6.1.0@sha256:" + "a" * 64
+
+
+def _superset_source_checkout(tmp_path: Path) -> tuple[Path, dict]:
+    """A checkout with a superset image source and a catalog that records its fingerprint."""
+    images_dir = tmp_path / "images/superset"
+    images_dir.mkdir(parents=True)
+    (images_dir / "Dockerfile").write_text("FROM apache/superset:6.1.0\n")
+    (images_dir / "olf_oidc.py").write_text("import trino_settings\n")
+    catalog = {
+        "components": {
+            "images": {"superset_base": _SUPERSET_BASE_REF},
+            "image_sources": {
+                "superset": _readiness._image_source_fingerprint(
+                    tmp_path, "superset", {"superset_base": _SUPERSET_BASE_REF}
+                )
+            },
+        }
+    }
+    return tmp_path, catalog
+
+
+def test_check_image_source_pins_passes_on_real_repo_catalog() -> None:
+    catalog = load_catalog(ROOT / "release/component-catalog.yaml")
+    result = _readiness._check_image_source_pins(ROOT, catalog)
+    assert result.ok, result.detail
+
+
+def test_check_image_source_pins_flags_edited_source_without_repin(tmp_path: Path) -> None:
+    """The #1018 regression: #999 edited images/superset and shipped without
+    republishing the image, and a deploy of main crashed Superset on the
+    ImportError. The recorded fingerprint is what makes the skew visible.
+    """
+    root, catalog = _superset_source_checkout(tmp_path)
+    (root / "images/superset/olf_trino.py").write_text("import trino_settings\n")
+    result = _readiness._check_image_source_pins(root, catalog)
+    assert not result.ok
+    assert "superset" in result.detail
+    assert "republish" in result.detail
+
+
+def test_check_image_source_pins_ignores_a_readme_edit(tmp_path: Path) -> None:
+    root, catalog = _superset_source_checkout(tmp_path)
+    (root / "images/superset/README.md").write_text("documentation, not build context\n")
+    result = _readiness._check_image_source_pins(root, catalog)
+    assert result.ok, result.detail
+
+
+def test_check_image_source_pins_flags_a_base_image_bump(tmp_path: Path) -> None:
+    """The base image is a build input, so bumping its pin changes the built
+    image; a catalog that keeps the old fingerprint is stale.
+    """
+    root, catalog = _superset_source_checkout(tmp_path)
+    bumped = "apache/superset:6.1.0@sha256:" + "b" * 64
+    catalog["components"]["images"]["superset_base"] = bumped
+    result = _readiness._check_image_source_pins(root, catalog)
+    assert not result.ok
+    assert "superset" in result.detail
+
+
+@pytest.mark.parametrize(
+    "recorded",
+    [None, 42, "not-a-digest", "sha256:tooshort"],
+)
+def test_check_image_source_pins_flags_a_missing_or_malformed_pin(tmp_path: Path, recorded: object) -> None:
+    root, catalog = _superset_source_checkout(tmp_path)
+    catalog["components"]["image_sources"]["superset"] = recorded
+    result = _readiness._check_image_source_pins(root, catalog)
+    assert not result.ok
+    assert "components.image_sources.superset" in result.detail
+
+
+def test_check_image_source_pins_flags_an_entry_without_a_fingerprint_scheme(tmp_path: Path) -> None:
+    root, catalog = _superset_source_checkout(tmp_path)
+    catalog["components"]["image_sources"]["trino"] = "sha256:" + "a" * 64
+    result = _readiness._check_image_source_pins(root, catalog)
+    assert not result.ok
+    assert "no fingerprint scheme" in result.detail
+    assert "trino" in result.detail
+
+
+def test_image_source_fingerprint_ignores_pycache(tmp_path: Path) -> None:
+    """The superset tests load these modules with importlib, which writes
+    __pycache__ into images/superset on a dev machine; it is not build input.
+    """
+    root, _catalog = _superset_source_checkout(tmp_path)
+    before = _readiness._image_source_fingerprint(root, "superset", {"superset_base": _SUPERSET_BASE_REF})
+    cache = root / "images/superset/__pycache__"
+    cache.mkdir()
+    (cache / "olf_oidc.cpython-312.pyc").write_bytes(b"\x00compiled")
+    after = _readiness._image_source_fingerprint(root, "superset", {"superset_base": _SUPERSET_BASE_REF})
+    assert before == after
+
+
 def test_a_release_stamped_example_image_is_not_flagged_as_unregistered() -> None:
     """The release workflow adds `project_code` to the catalog it packages; the check must still pass there."""
     catalog = load_catalog(ROOT / "release/component-catalog.yaml")

@@ -113,7 +113,7 @@ components:
     opensearch: opensearchproject/opensearch:3.3.2@sha256:798cf28e226a32f5c928dd1ed9478dd3a33d2212176aad3679020088ad3afa1a
     project_code_base: python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
     superset_base: apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705
-    superset: ghcr.io/openlakeforge/openlakeforge/superset:0.5.0-alpha.1@sha256:ef312c379b0f58faa77e70192cc909b730f4a228fed1ce1614b5bed0118eb08e
+    superset: ghcr.io/openlakeforge/openlakeforge/superset:0.5.1-alpha.3@sha256:e884c3ee1c3fa9ad78685a6867b9b809a125661df76b65f19dc17e2057b3698b
     superset_init: apache/superset:dockerize@sha256:afe59523a6c8774c3b16d0f44146b2e52f327a7d26a47b4cc63b904fcdedf057
     dex: ghcr.io/dexidp/dex:v2.46.0@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777
     oauth2_proxy: quay.io/oauth2-proxy/oauth2-proxy:v7.15.5@sha256:8498b0d0ef0a7b29686414000a08aee467f02d0299c9ed1e006a8f33fc017916
@@ -131,6 +131,13 @@ components:
     cert_manager_cainjector: quay.io/jetstack/cert-manager-cainjector:v1.21.2@sha256:c85268c64f2e0e76684bf5fe8906caff34b82523561c6affe0fae3546bd87562
     cert_manager_acmesolver: quay.io/jetstack/cert-manager-acmesolver:v1.21.2@sha256:699b40d622211ab7accad8a21b04c5fbaa1841ef7a12621e8de492dbe27b2503
     cert_manager_startupapicheck: quay.io/jetstack/cert-manager-startupapicheck:v1.21.2@sha256:46e75b6866359ffb5d82624f41e3ed1c70b2994982702ced547ce5edb418a8f5
+  # A sha256 fingerprint of the source directory (and catalog build-input
+  # pins) each image above was built from. `olf release check` fails when the
+  # directory changes without the image being republished and its digest
+  # repinned (#1018): the superset pin once lagged images/superset by three
+  # days, and a deploy of main crashed Superset on the ImportError.
+  image_sources:
+    superset: sha256:484f116e33d755b247b6d3d13fcb2055854490d1934025cdcd16cae7537f647e
   actions:
     actions/checkout: 34e114876b0b11c390a56381ad16ebd13914f8d5
     actions/setup-python: a26af69be951a213d495a4c3e4e4022e16d87065
