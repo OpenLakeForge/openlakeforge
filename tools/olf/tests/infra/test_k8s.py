@@ -374,8 +374,9 @@ class _FakeDeployment:
     `rollout status` returns once the running pods match the desired count.
     """
 
-    def __init__(self, name: str, replicas: int, *, stuck: bool = False) -> None:
+    def __init__(self, name: str, replicas: int, *, stuck: bool = False, finished: int = 0) -> None:
         self.name, self.replicas, self.pods, self.stuck = name, replicas, replicas, stuck
+        self.finished = finished  # completed Job pods that carry the Deployment's labels and never go away
         self.annotations: dict[str, str] = {}
 
     def kubectl(self, args: list[str], **_: object) -> str:
@@ -392,6 +393,8 @@ class _FakeDeployment:
             self.pods = self.replicas
         elif args[:2] == ["get", "pods"]:
             running = "".join(f"pod/{self.name}-{i}\n" for i in range(self.pods))
+            if "--field-selector" not in args:
+                running += "".join(f"pod/{self.name}-job-{i}\n" for i in range(self.finished))
             if self.pods > self.replicas and not self.stuck:
                 self.pods -= 1
             return running
@@ -413,6 +416,15 @@ def test_scale_to_zero_returns_only_once_the_pods_are_gone(monkeypatch: pytest.M
     k8s.scale_deployment("dagster-daemon", "olf-dev", 0, poll_seconds=0)
 
     assert (daemon.replicas, daemon.pods) == (0, 0)
+
+
+def test_scale_to_zero_ignores_finished_pods_that_share_the_deployments_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    api = _FakeDeployment("platform-api", 1, finished=1)
+    monkeypatch.setattr(k8s, "_kubectl", api.kubectl)
+
+    k8s.scale_deployment("platform-api", "olf-system", 0, timeout_seconds=5, poll_seconds=0)
+
+    assert (api.replicas, api.pods) == (0, 0)
 
 
 def test_scale_to_zero_fails_when_the_pods_never_stop(monkeypatch: pytest.MonkeyPatch) -> None:
