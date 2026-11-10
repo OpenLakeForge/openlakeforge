@@ -21,7 +21,7 @@ from olf.common.tooling.process import CommandResult
 from olf.infra import k8s
 from olf.infra.commands._shared import deployment_context_for_profile
 from olf.infra.commands.openmetadata import bootstrap_from_contract
-from olf.infra.openmetadata._replication import replicate_ingestion_bot, replication_namespaces
+from olf.infra.openmetadata._replication import replicate_ingestion_bot, replication_namespaces, revoke_trino_crawl
 
 _CONTRACT = json.loads((Path(__file__).parents[1] / "fixtures" / "conformance-provider-contracts.json").read_text())
 _SECRET = "openmetadata-ingestion-bot"
@@ -48,6 +48,8 @@ class _Cluster:
 
     def __init__(self) -> None:
         self.secrets: dict[tuple[str, str], dict[str, Any]] = {}
+        # The Trino crawl's workloads, by (namespace, kind); olf deletes them by label, never by name.
+        self.crawls: set[tuple[str, str]] = set()
         self.argv: list[list[str]] = []
 
     def writes(self) -> list[list[str]]:
@@ -62,6 +64,9 @@ class _Cluster:
             stdout = json.dumps(found) if found else ""
         elif argv[:2] == ["delete", "secret"]:
             self.secrets.pop((argv[4], argv[2]), None)
+        elif argv[0] == "delete" and argv[1] in {"cronjob", "job"}:
+            assert argv[2:4] == ["-l", "openlakeforge.io/job=openmetadata-trino-ingestion"]
+            self.crawls.discard((argv[5], argv[1]))
         elif argv[0] in {"create", "apply"}:
             manifest = json.loads(input_text or "{}")
             key = (manifest["metadata"]["namespace"], manifest["metadata"]["name"])
@@ -163,9 +168,48 @@ def test_a_missing_source_fails(cluster: _Cluster) -> None:
         _replicate(_contracts())
 
 
-def test_nothing_is_copied_or_revoked_when_no_stage_is_governed(cluster: _Cluster) -> None:
+_OM_CREDS = "polaris-om-creds"
+
+
+def _with_crawl(cluster: _Cluster, namespace: str) -> None:
+    """What `olf infra openmetadata deploy-metadata` leaves beside a governed stage's coordinator."""
+    cluster.secrets[(namespace, _OM_CREDS)] = {
+        **_secret(namespace, {"POLARIS_OM_CLIENT_ID": "openmetadata", "POLARIS_OM_CLIENT_SECRET": "s" * 32}),
+        "metadata": {"name": _OM_CREDS, "namespace": namespace},
+    }
+    cluster.crawls |= {(namespace, "cronjob"), (namespace, "job")}
+
+
+def test_a_stage_that_drops_governance_loses_the_crawl_and_its_polaris_credential(cluster: _Cluster) -> None:
+    for namespace in ("olf-system", "olf-dev", "olf-prod"):
+        _with_crawl(cluster, namespace)
+    _, revoked = replication_namespaces(_contracts(prod=False))
+
+    revoke_trino_crawl("olf-system", revoked, environ=_ENVIRON)
+
+    assert ("olf-prod", _OM_CREDS) not in cluster.secrets
+    assert {namespace for namespace, _ in cluster.crawls} == {"olf-system", "olf-dev"}
+    assert ("olf-dev", _OM_CREDS) in cluster.secrets and ("olf-system", _OM_CREDS) in cluster.secrets
+
+
+def test_the_shared_namespace_keeps_the_crawl_credential_the_governed_stages_copy(cluster: _Cluster) -> None:
+    # The single-namespace cloud roots run every stage, and every crawl, beside Polaris.
+    _with_crawl(cluster, "olf-system")
+
+    revoke_trino_crawl("olf-system", ["olf-system"], environ=_ENVIRON)
+
+    assert ("olf-system", _OM_CREDS) in cluster.secrets
+    assert cluster.writes() == []
+
+
+def test_with_no_governed_stage_the_crawl_is_revoked_and_nothing_else_changes(cluster: _Cluster) -> None:
+    # The `openmetadata` principal outlives the last governed stage, so its copy must go even though
+    # there is no OpenMetadata left to bootstrap; the ingestion-bot copy names a service that is gone.
     cluster.secrets[("olf-prod", _SECRET)] = _secret("olf-prod", {"OPENMETADATA_INGESTION_BOT_JWT": _JWT})
+    _with_crawl(cluster, "olf-prod")
 
     bootstrap_from_contract(_contracts(dev=False, prod=False), environ=_ENVIRON)
 
-    assert cluster.argv == []
+    assert ("olf-prod", _OM_CREDS) not in cluster.secrets
+    assert ("olf-prod", "cronjob") not in cluster.crawls
+    assert ("olf-prod", _SECRET) in cluster.secrets and ("olf-system", _SECRET) in cluster.secrets
