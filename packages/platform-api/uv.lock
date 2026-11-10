@@ -375,7 +375,7 @@ wheels = [
 
 [[package]]
 name = "openlakeforge-core"
-version = "0.5.1a2"
+version = "0.5.1a3"
 source = { directory = "../core" }
 dependencies = [
     { name = "pyyaml" },
@@ -386,7 +386,7 @@ requires-dist = [{ name = "pyyaml", specifier = ">=6.0,<7" }]
 
 [[package]]
 name = "openlakeforge-lakehouse-services"
-version = "0.5.1a2"
+version = "0.5.1a3"
 source = { directory = "../lakehouse-services" }
 dependencies = [
     { name = "openlakeforge-core" },
@@ -396,14 +396,14 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "openlakeforge-core", specifier = "==0.5.1a2" },
+    { name = "openlakeforge-core", specifier = "==0.5.1a3" },
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "requests", specifier = ">=2.32,<3" },
 ]
 
 [[package]]
 name = "openlakeforge-platform-api"
-version = "0.5.1a2"
+version = "0.5.1a3"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
