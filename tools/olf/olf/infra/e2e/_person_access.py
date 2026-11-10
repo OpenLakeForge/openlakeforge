@@ -76,6 +76,32 @@ def check_person_decisions(
             log.info(f"{role} has no access on {', '.join(stages)}; checked only that it is refused.")
 
 
+def check_claimed_user(
+    stage: str,
+    data_access: Mapping[str, Mapping[str, Mapping[str, str]]],
+    run: Callable[..., Outcome],
+) -> None:
+    """Trino has no authentication, so `X-Trino-User` is a claim: a person who names another gets only what their
+    own token reaches (#970). Needs two roles whose access to the probe table differs on `stage`."""
+    probes = {
+        "SHOW SCHEMAS": lambda row: "ok" if row else "refused",
+        f"SELECT count(*) FROM {PROBE_TABLE}": lambda row: expected(row, None, write=False),
+        f"INSERT INTO {PROBE_TABLE} VALUES (1)": lambda row: expected(row, None, write=True),
+    }
+    roles = list(data_access)
+    for sql, want in probes.items():
+        for role in roles:
+            for other in roles:
+                mine, theirs = want(data_access[role].get(stage, {})), want(data_access[other].get(stage, {}))
+                if mine != theirs:
+                    log.step(f"Checking {role} naming {other} as its Trino user on {stage} keeps {role}'s access...")
+                    got = run(role, stage, sql, claim=other)
+                    if got != mine:
+                        raise E2EError(f"{role} claiming {other} on {stage}: {sql!r} expected {mine}, got {got}")
+                    return
+    log.info(f"Skipping the claimed-user check on {stage}: every role has the same access to the probe table.")
+
+
 def outcome(call: Callable[[], object]) -> Outcome:
     """Run `call`, telling a Polaris refusal from storage refusing a read-only credential. The markers are the
     upstream messages `olf query` quotes, not its own wording."""
@@ -131,6 +157,7 @@ def check_person_access(
     run_stage = trino.stage_from_catalog(stage_catalog_name(cfg))
     ordered = [run_stage, *(stage for stage in stages if stage != run_stage)]
     check_person_decisions(ordered, {role: data_access[role] for role in roles}, layer_tables(cfg), run)
+    check_claimed_user(run_stage, {role: data_access[role] for role in roles}, run)
     log.info(
         "Not checking a vended credential against another table's location: SQL cannot address a path, and "
         "SeaweedFS enforcing the session policy is verification item 1."
@@ -143,9 +170,10 @@ def person_runner(
     identity: Mapping[str, Any],
     routes: Mapping[str, str],
     logins: Mapping[str | None, str],
-) -> Callable[[str, str, str], Outcome] | None:
+) -> Callable[..., Outcome] | None:
     """`run(role, stage, sql)` sends `sql` to Trino's query route as the stub user of `role`, the way `olf query`
-    does; None when the contract gives people no query route."""
+    does, with `claim=<role>` naming that role's user instead; None when the contract gives people no query
+    route."""
     client = identity.get("clients", {}).get(CLI_CLIENT)
     if "query_api" not in identity["roles"]["grants"] or not client:
         return None
@@ -159,8 +187,8 @@ def person_runner(
             tokens[role] = (time.monotonic(), token)
         return tokens[role][1]
 
-    def run(role: str, stage: str, sql: str) -> Outcome:
-        user = str(session.claims(bearer(role))["email"])
+    def run(role: str, stage: str, sql: str, claim: str | None = None) -> Outcome:
+        user = str(session.claims(bearer(claim or role))["email"])
         url = f"{routes[f'stage/{stage}/query'].rstrip('/')}/v1/statement"
 
         def statement() -> object:
