@@ -284,16 +284,28 @@ def openmetadata_bootstrap(
 
 def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[str, str]) -> None:
     """Run the bootstrap with inputs read from the applied contract, then copy the ingestion-bot Secret
-    into the governed stages' namespaces. Nothing to do when no stage is governed.
+    into the governed stages' namespaces. With no governed stage there is no OpenMetadata to bootstrap.
+
+    A stage that is not governed loses the Trino crawl and its Polaris credential either way: the
+    `openmetadata` principal outlives the last governed stage, so its copies must not.
 
     SSO follows the ConfigMap the governance module publishes only when an issuer is configured.
     """
     from olf.infra import k8s
     from olf.infra import openmetadata as om
     from olf.infra.openmetadata._platform import bootstrap_inputs, run_bootstrap
-    from olf.infra.openmetadata._replication import replicate_ingestion_bot, replication_namespaces
+    from olf.infra.openmetadata._replication import (
+        replicate_ingestion_bot,
+        replication_namespaces,
+        revoke_trino_crawl,
+    )
     from olf.infra.openmetadata._sso import CONFIGMAP
 
+    governed, revoked = replication_namespaces(contracts)
+    try:
+        revoke_trino_crawl(config.shared_namespace(environ=environ), revoked, environ=environ)
+    except k8s.KubectlError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
     inputs = bootstrap_inputs(contracts)
     if inputs is None:
         return
@@ -312,7 +324,6 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
                 stages=stages,
                 environ=environ,
             )
-        governed, revoked = replication_namespaces(contracts)
         replicate_ingestion_bot(governance.namespace, governed, revoked, environ=environ)
     except (om.OpenMetadataError, k8s.KubectlError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc

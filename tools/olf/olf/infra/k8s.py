@@ -263,6 +263,13 @@ def delete_jobs(selector: str, namespace: str, *, environ: Mapping[str, str] | N
     _kubectl(["delete", "job", "-l", selector, "-n", namespace, "--ignore-not-found"], capture=True, environ=environ)
 
 
+def delete_cronjobs(selector: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
+    """Delete the CronJobs the label selector matches (the Jobs they started go with them); none is not an error."""
+    _kubectl(
+        ["delete", "cronjob", "-l", selector, "-n", namespace, "--ignore-not-found"], capture=True, environ=environ
+    )
+
+
 def certificates_issued_by(
     cluster_issuer: str, *, environ: Mapping[str, str] | None = None
 ) -> list[tuple[str, str, str]]:

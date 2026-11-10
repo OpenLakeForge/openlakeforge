@@ -56,6 +56,9 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         seen["calls"].append("replicate")
         seen["replicated"] = (shared, tuple(governed), tuple(revoked))
 
+    def revoke_crawl(shared: str, revoked: Any, **_: Any) -> None:
+        seen["crawl_revoked"] = (shared, tuple(revoked))
+
     def bootstrap_polaris(contracts: ProviderContracts, *, environ: Any, remove_stages: bool = False) -> None:
         seen["calls"].append("polaris")
         seen["polaris"] = (sorted(contracts.stages), environ["KUBECONFIG"])
@@ -65,6 +68,7 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr("olf.infra.k8s.port_forward", port_forward)
     monkeypatch.setattr(_platform, "run_bootstrap", run_bootstrap)
     monkeypatch.setattr(_replication, "replicate_ingestion_bot", replicate)
+    monkeypatch.setattr(_replication, "revoke_trino_crawl", revoke_crawl)
     monkeypatch.setattr("olf.infra.polaris_bootstrap.bootstrap_from_contract", bootstrap_polaris)
     return seen
 
@@ -128,13 +132,15 @@ def test_a_stage_without_governance_is_left_out_and_the_next_one_is_canonical() 
     assert stages == (StageServices("prod", "http://dagster-dagster-webserver.olf-prod:80"),)
 
 
-def test_nothing_is_bootstrapped_when_no_stage_is_governed(cluster: dict) -> None:
+def test_nothing_is_bootstrapped_when_no_stage_is_governed_but_the_crawl_is_revoked(cluster: dict) -> None:
     cluster["calls"] = []
     contracts = _with(_parsed(), dev={"governance": None}, prod={"governance": None})
 
-    bootstrap_from_contract(contracts, environ={})
+    bootstrap_from_contract(contracts, environ={"OPENLAKEFORGE_SHARED_NAMESPACE": "olf-system"})
 
     assert cluster["calls"] == [] and "forwarded" not in cluster
+    # The `openmetadata` Polaris principal outlives the last governed stage, so its copies must not (#1049).
+    assert cluster["crawl_revoked"] == ("olf-system", ("olf-dev", "olf-prod"))
 
 
 def test_the_platform_phase_fails_when_the_apply_left_no_contract(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -14,6 +14,30 @@ from olf.common import log
 from olf.common.provider_contracts import ProviderContracts
 from olf.infra import k8s
 from olf.infra.openmetadata._auth import INGESTION_BOT_SECRET
+from olf.infra.openmetadata._ingestion import JOB_NAME, POLARIS_SECRET
+
+
+def revoke_trino_crawl(
+    shared_namespace: str, revoked: Sequence[str], *, environ: Mapping[str, str] | None = None
+) -> None:
+    """Remove the Trino crawl and its Polaris credential from the stages in `revoked`.
+
+    The crawl runs beside the stage's coordinator with a copy of the `openmetadata` principal's Secret,
+    and that principal reads every stage's catalog (ADR 0019 section 9). A stage that turns governance
+    off keeps its namespace, where run pods execute project code, so the copy must not outlive the crawl.
+    The shared namespace holds the source, which the governed stages still need.
+    """
+    for namespace in revoked:
+        if namespace == shared_namespace:
+            continue
+        # The CronJob first: a crawl it starts after the Secret is gone would fail on a missing key.
+        selector = f"openlakeforge.io/job={JOB_NAME}"
+        k8s.delete_cronjobs(selector, namespace, environ=environ)
+        k8s.delete_jobs(selector, namespace, environ=environ)
+        if k8s.secret_data(POLARIS_SECRET, namespace, environ=environ) is not None:
+            k8s.delete_secret(POLARIS_SECRET, namespace, environ=environ)
+            # The name is spelled out: CodeQL treats any value named like a secret as one, and this is only a name.
+            log.info(f"Revoked Secret 'polaris-om-creds' and the Trino crawl from '{namespace}'.")
 
 
 def replication_namespaces(contracts: ProviderContracts) -> tuple[tuple[str, ...], tuple[str, ...]]:
