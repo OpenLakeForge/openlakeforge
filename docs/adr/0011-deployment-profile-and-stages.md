@@ -42,11 +42,30 @@ Neither record gave the four concepts distinct types. This ADR does.
 | Runtime | not exposed — Trino only | not a v1 field |
 
 `spec.provider.type` selects a deployment target and the *defaults* for each
-capability adapter: object storage, metadata database and catalog. Later
-milestones add per-capability overrides (an existing on-prem cluster #802,
-external S3 #803, external PostgreSQL #335) as new fields; they do not change
-what `provider.type` means. In the v1beta1 schema `aws` and `azure` are
+capability adapter: cluster, object storage, metadata database and catalog.
+`spec.cluster.adapter`, `spec.storage.adapter`, `spec.catalog.adapter`,
+`spec.metadata_database.adapter` and `spec.state.backend` reserve the
+selection points before the beta freeze. Only the provider's current defaults
+are accepted; another selection fails with the issue that implements it.
+Later milestones extend those selectors for existing Kubernetes (#802),
+external S3 (#803), external PostgreSQL (#335) and remote Terraform state
+(#905/#132), with their adapter-specific settings. They do not change what
+`provider.type` means. In the v1beta1 schema `aws` and `azure` are
 preview: accepted, but the beta compatibility promise covers `local` only.
+
+| Selector | Local default | AWS default | Azure default |
+| --- | --- | --- | --- |
+| `cluster.adapter` | `kind` | `eks` | `aks` |
+| `storage.adapter` | `seaweedfs` | `s3` | `seaweedfs` |
+| `catalog.adapter` | `polaris` | `glue` | `polaris` |
+| `metadata_database.adapter` | `postgresql` | `rds` | `postgresql` |
+| `state.backend` | `local` | `local` | `local` |
+
+The resolver emits these choices as `adapters` in its JSON output, including
+when the selectors are omitted. Explicit defaults resolve identically to
+omitted selectors; they introduce no Terraform or runtime change. On AWS,
+`storage.adapter: s3` is valid but `storage.size` remains rejected because
+managed S3 has no self-hosted volume to size.
 
 A provider is not a stage. A stage is not a Kubernetes cluster — v0.3 runs
 every stage on one shared cluster. A preset is a default/override set for
@@ -118,9 +137,9 @@ the largest enabled stage's size.
 Only tiers with a tested backend are accepted. For `query`, `medium` and
 `large` are part of the vocabulary but fail validation, naming the issue that
 will implement them (#324, Trino workers), rather than being accepted as a
-promise nothing keeps. `storage` accepts all three (#326). Growing the set is
+promise nothing keeps. `storage.size` accepts all three (#326). Growing the set is
 the change that implements and tests the tier; existing profiles stay valid.
-`storage` is also
+`storage.size` is also
 rejected on `aws`, whose object storage is managed S3 with no volume to size;
 it applies on `local` and `azure`, where SeaweedFS is self-hosted.
 
@@ -309,3 +328,9 @@ and `azure` are preview in v1beta1; `olf profile validate` prints a notice.
 
 2026-11-07: `stages.<stage>.query.size` added (#972); the resolver carries one
 query size per stage. Rendering a coordinator per stage is still #965.
+
+2026-11-10 (#1056): reserved capability adapter selectors with provider-derived
+defaults and explicit rejection of unimplemented choices. The resolver prints
+the selected adapters. AWS may name `storage.adapter: s3`; its storage size
+remains unavailable. Remote state and external-service connection settings
+stay with their adapter implementation issues.
