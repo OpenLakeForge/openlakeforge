@@ -70,6 +70,12 @@ See [ADR 0008](../adr/0008-olf-owns-orchestration-and-toolchain.md).
 1. Update `release/component-catalog.yaml`'s `distribution.version` (and any
    changed component versions/digests/lockfiles) in the same PR as the code
    it describes. Run `uv run --project tools/olf --locked olf check all` locally.
+   When the release publishes a new `images/superset`, copy its digest from
+   the release's `component-manifest.json` (`resolved_images`) into
+   `components.images.superset` and `infra/helm/values/local/superset.yaml`,
+   and record the fingerprint `olf check components` prints for
+   `components.image_sources.superset`. The same check fails the next
+   release if `images/superset` changed since the digest was built (#1018).
 2. Add a `## [<version>]` entry to `CHANGELOG.md` with migration notes,
    replacing "Unreleased" with the release date.
 3. Merge to `main`. Confirm the `release-check` job in
@@ -102,6 +108,10 @@ See [ADR 0008](../adr/0008-olf-owns-orchestration-and-toolchain.md).
 - Any catalog image under `components.images` is missing an `@sha256:...`
   digest, or (for images with a Helm deployment source) doesn't match the
   digest actually referenced under `infra/helm/values`.
+- Any image built from a tracked directory records a
+  `components.image_sources` fingerprint that differs from the checkout:
+  `images/superset` changed without the image being republished and its
+  digest repinned (#1018).
 - Any `.github/workflows/*.yml` `uses:` line isn't pinned to a 40-character
   commit SHA, differs from `components.actions`, or leaves an unused catalog
   action entry behind.

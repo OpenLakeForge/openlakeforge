@@ -33,6 +33,13 @@ kubectl, or kind: a version plus a `sha256` digest per supported platform
 (`darwin-amd64`, `darwin-arm64`, `linux-amd64`, `linux-arm64`), verified
 before any downloaded artifact is extracted or activated.
 
+`components.image_sources` records, for every image built from a tracked
+directory, a sha256 fingerprint of that source (plus the catalog pins of its
+build-input images) — today only `superset`, built from `images/superset`.
+`olf release check` fails when the fingerprint no longer matches the
+directory: the image must be republished and its digest repinned before the
+change ships (#1018).
+
 The gate also rejects a catalog Terraform requirement that differs from any
 Terraform root's own `terraform.required_version`, so the compatibility matrix
 cannot advertise a broader or narrower Terraform version range than the code

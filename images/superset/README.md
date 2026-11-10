@@ -22,7 +22,10 @@ The local full e2e workflow sets `BUILD_SUPERSET_IMAGE`, so the nightly and manu
 
 After a release publishes the change, copy the `superset` digest from that
 release's `component-manifest.json` (`resolved_images`) into the catalog and
-the values file.
+the values file, and record the source fingerprint the check prints in
+`components.image_sources.superset`. `olf check components` fails while the
+recorded fingerprint differs from this directory, so an edit that ships
+without a republish and repin cannot reach a release unnoticed (#1018).
 
 It extends the official Superset image with the Trino Python driver so Superset
 can query product Gold Iceberg marts through Trino.

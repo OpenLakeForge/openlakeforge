@@ -131,6 +131,13 @@ components:
     cert_manager_cainjector: quay.io/jetstack/cert-manager-cainjector:v1.21.2@sha256:c85268c64f2e0e76684bf5fe8906caff34b82523561c6affe0fae3546bd87562
     cert_manager_acmesolver: quay.io/jetstack/cert-manager-acmesolver:v1.21.2@sha256:699b40d622211ab7accad8a21b04c5fbaa1841ef7a12621e8de492dbe27b2503
     cert_manager_startupapicheck: quay.io/jetstack/cert-manager-startupapicheck:v1.21.2@sha256:46e75b6866359ffb5d82624f41e3ed1c70b2994982702ced547ce5edb418a8f5
+  # A sha256 fingerprint of the source directory (and catalog build-input
+  # pins) each image above was built from. `olf release check` fails when the
+  # directory changes without the image being republished and its digest
+  # repinned (#1018): the superset pin once lagged images/superset by three
+  # days, and a deploy of main crashed Superset on the ImportError.
+  image_sources:
+    superset: sha256:484f116e33d755b247b6d3d13fcb2055854490d1934025cdcd16cae7537f647e
   actions:
     actions/checkout: 34e114876b0b11c390a56381ad16ebd13914f8d5
     actions/setup-python: a26af69be951a213d495a4c3e4e4022e16d87065
