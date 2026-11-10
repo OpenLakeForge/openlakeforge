@@ -81,6 +81,13 @@ def test_profile_resolve_json_is_machine_readable_and_deterministic(tmp_path: Pa
     assert payload["preset"] == "slim"
     assert payload["query"] == {"size": "small"}
     assert payload["storage"] == {"size": "small"}
+    assert payload["adapters"] == {
+        "cluster": "kind",
+        "storage": "seaweedfs",
+        "catalog": "polaris",
+        "metadata_database": "postgresql",
+        "state": "local",
+    }
     stages = {stage["name"]: stage for stage in payload["stages"]}
     assert stages["dev"]["enabled"] is True
     assert stages["prod"]["enabled"] is False

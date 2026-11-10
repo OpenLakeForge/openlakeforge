@@ -40,7 +40,20 @@ _IDENTIFIER_PATTERN = re.compile(_IDENTIFIER_PATTERN_SOURCE)
 
 _ENVELOPE_FIELDS = {"apiVersion", "kind", "metadata", "spec"}
 _METADATA_FIELDS = {"name"}
-_SPEC_FIELDS = {"provider", "preset", "stages", "access", "identity", "project", "query", "storage"}
+_SPEC_FIELDS = {
+    "provider",
+    "preset",
+    "stages",
+    "access",
+    "identity",
+    "project",
+    "query",
+    "storage",
+    "cluster",
+    "catalog",
+    "metadata_database",
+    "state",
+}
 _SIZE_BLOCK_FIELDS = {"size"}
 _PROVIDER_FIELDS = {"type", "region"}
 _ACCESS_FIELDS = {"base_domain", "tls", "trusted_proxies"}
@@ -133,6 +146,29 @@ class Provider(StrEnum):
     LOCAL = "local"
     AWS = "aws"
     AZURE = "azure"
+
+
+@dataclass(frozen=True)
+class CapabilityAdapters:
+    cluster: str
+    storage: str
+    catalog: str
+    metadata_database: str
+    state: str = "local"
+
+
+_DEFAULT_ADAPTERS = {
+    Provider.LOCAL: CapabilityAdapters("kind", "seaweedfs", "polaris", "postgresql"),
+    Provider.AWS: CapabilityAdapters("eks", "s3", "glue", "rds"),
+    Provider.AZURE: CapabilityAdapters("aks", "seaweedfs", "polaris", "postgresql"),
+}
+_ADAPTER_TRACKERS = {
+    "cluster": "#802 (existing Kubernetes)",
+    "storage": "#803 (external S3-compatible storage)",
+    "catalog": "#681 (AWS Polaris)",
+    "metadata_database": "#335 (external PostgreSQL)",
+    "state": "#905 (Terraform backends)",
+}
 
 
 class Size(StrEnum):
@@ -359,6 +395,7 @@ class DeploymentTopology:
                 "identity": None if self.identity is None else vars(self.identity),
                 "query": {"size": self.query_size.value},
                 "storage": {"size": self.storage_size.value},
+                "adapters": vars(_DEFAULT_ADAPTERS[self.provider]),
             },
             sort_keys=True,
             default=_json_default,
@@ -475,7 +512,30 @@ def _validate_size(spec: Mapping[str, Any], block: str, *, source: str) -> Size:
     """`spec.query.size` / `spec.storage.size`: optional, `small` by default, and only tiers with a tested backend."""
     if block not in spec:
         return Size.SMALL
-    return _size_block(spec[block], block, where=f"{source}: spec.{block}") or Size.SMALL
+    document = spec[block]
+    if block == "storage" and isinstance(document, Mapping):
+        # The adapter block is validated separately; only size reaches the sizing parser.
+        document = {key: value for key, value in document.items() if key != "adapter"}
+    return _size_block(document, block, where=f"{source}: spec.{block}") or Size.SMALL
+
+
+def _validate_adapters(spec: Mapping[str, Any], provider: Provider, *, source: str) -> None:
+    for capability, default in vars(_DEFAULT_ADAPTERS[provider]).items():
+        if capability not in spec:
+            continue
+        document = spec[capability]
+        field = "backend" if capability == "state" else "adapter"
+        where = f"{source}: spec.{capability}"
+        if not isinstance(document, Mapping):
+            raise DeploymentProfileError(f"{where} must be an object")
+        allowed = {field, "size"} if capability == "storage" else {field}
+        _forbid_unexpected(document, allowed, where=where)
+        value = document.get(field, default)
+        if value != default:
+            raise DeploymentProfileError(
+                f"{where}.{field} {value!r} has no implementation on provider {provider.value!r}; "
+                f"use {default!r} until {_ADAPTER_TRACKERS[capability]} lands"
+            )
 
 
 def _size_block(document: object, block: str, *, where: str) -> Size | None:
@@ -803,6 +863,7 @@ def validate_deployment_profile(
             raise DeploymentProfileError(f"{source}: spec: missing required field {field!r}")
 
     provider = _validate_provider(spec["provider"], source=source)
+    _validate_adapters(spec, provider.type, source=source)
 
     try:
         preset = Preset(spec["preset"])
@@ -855,7 +916,7 @@ def validate_deployment_profile(
             f"{source}: a profile without spec.identity (authentication off) publishes nothing beyond this machine: "
             "use no spec.access, or on provider 'local' a base_domain ending in '.localhost'"
         )
-    if provider.type == Provider.AWS and "storage" in spec:
+    if provider.type == Provider.AWS and "storage" in spec and "size" in spec["storage"]:
         raise DeploymentProfileError(
             f"{source}: spec.storage is not available on provider 'aws': object storage is managed S3 there, "
             "so there is no self-hosted volume to size; remove spec.storage"

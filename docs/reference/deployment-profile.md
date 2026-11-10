@@ -83,7 +83,11 @@ spec:
 | `identity` | object | no | absent: sign-in off | Who may sign in and which roles they hold. |
 | `project` | object | no | absent: the public example image | Your project's source repository and image registry. |
 | `query` | object | no | `size: small` | Default Trino size for every stage. |
-| `storage` | object | no | `size: small` | Size of self-hosted object storage (SeaweedFS). Rejected on `aws`. |
+| `storage` | object | no | provider adapter; `size: small` | Object storage adapter and self-hosted size. `size` is rejected on `aws`. |
+| `cluster` | object | no | provider default | Cluster adapter selector. |
+| `catalog` | object | no | provider default | Catalog adapter selector. |
+| `metadata_database` | object | no | provider default | Metadata database adapter selector. |
+| `state` | object | no | `backend: local` | Terraform state backend selector. |
 
 ### `spec.provider`
 
@@ -93,10 +97,23 @@ spec:
 | `region` | string, non-empty | no | Cloud region. Rejected when `type` is `local`. Used for `aws`; when unset, `AWS_REGION` and then `eu-west-1` apply. For `azure` the region comes from the foundation tfvars (`AZURE_TFVARS_FILE`). |
 
 `type` selects the deployment target and the default adapter for each
-capability: object storage, metadata database and catalog. Later releases add
-per-capability fields that override one default (an existing cluster, an
-external S3 bucket, an external PostgreSQL) without changing what `type`
-means.
+capability. The optional selectors below currently accept only those
+defaults. Unsupported selections name their implementation issue; they never
+silently deploy the provider default instead.
+
+| Field under `spec` | Local | AWS (preview) | Azure (preview) | Other selections |
+| --- | --- | --- | --- | --- |
+| `cluster.adapter` | `kind` | `eks` | `aks` | Existing Kubernetes: #802 |
+| `storage.adapter` | `seaweedfs` | `s3` | `seaweedfs` | External S3-compatible: #803 |
+| `catalog.adapter` | `polaris` | `glue` | `polaris` | AWS Polaris: #681 |
+| `metadata_database.adapter` | `postgresql` | `rds` | `postgresql` | External PostgreSQL: #335 |
+| `state.backend` | `local` | `local` | `local` | Remote state: #905/#132 |
+
+`olf profile resolve --project . --json` includes an `adapters` object with
+all five resolved choices. Omitting the selectors has the same effect as
+writing the provider defaults. These selectors add no support for existing
+clusters or external services yet; their connection settings arrive with the
+corresponding implementation.
 
 ### `spec.preset`
 

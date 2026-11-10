@@ -25,7 +25,30 @@
       "allOf": [
         {
           "if": {"properties": {"provider": {"properties": {"type": {"const": "aws"}}}}},
-          "then": {"properties": {"storage": false}}
+          "then": {"properties": {
+            "cluster": {"properties": {"adapter": {"const": "eks"}}},
+            "storage": {"properties": {"adapter": {"const": "s3"}, "size": false}},
+            "catalog": {"properties": {"adapter": {"const": "glue"}}},
+            "metadata_database": {"properties": {"adapter": {"const": "rds"}}}
+          }}
+        },
+        {
+          "if": {"properties": {"provider": {"properties": {"type": {"const": "local"}}}}},
+          "then": {"properties": {
+            "cluster": {"properties": {"adapter": {"const": "kind"}}},
+            "storage": {"properties": {"adapter": {"const": "seaweedfs"}}},
+            "catalog": {"properties": {"adapter": {"const": "polaris"}}},
+            "metadata_database": {"properties": {"adapter": {"const": "postgresql"}}}
+          }}
+        },
+        {
+          "if": {"properties": {"provider": {"properties": {"type": {"const": "azure"}}}}},
+          "then": {"properties": {
+            "cluster": {"properties": {"adapter": {"const": "aks"}}},
+            "storage": {"properties": {"adapter": {"const": "seaweedfs"}}},
+            "catalog": {"properties": {"adapter": {"const": "polaris"}}},
+            "metadata_database": {"properties": {"adapter": {"const": "postgresql"}}}
+          }}
         }
       ],
       "properties": {
@@ -42,6 +65,30 @@
           }
         },
         "preset": {"enum": ["slim", "full"]},
+        "cluster": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The provider's cluster adapter only. Existing-cluster selection waits on #802.",
+          "properties": {"adapter": {"enum": ["kind", "eks", "aks"]}}
+        },
+        "catalog": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The provider's catalog adapter only. AWS Polaris waits on #681.",
+          "properties": {"adapter": {"enum": ["polaris", "glue"]}}
+        },
+        "metadata_database": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The provider's metadata database adapter only. External PostgreSQL waits on #335.",
+          "properties": {"adapter": {"enum": ["postgresql", "rds"]}}
+        },
+        "state": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Terraform state backend. Remote backends wait on #905 and #132.",
+          "properties": {"backend": {"const": "local", "default": "local"}}
+        },
         "query": {
           "type": "object",
           "additionalProperties": false,
@@ -51,8 +98,11 @@
         "storage": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Self-hosted object storage (SeaweedFS). Rejected on aws, whose object storage is S3. The volume sizes behind each value are in release/storage-sizes.yaml.",
-          "properties": {"size": {"enum": ["small", "medium", "large"], "default": "small"}}
+          "description": "Object storage. Only the provider's default adapter is accepted; external S3-compatible storage waits on #803. Size applies only to self-hosted SeaweedFS, never AWS S3. Volume sizes are in release/storage-sizes.yaml.",
+          "properties": {
+            "adapter": {"enum": ["seaweedfs", "s3"]},
+            "size": {"enum": ["small", "medium", "large"], "default": "small"}
+          }
         },
         "project": {
           "type": "object",

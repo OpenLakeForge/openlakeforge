@@ -119,6 +119,86 @@ def test_render_json_is_stable_across_repeated_resolutions() -> None:
 
 
 @pytest.mark.parametrize(
+    ("provider", "adapters"),
+    [
+        (
+            "local",
+            {
+                "cluster": "kind",
+                "storage": "seaweedfs",
+                "catalog": "polaris",
+                "metadata_database": "postgresql",
+                "state": "local",
+            },
+        ),
+        ("aws", {"cluster": "eks", "storage": "s3", "catalog": "glue", "metadata_database": "rds", "state": "local"}),
+        (
+            "azure",
+            {
+                "cluster": "aks",
+                "storage": "seaweedfs",
+                "catalog": "polaris",
+                "metadata_database": "postgresql",
+                "state": "local",
+            },
+        ),
+    ],
+)
+def test_provider_defaults_can_be_named_explicitly_without_changing_topology(provider, adapters, tmp_path) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["provider"]["type"] = provider
+    omitted = resolve_topology(validate_deployment_profile(document))
+    for capability, adapter in adapters.items():
+        document["spec"][capability] = {"backend" if capability == "state" else "adapter": adapter}
+
+    explicit = resolve_topology(validate_deployment_profile(document))
+
+    assert explicit == omitted
+    assert json.loads(explicit.render_json())["adapters"] == adapters
+    assert not _schema_errors(document, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("capability", "selection", "tracker"),
+    [
+        ("cluster", "existing", "#802"),
+        ("storage", "s3_compatible", "#803"),
+        ("catalog", "glue", "#681"),
+        ("metadata_database", "external", "#335"),
+        ("state", "kubernetes", "#905"),
+        ("state", "s3", "#905"),
+    ],
+)
+def test_unimplemented_adapters_fail_with_tracking_issue(capability, selection, tracker, tmp_path) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    field = "backend" if capability == "state" else "adapter"
+    document["spec"][capability] = {field: selection}
+
+    with pytest.raises(DeploymentProfileError, match=rf"spec\.{capability}\.{field}.*{tracker}"):
+        validate_deployment_profile(document)
+    assert _schema_errors(document, tmp_path)
+
+
+@pytest.mark.parametrize("capability", ["cluster", "storage", "catalog", "metadata_database", "state"])
+@pytest.mark.parametrize("value", [None, "default", {"endpoint": "https://storage.example"}, {"adapter": None}])
+def test_adapter_blocks_reject_malformed_or_unimplemented_configuration(capability, value, tmp_path) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"][capability] = value
+
+    with pytest.raises(DeploymentProfileError, match=rf"spec\.{capability}"):
+        validate_deployment_profile(document)
+    assert _schema_errors(document, tmp_path)
+
+
+def test_storage_adapter_preserves_sizing(tmp_path) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["storage"] = {"adapter": "seaweedfs", "size": "medium"}
+
+    assert resolve_topology(validate_deployment_profile(document)).storage_size == Size.MEDIUM
+    assert not _schema_errors(document, tmp_path)
+
+
+@pytest.mark.parametrize(
     ("fixture_name", "match"),
     [
         ("invalid_unsupported_api_version.yaml", "unsupported apiVersion"),
