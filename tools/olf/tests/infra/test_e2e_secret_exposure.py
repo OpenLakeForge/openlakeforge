@@ -145,6 +145,49 @@ def test_migrated_credentials_are_found_in_every_namespace_by_name_and_key(monke
     }
 
 
+def test_a_leaked_polaris_principal_credential_fails_the_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    processing, catalog, deployer, crawler = "p" * 32, "t" * 32, "d" * 32, "m" * 32
+    secrets = {
+        ("olf-dev", "polaris-dev-processing-creds"): {
+            "POLARIS_PROCESSING_CLIENT_ID": "olf-dev-processing",
+            "POLARIS_PROCESSING_CLIENT_SECRET": processing,
+        },
+        ("olf-dev", "polaris-dev-trino-catalog-creds"): {"POLARIS_CLIENT_ID": "id", "POLARIS_CLIENT_SECRET": catalog},
+        ("olf-dev", "polaris-dev-deployer-creds"): {"POLARIS_DEPLOYER_CLIENT_SECRET": deployer},
+        ("olf-system", "polaris-om-creds"): {"POLARIS_OM_CLIENT_SECRET": crawler},
+        # Not a principal's Secret: the scan already covers the root credential by name.
+        ("olf-system", "polaris-bootstrap-credentials"): {"ROOT_CLIENT_SECRET": "r" * 32},
+    }
+
+    def secret_value(name: str, key: str, namespace: str, **_kwargs: Any) -> str:
+        if key not in secrets.get((namespace, name), {}):
+            raise k8s.KubectlError("not found")
+        return secrets[(namespace, name)][key]
+
+    def kubectl_text(_cfg: Any, args: list[str]) -> str:
+        if args[:2] == ["get", "secrets"]:
+            return "\n".join(f"secret/{name}" for namespace, name in secrets if namespace == args[3])
+        return json.dumps({"data": dict.fromkeys(secrets[(args[4], args[2])], "")})
+
+    monkeypatch.setattr(exposure.k8s, "secret_value", secret_value)
+    monkeypatch.setattr(exposure, "_kubectl_text", kubectl_text)
+
+    credentials = exposure.migrated_credentials(_cfg(), ("olf-system", "olf-dev"))
+
+    assert credentials == {
+        "olf-system/polaris-bootstrap-credentials/ROOT_CLIENT_SECRET": "r" * 32,
+        "olf-system/polaris-om-creds/POLARIS_OM_CLIENT_SECRET": crawler,
+        "olf-dev/polaris-dev-deployer-creds/POLARIS_DEPLOYER_CLIENT_SECRET": deployer,
+        "olf-dev/polaris-dev-processing-creds/POLARIS_PROCESSING_CLIENT_SECRET": processing,
+        "olf-dev/polaris-dev-trino-catalog-creds/POLARIS_CLIENT_SECRET": catalog,
+    }
+    with pytest.raises(E2EError) as raised:
+        exposure.scan(credentials, {"logs of pod/trino-0 in olf-dev": f"minting a token with {processing}"})
+    message = str(raised.value)
+    assert "olf-dev/polaris-dev-processing-creds/POLARIS_PROCESSING_CLIENT_SECRET" in message
+    assert processing not in message
+
+
 def _backup_directory(tmp_path: Path) -> Path:
     backup = tmp_path / "backup"
     (backup / "postgres").mkdir(parents=True)

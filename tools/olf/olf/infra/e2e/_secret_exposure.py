@@ -46,6 +46,11 @@ MIGRATED_PLATFORM_SECRETS = (
 MIGRATED_SCANNED_SECRETS = (("superset-credentials", "secret-key"), ("superset-credentials", "admin-password"))
 DATABASE_SECRET = re.compile(r"postgresql-.+-creds")
 STAGE_S3_SECRET = re.compile(r"seaweedfs-.+-s3-creds")
+# One Secret per Polaris principal, written by olf's bootstrap into the namespace that uses it: a stage's
+# processing and deployer principals, its coordinator's catalog credential, OpenMetadata's crawler. olf pipes
+# the processing one to `kubectl exec` on stdin for every Trino call (#982), so a regression would log it.
+POLARIS_PRINCIPAL_SECRET = re.compile(r"polaris-.+-creds")
+POLARIS_CLIENT_SECRET_SUFFIX = "_CLIENT_SECRET"
 LOG_TAIL_LINES = 2000
 
 Surfaces = Mapping[str, str | None]
@@ -152,16 +157,20 @@ def migrated_credentials(cfg: E2EConfig, namespaces: tuple[str, ...]) -> dict[st
     refs = [(cfg.platform_namespace, name, key) for name, key in MIGRATED_PLATFORM_SECRETS]
     platform_names = {name for name, _ in MIGRATED_PLATFORM_SECRETS}
     for namespace in namespaces:
+        names = _secret_names(cfg, namespace)
         refs += [(namespace, name, key) for name, key in MIGRATED_SCANNED_SECRETS]
         refs += [
             (namespace, name, "postgresql-password")
-            for name in _secret_names(cfg, namespace)
+            for name in names
             if DATABASE_SECRET.fullmatch(name) and name not in platform_names
         ]
+        refs += [(namespace, name, "AWS_SECRET_ACCESS_KEY") for name in names if STAGE_S3_SECRET.fullmatch(name)]
         refs += [
-            (namespace, name, "AWS_SECRET_ACCESS_KEY")
-            for name in _secret_names(cfg, namespace)
-            if STAGE_S3_SECRET.fullmatch(name)
+            (namespace, name, key)
+            for name in names
+            if POLARIS_PRINCIPAL_SECRET.fullmatch(name)
+            for key in _secret_keys(cfg, namespace, name)
+            if key.endswith(POLARIS_CLIENT_SECRET_SUFFIX)
         ]
     found: dict[str, str] = {}
     for namespace, name, key in refs:
@@ -204,6 +213,12 @@ def _secret_names(cfg: E2EConfig, namespace: str) -> list[str]:
     if text is None:
         raise E2EError(f"cannot list the Secrets in {namespace} to find the credentials to scan for")
     return sorted(line.removeprefix("secret/") for line in text.split())
+
+
+def _secret_keys(cfg: E2EConfig, namespace: str, name: str) -> list[str]:
+    """The Secret's key names; none when it went away after the listing, as an absent credential is left out."""
+    text = _kubectl_text(cfg, ["get", "secret", name, "-n", namespace, "-o", "json"])
+    return sorted(json.loads(text).get("data") or {}) if text else []
 
 
 def _state_surfaces(cfg: E2EConfig) -> dict[str, str | None]:
