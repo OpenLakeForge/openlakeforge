@@ -226,7 +226,7 @@ flows:
       - {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
       - {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
       - {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
-      - {scope: stage} # Superset: the code exchange, keys and userinfo of its sign-in, and its per-user Trino token request
+      - {scope: stage, pods: {app: superset}} # Superset web: the code exchange, keys and userinfo of its sign-in, and its per-user Trino token request
     to: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
     ports: [5556]
     tag: T # keys for people's tokens and the code exchange, over the Dex Service (ADR 0013, decision 8), before Traefik exists; OpenMetadata fetches only its keys (its code exchange stays on F4)
