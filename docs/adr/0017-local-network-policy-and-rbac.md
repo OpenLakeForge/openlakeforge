@@ -178,7 +178,7 @@ port [D]).
 | F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 (80 hostPort) only in plain-HTTP mode, `tls: none`, but the policy allows it in both | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
 | F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` | V |
 | F3 | Traefik | Dex, portal, platform API 8080, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` and `ingress_routes` (the platform API's `/api` path) in `contracts.tf` | V |
-| F4 | OpenMetadata | Traefik 8443 (8000 when `tls: none`) | 8443, 8000 | the issuer's public URL through the CoreDNS rewrite: OpenMetadata's discovery and token requests (the oauth2-proxy, Polaris and platform API calls moved to F31, #991) | V; Superset (stage rule) is built; the Trino and OpenMetadata rows **T** |
+| F4 | OpenMetadata | Traefik 8443 (8000 when `tls: none`) | 8443, 8000 | the issuer's public URL through the CoreDNS rewrite: OpenMetadata's discovery and token requests (the oauth2-proxy, Polaris and platform API calls moved to F31, #991); Superset's sign-in calls until #1092 (stage rule) | V; Superset (stage rule) is built; the Trino and OpenMetadata rows **T** |
 | F5 | all managed pods | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP/TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik | V |
 | F6 | Dex, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
 | F7 | Polaris | SeaweedFS S3 | 8333 | table metadata is written to the warehouse bucket; not traced in the module | **T** |
@@ -378,7 +378,7 @@ not isolation: stage labels are user-set), so other stage pods stay off Dex. Exc
 `trino-credentials` adds `dex-client-trino`: the Job reads it in `olf-system` and copies it beside the
 coordinator.
 
-F4 and F31 (#991): oauth2-proxy, Polaris and the platform API reach Dex's Service (F31) instead of the public URL through Traefik (F4); OpenMetadata fetches its keys the same way.
+F4 and F31 (#991): oauth2-proxy, Polaris and the platform API reach Dex's Service (F31) instead of the public URL through Traefik (F4); OpenMetadata fetches its keys the same way. OpenMetadata (no token-URL override in 1.13.6) and Superset (image change waits for #1092) keep F4 for their issuer calls.
 
 Polaris bootstrap moved to `olf` (#562): the `catalog-bootstrap` and
 `catalog-credential-replication` Jobs are deleted, with their workloads and
