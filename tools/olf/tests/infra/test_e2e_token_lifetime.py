@@ -21,6 +21,18 @@ def test_generations_follow_the_ref_graph(tmp_path) -> None:
     assert generation_count(tmp_path) == 3
 
 
+def test_mint_times_are_the_logged_mints_in_seconds() -> None:
+    from olf.infra.e2e._token_lifetime import TOKEN_MINTED_MESSAGE, mint_times
+
+    events = [
+        {"message": TOKEN_MINTED_MESSAGE, "timestamp": "2000"},
+        {"message": "something else", "timestamp": "1000"},
+        {"message": TOKEN_MINTED_MESSAGE, "timestamp": "1500"},
+    ]
+
+    assert mint_times(events) == [1.5, 2.0]
+
+
 def test_flat_models_are_one_generation(tmp_path) -> None:
     (tmp_path / "a.sql").write_text("select 1")
     (tmp_path / "b.sql").write_text("select 2")

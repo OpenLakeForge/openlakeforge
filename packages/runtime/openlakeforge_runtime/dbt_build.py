@@ -10,29 +10,33 @@ from typing import Any
 from dagster_dbt.errors import DagsterDbtCliRuntimeError
 
 
-def model_dependencies(
-    manifest: Mapping[str, Any], selected: Collection[str]
-) -> dict[str, tuple[str, ...]]:
+def model_dependencies(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, tuple[str, ...]]:
     """Each selected model of the manifest's project, with the selected models it reads from."""
     project = manifest.get("metadata", {}).get("project_name")
     models = {
         unique_id: node
         for unique_id, node in manifest.get("nodes", {}).items()
-        if node.get("resource_type") == "model"
-        and node.get("package_name") == project
-        and node["name"] in selected
+        if node.get("resource_type") == "model" and node.get("package_name") == project and node["name"] in selected
     }
-    names = {unique_id: node["name"] for unique_id, node in models.items()}
-    return {
-        node["name"]: tuple(
-            sorted(
-                names[parent]
-                for parent in node["depends_on"]["nodes"]
-                if parent in names
-            )
-        )
-        for node in models.values()
-    }
+    nodes = manifest.get("nodes", {})
+
+    def selected_upstream(unique_id: str) -> set[str]:
+        """The selected models `unique_id` reads, looking through any non-selected node (ephemeral or not)."""
+        found: set[str] = set()
+        seen: set[str] = set()
+        pending = list(nodes[unique_id]["depends_on"]["nodes"])
+        while pending:
+            parent = pending.pop()
+            if parent in seen:
+                continue
+            seen.add(parent)
+            if parent in models:
+                found.add(models[parent]["name"])
+            elif parent in nodes:
+                pending.extend(nodes[parent].get("depends_on", {}).get("nodes", []))
+        return found
+
+    return {node["name"]: tuple(sorted(selected_upstream(unique_id))) for unique_id, node in models.items()}
 
 
 def build_by_generation(
@@ -55,17 +59,18 @@ def build_by_generation(
     skipped, as `dbt build` does; independent models still build, and the first failure is raised once
     the rest are done.
     """
+    if not dependencies:
+        # A selection of checks alone names no model, and dbt still has to run them.
+        with token():
+            yield from invoke([])
+        return
     failed: set[str] = set()
     first_error: DagsterDbtCliRuntimeError | None = None
-    sorter = TopologicalSorter(
-        {model: set(parents) for model, parents in dependencies.items()}
-    )
+    sorter = TopologicalSorter({model: set(parents) for model, parents in dependencies.items()})
     sorter.prepare()
     while sorter.is_active():
         ready = sorted(sorter.get_ready())
-        batch = [
-            model for model in ready if not failed.intersection(dependencies[model])
-        ]
+        batch = [model for model in ready if not failed.intersection(dependencies[model])]
         failed.update(set(ready) - set(batch))
         if batch:
             try:
@@ -106,9 +111,7 @@ def merge_run_results(target_paths: list[Path]) -> Path:
             result
             for target in target_paths
             if (target / "run_results.json").exists()
-            for result in json.loads((target / "run_results.json").read_text())[
-                "results"
-            ]
+            for result in json.loads((target / "run_results.json").read_text())["results"]
         ]
         path.write_text(json.dumps(merged))
     return last

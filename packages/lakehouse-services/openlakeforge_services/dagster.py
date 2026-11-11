@@ -117,7 +117,11 @@ class DagsterClient:
                     "repositoryName": repository_name,
                     "pipelineName": job_name,
                     # Only those asset keys (each a path) of an asset job.
-                    **({"assetSelection": [{"path": list(path)} for path in asset_selection]} if asset_selection else {}),
+                    **(
+                        {"assetSelection": [{"path": list(path)} for path in asset_selection]}
+                        if asset_selection
+                        else {}
+                    ),
                 },
                 "runConfigData": dict(run_config or {}),
                 "mode": "default",

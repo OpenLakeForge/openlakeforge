@@ -158,3 +158,38 @@ def test_run_results_of_every_invocation_end_up_in_the_last(tmp_path: Path) -> N
     merged = json.loads((targets[-1] / "run_results.json").read_text())
     assert [result["id"] for result in merged["results"]] == ["a", "b"]
     assert merged["metadata"] == {"n": 1}
+
+
+def test_dependencies_look_through_models_that_are_not_selected() -> None:
+    def model(name: str, parents: list[str]) -> dict:
+        return {"name": name, "resource_type": "model", "package_name": "gold", "depends_on": {"nodes": parents}}
+
+    manifest = {
+        "metadata": {"project_name": "gold"},
+        "nodes": {
+            "model.gold.up": model("up", []),
+            "model.gold.eph": model("eph", ["model.gold.up"]),
+            "model.gold.eph2": model("eph2", ["model.gold.eph", "source.gold.s"]),
+            "model.gold.down": model("down", ["model.gold.eph2"]),
+        },
+    }
+
+    assert dbt_build.model_dependencies(manifest, {"up", "down"}) == {"up": (), "down": ("up",)}
+
+
+def test_a_selection_of_checks_alone_still_runs_dbt_once_under_a_token() -> None:
+    tokens = Tokens()
+
+    batches, _, error = run({}, tokens)
+
+    assert batches == [[]]
+    assert tokens.minted == 1
+    assert error is None
+
+
+def test_the_minted_message_the_e2e_looks_for_is_the_one_the_runtime_logs() -> None:
+    from openlakeforge_runtime import polaris_token
+
+    from olf.infra.e2e import _token_lifetime
+
+    assert _token_lifetime.TOKEN_MINTED_MESSAGE == polaris_token.TOKEN_MINTED_MESSAGE

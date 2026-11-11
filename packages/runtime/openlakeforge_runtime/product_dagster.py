@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -43,7 +44,7 @@ from openlakeforge_runtime.dbt_build import (
 )
 from openlakeforge_runtime.floe_profile import write_profile
 from openlakeforge_runtime.openlakeforge_logging import log_event
-from openlakeforge_runtime.polaris_token import polaris_token_env
+from openlakeforge_runtime.polaris_token import TOKEN_MINTED_MESSAGE, polaris_token_env
 from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri
 from openlakeforge_runtime.source_bindings import source_binding_tags
 
@@ -441,12 +442,19 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             target_paths.append(invocation.target_path)
             yield from invocation.stream()
 
+        @contextmanager
+        def generation_token():
+            with polaris_token_env():
+                # The e2e reads these events' times: a token's life starts here (#1061).
+                context.log.info(TOKEN_MINTED_MESSAGE)
+                yield
+
         try:
             # A dbt process holds its token for good and Polaris lets it expire, so each generation gets its own.
             yield from build_by_generation(
                 dependencies,
                 build_generation,
-                polaris_token_env,
+                generation_token,
                 lambda models: failed_models_in(target_paths[-1], models),
             )
         finally:
@@ -497,9 +505,7 @@ def _bronze_source_binding_tags(inputs: ResolvedProductInputs) -> dict[str, str]
     return source_binding_tags(sources)
 
 
-def build_stage_schedules(
-    spec: ProductDefinitionSpec, *, stage: str | None = None
-) -> list[ScheduleDefinition]:
+def build_stage_schedules(spec: ProductDefinitionSpec, *, stage: str | None = None) -> list[ScheduleDefinition]:
     """Build the daily schedule scaffold a stage is entitled to.
 
     `stage` defaults to the deployed stage the activation release puts on the

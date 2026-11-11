@@ -8,6 +8,8 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 
 TOKEN_ENV = "OPENLAKEFORGE_POLARIS_TOKEN"
+# Logged to the Dagster run when a Gold build mints a token; the e2e finds the mint times by it.
+TOKEN_MINTED_MESSAGE = "Minted a Polaris token for a dbt build generation"
 
 
 def mint_token(environ: Mapping[str, str] | None = None) -> str:
