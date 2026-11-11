@@ -16,3 +16,8 @@ include = ["openlakeforge_services*"]
 # PEP 561 marker; without it both see every client as `Any`.
 [tool.setuptools.package-data]
 openlakeforge_services = ["py.typed"]
+
+# Lint with the same rules as tools/olf. Ruff resolves its config per file, so a package
+# without its own table would silently fall back to ruff defaults.
+[tool.ruff]
+extend = "../../tools/olf/pyproject.toml"
