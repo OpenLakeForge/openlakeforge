@@ -22,9 +22,9 @@ from typing import Any
 from openlakeforge_core import Product
 
 from olf.common import log
-from olf.infra.e2e._dagster import dagster_client, launch_and_poll
+from olf.infra.e2e._dagster import DAGSTER_JOB_TIMEOUT_SECONDS, dagster_client, launch_and_poll
 from olf.infra.e2e._maintenance import base_tables
-from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import (
     POLARIS_POD_SELECTOR,
     POLARIS_RESTART_TIMEOUT_SECONDS,
@@ -91,15 +91,28 @@ def gold_models(models_dir: Path) -> dict[str, set[str]]:
     }
 
 
-def generation_count(models_dir: Path) -> int:
-    """How many topological generations the `ref()` graph of the `.sql` models under `models_dir` has."""
+def model_generations(models_dir: Path) -> list[list[str]]:
+    """The `.sql` models under `models_dir` grouped by topological generation of their `ref()` graph."""
     sorter = TopologicalSorter(gold_models(models_dir))
     sorter.prepare()
-    generations = 0
+    result: list[list[str]] = []
     while sorter.is_active():
-        sorter.done(*sorter.get_ready())
-        generations += 1
-    return generations
+        ready = sorted(sorter.get_ready())
+        result.append(ready)
+        sorter.done(*ready)
+    return result
+
+
+def generation_count(models_dir: Path) -> int:
+    """How many topological generations the `ref()` graph of the `.sql` models under `models_dir` has."""
+    return len(model_generations(models_dir))
+
+
+def fits_job_timeout(baseline_seconds: float, lifetime: int, generations: int, timeout_seconds: int) -> bool:
+    """Whether the measured run, the baseline plus a lifetime's pause before each later generation, fits the job
+    timeout with a fifth to spare. A run past it is not cancelled, so the check must not start one it cannot
+    wait for."""
+    return baseline_seconds + lifetime * (generations - 1) <= timeout_seconds * 0.8
 
 
 def catalog_is_polaris(implementation: object) -> bool:
@@ -138,7 +151,10 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
         )
         return
     models_dir = cfg.repo_root / product.dbt_project_dir / "models"
-    generations = generation_count(models_dir)
+    groups = model_generations(models_dir)
+    generations = len(groups)
+    later_models = {model for group in groups[1:] for model in group}
+    timeout_seconds = int(cfg_environ(cfg).get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
     selection = [(product.id, model) for model in sorted(gold_models(models_dir))]
     log.step(f"Building {product.id}'s Gold models past a shortened Polaris token lifetime...")
     with dagster_client(cfg) as client:
@@ -148,13 +164,23 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
             run = client.get_run(run_id)
             if run is None or run.started_at is None or run.ended_at is None:
                 raise E2EError(f"Dagster recorded no start and end time for the {product.id} Gold run.")
-            return run_id, float(run.ended_at)
+            return run_id, float(run.ended_at) - float(run.started_at)
+
+        baseline_id, baseline_seconds = gold_run()
+        # Only a table makes an Iceberg snapshot, and only one built after the pause can show a commit after the
+        # first token expired: a later generation of views proves nothing.
+        schema = f"{_glue_namespace_prefix(cfg)}{product.gold_namespace}"
+        later_tables = [(product.gold_namespace, table) for table in base_tables(cfg, schema) if table in later_models]
+        if not later_tables:
+            log.info(
+                f"Skipping the token lifetime proof: {product.id}'s later generations build no table, so no snapshot "
+                "can show a commit after the first token expired."
+            )
+            return
 
         def last_commit() -> float:
-            schema = f"{_glue_namespace_prefix(cfg)}{product.gold_namespace}"
-            return _last_gold_commit(cfg, [(product.gold_namespace, table) for table in base_tables(cfg, schema)])
+            return _last_gold_commit(cfg, later_tables)
 
-        baseline_id, _ = gold_run()
         baseline_mints = mint_times(_run_events(client, baseline_id))
         # The token-exposed interval ends at the last commit, not the run's end: Dagster spends time after dbt
         # (artifact upload, teardown) that no token covers, and counting it would oversize the last generation.
@@ -165,6 +191,12 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
                 f"Skipping the token lifetime proof: {product.id}'s mints at "
                 f"{[round(m - baseline_mints[0]) for m in baseline_mints]}s and last commit at "
                 f"{round(baseline_commit - baseline_mints[0]) if baseline_mints else None}s: it needs two generations."
+            )
+            return
+        if not fits_job_timeout(baseline_seconds, lifetime, generations, timeout_seconds):
+            log.info(
+                f"Skipping the token lifetime proof: {generations - 1} pause(s) of {lifetime}s on a "
+                f"{baseline_seconds:.0f}s build would not fit the {timeout_seconds}s job timeout."
             )
             return
         log.info(f"Tokens now live {lifetime}s (the slowest generation fits) and generations wait as long.")

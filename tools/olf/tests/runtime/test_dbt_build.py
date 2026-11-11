@@ -423,3 +423,38 @@ def test_the_pause_runs_between_generations_before_the_next_token() -> None:
         "pause (tokens 2)",
         "build c (tokens 3)",
     ]
+
+
+def test_a_test_on_an_unselected_materialized_model_is_not_this_runs() -> None:
+    # Only `a` is selected; `b` (materialized, not selected) reads `a` and has its own test.
+    manifest = {
+        "metadata": {"project_name": "gold"},
+        "nodes": {
+            "model.gold.a": {
+                "name": "a", "resource_type": "model", "package_name": "gold",
+                "config": {"materialized": "table"}, "depends_on": {"nodes": []},
+            },
+            "model.gold.b": {
+                "name": "b", "resource_type": "model", "package_name": "gold",
+                "config": {"materialized": "table"}, "depends_on": {"nodes": ["model.gold.a"]},
+            },
+            "model.gold.e": {
+                "name": "e", "resource_type": "model", "package_name": "gold",
+                "config": {"materialized": "ephemeral"}, "depends_on": {"nodes": ["model.gold.a"]},
+            },
+            "test.gold.not_null_b": {
+                "unique_id": "test.gold.not_null_b", "resource_type": "test", "package_name": "gold",
+                "fqn": ["gold", "not_null_b"], "depends_on": {"nodes": ["model.gold.b"]},
+            },
+            "test.gold.not_null_e": {
+                "unique_id": "test.gold.not_null_e", "resource_type": "test", "package_name": "gold",
+                "fqn": ["gold", "not_null_e"], "depends_on": {"nodes": ["model.gold.e"]},
+            },
+        },
+    }
+
+    tests = dbt_build.dbt_tests(manifest, {"a"})
+
+    # b's test stays out of the run; a test over an ephemeral model is looked through to `a`.
+    assert (tests["test.gold.not_null_b"].parents, tests["test.gold.not_null_b"].explicit) == ((), False)
+    assert (tests["test.gold.not_null_e"].parents, tests["test.gold.not_null_e"].explicit) == (("a",), True)

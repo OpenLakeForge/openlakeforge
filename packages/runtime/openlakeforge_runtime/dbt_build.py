@@ -33,10 +33,18 @@ def _project_models(manifest: Mapping[str, Any], selected: Collection[str]) -> d
     }
 
 
+def _is_ephemeral(node: Mapping[str, Any]) -> bool:
+    return node.get("config", {}).get("materialized") == "ephemeral"
+
+
 def _selected_upstream(
-    manifest: Mapping[str, Any], models: Mapping[str, Mapping[str, Any]], parents: Collection[str]
+    manifest: Mapping[str, Any],
+    models: Mapping[str, Mapping[str, Any]],
+    parents: Collection[str],
+    *,
+    ephemeral_only: bool = False,
 ) -> set[str]:
-    """The selected models among `parents`, looking through any non-selected node (ephemeral or not)."""
+    """The selected models among `parents`, looking through non-selected nodes (only ephemeral ones if asked)."""
     nodes = manifest.get("nodes", {})
     found: set[str] = set()
     seen: set[str] = set()
@@ -48,7 +56,7 @@ def _selected_upstream(
         seen.add(parent)
         if parent in models:
             found.add(models[parent]["name"])
-        elif parent in nodes:
+        elif parent in nodes and (not ephemeral_only or _is_ephemeral(nodes[parent])):
             pending.extend(nodes[parent].get("depends_on", {}).get("nodes", []))
     return found
 
@@ -72,12 +80,20 @@ def dbt_tests(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[st
         if node.get("resource_type") not in ("test", "unit_test") or node.get("package_name") != project:
             continue
         direct = node.get("depends_on", {}).get("nodes", [])
-        parents = tuple(sorted(_selected_upstream(manifest, models, direct)))
+        nodes = manifest.get("nodes", {})
+        # A test on a materialized model outside the selection is not this run's, even if that model reads a
+        # selected one: eager selection runs a test only when one of its parents is selected. Only an ephemeral
+        # model, which has no table of its own, is looked through.
+        outside = any(
+            parent.startswith("model.") and parent not in models and not _is_ephemeral(nodes.get(parent, {}))
+            for parent in direct
+        )
+        parents = () if outside else tuple(sorted(_selected_upstream(manifest, models, direct, ephemeral_only=True)))
         tests[node["unique_id"]] = DbtTest(
             unique_id=node["unique_id"],
             selector=".".join(node["fqn"]),
             parents=parents,
-            explicit=bool(parents) or not any(parent.startswith("model.") for parent in direct),
+            explicit=not outside and (bool(parents) or not any(parent.startswith("model.") for parent in direct)),
             sources=tuple(sorted(parent for parent in direct if parent.startswith("source."))),
         )
     return tests

@@ -86,3 +86,12 @@ def test_the_proof_uses_a_product_whose_gold_has_two_generations(tmp_path) -> No
     assert product is not None
     assert generation_count(cfg.repo_root / product.dbt_project_dir / "models") >= 2
     assert product.id in {p.id for p in E2E_INVENTORY.products}
+
+
+def test_the_measured_run_must_fit_the_job_timeout_with_its_pauses() -> None:
+    from olf.infra.e2e._token_lifetime import fits_job_timeout
+
+    # customer_health: a 60 s build, one 28 s pause.
+    assert fits_job_timeout(60, 28, 2, 1800)
+    # Ten 100 s generations: nine 151 s pauses on a 1000 s build exceed 80% of 1800 s.
+    assert not fits_job_timeout(1000, 151, 10, 1800)
