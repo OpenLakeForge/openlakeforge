@@ -293,7 +293,7 @@ def _rename_access_issuer(lines: list[str]) -> list[str]:
     for at, line in enumerate(lines):
         flow = re.match(r"^(\s+access:\s*\{)(.*)(\}.*)$", line)
         if flow:
-            renamed = re.sub(r"(^|[{,]\s*)issuer(\s*:)", r"\1tls\2", flow.group(2))
+            renamed = re.sub(r"(^\s*|,\s*)issuer(\s*:)", r"\1tls\2", flow.group(2))
             return [*lines[:at], flow.group(1) + renamed + flow.group(3) + "\n", *lines[at + 1 :]]
         block = re.match(r"^(\s+)access:\s*(#.*)?$", line)
         if not block:
@@ -307,7 +307,7 @@ def _rename_access_issuer(lines: list[str]) -> list[str]:
     return lines
 
 
-def migrate_profile_text(text: str, *, source: str = PROFILE_FILE) -> str:
+def migrate_profile_text(text: str, *, source: str = PROFILE_FILE, distribution_root: Path | None = None) -> str:
     """The v1beta1 text for a v1alpha1 Deployment Profile; raises ``MigrationError`` instead of guessing."""
     document = _parse(text, source)
     if document.get("apiVersion") == PROFILE_API_VERSION:
@@ -340,7 +340,7 @@ def migrate_profile_text(text: str, *, source: str = PROFILE_FILE) -> str:
         raise MigrationError(f"{source}: could not find the top-level apiVersion line to rewrite")
     try:
         produced = yaml.safe_load(result)
-        validate_deployment_profile(produced, source=source)
+        validate_deployment_profile(produced, source=source, distribution_root=distribution_root)
     except (yaml.YAMLError, DeploymentProfileError) as exc:
         raise MigrationError(f"{source}: not a valid {PROFILE_API_VERSION} profile after migration: {exc}") from exc
     if produced != expected:
@@ -358,7 +358,7 @@ class Migration:
     migrated: str
 
 
-def plan_project_migration(root: Path) -> list[Migration]:
+def plan_project_migration(root: Path, *, distribution_root: Path | None = None) -> list[Migration]:
     """The profile at ``root`` and every descriptor under ``root/lakehouse_code`` on a previous version, migrated.
 
     All of them are migrated in memory first, so one that cannot be leaves the
@@ -369,7 +369,8 @@ def plan_project_migration(root: Path) -> list[Migration]:
     if profile.is_file():
         text = profile.read_text(encoding="utf-8")
         if is_legacy_profile(text):
-            plan.append(Migration(profile, text, migrate_profile_text(text, source=PROFILE_FILE)))
+            migrated = migrate_profile_text(text, source=PROFILE_FILE, distribution_root=distribution_root)
+            plan.append(Migration(profile, text, migrated))
     governance = code / "governance.yml"
     if governance.is_file():
         text = governance.read_text(encoding="utf-8")

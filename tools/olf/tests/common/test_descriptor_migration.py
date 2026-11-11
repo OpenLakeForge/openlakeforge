@@ -13,6 +13,7 @@ from olf.common.descriptor_migration import (
     migrate_governance_text,
     migrate_profile_text,
     migrate_source_text,
+    plan_project_migration,
 )
 from olf.common.profile import AccessSpec, load_deployment_profile, resolve_topology, validate_deployment_profile
 
@@ -260,7 +261,14 @@ def test_a_profile_migrates_to_v1beta1_renaming_only_access_issuer() -> None:
         migrate_profile_text(migrated)
 
 
-@pytest.mark.parametrize("access", ["  access: {issuer: local-ca}\n", "  access:\n    issuer: local-ca\n"])
+@pytest.mark.parametrize(
+    "access",
+    [
+        "  access: {issuer: local-ca}\n",
+        "  access: { issuer: local-ca }\n",
+        "  access:\n    issuer: local-ca\n",
+    ],
+)
 def test_a_profile_access_block_is_migrated_in_flow_or_block_style(access: str) -> None:
     text = (
         "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata: {name: p}\n"
@@ -316,6 +324,31 @@ def test_the_command_migrates_the_profile_next_to_the_descriptors(tmp_path: Path
     assert "v1beta1" in source.read_text(encoding="utf-8")
     again = runner.invoke(app, ["project", "migrate", "--repo-root", str(tmp_path)])
     assert "already current" in again.output
+
+
+def test_role_mappings_are_checked_against_the_distribution_not_the_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    distribution = Path(__file__).resolve().parents[4]
+    project = tmp_path / "project"
+    project.mkdir()
+    assert not (project / "release").exists()
+    profile = project / "openlakeforge.yaml"
+    profile.write_text(
+        _legacy_text().replace(
+            "  identity:\n    issuer: github\n    github:\n      organization: my-org\n"
+            "      teams:\n        platform-admin: [platform-team]\n"
+            "      oauth_app_secret_ref:\n        name: github-oauth-app\n",
+            "  identity:\n    issuer: external\n    issuer_url: https://login.example.com\n"
+            "    role_claim: groups\n    role_mapping:\n      platform-admin: [admins]\n",
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project)
+
+    (change,) = plan_project_migration(project, distribution_root=distribution)
+
+    assert "    tls: local-ca" in change.migrated
 
 
 def test_an_unmigratable_profile_leaves_the_descriptors_untouched(tmp_path: Path) -> None:

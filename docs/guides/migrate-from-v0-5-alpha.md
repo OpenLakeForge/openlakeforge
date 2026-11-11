@@ -109,10 +109,22 @@ Local and Azure buckets follow one rule, `<metadata.name>-<stage>-<layer>`, plus
 and `openlakeforge-ops`. `metadata.name` is limited to 51 characters. AWS bucket
 names are unchanged.
 
-A rename is not a copy. `olf infra deploy` refuses to rename deployed buckets
-and lists them. Back up, recreate and restore, or accept empty buckets: the steps
-are in [Renaming buckets](backup-and-restore.md#renaming-buckets). The layout
-itself is in [ADR 0004](../adr/0004-medallion-layout-and-catalog-namespaces.md).
+A rename is not a copy, and no step carries the data across. Nothing copies
+objects to the new names and Polaris keeps pointing at the old ones, so
+`olf infra deploy` refuses to rename deployed buckets and lists them. A backup
+taken under the old names cannot be restored under the new ones either: restore
+refuses a different release or profile
+([Limits](backup-and-restore.md#limits)).
+
+A deployment on the old names keeps working as long as you do not apply the
+rename. When you choose to move, the supported path is
+`olf infra destroy` followed by `olf infra deploy`, then running your pipelines
+again so Bronze, Silver and Gold are rebuilt from the sources. Passing
+`--allow-stage-removal` applies the rename over the existing platform with the
+same result: empty buckets. If the tables cannot be rebuilt from their sources,
+stay on the old names. Details are in
+[Renaming buckets](backup-and-restore.md#renaming-buckets). The layout itself is
+in [ADR 0004](../adr/0004-medallion-layout-and-catalog-namespaces.md).
 
 ## Descriptors
 
@@ -149,7 +161,8 @@ The exact replacements are in the Migration notes of the
 ## Apply to a running deployment
 
 1. Run `olf project migrate`, then the two validate commands above.
-2. If bucket names change, back up first (`olf infra backup --output <dir>`).
+2. If bucket names would change, `olf infra deploy` stops and lists them (see
+   above); decide whether to rebuild the data before going on.
 3. `olf infra deploy`. It rolls out a Trino coordinator per stage and builds
    and activates the project's revision again. Whether a revision is compatible
    is decided by runtime contract version, not by distribution version
