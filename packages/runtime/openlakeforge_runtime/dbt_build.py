@@ -80,20 +80,15 @@ def dbt_tests(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[st
         if node.get("resource_type") not in ("test", "unit_test") or node.get("package_name") != project:
             continue
         direct = node.get("depends_on", {}).get("nodes", [])
-        nodes = manifest.get("nodes", {})
-        # A test on a materialized model outside the selection is not this run's, even if that model reads a
-        # selected one: eager selection runs a test only when one of its parents is selected. Only an ephemeral
-        # model, which has no table of its own, is looked through.
-        outside = any(
-            parent.startswith("model.") and parent not in models and not _is_ephemeral(nodes.get(parent, {}))
-            for parent in direct
-        )
-        parents = () if outside else tuple(sorted(_selected_upstream(manifest, models, direct, ephemeral_only=True)))
+        # Eager selection runs a test when any of its parents is selected, and only those decide its generation.
+        # A materialized model outside the selection is not looked through: its test is not this run's just
+        # because that model reads a selected one. An ephemeral model, which has no table, is.
+        parents = tuple(sorted(_selected_upstream(manifest, models, direct, ephemeral_only=True)))
         tests[node["unique_id"]] = DbtTest(
             unique_id=node["unique_id"],
             selector=".".join(node["fqn"]),
             parents=parents,
-            explicit=not outside and (bool(parents) or not any(parent.startswith("model.") for parent in direct)),
+            explicit=bool(parents) or not any(parent.startswith("model.") for parent in direct),
             sources=tuple(sorted(parent for parent in direct if parent.startswith("source."))),
         )
     return tests

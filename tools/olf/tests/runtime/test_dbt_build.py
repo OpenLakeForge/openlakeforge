@@ -458,3 +458,28 @@ def test_a_test_on_an_unselected_materialized_model_is_not_this_runs() -> None:
     # b's test stays out of the run; a test over an ephemeral model is looked through to `a`.
     assert (tests["test.gold.not_null_b"].parents, tests["test.gold.not_null_b"].explicit) == ((), False)
     assert (tests["test.gold.not_null_e"].parents, tests["test.gold.not_null_e"].explicit) == (("a",), True)
+
+
+def test_a_test_with_one_selected_parent_still_runs() -> None:
+    # Eager selection runs a relationships test over a (selected) and b (not selected).
+    manifest = {
+        "metadata": {"project_name": "gold"},
+        "nodes": {
+            "model.gold.a": {
+                "name": "a", "resource_type": "model", "package_name": "gold",
+                "config": {"materialized": "table"}, "depends_on": {"nodes": []},
+            },
+            "model.gold.b": {
+                "name": "b", "resource_type": "model", "package_name": "gold",
+                "config": {"materialized": "table"}, "depends_on": {"nodes": []},
+            },
+            "test.gold.relationships_a_b": {
+                "unique_id": "test.gold.relationships_a_b", "resource_type": "test", "package_name": "gold",
+                "fqn": ["gold", "relationships_a_b"], "depends_on": {"nodes": ["model.gold.a", "model.gold.b"]},
+            },
+        },
+    }
+
+    test = dbt_build.dbt_tests(manifest, {"a"})["test.gold.relationships_a_b"]
+
+    assert (test.parents, test.explicit) == (("a",), True)
