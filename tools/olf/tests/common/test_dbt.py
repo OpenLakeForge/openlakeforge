@@ -42,14 +42,14 @@ def test_every_gold_session_may_plan_a_75_table_union() -> None:
     assert output["session_properties"]["query_max_stage_count"] >= 2 * 75 + 2
 
 
-def test_profile_reaches_trino_over_https_only_when_the_pod_is_given_the_ca() -> None:
+def test_profile_reaches_trino_over_plain_http_with_no_password() -> None:
     from openlakeforge_runtime.dbt.render_profiles import render_profile
 
-    profile = render_profile(PROJECTS[0])
+    output = yaml.safe_load(render_profile(PROJECTS[0]))[PROJECTS[0].parent.name]["outputs"]["runtime"]
 
-    assert "env_var('OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http')" in profile
-    assert "env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none" in profile
-    assert "env_var('OPENLAKEFORGE_DBT_TRINO_PASSWORD', '') or none" in profile
+    assert output["method"] == "none"
+    assert output["http_scheme"] == "http"
+    assert not {"password", "cert"} & set(output)
 
 
 def test_an_unknown_adapter_is_refused() -> None:

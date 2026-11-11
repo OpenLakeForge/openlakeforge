@@ -889,11 +889,6 @@ _RUNTIME_NAMES_SET_ELSEWHERE = {
     "OPENLAKEFORGE_KUBE_NAMESPACE": "activation",
     "OPENLAKEFORGE_PROJECT_CODE_IMAGE": "activation",
     "OPENLAKEFORGE_STAGE": "activation",
-    # Trino takes no password and serves no HTTPS (ADR 0016): never set, the runtime's plain-HTTP default applies.
-    "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME": "unset, default applies",
-    "OPENLAKEFORGE_QUERY_TRINO_CA": "unset, default applies",
-    "OPENLAKEFORGE_DBT_TRINO_METHOD": "unset, default applies",
-    "OPENLAKEFORGE_DBT_TRINO_PASSWORD": "unset, default applies",
     # openlakeforge_runtime.k8s_log_archive runs in its own CronJob (`_archive_env`).
     "OPENLAKEFORGE_LOG_BASE_URI": "log archiver",
     "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS": "log archiver",
