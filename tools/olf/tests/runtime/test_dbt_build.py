@@ -483,3 +483,15 @@ def test_a_test_with_one_selected_parent_still_runs() -> None:
     test = dbt_build.dbt_tests(manifest, {"a"})["test.gold.relationships_a_b"]
 
     assert (test.parents, test.explicit) == (("a",), True)
+
+
+def test_a_check_deselected_in_dagster_does_not_run() -> None:
+    kept = dbt_build.DbtTest("test.gold.not_null_a", "gold.not_null_a", ("a",), True, name="not_null_a")
+    dropped = dbt_build.DbtTest("test.gold.unique_a", "gold.unique_a", ("a",), True, name="unique_a")
+    singular = dbt_build.DbtTest("test.gold.custom", "gold.custom", ("a",), True, name="custom")
+    tests = {t.unique_id: t for t in (kept, dropped, singular)}
+
+    # Dagster models not_null_a and unique_a as checks and the run selected only not_null_a; custom is no check.
+    result = dbt_build.without_deselected_checks(tests, {"not_null_a", "unique_a"}, {"not_null_a"})
+
+    assert set(result) == {"test.gold.not_null_a", "test.gold.custom"}

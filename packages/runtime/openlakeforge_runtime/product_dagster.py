@@ -46,6 +46,7 @@ from openlakeforge_runtime.dbt_build import (
     merge_run_results,
     model_dependencies,
     model_sources,
+    without_deselected_checks,
 )
 from openlakeforge_runtime.floe_profile import write_profile
 from openlakeforge_runtime.openlakeforge_logging import log_event
@@ -446,7 +447,11 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         selected = {key.path[-1] for key in context.selected_asset_keys}
         manifest = json.loads(manifest_path.read_text())
         dependencies = model_dependencies(manifest, selected)
-        all_tests = dbt_tests(manifest, selected)
+        all_tests = without_deselected_checks(
+            dbt_tests(manifest, selected),
+            known={key.name for key in context.assets_def.check_keys},
+            selected={key.name for key in context.selected_asset_check_keys},
+        )
 
         def build_generation(models: list[str], tests: list[DbtTest]):
             args = [

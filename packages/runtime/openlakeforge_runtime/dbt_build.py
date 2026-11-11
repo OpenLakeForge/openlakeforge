@@ -22,6 +22,8 @@ class DbtTest:
     explicit: bool
     # The sources the test reads directly (unique ids): a failed source test blocks the models reading them.
     sources: tuple[str, ...] = ()
+    # The test node's dbt name, which dagster-dbt uses as its asset check's name.
+    name: str = ""
 
 
 def _project_models(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, Mapping[str, Any]]:
@@ -90,8 +92,21 @@ def dbt_tests(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[st
             parents=parents,
             explicit=bool(parents) or not any(parent.startswith("model.") for parent in direct),
             sources=tuple(sorted(parent for parent in direct if parent.startswith("source."))),
+            name=node.get("name", ""),
         )
     return tests
+
+
+def without_deselected_checks(
+    tests: Mapping[str, DbtTest], known: Collection[str], selected: Collection[str]
+) -> dict[str, DbtTest]:
+    """`tests` less those Dagster models as asset checks (`known`, by name) that the run did not select.
+
+    Each generation selects its tests explicitly, so without this a check deselected in Dagster would still run.
+    A test Dagster does not model as a check is kept.
+    """
+    deselected = set(known) - set(selected)
+    return {unique_id: test for unique_id, test in tests.items() if test.name not in deselected}
 
 
 def model_sources(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, frozenset[str]]:
