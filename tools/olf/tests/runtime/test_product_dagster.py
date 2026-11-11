@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 pytest.importorskip("dagster")
 
@@ -513,3 +514,31 @@ def test_a_product_job_runs_its_steps_in_the_runs_own_process(
     assert job.name == spec.job_name
     assert job.executor_def.name == "in_process"
     assert "execution" not in (job.config or {})
+
+
+@pytest.mark.parametrize(("domain", "product"), sorted(_EXAMPLES))
+def test_a_product_run_carries_its_silver_domain_for_the_run_queue(
+    domain: str, product: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_DBT_PROFILES_DIR", str(tmp_path))
+
+    (job,) = product_dagster.build_product_definitions(ProductDefinitionSpec(domain=domain, product=product)).jobs
+
+    assert job.tags[product_dagster.SILVER_DOMAIN_TAG] == domain
+
+
+def test_the_run_queue_admits_one_run_per_silver_domain() -> None:
+    repo_root = Path(__file__).resolve().parents[4]
+    values = yaml.safe_load((repo_root / "infra/helm/values/local/dagster.yaml").read_text(encoding="utf-8"))
+
+    coordinator = values["dagsterDaemon"]["runCoordinator"]
+
+    assert coordinator["enabled"] is True
+    assert coordinator["type"] == "QueuedRunCoordinator"
+    assert coordinator["config"]["queuedRunCoordinator"]["tagConcurrencyLimits"] == [
+        {
+            "key": product_dagster.SILVER_DOMAIN_TAG,
+            "value": {"applyLimitPerUniqueValue": True},
+            "limit": 1,
+        }
+    ]
