@@ -54,6 +54,11 @@ flows:
     to: {scope: stage}
     ports: [80, 8088] # Dagster webserver, Superset; the stage rule is namespace-wide
     tag: V
+  - id: F4
+    from: {scope: stage}
+    to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
+    ports: [8443, 8000] # Superset's OIDC calls to the issuer's public URL, rewritten to Traefik: websecure, or web with issuer none
+    tag: V
   - id: F5
     from: {scope: stage}
     to: {scope: kube-system, pods: {k8s-app: kube-dns}}
@@ -226,10 +231,9 @@ flows:
       - {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
       - {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
       - {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
-      - {scope: stage, pods: {app: superset}} # Superset web: the code exchange, keys and userinfo of its sign-in, and its per-user Trino token request
     to: {scope: shared, pods: {app.kubernetes.io/name: dex, app.kubernetes.io/instance: dex}}
     ports: [5556]
-    tag: T # keys for people's tokens and the code exchange, over the Dex Service (ADR 0013, decision 8), before Traefik exists; OpenMetadata fetches only its keys (its code exchange stays on F4)
+    tag: T # keys for people's tokens and the perimeter's code exchange, over the Dex Service (ADR 0013, decision 8), before Traefik exists; OpenMetadata fetches only its keys (its code exchange, and Superset until #1092, stay on F4)
   - id: F32
     from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
     to: {scope: stage}

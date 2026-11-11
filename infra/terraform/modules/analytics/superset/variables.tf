@@ -96,18 +96,18 @@ variable "bootstrap_job_image" {
 }
 
 variable "oidc" {
-  description = "identity.oidc fields for this stage (ADR 0014): the issuer, role claim and mapping, the reporting grants of release/identity-roles.yaml, the scope to request, the perimeter sign-out URL that Logout redirects to, the superset client id, the client Secret reference and the namespace that holds it, and internal_url, the in-cluster base URL of a deployed issuer where the pod exchanges codes and fetches keys (null for an external issuer, reached at issuer_url). Null keeps the local Superset login."
+  description = "identity.oidc fields for this stage (ADR 0014): the issuer, role claim and mapping, the reporting grants of release/identity-roles.yaml, the scope to request, the perimeter sign-out URL that Logout redirects to, the superset client id, the client Secret reference and the namespace that holds it, and the ConfigMap with the CA that signs the issuer certificate. Null keeps the local Superset login."
   type = object({
-    issuer_url       = string
-    role_claim       = string
-    role_mapping     = map(list(string))
-    grants           = map(string)
-    sign_out_url     = string
-    scope            = string
-    client_id        = string
-    secret_ref       = object({ name = string, key = string })
-    secret_namespace = string
-    internal_url     = optional(string)
+    issuer_url        = string
+    role_claim        = string
+    role_mapping      = map(list(string))
+    grants            = map(string)
+    sign_out_url      = string
+    scope             = string
+    client_id         = string
+    secret_ref        = object({ name = string, key = string })
+    secret_namespace  = string
+    ca_configmap_name = string
 
     # Superset's /api/v1/database/oauth2/ for this stage, and the stage's
     # Trino catalog, lakehouse_<stage> (ADR 0019).

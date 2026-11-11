@@ -75,6 +75,7 @@ def test_login_goes_through_the_issuer_with_least_privilege_and_a_bounded_sessio
     cfg = olf_oidc.settings(_cfg(DEX), "the-secret")
     remote = cfg["OAUTH_PROVIDERS"][0]["remote_app"]
 
+    assert remote["server_metadata_url"] == "https://auth.olf.localhost/.well-known/openid-configuration"
     assert remote["client_kwargs"]["scope"] == "openid email profile groups offline_access"
     assert remote["client_secret"] == "the-secret"
     assert cfg["AUTH_USER_REGISTRATION_ROLE"] == "olf_no_access"
@@ -82,34 +83,6 @@ def test_login_goes_through_the_issuer_with_least_privilege_and_a_bounded_sessio
     assert cfg["PERMANENT_SESSION_LIFETIME"] == 15 * 60
     assert cfg["SESSION_REFRESH_EACH_REQUEST"] is False
     assert cfg["OLF_SIGN_OUT_URL"] == SIGN_OUT
-
-
-def test_an_external_issuer_is_discovered_at_its_public_url() -> None:
-    remote = olf_oidc.settings(_cfg(DEX), "s")["OAUTH_PROVIDERS"][0]["remote_app"]
-
-    assert remote["server_metadata_url"] == "https://auth.olf.localhost/.well-known/openid-configuration"
-    assert "access_token_url" not in remote
-
-
-def test_a_deployed_issuer_sends_the_browser_public_and_the_pod_to_the_service() -> None:
-    internal = "http://dex.olf-system.svc.cluster.local:5556"
-    remote = olf_oidc.settings({**_cfg(DEX), "internal_url": internal + "/"}, "s")["OAUTH_PROVIDERS"][0]["remote_app"]
-
-    assert remote["authorize_url"] == "https://auth.olf.localhost/auth"
-    assert remote["access_token_url"] == f"{internal}/token"
-    assert remote["jwks_uri"] == f"{internal}/keys"
-    assert remote["userinfo_endpoint"] == f"{internal}/userinfo"
-    assert remote["issuer"] == "https://auth.olf.localhost"
-    assert "server_metadata_url" not in remote
-
-
-def test_the_per_user_trino_token_request_is_made_at_the_service_and_the_authorization_in_the_browser() -> None:
-    internal = "http://dex.olf-system.svc.cluster.local:5556"
-    cfg = {**_cfg(DEX), "internal_url": internal, "people_catalog": "dev", "database_redirect_uri": "x"}
-    client = olf_oidc.trino_settings(cfg, "s")["DATABASE_OAUTH2_CLIENTS"]["Trino"]
-
-    assert client["token_request_uri"] == f"{internal}/token"
-    assert client["authorization_request_uri"] == "https://auth.olf.localhost/auth"
 
 
 def test_the_superset_module_keeps_local_login_unless_an_issuer_is_given() -> None:

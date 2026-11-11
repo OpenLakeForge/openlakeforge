@@ -134,32 +134,26 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    service that validates a token fetches keys and redeems codes at the
    `internal_url` of the `identity.oidc` contract (ADR 0014), Dex's Service
    (`http://dex.olf-system.svc.cluster.local:5556`), over plain HTTP: the
-   perimeter proxy, Polaris, the platform API and Superset do (Superset is
-   told its authorize URL, token URL, keys and issuer explicitly instead of
-   discovering them). An `external` issuer has
+   perimeter proxy, Polaris and the platform API do. An `external` issuer has
    no `internal_url` and is reached at its public, publicly trusted URL.
    With `tls: external` the rewrite is not applied: the public name belongs to
-   the customer's edge, and Traefik behind it serves no TLS. The caller
-   below then reaches the public name through the customer's DNS and needs a
+   the customer's edge, and Traefik behind it serves no TLS. The two callers
+   below then reach the public name through the customer's DNS and need a
    publicly trusted certificate; the e2e fixture keeps the rewrite, pointed at a
    TLS-terminating proxy that stands in for the edge.
-   One caller cannot follow the contract and still calls the public URL from
-   inside the cluster: OpenMetadata. Its code exchange follows the discovery
-   document, whose endpoints are public URLs, and 1.13.6's `oidcClientConfig`
-   (`discoveryUri`, `serverUrl`, `customParams`, ...) has no token-URL
-   override; serving it a rewritten discovery document would add a pod to
-   the footprint for one caller. For it the local root keeps a CoreDNS
-   `rewrite` sending `<base_domain>` and every name under it to the Traefik
-   Service, and publishes the local CA root as ConfigMap `olf-local-ca` (key
-   `ca.crt`) in `olf-system`, where the OpenMetadata server imports it into
-   a copy of the JVM trust store. The ConfigMap is not published to stage
-   namespaces: no stage pod calls an issuer by its public URL, and a
-   rendered-values test of the Superset module
-   (`infra/terraform/modules/analytics/superset/tests/issuer_trust.tftest.hcl`)
-   fails if it mounts it.
-   Dex itself mounts the ConfigMap only to trust a GitHub Enterprise host
-   (ADR 0014), which is not an issuer call. The rewrite replaces the
-   cluster's `Corefile` key, so it is removed with the cluster.
+   Two callers do not yet follow the contract and still call the public URL
+   from inside the cluster, each for its own reason. OpenMetadata: its code
+   exchange follows the discovery document, whose endpoints are public URLs,
+   and 1.13.6's `oidcClientConfig` has no token-URL override. Superset: its
+   Authlib discovery names public URLs, and moving it to `internal_url` needs
+   a change to `images/superset/olf_oidc.py`, which the image source-drift
+   guard (#1073) blocks until a release republishes the image (#1092). For them
+   the local root keeps a CoreDNS `rewrite` sending `<base_domain>` and every
+   name under it to the Traefik Service, and publishes the local CA root as
+   ConfigMap `olf-local-ca` (key `ca.crt`) in `olf-system` and every stage
+   namespace. Dex itself mounts the ConfigMap only to trust a GitHub
+   Enterprise host (ADR 0014), which is not an issuer call. The rewrite
+   replaces the cluster's `Corefile` key, so it is removed with the cluster.
 
 The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 
@@ -225,12 +219,11 @@ HTTP behind the customer's HTTPS and trusts forwarded headers only from a
 range the profile names (`spec.access.trusted_proxies`), and every URL, callback and cookie is `https://`. The
 end-to-end variant runs a TLS-terminating proxy in front of Traefik.
 
-Decision 8 (#991): the perimeter proxy, Polaris, the platform API and Superset
-reach Dex at its Service (`internal_url`) instead of through Traefik and the
-local CA; Trino's Web UI sign-in no longer exists (#983). OpenMetadata alone
-still uses the public URL, because 1.13.6 offers no token-URL setting, so the
-CoreDNS rewrite and `olf-local-ca` in `olf-system` stay for it and the
-stage-namespace copies are gone.
+Decision 8 (#991): the perimeter proxy, Polaris and the platform API reach
+Dex at its Service (`internal_url`) instead of through Traefik and the local
+CA. OpenMetadata (1.13.6 has no token-URL override) and Superset (its image
+change waits for #1092) still use the public URL, so the CoreDNS rewrite and
+`olf-local-ca` stay until both move.
 
 Decisions 2 and 9 (#960): Trino moved to a per-stage route with one Trino per
 stage (#965, built for the local root in #976). Its certificate and its Web

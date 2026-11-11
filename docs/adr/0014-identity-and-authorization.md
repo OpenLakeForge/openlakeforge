@@ -393,7 +393,7 @@ is not.
 
 ## History
 
-In-cluster issuer endpoints (#991): `identity.oidc` gains the optional `internal_url`; the perimeter proxy, Polaris, the platform API (`jwks_url` setting) and Superset use it instead of the public URL. The bearer-token row changes accordingly. Superset (`images/superset/olf_oidc.py`) no longer uses `server_metadata_url`: Authlib gets `authorize_url` on the public issuer (the browser follows it), `access_token_url`, `jwks_uri` and `userinfo_endpoint` on `internal_url`, and `issuer` set to the public issuer for the `iss` check, as does the per-user Trino token request. OpenMetadata keeps the public URL for its code exchange (ADR 0013, decision 8): 1.13.6 offers no token-URL override.
+In-cluster issuer endpoints (#991): `identity.oidc` gains the optional `internal_url`; the perimeter proxy, Polaris and the platform API (`jwks_url` setting) use it instead of the public URL. The bearer-token row changes accordingly. OpenMetadata (1.13.6 has no token-URL override) and Superset (its image change waits for #1092, behind the image source-drift guard) keep the public URL through the CoreDNS rewrite and `olf-local-ca`.
 
 OpenMetadata bootstrap in `olf` (#562): the Terraform bootstrap Job is deleted;
 `olf` creates the admin automation bot after the platform apply. The sign-in

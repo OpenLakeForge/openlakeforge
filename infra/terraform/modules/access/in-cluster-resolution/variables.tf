@@ -21,9 +21,8 @@ variable "ca_secret_name" {
 }
 
 variable "trust_namespaces" {
-  description = "Namespaces besides `namespace` that receive the `olf-local-ca` ConfigMap, for pods that call a routed service by its public URL. None today: the only such caller, OpenMetadata, is in `namespace`."
+  description = "Namespaces that receive the `olf-local-ca` ConfigMap, for pods that call a routed service by its public URL."
   type        = list(string)
-  default     = []
 }
 
 variable "bootstrap_job_image" {
