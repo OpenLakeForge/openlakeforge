@@ -1,0 +1,104 @@
+name: Stage lifecycle drill for an OpenLakeForge local deployment
+description: >
+  Reconfigure the profile of a DEV+PROD deployment and redeploy it three times:
+  PROD with governance off (no `polaris-om-creds`, no Trino crawl in PROD, both
+  kept in DEV), PROD removed with `--allow-stage-removal` (its namespace and
+  Polaris principals gone), and PROD enabled again (the project revision
+  activated and the core e2e suite passing on fresh credentials). Ends with the
+  secret-exposure scan. Changes the profile file and puts it back: run it after
+  the steps that need the original, and before the restore drill. Needs `olf`
+  and `kubectl` on PATH, a deployment made from the profile by the same `olf`,
+  PROD already activated with the revision, and KUBECONFIG and KUBE_CONTEXT in
+  the environment (docs/guides/promote-dev-to-prod.md).
+inputs:
+  profile:
+    description: Path to the project's Deployment Profile, named openlakeforge.yaml, with DEV and PROD enabled.
+    default: openlakeforge.yaml
+  revision:
+    description: The revision build-revision output, activated in PROD again at the end.
+    required: true
+  directory:
+    description: Directory for the drill's logs, which the final scan reads.
+    default: .tmp/stage-drill
+
+runs:
+  using: composite
+  steps:
+    - name: Keep the profile and check DEV and PROD both hold the crawl
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        DIRECTORY: ${{ inputs.directory }}
+      run: |
+        set -euo pipefail
+        mkdir -p "${DIRECTORY}/logs"
+        {
+          echo "DRILL_PROFILE=$(realpath "${PROFILE}")"
+          echo "DRILL_DIR=$(realpath "${DIRECTORY}")"
+        } >> "${GITHUB_ENV}"
+        cp "${PROFILE}" "${RUNNER_TEMP}/stage-drill.original.yaml"
+        cd "$(dirname "${PROFILE}")"
+        olf infra e2e stage-drill crawl --present dev --present prod -f "${PROFILE}"
+
+    - name: PROD governance off, redeploy (#1049)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$(dirname "${DRILL_PROFILE}")"
+        sed -i '/^    prod:$/,/^      enabled: true$/ s/^      enabled: true$/      enabled: true\n      capabilities:\n        governance: false/' \
+          "${DRILL_PROFILE}"
+        grep -qx '        governance: false' "${DRILL_PROFILE}"
+        olf profile validate --project .
+        olf infra platform apply -f "${DRILL_PROFILE}" 2>&1 | tee "${DRILL_DIR}/logs/governance-off.log"
+        olf infra e2e stage-drill crawl --present dev --absent prod -f "${DRILL_PROFILE}"
+        olf infra e2e stage-drill namespaces --present dev --present prod -f "${DRILL_PROFILE}"
+
+    - name: PROD disabled, redeploy with --allow-stage-removal (#1050)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$(dirname "${DRILL_PROFILE}")"
+        cp "${RUNNER_TEMP}/stage-drill.original.yaml" "${DRILL_PROFILE}"
+        sed -i '/^    prod:$/,/^      enabled: true$/ s/^      enabled: true$/      enabled: false/' "${DRILL_PROFILE}"
+        grep -qx '      enabled: false' "${DRILL_PROFILE}"
+        olf profile validate --project .
+        olf infra platform apply -f "${DRILL_PROFILE}" --allow-stage-removal 2>&1 | tee "${DRILL_DIR}/logs/stage-removal.log"
+        olf infra e2e stage-drill namespaces --present dev --absent prod -f "${DRILL_PROFILE}"
+        olf infra e2e stage-drill principals --present dev --absent prod -f "${DRILL_PROFILE}"
+
+    - name: PROD enabled again, redeploy
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$(dirname "${DRILL_PROFILE}")"
+        cp "${RUNNER_TEMP}/stage-drill.original.yaml" "${DRILL_PROFILE}"
+        olf profile validate --project .
+        olf infra platform apply -f "${DRILL_PROFILE}" 2>&1 | tee "${DRILL_DIR}/logs/stage-reenable.log"
+        olf infra e2e stage-drill namespaces --present dev --present prod -f "${DRILL_PROFILE}"
+        olf infra e2e stage-drill principals --present dev --present prod -f "${DRILL_PROFILE}"
+        olf infra e2e stage-drill crawl --present dev -f "${DRILL_PROFILE}"
+
+    - name: Activate the revision in PROD and run the core suite there (Trino and a product pipeline, new credentials)
+      uses: ./.github/actions/deploy-stage
+      with:
+        profile: ${{ inputs.profile }}
+        stage: prod
+        revision: ${{ inputs.revision }}
+        e2e-env: local
+        e2e-checks: core
+
+    - name: Check PROD has the crawl again, then scan the cluster and the drill logs for Secret values
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$(dirname "${DRILL_PROFILE}")"
+        olf infra e2e stage-drill crawl --present dev --present prod -f "${DRILL_PROFILE}"
+        olf infra e2e secret-scan --path "${DRILL_DIR}/logs" -f "${DRILL_PROFILE}"
+
+    - name: Put the profile back
+      if: always()
+      shell: bash
+      run: |
+        if [ -n "${DRILL_PROFILE:-}" ] && [ -f "${RUNNER_TEMP}/stage-drill.original.yaml" ]; then
+          cp "${RUNNER_TEMP}/stage-drill.original.yaml" "${DRILL_PROFILE}"
+        fi
