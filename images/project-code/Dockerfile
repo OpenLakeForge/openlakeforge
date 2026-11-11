@@ -42,7 +42,7 @@ RUN if [ -f project-layer/requirements.txt ]; then \
 # loaded once with downloads disabled so a missing one fails the build. The
 # module is standard-library only, so it runs as a script from its own copy and
 # this layer stays cached while the rest of the runtime package changes.
-COPY packages/runtime/openlakeforge_runtime/duckdb_extensions.py /tmp/duckdb_extensions.py
+COPY --chown=olf:olf packages/runtime/openlakeforge_runtime/duckdb_extensions.py /tmp/duckdb_extensions.py
 USER olf
 RUN python /tmp/duckdb_extensions.py install && python /tmp/duckdb_extensions.py verify && rm /tmp/duckdb_extensions.py
 USER root
