@@ -109,8 +109,8 @@ variable "oidc" {
     secret_namespace  = string
     ca_configmap_name = string
 
-    # Superset's /api/v1/database/oauth2/ for this stage, and the stage's people
-    # catalog in Trino, named after the stage (ADR 0019).
+    # Superset's /api/v1/database/oauth2/ for this stage, and the stage's
+    # Trino catalog, lakehouse_<stage> (ADR 0019).
     database_redirect_uri = string
     people_catalog        = string
   })

@@ -426,8 +426,8 @@ def test_activating_a_revision_imports_into_the_activated_stages_superset(report
     # Each stage's own Gold connection and runtime principal -- not merely
     # "different from each other", which a DEV/PROD swap would also satisfy.
     assert [call["sqlalchemy_uri"] for call in report_harness.report_calls] == [
-        "trino://trino:8080/dev",
-        "trino://trino:8080/prod",
+        "trino://trino:8080/lakehouse_dev",
+        "trino://trino:8080/lakehouse_prod",
     ]
 
 

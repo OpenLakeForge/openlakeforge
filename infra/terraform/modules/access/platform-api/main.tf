@@ -14,7 +14,7 @@ locals {
     # The CSRF guard's one allowed Origin, and whether per-person queries are on.
     public_origin = var.public_origin
     person_query  = var.person_query
-    # Server-side only: in-cluster Trino URLs, one people catalog per stage.
+    # Server-side only: in-cluster Trino URLs, one catalog per stage.
     query_endpoints = var.person_query ? var.query_endpoints : {}
     ca_file         = var.ca_configmap_name == null ? null : "/ca/ca.crt"
     # Read endpoints (ADR 0021, build step 3); a service left out is answered

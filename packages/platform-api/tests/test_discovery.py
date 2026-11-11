@@ -47,7 +47,7 @@ def _api(settings: Settings, trino: FakeTrino, **overrides: Any) -> TestClient:
     values: dict[str, Any] = {
         "stages": ("dev", "prod"),
         "person_query": True,
-        "query_endpoints": {"dev": QueryEndpointSetting(TRINO, "dev")},
+        "query_endpoints": {"dev": QueryEndpointSetting(TRINO, "lakehouse_dev")},
     }
     return TestClient(create_app(replace(settings, **{**values, **overrides}), trino_send=trino))
 
@@ -114,7 +114,7 @@ def test_schemas_are_asked_as_the_person_in_the_stage_catalog_without_a_session_
     assert response.json() == {"schemas": ["bronze", "silver"], "next_cursor": None}
     headers = trino.sent[0]["headers"]
     assert headers["X-Trino-User"] == "ada@example.com"
-    assert headers["X-Trino-Catalog"] == "dev"
+    assert headers["X-Trino-Catalog"] == "lakehouse_dev"
     assert headers["Authorization"] == f"Bearer {token}"
     assert "X-Trino-Schema" not in headers
     assert token not in response.text and token not in str(response.headers)
@@ -176,7 +176,7 @@ def test_a_catalog_name_with_a_quote_is_quoted_as_an_identifier(
 
 
 def test_a_denial_is_403_and_not_an_empty_list(settings: Settings, trino: FakeTrino, token: str) -> None:
-    trino.error = {"message": "Access Denied: Cannot access catalog dev"}
+    trino.error = {"message": "Access Denied: Cannot access catalog lakehouse_dev"}
     response = _api(settings, trino).get("/api/v1/stages/dev/schemas", headers=bearer(token))
     assert response.status_code == 403
     assert "catalog" not in response.text and token not in response.text
@@ -196,4 +196,4 @@ def test_an_unreachable_trino_is_502(settings: Settings, trino: FakeTrino, token
 
 def test_endpoints_for_a_stage_that_is_not_enabled_are_refused_at_startup(settings: Settings) -> None:
     with pytest.raises(SettingsError):
-        replace(settings, query_endpoints={"uat": QueryEndpointSetting(TRINO, "uat")})._validate()
+        replace(settings, query_endpoints={"uat": QueryEndpointSetting(TRINO, "lakehouse_uat")})._validate()

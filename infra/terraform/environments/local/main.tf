@@ -282,16 +282,16 @@ module "platform_api" {
   stages       = sort(keys(local.enabled_stages))
   # The portal route's origin (host and scheme of the "platform-api" route,
   # contracts.tf): the one origin the CSRF guard lets write. Per-person
-  # queries need the people catalogs, which exist only with Dex.
+  # queries need the keyless stage catalogs and Dex.
   public_origin = "${local.route_scheme}://${local.base_domain}"
   person_query  = local.query_api_enabled
   # Trino's plain HTTP port: it has no authentication of its own, and the
-  # person's token rides each request for Polaris (ADR 0019 section 9). Each
-  # stage's catalog is also served under the stage's name. Read server-side only.
+  # person's token rides each request for Polaris (ADR 0019 section 9).
+  # Read server-side only.
   query_endpoints = {
     for stage in keys(local.enabled_stages) : stage => {
       statement_url = "http://${module.trino[stage].service_name}.${local.stage_namespaces[stage]}.svc.cluster.local:${module.trino[stage].http_port}/v1/statement"
-      catalog       = stage
+      catalog       = local.stage_catalog_contracts[stage].catalog_name
     }
     if local.query_api_enabled
   }
@@ -588,7 +588,7 @@ module "superset" {
     ca_configmap_name = "olf-local-ca" # the fixed name in_cluster_resolution publishes
 
     database_redirect_uri = "${local.route_scheme}://superset-${each.key}.${local.base_domain}/api/v1/database/oauth2/"
-    people_catalog        = each.key
+    people_catalog        = "lakehouse_${each.key}"
   }
 
   depends_on = [
