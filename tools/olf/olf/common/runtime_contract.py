@@ -20,9 +20,6 @@ from typing import Any
 
 import yaml
 
-# Mounted read-only into the code server when the query endpoint is TLS.
-QUERY_CA_DIR = "/etc/olf/query-ca"
-
 # Contract-derived runtime settings that deliberately carry no OPENLAKEFORGE_
 # prefix because the libraries reading them are not ours: openlakeforge_runtime.s3_artifacts
 # resolves the object store through AWS_ENDPOINT_URL_S3, so a local or Azure
@@ -69,7 +66,6 @@ RUNTIME_ENV = (
     "OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME",
     "OPENLAKEFORGE_QUERY_TRINO_HOST",
     "OPENLAKEFORGE_QUERY_TRINO_PORT",
-    "OPENLAKEFORGE_QUERY_TRINO_TLS_PORT",
     "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI",
     "OPENLAKEFORGE_STORAGE_ACCESS_KEY_ID_KEY",
     "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET",
@@ -90,7 +86,6 @@ def binding_surface() -> dict[str, Any]:
     return {
         "env": sorted(RUNTIME_ENV),
         "aliases": sorted(RUNTIME_ALIASES),
-        "query_ca_dir": QUERY_CA_DIR,
     }
 
 

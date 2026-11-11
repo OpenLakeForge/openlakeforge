@@ -32,6 +32,12 @@ for the locked DuckDB into the image user's `~/.duckdb/extensions/`, then
 `duckdb_extensions.py verify` loads them with downloads disabled; a
 missing extension fails the build. `olf check project-code` runs the same
 install and verify against its own environment.
+The image runs as the non-root user `olf` (UID and GID 10001). It owns
+`DAGSTER_HOME` and `lakehouse_code/` (where dbt writes `target/` and `logs/`);
+the installed packages are root-owned. Every pod that runs the image pins the
+same UID with `runAsNonRoot`, `allowPrivilegeEscalation: false` and all
+capabilities dropped. A derived image that needs root for a build step must
+switch back with `USER 10001:10001`.
 The base image is configurable with `PROJECT_CODE_PYTHON_BASE_IMAGE`; AWS
 builds default this to `public.ecr.aws/docker/library/python:3.12-slim` to avoid
 Docker Hub during `olf infra deploy --provider aws --phase artifacts`.

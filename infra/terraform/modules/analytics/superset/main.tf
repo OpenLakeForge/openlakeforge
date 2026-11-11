@@ -124,8 +124,18 @@ resource "helm_release" "superset" {
       }
 
       extraEnvRaw = concat([
+        # Superset 6.1.0 prints the metadata URI, password included, when its
+        # first query fails (superset/initialization/__init__.py,
+        # check_and_warn_database_connection: SQLAlchemy 1.4 renders a URL with
+        # str(), which keeps the password). The chart uses SQLALCHEMY_DATABASE_URI
+        # verbatim when set, so the URI carries no password and libpq reads
+        # PGPASSWORD instead (#1048).
         {
-          name = "DB_PASS"
+          name  = "SQLALCHEMY_DATABASE_URI"
+          value = "postgresql+psycopg2://${var.postgresql_contract.superset_db_user}@${var.postgresql_contract.host}:${var.postgresql_contract.port}/${var.postgresql_contract.superset_db_name}"
+        },
+        {
+          name = "PGPASSWORD"
           valueFrom = {
             secretKeyRef = {
               name = var.postgresql_contract.superset_credentials_secret_name

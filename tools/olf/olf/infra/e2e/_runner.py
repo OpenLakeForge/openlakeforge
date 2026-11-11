@@ -47,6 +47,7 @@ from olf.infra.e2e._shell import (
     _run_retry,
     terraform_output,
 )
+from olf.infra.e2e._silver_serialization import check_silver_writes_serialized
 from olf.infra.e2e._token_lifetime import check_gold_outlasts_polaris_token
 from olf.infra.e2e._trino import (
     check_catalog_namespaces,
@@ -365,6 +366,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         FullAssertion("Polaris namespaces", check_catalog_namespaces),
         FullAssertion("Dagster product pipelines", launch_and_poll_dagster_jobs),
         FullAssertion("Silver and Gold tables", check_trino_tables_and_marts),
+        FullAssertion("shared Silver tables written serially", check_silver_writes_serialized),
         FullAssertion("Silver and Gold maintenance", check_iceberg_maintenance),
         FullAssertion("Gold build past the Polaris token lifetime", check_gold_outlasts_polaris_token),
     ]

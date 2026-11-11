@@ -77,6 +77,13 @@ _FLOE_MANIFEST_NAME = "openlakeforge"
 for _name, _value in dbt_environment().items():
     os.environ.setdefault(_name, _value)
 
+# Every product run carries its domain under this tag, and the Dagster run queue admits one run per value
+# (infra/helm/values/local/dagster.yaml, `tagConcurrencyLimits`). Products of a domain share its Silver tables, and
+# each run's Floe Job overwrites the ones it reads (`write_mode: overwrite`): two at once are two concurrent Iceberg
+# commits to one table, where the loser fails or replaces the winner's snapshot. The limit is per domain rather than
+# per table because Floe's Job is one per domain, and it holds however many products a domain has.
+SILVER_DOMAIN_TAG = "openlakeforge/silver-domain"
+
 _STAGE_ENV = "OPENLAKEFORGE_STAGE"
 # Only PROD carries the recurring-schedule scaffold. DEV and UAT stay manual:
 # the same immutable revision is deployed to every stage, so a schedule that
@@ -496,7 +503,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             ).required_multi_asset_neighbors()
         ),
         executor_def=in_process_executor,
-        tags=_bronze_source_binding_tags(inputs) or None,
+        tags={**_bronze_source_binding_tags(inputs), SILVER_DOMAIN_TAG: spec.domain},
     )
 
     return Definitions(

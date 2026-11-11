@@ -889,11 +889,6 @@ _RUNTIME_NAMES_SET_ELSEWHERE = {
     "OPENLAKEFORGE_KUBE_NAMESPACE": "activation",
     "OPENLAKEFORGE_PROJECT_CODE_IMAGE": "activation",
     "OPENLAKEFORGE_STAGE": "activation",
-    # Trino takes no password and serves no HTTPS (ADR 0016): never set, the runtime's plain-HTTP default applies.
-    "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME": "unset, default applies",
-    "OPENLAKEFORGE_QUERY_TRINO_CA": "unset, default applies",
-    "OPENLAKEFORGE_DBT_TRINO_METHOD": "unset, default applies",
-    "OPENLAKEFORGE_DBT_TRINO_PASSWORD": "unset, default applies",
     # openlakeforge_runtime.k8s_log_archive runs in its own CronJob (`_archive_env`).
     "OPENLAKEFORGE_LOG_BASE_URI": "log archiver",
     "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS": "log archiver",
@@ -972,6 +967,46 @@ def test_governed_stage_maps_the_bot_jwt_to_the_name_openlineage_reads() -> None
 
 def test_ungoverned_stage_maps_no_lineage_key() -> None:
     assert not [e for e in _values()["deployments"][0]["env"] if e["name"] == "OPENLINEAGE_API_KEY"]
+
+
+def _assert_non_root_pod(pod: Mapping[str, object]) -> None:
+    assert pod["runAsNonRoot"] is True
+    assert pod["runAsUser"] == 10001
+
+
+def _assert_unprivileged_container(container: Mapping[str, object]) -> None:
+    assert container["runAsNonRoot"] is True
+    assert container["runAsUser"] == 10001
+    assert container["allowPrivilegeEscalation"] is False
+    assert container["capabilities"] == {"drop": ["ALL"]}
+
+
+def test_the_code_server_and_log_archiver_are_pinned_non_root() -> None:
+    values = _values()
+
+    for deployment in values["deployments"]:
+        _assert_non_root_pod(deployment["podSecurityContext"])
+        _assert_unprivileged_container(deployment["securityContext"])
+
+    archiver = values["extraManifests"][0]["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    _assert_non_root_pod(archiver["securityContext"])
+    _assert_unprivileged_container(archiver["containers"][0]["securityContext"])
+
+
+def test_the_image_and_run_pods_name_the_same_user() -> None:
+    """Run pods take their security context from the platform release, not from activation."""
+    root = Path(__file__).resolve().parents[4]
+    release = (root / "infra/terraform/modules/orchestration/dagster/release.tf").read_text()
+    launcher = release[release.index("runLauncher") :]
+
+    assert launcher.count("runAsNonRoot") == 2
+    assert launcher.count("= 10001") == 3  # pod runAsUser and runAsGroup, container runAsUser
+    assert "allowPrivilegeEscalation = false" in launcher
+    assert 'drop = ["ALL"]' in launcher
+
+    dockerfile = (root / "images/project-code/Dockerfile").read_text()
+    assert "--uid 10001" in dockerfile
+    assert "\nUSER 10001:10001\n" in dockerfile
 
 
 def test_log_archiver_only_receives_storage_credentials() -> None:
