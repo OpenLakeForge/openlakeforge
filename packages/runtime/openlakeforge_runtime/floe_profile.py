@@ -210,6 +210,14 @@ def _job_runner(
         # Floe caps DuckDB (merges, compaction) at 4 GB and asks for 2 GiB
         # above it; the request stays small so a kind node can still place
         # every domain's Job. No CPU limit: throttling only slows a Job.
+        # Container level only: dagster-floe's Job spec has no pod securityContext.
+        # The UID is the one images/project-code/Dockerfile creates.
+        "security_context": {
+            "runAsNonRoot": True,
+            "runAsUser": 10001,
+            "allowPrivilegeEscalation": False,
+            "capabilities": {"drop": ["ALL"]},
+        },
         "resources": {"cpu": "500m", "memory_mb": 1024, "memory_limit_mb": 6144},
         "timeout_seconds": 3600,
         "ttl_seconds_after_finished": 3600,
