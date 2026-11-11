@@ -1,4 +1,4 @@
-# ADR 0011: Deployment Profile v1 — provider, stage, and preset
+# ADR 0011: Deployment Profile v1beta1 — provider, stage, and preset
 
 ## Status
 
@@ -74,12 +74,12 @@ stays out of the schema entirely while Trino is the only supported
 shared-stage runtime; adding it later is an additive schema change, not a
 retrofit.
 
-### Deployment Profile v1
+### Deployment Profile v1beta1
 
 The project-root `openlakeforge.yaml` describes product intent only:
 
 ```yaml
-apiVersion: openlakeforge.io/v1alpha1
+apiVersion: openlakeforge.io/v1beta1
 kind: DeploymentProfile
 
 metadata:
@@ -334,3 +334,10 @@ defaults and explicit rejection of unimplemented choices. The resolver prints
 the selected adapters. AWS may name `storage.adapter: s3`; its storage size
 remains unavailable. Remote state and external-service connection settings
 stay with their adapter implementation issues.
+
+2026-11-11 (#532): the profile is `openlakeforge.io/v1beta1`. The one field
+change from v1alpha1 is `spec.access.issuer`, now `tls` only. A v1alpha1 file is
+not read: validation names `olf project migrate`, which rewrites the version line
+and the key and refuses anything it cannot move safely. `query.engine` and
+`spec.expose` are not fields; DuckDB stays outside the profile until its Slim
+conformance gates pass (#547), and public exposure waits for the cloud beta.

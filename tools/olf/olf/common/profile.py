@@ -1,4 +1,4 @@
-"""Typed Deployment Profile v1 and the resolver into one effective topology.
+"""Typed Deployment Profile (v1beta1) and the resolver into one effective topology.
 
 The project-root ``openlakeforge.yaml`` describes product intent -- provider,
 lifecycle stage, and preset -- never Terraform, Helm, or Kubernetes
@@ -27,7 +27,9 @@ import yaml
 from olf.common import config
 from olf.common.contract_validation import ProviderContractError, _oidc_issuer_url
 
-PROFILE_API_VERSION = "openlakeforge.io/v1alpha1"
+PROFILE_API_VERSION = "openlakeforge.io/v1beta1"
+# The previous alpha version. It is not read: `olf project migrate` rewrites it (descriptor_migration.py).
+LEGACY_PROFILE_API_VERSION = "openlakeforge.io/v1alpha1"
 PROFILE_KIND = "DeploymentProfile"
 # A profile name reaches Kubernetes as the `openlakeforge.io/profile` label
 # value on every namespace this deployment owns, and teardown discovers those
@@ -57,8 +59,6 @@ _SPEC_FIELDS = {
 _SIZE_BLOCK_FIELDS = {"size"}
 _PROVIDER_FIELDS = {"type", "region"}
 _ACCESS_FIELDS = {"base_domain", "tls", "trusted_proxies"}
-# v1alpha1 spelled the TLS mode `issuer`; it is read as `tls` (see _validate_access).
-_ACCESS_FIELDS_V1ALPHA1 = _ACCESS_FIELDS | {"issuer"}
 _TLS_MODES = ("none", "local-ca", "external")
 _IDENTITY_FIELDS = {"issuer", "issuer_url", "role_claim", "role_mapping", "client_ids", "github"}
 _IDENTITY_ISSUERS = ("external", "github")
@@ -99,7 +99,7 @@ _STAGE_SERVICES = ("orchestration", "reporting")
 
 
 class DeploymentProfileError(ValueError):
-    """Raised when a v1alpha1 Deployment Profile is invalid."""
+    """Raised when a Deployment Profile is invalid."""
 
 
 class StageName(StrEnum):
@@ -560,11 +560,12 @@ def _size_block(document: object, block: str, *, where: str) -> Size | None:
 def _validate_access(document: object, *, source: str, provider: Provider) -> AccessSpec:
     if not isinstance(document, Mapping):
         raise DeploymentProfileError(f"{source}: spec.access must be an object")
-    _forbid_unexpected(document, _ACCESS_FIELDS_V1ALPHA1, where=f"{source}: spec.access")
-    if "issuer" in document and "tls" in document:
+    if "issuer" in document:
         raise DeploymentProfileError(
-            f"{source}: spec.access sets both 'tls' and its v1alpha1 name 'issuer'; keep 'tls' only"
+            f"{source}: spec.access.issuer was renamed spec.access.tls in v1beta1; rename the key "
+            "(`olf project migrate` does it)"
         )
+    _forbid_unexpected(document, _ACCESS_FIELDS, where=f"{source}: spec.access")
     defaults = AccessSpec()
     base_domain = document.get("base_domain", defaults.base_domain)
     if not isinstance(base_domain, str) or not _BASE_DOMAIN_PATTERN.fullmatch(base_domain):
@@ -572,10 +573,9 @@ def _validate_access(document: object, *, source: str, provider: Provider) -> Ac
     # Plain HTTP is only valid on the local provider, so the other providers (whose roots do not read the
     # block) default to the mode a real install would name.
     default_tls = defaults.tls if provider == Provider.LOCAL else "local-ca"
-    field = "issuer" if "issuer" in document else "tls"
-    tls = document.get(field, default_tls)
+    tls = document.get("tls", default_tls)
     if tls not in _TLS_MODES:
-        raise DeploymentProfileError(f"{source}: spec.access.{field} must be one of {list(_TLS_MODES)!r}, got {tls!r}")
+        raise DeploymentProfileError(f"{source}: spec.access.tls must be one of {list(_TLS_MODES)!r}, got {tls!r}")
     # Plain HTTP is safe only where the browser treats the host as loopback and a
     # secure context: *.localhost, on the local kind cluster (ADR 0013).
     if tls == "none" and (provider != Provider.LOCAL or not base_domain.endswith(".localhost")):
@@ -827,7 +827,7 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
 def validate_deployment_profile(
     document: Mapping[str, Any], *, source: str = "openlakeforge.yaml", distribution_root: Path | None = None
 ) -> DeploymentProfile:
-    """Validate a v1alpha1 Deployment Profile envelope and build its typed
+    """Validate a Deployment Profile envelope and build its typed
     model. Every rejection is fail-closed: unknown fields at any level,
     unknown stage names, an unsupported apiVersion/kind/preset/provider type,
     no stage enabled at all, and a UAT/PROD stage enabled while DEV is
@@ -835,6 +835,11 @@ def validate_deployment_profile(
     if not isinstance(document, Mapping):
         raise DeploymentProfileError(f"{source}: profile must contain a YAML object")
     _forbid_unexpected(document, _ENVELOPE_FIELDS, where=source)
+    if document.get("apiVersion") == LEGACY_PROFILE_API_VERSION:
+        raise DeploymentProfileError(
+            f"{source}: apiVersion {LEGACY_PROFILE_API_VERSION!r} is no longer read; run `olf project migrate` "
+            f"to rewrite the file to {PROFILE_API_VERSION!r}"
+        )
     if document.get("apiVersion") != PROFILE_API_VERSION:
         raise DeploymentProfileError(
             f"{source}: unsupported apiVersion {document.get('apiVersion')!r}; expected {PROFILE_API_VERSION!r}"
@@ -935,7 +940,7 @@ def validate_deployment_profile(
 
 
 def load_deployment_profile(path: str | Path, *, distribution_root: Path | None = None) -> DeploymentProfile:
-    """Load and validate the v1alpha1 Deployment Profile at ``path``."""
+    """Load and validate the Deployment Profile at ``path``."""
     source = str(path)
     with Path(path).open(encoding="utf-8") as handle:
         document = yaml.safe_load(handle)

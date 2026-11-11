@@ -216,7 +216,7 @@ def test_a_session_from_before_olf_query_asks_to_sign_in_again(trino: FakeTrino)
 def test_a_deployment_without_github_sign_in_points_to_the_workload_path(tmp_path: Path) -> None:
     profile = tmp_path / "openlakeforge.yaml"
     profile.write_text(
-        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata: {name: fixture}\n"
+        "apiVersion: openlakeforge.io/v1beta1\nkind: DeploymentProfile\nmetadata: {name: fixture}\n"
         "spec:\n  provider: {type: local}\n  preset: slim\n  stages: {dev: {enabled: true}}\n"
         "  access: {base_domain: olf.example.com, tls: local-ca}\n"
         "  identity: {issuer: external, issuer_url: 'https://login.example.com', role_claim: groups,"

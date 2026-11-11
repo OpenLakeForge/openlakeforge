@@ -34,17 +34,19 @@ def migrate(
     """Rewrite the project's descriptors to the current API versions.
 
     governance.yml: v1beta1 -> v1beta2, nesting each root product under its
-    domain. bronze/*/source.yaml: v1alpha3 -> v1beta1. Refuses, leaving every
+    domain. bronze/*/source.yaml: v1alpha3 -> v1beta1. openlakeforge.yaml:
+    v1alpha1 -> v1beta1, renaming spec.access.issuer to tls. Refuses, leaving every
     file untouched, if any descriptor cannot be migrated safely."""
     import difflib
     import os
 
-    from olf.common.commands._project import writable_project_root
+    from olf.common.commands._project import writable_project_layout
     from olf.common.descriptor_migration import MigrationError, plan_project_migration
 
     try:
-        root = writable_project_root(repo_root)
-        changes = plan_project_migration(root)
+        layout = writable_project_layout(repo_root)
+        root = layout.project_root
+        changes = plan_project_migration(root, distribution_root=layout.distribution_root)
     except RuntimeError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     except MigrationError as exc:

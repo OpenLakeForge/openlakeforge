@@ -11,8 +11,11 @@ from olf.cli import app
 from olf.common.descriptor_migration import (
     MigrationError,
     migrate_governance_text,
+    migrate_profile_text,
     migrate_source_text,
+    plan_project_migration,
 )
+from olf.common.profile import AccessSpec, load_deployment_profile, resolve_topology, validate_deployment_profile
 
 runner = CliRunner()
 
@@ -232,3 +235,131 @@ def test_a_quoted_source_api_version_is_migrated() -> None:
     quoted = SOURCE.replace("apiVersion: openlakeforge.io/v1alpha3", "apiVersion: 'openlakeforge.io/v1alpha3'")
     migrated = migrate_source_text(quoted)
     assert "apiVersion: 'openlakeforge.io/v1beta1'" in migrated
+
+
+LEGACY_PROFILE = Path(__file__).parents[1] / "fixtures" / "profiles" / "legacy_v1alpha1_issuer.yaml"
+
+
+def _legacy_text() -> str:
+    return LEGACY_PROFILE.read_text(encoding="utf-8")
+
+
+def test_a_profile_migrates_to_v1beta1_renaming_only_access_issuer() -> None:
+    text = _legacy_text()
+
+    migrated = migrate_profile_text(text)
+
+    assert migrated == (
+        text.replace("openlakeforge.io/v1alpha1\nkind", "openlakeforge.io/v1beta1\nkind").replace(
+            "    issuer: local-ca  # renamed tls", "    tls: local-ca  # renamed tls"
+        )
+    )
+    profile = validate_deployment_profile(yaml.safe_load(migrated))
+    assert resolve_topology(profile).access == AccessSpec("olf.localhost", "local-ca")
+    assert profile.identity is not None and profile.identity.issuer == "github"
+    with pytest.raises(MigrationError, match="already 'openlakeforge.io/v1beta1'"):
+        migrate_profile_text(migrated)
+
+
+@pytest.mark.parametrize(
+    "access",
+    [
+        "  access: {issuer: local-ca}\n",
+        "  access: { issuer: local-ca }\n",
+        "  access:\n    issuer: local-ca\n",
+    ],
+)
+def test_a_profile_access_block_is_migrated_in_flow_or_block_style(access: str) -> None:
+    text = (
+        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata: {name: p}\n"
+        "spec:\n  provider: {type: local}\n  preset: slim\n  stages: {dev: {enabled: true}}\n" + access
+    )
+
+    migrated = migrate_profile_text(text)
+
+    assert yaml.safe_load(migrated)["spec"]["access"] == {"tls": "local-ca"}
+    assert yaml.safe_load(migrated)["apiVersion"] == "openlakeforge.io/v1beta1"
+
+
+def test_a_profile_without_access_only_changes_its_version() -> None:
+    text = (LEGACY_PROFILE.parent / "valid_slim_local.yaml").read_text(encoding="utf-8")
+    text = text.replace("v1beta1", "v1alpha1")
+
+    assert migrate_profile_text(text) == text.replace("v1alpha1", "v1beta1")
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        (_legacy_text().replace("    issuer: local-ca", "    tls: none\n    issuer: local-ca"), "sets both"),
+        (_legacy_text().replace("kind: DeploymentProfile", "kind: Other"), "expected kind"),
+        (_legacy_text().replace("issuer: local-ca", "issuer: letsencrypt"), "not a valid"),
+    ],
+)
+def test_an_unmigratable_profile_is_refused(text: str, message: str) -> None:
+    with pytest.raises(MigrationError, match=message):
+        migrate_profile_text(text)
+
+
+def _legacy_project(root: Path) -> Path:
+    path = root / "openlakeforge.yaml"
+    path.write_text(_legacy_text(), encoding="utf-8")
+    return path
+
+
+def test_the_command_migrates_the_profile_next_to_the_descriptors(tmp_path: Path) -> None:
+    profile = _legacy_project(tmp_path)
+    governance, source = _both(tmp_path)
+
+    dry = runner.invoke(app, ["project", "migrate", "--repo-root", str(tmp_path), "--dry-run"])
+    assert dry.exit_code == 0, dry.output
+    assert "+    tls: local-ca" in dry.output
+    assert "v1alpha1" in profile.read_text(encoding="utf-8")
+
+    result = runner.invoke(app, ["project", "migrate", "--repo-root", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "Migrated 3 descriptor(s)" in result.output
+    load_deployment_profile(profile)
+    assert "v1beta2" in governance.read_text(encoding="utf-8")
+    assert "v1beta1" in source.read_text(encoding="utf-8")
+    again = runner.invoke(app, ["project", "migrate", "--repo-root", str(tmp_path)])
+    assert "already current" in again.output
+
+
+def test_role_mappings_are_checked_against_the_distribution_not_the_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    distribution = Path(__file__).resolve().parents[4]
+    project = tmp_path / "project"
+    project.mkdir()
+    assert not (project / "release").exists()
+    profile = project / "openlakeforge.yaml"
+    profile.write_text(
+        _legacy_text().replace(
+            "  identity:\n    issuer: github\n    github:\n      organization: my-org\n"
+            "      teams:\n        platform-admin: [platform-team]\n"
+            "      oauth_app_secret_ref:\n        name: github-oauth-app\n",
+            "  identity:\n    issuer: external\n    issuer_url: https://login.example.com\n"
+            "    role_claim: groups\n    role_mapping:\n      platform-admin: [admins]\n",
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project)
+
+    (change,) = plan_project_migration(project, distribution_root=distribution)
+
+    assert "    tls: local-ca" in change.migrated
+
+
+def test_an_unmigratable_profile_leaves_the_descriptors_untouched(tmp_path: Path) -> None:
+    profile = _legacy_project(tmp_path)
+    broken = _legacy_text().replace("issuer: local-ca", "issuer: letsencrypt")
+    profile.write_text(broken, encoding="utf-8")
+    governance, _source = _both(tmp_path)
+
+    result = runner.invoke(app, ["project", "migrate", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code != 0
+    assert "openlakeforge.yaml" in result.output
+    assert profile.read_text(encoding="utf-8") == broken
+    assert governance.read_text(encoding="utf-8") == FLAT

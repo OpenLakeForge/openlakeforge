@@ -18,7 +18,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     shutil.copytree(ROOT / "lakehouse_code", tmp_path / "lakehouse_code")
     profile = tmp_path / "openlakeforge.yaml"
     profile.write_text(
-        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata:\n  name: run-test\n"
+        "apiVersion: openlakeforge.io/v1beta1\nkind: DeploymentProfile\nmetadata:\n  name: run-test\n"
         "spec:\n  provider:\n    type: local\n  preset: slim\n  stages:\n    dev:\n      enabled: true\n",
         encoding="utf-8",
     )
