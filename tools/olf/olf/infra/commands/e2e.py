@@ -222,6 +222,83 @@ def durability_verify(
     _run_durability("verify", baseline, stage=stage, profile_file=profile_file, project_root=project_root)
 
 
+stage_drill_app = typer.Typer(
+    help="Assertions between the deploys of the stage lifecycle drill: what each stage must and must not hold."
+)
+app.add_typer(stage_drill_app, name="stage-drill")
+
+_PRESENT = typer.Option([], "--present", help="Stage that must have it; repeatable.")
+_ABSENT = typer.Option([], "--absent", help="Stage that must not have it; repeatable.")
+
+
+def _run_stage_drill_check(
+    check: str, present: list[str], absent: list[str], *, stage: str, profile_file: str, project_root: str
+) -> None:
+    from olf.common.profile import StageName
+    from olf.infra.e2e import _stage_drill
+
+    known = {item.value for item in StageName}
+    for name in (*present, *absent):
+        if name not in known:
+            raise typer.Exit(code=fail(f"unknown stage {name!r}; expected one of: {', '.join(sorted(known))}."))
+    if not (present or absent):
+        raise typer.Exit(code=fail("name at least one stage with --present or --absent."))
+    run = getattr(_stage_drill, f"check_{check}")
+    _run_on_local_stage(
+        lambda cfg: run(cfg, present, absent), stage=stage, profile_file=profile_file, project_root=project_root
+    )
+
+
+@stage_drill_app.command("crawl")
+def stage_drill_crawl(
+    present: list[str] = _PRESENT,
+    absent: list[str] = _ABSENT,
+    stage: str = _STAGE,
+    profile_file: str = _FILE,
+    project_root: str = _ROOT,
+) -> None:
+    """Check the Trino crawl's Polaris credential copy (`polaris-om-creds`) and its CronJob and Jobs per stage.
+
+    A stage with governance on must hold the Secret and the CronJob; one with it off must hold none of the Secret,
+    the CronJob and the Jobs (#1049). `--stage` selects the deployment to read, not a stage to check.
+    """
+    _run_stage_drill_check(
+        "crawl", present, absent, stage=stage, profile_file=profile_file, project_root=project_root
+    )
+
+
+@stage_drill_app.command("namespaces")
+def stage_drill_namespaces(
+    present: list[str] = _PRESENT,
+    absent: list[str] = _ABSENT,
+    stage: str = _STAGE,
+    profile_file: str = _FILE,
+    project_root: str = _ROOT,
+) -> None:
+    """Check that each stage's namespace exists, or is gone after `--allow-stage-removal`."""
+    _run_stage_drill_check(
+        "namespaces", present, absent, stage=stage, profile_file=profile_file, project_root=project_root
+    )
+
+
+@stage_drill_app.command("principals")
+def stage_drill_principals(
+    present: list[str] = _PRESENT,
+    absent: list[str] = _ABSENT,
+    stage: str = _STAGE,
+    profile_file: str = _FILE,
+    project_root: str = _ROOT,
+) -> None:
+    """Check each stage's Polaris principals: olf-<stage>-processing, deployer-<stage>, trino-catalog-<stage>.
+
+    A removed stage must have none of its principals (`--allow-stage-removal` revokes them); a re-enabled one
+    has them again.
+    """
+    _run_stage_drill_check(
+        "principals", present, absent, stage=stage, profile_file=profile_file, project_root=project_root
+    )
+
+
 @app.command("registry-pull")
 def registry_pull(
     allow_public: bool = typer.Option(
