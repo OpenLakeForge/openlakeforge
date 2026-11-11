@@ -71,8 +71,8 @@ run "every_rest_catalog_is_keyless" {
   assert {
     condition = toset(flatten([
       for doc in helm_release.trino.values : keys(try(yamldecode(doc).catalogs, {}))
-    ])) == toset(["lakehouse_dev", "dev"])
-    error_message = "the stage serves its catalog under the catalog's name and the stage's"
+    ])) == toset(["lakehouse_dev"])
+    error_message = "the stage serves one catalog, under the contract's catalog_name"
   }
 
   assert {

@@ -4,7 +4,7 @@
 # verified at runtime (#220). 'full' enables analytics and governance in both
 # stages, which the Superset and OpenMetadata assertions need; it covers
 # everything a 'slim' DEV+PROD profile provisions.
-apiVersion: openlakeforge.io/v1alpha1
+apiVersion: openlakeforge.io/v1beta1
 kind: DeploymentProfile
 
 metadata:

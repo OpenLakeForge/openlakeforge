@@ -108,7 +108,7 @@ def _apply(monkeypatch: pytest.MonkeyPatch, contract: ContractEnvironment) -> No
 
 def _write_profile(path: Path) -> None:
     path.write_text(
-        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata:\n  name: runtime-test\n"
+        "apiVersion: openlakeforge.io/v1beta1\nkind: DeploymentProfile\nmetadata:\n  name: runtime-test\n"
         "spec:\n  provider:\n    type: local\n  preset: slim\n  stages:\n    dev:\n      enabled: true\n",
         encoding="utf-8",
     )

@@ -179,14 +179,14 @@ def check_issuer_outage(cfg: E2EConfig) -> None:
             raise E2EError("The workload path did not answer SELECT 1 with Dex down.")
 
     def person_query() -> None:
-        # Trino outlived the outage. A people catalog that kept presenting its own credential instead of the
+        # Trino outlived the outage. A catalog that kept presenting its own credential instead of the
         # person's token fails here with Polaris's refusal of `trino-catalog-<stage>`, not in the next run.
         urls = {ref: r["url"] for ref, r in contracts["shared"]["access"]["routes"].items()}
         run = person_runner(route, cfg, identity, urls, {team_role: login})
         if run is None:
             log.info("Skipping the post-outage person query: the contract has no query route for people.")
             return
-        log.step("Running a person query through the people catalog after the Dex restart...")
+        log.step("Running a person query through the stage catalog after the Dex restart...")
         got = run(team_role, trino.stage_from_catalog(stage_catalog_name(cfg)), "SHOW SCHEMAS")
         if got != "ok":
             raise E2EError(f"A person's query after the Dex restart was {got}, expected ok.")

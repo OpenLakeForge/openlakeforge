@@ -252,7 +252,7 @@ def test_an_invalid_toolchain_mode_surfaces_as_a_clean_cli_error(monkeypatch: py
 
 def _write_profile(root: Path, *, provider: str = "local", stages: str = "    dev:\n      enabled: true\n") -> None:
     (root / "openlakeforge.yaml").write_text(
-        "apiVersion: openlakeforge.io/v1alpha1\n"
+        "apiVersion: openlakeforge.io/v1beta1\n"
         "kind: DeploymentProfile\n"
         "metadata:\n"
         "  name: acme-data\n"
@@ -317,7 +317,7 @@ def test_an_invalid_profile_fails_closed(tmp_path: Path) -> None:
     from olf.common.profile import Provider
     from olf.infra.commands._shared import resolve_topology
 
-    (tmp_path / "openlakeforge.yaml").write_text("apiVersion: openlakeforge.io/v1alpha1\nkind: NotAProfile\n")
+    (tmp_path / "openlakeforge.yaml").write_text("apiVersion: openlakeforge.io/v1beta1\nkind: NotAProfile\n")
 
     with pytest.raises(typer.Exit):
         resolve_topology(tmp_path, provider=Provider.LOCAL)

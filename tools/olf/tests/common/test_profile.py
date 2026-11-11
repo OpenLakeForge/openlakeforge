@@ -412,8 +412,8 @@ def test_access_accepts_a_real_domain() -> None:
         ({"base_domain": "localhost"}, "base_domain must be"),
         ({"base_domain": "OLF.example.com"}, "base_domain must be"),
         ({"tls": "letsencrypt"}, "tls must be one of"),
-        ({"issuer": "letsencrypt"}, "issuer must be one of"),
-        ({"tls": "none", "issuer": "none"}, "both 'tls' and its v1alpha1 name 'issuer'"),
+        ({"issuer": "letsencrypt"}, "issuer was renamed spec.access.tls"),
+        ({"tls": "none", "issuer": "none"}, "issuer was renamed spec.access.tls"),
         ({"gateway": "x"}, "must not contain"),
     ],
 )
@@ -730,11 +730,42 @@ def test_plain_http_tls_is_rejected_outside_local_localhost(provider: str, base_
         validate_deployment_profile(document)
 
 
-def test_a_v1alpha1_issuer_is_read_as_tls() -> None:
-    document = _load_fixture("valid_slim_local.yaml")
-    document["spec"]["access"] = {"issuer": "local-ca"}
+def test_a_v1alpha1_profile_is_refused_with_the_command_that_migrates_it() -> None:
+    legacy = yaml.safe_load((FIXTURES / "legacy_v1alpha1_issuer.yaml").read_text())
 
-    assert resolve_topology(validate_deployment_profile(document)).access == AccessSpec("olf.localhost", "local-ca")
+    with pytest.raises(DeploymentProfileError, match="olf project migrate"):
+        validate_deployment_profile(legacy)
+    with pytest.raises(DeploymentProfileError, match="olf project migrate"):
+        load_deployment_profile(FIXTURES / "legacy_v1alpha1_issuer.yaml")
+
+
+@pytest.mark.parametrize(
+    ("block", "field"),
+    [("query", "engine"), ("storage", "engine")],
+)
+def test_no_query_engine_field_is_accepted(block: str, field: str) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"][block] = {field: "duckdb"}
+
+    with pytest.raises(DeploymentProfileError, match=f"must not contain \\['{field}'\\]"):
+        validate_deployment_profile(document)
+
+
+def test_spec_expose_is_not_part_of_v1beta1(tmp_path: Path) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["expose"] = {"domain": "olf.example.com"}
+
+    with pytest.raises(DeploymentProfileError, match="must not contain \\['expose'\\]"):
+        validate_deployment_profile(document)
+    assert _schema_errors(document, tmp_path)
+
+
+def test_the_schema_is_versioned_with_the_parser() -> None:
+    schema = json.loads((SCHEMAS / "deployment-profile.schema.json").read_text(encoding="utf-8"))
+
+    assert schema["properties"]["apiVersion"]["const"] == profile_module.PROFILE_API_VERSION
+    assert schema["$id"].endswith("/v1beta1")
+    assert profile_module.LEGACY_PROFILE_API_VERSION not in json.dumps(schema)
 
 
 def test_external_tls_is_accepted_on_a_public_domain() -> None:

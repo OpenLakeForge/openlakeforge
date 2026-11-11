@@ -3,13 +3,12 @@
   outputs:
     runtime:
       type: trino
-      method: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_METHOD', 'none') }}"
+      # Trino takes no authentication and serves plain HTTP only (ADR 0016).
+      method: none
       host: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HOST') }}"
-      port: "{{ (env_var('OPENLAKEFORGE_QUERY_TRINO_TLS_PORT') if env_var('OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http') == 'https' else env_var('OPENLAKEFORGE_QUERY_TRINO_PORT')) | int }}"
+      port: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_PORT') | int }}"
       user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER') }}"
-      password: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_PASSWORD', '') or none }}"
-      http_scheme: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME', 'http') }}"
-      cert: "{{ env_var('OPENLAKEFORGE_QUERY_TRINO_CA', '') or none }}"
+      http_scheme: http
       database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}"
       schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}{{GOLD_SCHEMA}}"
       # One model at a time unless the stage says otherwise. Slim's Trino has a 2G heap whose usable 70% (1.4G)

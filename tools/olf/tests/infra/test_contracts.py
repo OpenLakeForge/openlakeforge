@@ -23,7 +23,7 @@ def build_contract_env(base: dict, contracts: dict | None, *, repo_root: Path) -
     topology = resolve_topology(
         validate_deployment_profile(
             {
-                "apiVersion": "openlakeforge.io/v1alpha1",
+                "apiVersion": "openlakeforge.io/v1beta1",
                 "kind": "DeploymentProfile",
                 "metadata": {"name": deployment["profile_name"]},
                 "spec": {

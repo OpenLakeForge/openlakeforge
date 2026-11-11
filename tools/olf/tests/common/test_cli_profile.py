@@ -10,7 +10,7 @@ from olf.cli import app
 runner = CliRunner()
 
 _VALID_PROFILE = """\
-apiVersion: openlakeforge.io/v1alpha1
+apiVersion: openlakeforge.io/v1beta1
 kind: DeploymentProfile
 
 metadata:
@@ -26,7 +26,7 @@ spec:
 """
 
 _INVALID_PROFILE = """\
-apiVersion: openlakeforge.io/v1alpha1
+apiVersion: openlakeforge.io/v1beta1
 kind: DeploymentProfile
 
 metadata:

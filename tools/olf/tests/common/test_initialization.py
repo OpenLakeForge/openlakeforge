@@ -25,7 +25,7 @@ def _layout(tmp_path: Path) -> RuntimeLayout:
     distribution = tmp_path / "distribution"
     (distribution / "openlakeforge.yaml").parent.mkdir(parents=True)
     (distribution / "openlakeforge.yaml").write_text(
-        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\n",
+        "apiVersion: openlakeforge.io/v1beta1\nkind: DeploymentProfile\n",
         encoding="utf-8",
     )
     definitions = distribution / "lakehouse_code" / "definitions.py"

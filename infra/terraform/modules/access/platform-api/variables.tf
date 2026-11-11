@@ -50,13 +50,13 @@ variable "public_origin" {
 }
 
 variable "person_query" {
-  description = "Whether per-person queries are on: true only where the people catalogs exist (Dex-backed identity, ADR 0019)."
+  description = "Whether per-person queries are on: true only where Dex-backed identity runs (ADR 0019)."
   type        = bool
   default     = false
 }
 
 variable "query_endpoints" {
-  description = "Each stage's Trino statement URL and people catalog, which the API runs a person's queries against (ADR 0019). Rendered into settings.json only with person_query, and an in-cluster URL, never a hostname a browser could use."
+  description = "Each stage's Trino statement URL and catalog (lakehouse_<stage>), which the API runs a person's queries against (ADR 0019). Rendered into settings.json only with person_query, and an in-cluster URL, never a hostname a browser could use."
   type = map(object({
     statement_url = string
     catalog       = string

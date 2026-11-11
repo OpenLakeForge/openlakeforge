@@ -57,7 +57,7 @@ def _write_profile(
     provider_block = f"    type: {provider}\n" + (f"    region: {region}\n" if region else "")
     stage_block = "".join(f"    {stage}:\n      enabled: true\n" for stage in stages)
     path.write_text(
-        "apiVersion: openlakeforge.io/v1alpha1\n"
+        "apiVersion: openlakeforge.io/v1beta1\n"
         "kind: DeploymentProfile\n"
         "metadata:\n"
         f"  name: {name}\n"

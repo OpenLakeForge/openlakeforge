@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 from typing import Any
 
@@ -268,9 +269,24 @@ def test_the_sign_in_token_seeds_the_trino_row_and_leaves_the_cookie(monkeypatch
     assert manager.stored == [(7, response)]
 
 
-def test_the_sign_in_token_names_trino_only_with_a_people_catalog() -> None:
+def test_the_sign_in_token_names_trino_only_with_a_stage_catalog() -> None:
     plain = {"scope": "openid offline_access", "client_id": "superset"}
     assert olf_oidc._sign_in_scope(plain) == "openid offline_access"
 
-    scopes = olf_oidc._sign_in_scope({**plain, "people_catalog": "dev"}).split()
+    scopes = olf_oidc._sign_in_scope({**plain, "people_catalog": "lakehouse_dev"}).split()
     assert {"federated:id", "audience:server:client_id:olf-cli", "audience:server:client_id:superset"} <= set(scopes)
+
+
+def test_superset_metadata_uri_carries_no_password() -> None:
+    # Superset 6.1.0 prints its metadata URI with str() on a SQLAlchemy 1.4 URL when the first
+    # query fails, and that keeps the password (#1048). The chart takes SQLALCHEMY_DATABASE_URI
+    # verbatim, so the password must reach libpq through PGPASSWORD and never a string.
+    main = (ROOT / "infra/terraform/modules/analytics/superset/main.tf").read_text()
+    uri = re.search(r'name\s*=\s*"SQLALCHEMY_DATABASE_URI"\s*value\s*=\s*"([^"]+)"', main)
+    assert uri, "the module must set SQLALCHEMY_DATABASE_URI so the chart does not build one with DB_PASS"
+
+    authority = uri.group(1).split("://", 1)[1].split("@", 1)[0]
+    assert ":" not in authority
+    assert "pass" not in uri.group(1).lower()
+    assert 'name = "PGPASSWORD"' in main
+    assert re.search(r'name\s*=\s*"DB_PASS"', main) is None

@@ -89,7 +89,7 @@ def _topology(contract: dict, identity: dict | None = None, access: dict | None 
     return resolve_topology(
         validate_deployment_profile(
             {
-                "apiVersion": "openlakeforge.io/v1alpha1",
+                "apiVersion": "openlakeforge.io/v1beta1",
                 "kind": "DeploymentProfile",
                 "metadata": {"name": deployment["profile_name"]},
                 "spec": {

@@ -186,3 +186,55 @@ def test_a_lost_data_product_is_not_hidden_by_a_domain_of_the_same_name(monkeypa
     baseline = durability.capture(_sources(entities=lambda: entities), stage="dev")
     lost_product = _sources(entities=lambda: [e for e in entities if e != "dataProduct:sales_orders"])
     assert durability.verify(baseline, lost_product) == ["OpenMetadata entity dataProduct:sales_orders is missing"]
+
+
+
+def _lake_with_only_the_default_product(monkeypatch: pytest.MonkeyPatch, *, gold_rows: str) -> None:
+    """Trino answers as after the smoke suite: the default product's Silver and Gold hold tables, nothing else does."""
+    from conftest import E2E_INVENTORY
+
+    from olf.infra.e2e import _trino
+
+    product = E2E_INVENTORY.default_product
+    domain = E2E_INVENTORY.domain_for_product(product)
+    tables = {
+        domain.silver_namespace: [entity.name for entity in E2E_INVENTORY.floe_entities(domain)][:1],
+        product.gold_namespace: ["mart"],
+    }
+    monkeypatch.setattr(_trino, "check_trino_catalog", lambda _cfg: None)
+    monkeypatch.setattr(_trino, "trino_query", lambda _cfg, sql: "\n".join(tables.get(sql.rsplit(".", 1)[-1], [])))
+    monkeypatch.setattr(_trino, "trino_scalar", lambda _cfg, _sql: gold_rows)
+    monkeypatch.setattr(durability, "cluster_sources", lambda _cfg: _sources())
+    monkeypatch.setattr(durability, "secret_values", lambda _cfg: {})
+
+
+def test_a_lake_loaded_by_the_smoke_suite_can_be_captured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from conftest import E2E_INVENTORY, e2e_cfg
+
+    # The upgrade drill loads data with the smoke suite: other domains and products stay empty.
+    assert len(E2E_INVENTORY.domains) > 1
+    _lake_with_only_the_default_product(monkeypatch, gold_rows="5")
+
+    durability.capture_to_file(e2e_cfg(tmp_path, suite="smoke"), tmp_path / "baseline.json")
+
+    assert (tmp_path / "baseline.json").exists()
+
+
+def test_a_lake_whose_default_product_never_reached_gold_is_not_captured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from conftest import e2e_cfg
+
+    _lake_with_only_the_default_product(monkeypatch, gold_rows="0")
+
+    with pytest.raises(E2EError, match="to contain rows"):
+        durability.capture_to_file(e2e_cfg(tmp_path, suite="smoke"), tmp_path / "baseline.json")
+    assert not (tmp_path / "baseline.json").exists()
+
+
+def test_an_upgrade_that_activates_a_new_revision_loses_nothing() -> None:
+    # The upgrade's reconcile deploy rebuilds the project image with the new runtime and activates it.
+    baseline = durability.capture(_sources(), stage="dev")
+    after = _sources(activation=lambda: {"activations/dev/ACTIVE.json": "sha256:def"})
+
+    assert durability.verify(baseline, after) == []

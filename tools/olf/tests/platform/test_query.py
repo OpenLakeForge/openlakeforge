@@ -116,7 +116,7 @@ def test_a_query_carries_the_person_token_twice_and_their_email_and_stage(trino:
     assert first["headers"]["Authorization"] == f"Bearer {trino.token}"
     assert first["headers"]["X-Trino-Extra-Credential"] == f"token={trino.token}"
     assert first["headers"]["X-Trino-User"] == EMAIL
-    assert first["headers"]["X-Trino-Catalog"] == "prod"
+    assert first["headers"]["X-Trino-Catalog"] == "lakehouse_prod"
     assert trino.requests[1]["headers"]["Authorization"] == f"Bearer {trino.token}"
 
 
@@ -171,7 +171,10 @@ def _failure(*messages: str) -> dict[str, Any]:
             ),
             "your role may only read on stage dev",
         ),
-        (_failure("Access Denied: Cannot access catalog lakehouse_dev"), "only the people catalogs dev, uat, prod"),
+        (
+            _failure("Access Denied: Cannot access catalog lakehouse_dev"),
+            "only the stage catalogs lakehouse_dev, lakehouse_uat, lakehouse_prod",
+        ),
     ],
 )
 def test_a_refusal_is_explained_from_the_cause_chain(trino: FakeTrino, error: dict[str, Any], expected: str) -> None:
@@ -213,7 +216,7 @@ def test_a_session_from_before_olf_query_asks_to_sign_in_again(trino: FakeTrino)
 def test_a_deployment_without_github_sign_in_points_to_the_workload_path(tmp_path: Path) -> None:
     profile = tmp_path / "openlakeforge.yaml"
     profile.write_text(
-        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata: {name: fixture}\n"
+        "apiVersion: openlakeforge.io/v1beta1\nkind: DeploymentProfile\nmetadata: {name: fixture}\n"
         "spec:\n  provider: {type: local}\n  preset: slim\n  stages: {dev: {enabled: true}}\n"
         "  access: {base_domain: olf.example.com, tls: local-ca}\n"
         "  identity: {issuer: external, issuer_url: 'https://login.example.com', role_claim: groups,"
@@ -241,7 +244,7 @@ def test_every_page_asks_for_a_current_token_and_only_the_submission_carries_the
 ) -> None:
     tokens = iter(["first", "refreshed"])
 
-    person_query.run_statement(trino.url, "SELECT 1", bearer=lambda: next(tokens), user=EMAIL, catalog="dev")
+    person_query.run_statement(trino.url, "SELECT 1", bearer=lambda: next(tokens), user=EMAIL, stage="dev")
 
     submitted, page = (request["headers"] for request in trino.requests)
     assert (submitted["Authorization"], submitted["X-Trino-Extra-Credential"]) == ("Bearer first", "token=first")

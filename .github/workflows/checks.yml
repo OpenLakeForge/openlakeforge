@@ -107,15 +107,20 @@ jobs:
       - name: Sync tooling environment
         run: uv sync --project tools/olf
 
-      - name: Lint tooling
-        run: uv run --project tools/olf ruff check tools/olf
+      - name: Lint tooling and the shared packages
+        run: >
+          uv run --project tools/olf ruff check
+          tools/olf packages/core packages/runtime packages/lakehouse-services
 
       # The path is explicit because this job runs from the repository root,
       # where the config's own relative `files` entry does not resolve.
-      - name: Type-check tooling
+      - name: Type-check tooling and the shared packages
         run: >
           uv run --project tools/olf mypy
           --config-file tools/olf/pyproject.toml tools/olf/olf
+          packages/core/openlakeforge_core
+          packages/runtime/openlakeforge_runtime
+          packages/lakehouse-services/openlakeforge_services
 
       # `--cov-config` is required: this job runs from the repository root, and
       # without it coverage never finds the config, silently drops to line-only

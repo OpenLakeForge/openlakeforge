@@ -278,7 +278,7 @@ def test_no_session_says_not_logged_in(issuer: FakeIssuer) -> None:
 
 
 PROFILE = """\
-apiVersion: openlakeforge.io/v1alpha1
+apiVersion: openlakeforge.io/v1beta1
 kind: DeploymentProfile
 metadata:
   name: fixture
@@ -425,7 +425,7 @@ def test_a_localhost_request_bypasses_the_proxy_without_touching_the_environment
 def _profile_with(tmp_path: Path, spec_tail: str) -> str:
     path = tmp_path / "openlakeforge.yaml"
     path.write_text(
-        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata: {name: fixture}\n"
+        "apiVersion: openlakeforge.io/v1beta1\nkind: DeploymentProfile\nmetadata: {name: fixture}\n"
         "spec:\n  provider: {type: local}\n  preset: slim\n  stages: {dev: {enabled: true}}\n" + spec_tail
     )
     return str(path)
