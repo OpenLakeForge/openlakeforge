@@ -164,6 +164,9 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
         log.info(f"Gold's slowest generation fits in {lifetime}s; Polaris tokens now live {lifetime}s.")
         try:
             _set_lifetime(cfg, f"PT{lifetime}S")
+            # The restarted Polaris is Ready before kindnet admits traffic to it (see _trino.py); wait until the
+            # catalog answers, or the first generation's mint could fail on a healthy runtime.
+            retry_until_deadline(lambda: check_trino_write(cfg))
             run_id, _ = gold_run()
         finally:
             _set_lifetime(cfg, None)
