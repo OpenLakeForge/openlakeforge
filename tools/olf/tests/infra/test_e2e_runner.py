@@ -135,13 +135,15 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
         (
             "local",
             [
-                "namespaces", "jobs", "tables", "maintenance", "recovery", "traefik", "renewal", "network", "portal",
+                "namespaces", "jobs", "tables", "maintenance",
+                "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
                 "perimeter", "break-glass", "latency", "outage",
                 "superset", "openmetadata", "artifacts", "isolation", "exposure", "rotation",
             ],
         ),
         *(
-            (env, ["namespaces", "jobs", "tables", "maintenance", "superset", "openmetadata", "artifacts", "isolation"])
+            (env, ["namespaces", "jobs", "tables", "maintenance",
+                "token-lifetime", "superset", "openmetadata", "artifacts", "isolation"])
             for env in ("azure", "aws")
         ),
     ],
@@ -155,6 +157,7 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "launch_and_poll_dagster_jobs", lambda _cfg: calls.append("jobs"))
     monkeypatch.setattr(_runner, "check_trino_tables_and_marts", lambda _cfg: calls.append("tables"))
     monkeypatch.setattr(_runner, "check_iceberg_maintenance", lambda _cfg: calls.append("maintenance"))
+    monkeypatch.setattr(_runner, "check_gold_outlasts_polaris_token", lambda _cfg: calls.append("token-lifetime"))
     monkeypatch.setattr(_runner, "check_polaris_restart_recovery", lambda _cfg: calls.append("recovery"))
     monkeypatch.setattr(_runner, "check_traefik_restart_recovery", lambda _cfg: calls.append("traefik"))
     monkeypatch.setattr(_runner, "check_certificate_renewal", lambda _cfg: calls.append("renewal"))
@@ -243,6 +246,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "launch_and_poll_dagster_jobs", lambda _cfg: calls.append("jobs"))
     monkeypatch.setattr(_runner, "check_trino_tables_and_marts", lambda _cfg: calls.append("tables"))
     monkeypatch.setattr(_runner, "check_iceberg_maintenance", lambda _cfg: calls.append("maintenance"))
+    monkeypatch.setattr(_runner, "check_gold_outlasts_polaris_token", lambda _cfg: calls.append("token-lifetime"))
     monkeypatch.setattr(_runner, "check_polaris_restart_recovery", lambda _cfg: calls.append("recovery"))
     monkeypatch.setattr(_runner, "check_traefik_restart_recovery", lambda _cfg: calls.append("traefik"))
     monkeypatch.setattr(_runner, "check_certificate_renewal", lambda _cfg: calls.append("renewal"))
@@ -264,7 +268,8 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     _runner.run_full(e2e_cfg(tmp_path))
 
     assert calls == [
-        "namespaces", "jobs", "tables", "maintenance", "recovery", "traefik", "renewal", "network", "portal",
+        "namespaces", "jobs", "tables", "maintenance",
+        "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
         "perimeter", "break-glass", "outage",
         "artifacts", "isolation", "exposure", "rotation",
     ]
