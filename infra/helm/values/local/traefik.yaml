@@ -43,7 +43,6 @@ resources:
 # One JSON line per request (status, duration, upstream status, retries; the chart drops request headers by
 # default, so no bearer is logged). A person's query that breaks in transit leaves no other trace of which hop
 # stopped (#1088); the e2e failure path prints this log.
-logs:
-  access:
-    enabled: true
-    format: json
+accessLog:
+  enabled: true
+  format: json
