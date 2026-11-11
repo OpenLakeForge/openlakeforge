@@ -18,7 +18,7 @@ class DbtTest:
     unique_id: str
     selector: str
     parents: tuple[str, ...]
-    # False for a test on models outside the selection: dagster-dbt decides whether it runs.
+    # False for a test that reaches no selected model: it does not run in this build.
     explicit: bool
     # The sources the test reads directly (unique ids): a failed source test blocks the models reading them.
     sources: tuple[str, ...] = ()
@@ -90,7 +90,9 @@ def dbt_tests(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[st
             unique_id=node["unique_id"],
             selector=".".join(node["fqn"]),
             parents=parents,
-            explicit=bool(parents) or not any(parent.startswith("model.") for parent in direct),
+            # Only a test that reaches a selected model runs, as under eager selection of the models: a test on
+            # sources alone never did, since the product job selects models.
+            explicit=bool(parents),
             sources=tuple(sorted(parent for parent in direct if parent.startswith("source."))),
             name=node.get("name", ""),
         )

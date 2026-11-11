@@ -349,7 +349,7 @@ def test_tests_of_the_manifest_carry_their_selected_parents() -> None:
 
     assert {t.selector: (t.parents, t.explicit) for t in tests.values()} == {
         "gold.rel": (("a", "b"), True),
-        "gold.src": ((), True),
+        "gold.src": ((), False),  # a source test never joined a build of selected models
         "gold.other": ((), False),
         "gold.b.ut": (("b",), True),
     }
@@ -495,3 +495,25 @@ def test_a_check_deselected_in_dagster_does_not_run() -> None:
     result = dbt_build.without_deselected_checks(tests, {"not_null_a", "unique_a"}, {"not_null_a"})
 
     assert set(result) == {"test.gold.not_null_a", "test.gold.custom"}
+
+
+def test_a_test_on_sources_alone_does_not_join_a_model_build() -> None:
+    manifest = {
+        "metadata": {"project_name": "gold"},
+        "nodes": {
+            "model.gold.a": {
+                "name": "a", "resource_type": "model", "package_name": "gold",
+                "config": {"materialized": "table"}, "depends_on": {"nodes": ["source.gold.x"]},
+            },
+            "test.gold.not_null_y": {
+                "unique_id": "test.gold.not_null_y", "resource_type": "test", "package_name": "gold",
+                "name": "not_null_y", "fqn": ["gold", "not_null_y"], "depends_on": {"nodes": ["source.gold.y"]},
+            },
+        },
+    }
+
+    test = dbt_build.dbt_tests(manifest, {"a"})["test.gold.not_null_y"]
+
+    # Eager selection of `a` never ran a test whose only parent is a source.
+    assert (test.parents, test.explicit) == ((), False)
+    assert "gold.not_null_y" not in dbt_build.generation_args(["a"], [], ["a"], [test])[3]
