@@ -230,3 +230,11 @@ def test_a_lake_whose_default_product_never_reached_gold_is_not_captured(
     with pytest.raises(E2EError, match="to contain rows"):
         durability.capture_to_file(e2e_cfg(tmp_path, suite="smoke"), tmp_path / "baseline.json")
     assert not (tmp_path / "baseline.json").exists()
+
+
+def test_an_upgrade_that_activates_a_new_revision_loses_nothing() -> None:
+    # The upgrade's reconcile deploy rebuilds the project image with the new runtime and activates it.
+    baseline = durability.capture(_sources(), stage="dev")
+    after = _sources(activation=lambda: {"activations/dev/ACTIVE.json": "sha256:def"})
+
+    assert durability.verify(baseline, after) == []

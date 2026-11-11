@@ -121,9 +121,12 @@ def differences(baseline: State, current: State) -> list[str]:
         found.append(
             f"OpenMetadata search finds nothing; it found {baseline['openmetadata']['search_hits']} hits before"
         )
+    # A stage that served a project still does. Which revision is not durable state: the reconcile deploy of an
+    # upgrade rebuilds the project image with the new runtime and activates it (ADR 0012), and the data checks above
+    # are what must survive.
     for key, revision in baseline["activation"].items():
-        if current["activation"].get(key) != revision:
-            found.append(f"activation pointer {key} was {revision}, now {current['activation'].get(key)}")
+        if key not in current["activation"]:
+            found.append(f"activation pointer {key} was {revision}, now None")
     for key, size in baseline["objects"].items():
         if key not in current["objects"]:
             found.append(f"object {key} is missing")
