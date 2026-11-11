@@ -34,6 +34,7 @@ import lakehouse_code
 from openlakeforge_runtime import gold_maintenance
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
 from openlakeforge_runtime.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
+from openlakeforge_runtime.dbt_build import build_model_by_model, merge_run_results, model_dependencies
 from openlakeforge_runtime.polaris_token import polaris_token_env
 from openlakeforge_runtime.floe_profile import write_profile
 from openlakeforge_runtime.openlakeforge_logging import log_event
@@ -423,17 +424,28 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         # Both scopes rebuild Gold: after a Bronze reload, an incremental model
         # would otherwise keep rows its rebuilt inputs no longer hold.
         full_refresh = full_refresh_scope(context.run.tags) is not None
-        try:
-            # Minted per invocation: the token is frozen for the run and lives about an hour.
+        target_paths: list[Path] = []
+        selected = {key.path[-1] for key in context.selected_asset_keys}
+        dependencies = model_dependencies(json.loads(manifest_path.read_text()), selected)
+
+        def build_one(exclude: list[str]):
+            # A dbt process holds its token for good and Polaris lets it expire, so each model gets its own.
             with polaris_token_env():
-                invocation = dbt.cli(["build", *(["--full-refresh"] if full_refresh else [])], context=context)
+                args = ["build", *(["--full-refresh"] if full_refresh else [])]
+                if exclude:
+                    args += ["--exclude", " ".join(exclude)]
+                invocation = dbt.cli(args, context=context)
+                target_paths.append(invocation.target_path)
                 yield from invocation.stream()
+
+        try:
+            yield from build_model_by_model(dependencies, build_one)
         finally:
             if previous_job_name is None:
                 os.environ.pop("OPENLINEAGE_DBT_JOB_NAME", None)
             else:
                 os.environ["OPENLINEAGE_DBT_JOB_NAME"] = previous_job_name
-        _upload_dbt_artifacts(context, spec, invocation.target_path)
+        _upload_dbt_artifacts(context, spec, merge_run_results(target_paths))
 
     _dbt_gold_assets.__name__ = f"{spec.product}_dbt_gold_assets"
     manifest_path = ensure_baked_manifest(spec.dbt_project_dir)
