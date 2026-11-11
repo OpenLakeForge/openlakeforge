@@ -45,8 +45,9 @@ TOKEN_MINTED_MESSAGE = "Minted a Polaris token for a dbt build generation"
 LIFETIME_FRACTION = 0.7
 MIN_LIFETIME_SECONDS = 15
 _REF = re.compile(r"""ref\(\s*['"]([^'"]+)['"]\s*\)""")
-# The catalog implementation whose Deployment this check reconfigures; Glue has no Polaris and no tokens.
-REST_CATALOG_IMPLEMENTATION = "catalog.iceberg_rest"
+# The catalog implementations backed by Polaris, whose Deployment this check reconfigures:
+# `catalog.iceberg_rest.polaris` (local) and `catalog.iceberg_rest.polaris_on_aks` (Azure). Glue mints no tokens.
+POLARIS_CATALOG_PREFIX = "catalog.iceberg_rest.polaris"
 
 _RUN_LOG_TIMES = """
 query RunLogTimes($runId: ID!) {
@@ -80,9 +81,13 @@ def generation_count(models_dir: Path) -> int:
     return generations
 
 
+def catalog_is_polaris(implementation: object) -> bool:
+    return isinstance(implementation, str) and implementation.startswith(POLARIS_CATALOG_PREFIX)
+
+
 def uses_polaris(cfg: E2EConfig) -> bool:
     stages = load_provider_contracts_or_raise(cfg)["stages"]
-    return next(iter(stages.values()))["catalog"].get("implementation") == REST_CATALOG_IMPLEMENTATION
+    return catalog_is_polaris(next(iter(stages.values()))["catalog"].get("implementation"))
 
 
 def mint_times(events: list[dict[str, Any]]) -> list[float]:

@@ -38,3 +38,18 @@ def test_flat_models_are_one_generation(tmp_path) -> None:
     (tmp_path / "b.sql").write_text("select 2")
 
     assert generation_count(tmp_path) == 1
+
+
+@pytest.mark.parametrize(
+    ("implementation", "expected"),
+    [
+        ("catalog.iceberg_rest.polaris", True),
+        ("catalog.iceberg_rest.polaris_on_aks", True),
+        ("catalog.aws_glue", False),
+        (None, False),
+    ],
+)
+def test_the_check_runs_on_every_polaris_catalog_and_skips_glue(implementation: object, expected: bool) -> None:
+    from olf.infra.e2e._token_lifetime import catalog_is_polaris
+
+    assert catalog_is_polaris(implementation) is expected
