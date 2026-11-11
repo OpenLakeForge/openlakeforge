@@ -88,8 +88,8 @@ def test_resolve_stage_report_target_reads_the_named_stages_own_bindings() -> No
     )
 
     assert (dev.namespace, prod.namespace) == ("olf-dev", "olf-prod")
-    assert dev.sqlalchemy_uri.endswith("/dev")
-    assert prod.sqlalchemy_uri.endswith("/prod")
+    assert dev.sqlalchemy_uri.endswith("/lakehouse_dev")
+    assert prod.sqlalchemy_uri.endswith("/lakehouse_prod")
     assert (dev.schema_prefix, prod.schema_prefix) == ("lakehouse_dev_", "lakehouse_prod_")
 
 
@@ -495,7 +495,7 @@ def test_a_caller_exported_query_uri_never_reaches_the_target(stale: str | None)
     target = superset.resolve_stage_report_target(environ, stage="prod")
 
     assert environ["OPENLAKEFORGE_QUERY_SQLALCHEMY_URI"] == stale
-    assert target.sqlalchemy_uri == "trino://trino:8080/prod"
+    assert target.sqlalchemy_uri == "trino://trino:8080/lakehouse_prod"
 
 
 def _applied_environment() -> dict[str, str]:
@@ -513,7 +513,7 @@ def _applied_environment() -> dict[str, str]:
 def test_the_stage_report_target_reaches_trino_over_plain_http(tmp_path: Path) -> None:
     target = superset.resolve_stage_report_target(_applied_environment(), stage="dev")
 
-    assert target.sqlalchemy_uri == "trino://trino.olf-system:8080/dev"
+    assert target.sqlalchemy_uri == "trino://trino.olf-system:8080/lakehouse_dev"
 
     source = tmp_path / "report"
     (source / "databases").mkdir(parents=True)
@@ -602,5 +602,5 @@ def test_bundle_schema_perms_joins_datasets_to_databases_case_insensitively(tmp_
 def test_the_target_names_no_trino_user_and_no_password() -> None:
     target = superset.resolve_stage_report_target(_applied_environment(), stage="dev")
 
-    assert target.sqlalchemy_uri == "trino://trino.olf-system:8080/dev"
+    assert target.sqlalchemy_uri == "trino://trino.olf-system:8080/lakehouse_dev"
     assert not hasattr(target, "credential_secret")

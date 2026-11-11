@@ -2,7 +2,7 @@
 
 The query goes to Trino's `query_api` route with the signed-in person's Dex
 token, twice: as the bearer Trino authenticates, and as the `token` extra
-credential its stage's people catalog hands to Polaris. Polaris's grants decide
+credential its stage's catalog hands to Polaris. Polaris's grants decide
 what the person reads and writes, so every refusal is explained from the error
 Trino passes on, whose own message names neither the role nor the reason.
 """
@@ -59,13 +59,18 @@ def person_token(instance: sessions.Instance) -> tuple[str, dict[str, Any]]:
     return token, claims
 
 
-def run_statement(url: str, sql: str, *, bearer: Callable[[], str], user: str, catalog: str) -> TrinoResult:
-    """The person's token is also the `token` extra credential their stage's people catalog hands to Polaris."""
-    client = TrinoStatementClient(url, catalog=catalog, user=user, source=SOURCE, send=sessions.send)
+def stage_catalog(stage: str) -> str:
+    """The one Trino catalog a stage serves, the Polaris catalog's name."""
+    return f"lakehouse_{stage}"
+
+
+def run_statement(url: str, sql: str, *, bearer: Callable[[], str], user: str, stage: str) -> TrinoResult:
+    """The person's token is also the `token` extra credential their stage's catalog hands to Polaris."""
+    client = TrinoStatementClient(url, catalog=stage_catalog(stage), user=user, source=SOURCE, send=sessions.send)
     try:
         return client.run(sql, bearer=bearer, extra_credentials=lambda token: {"token": token})
     except TrinoQueryError as exc:
-        raise sessions.PlatformError(explain(exc.error, catalog)) from exc
+        raise sessions.PlatformError(explain(exc.error, stage)) from exc
     except TrinoTlsError as exc:
         raise sessions.PlatformError(
             f"cannot verify the TLS certificate of {urlsplit(url).hostname}. A local deployment uses its own CA: "
@@ -102,7 +107,8 @@ def explain(error: dict[str, Any], stage: str) -> str:
         return f"your role may only read on stage {stage}; writing needs a role with write access there.\n{reason}"
     if "Cannot access catalog" in text:
         return (
-            f"only the people catalogs {', '.join(STAGES)} are open to you; name tables as <schema>.<table>.\n{reason}"
+            f"only the stage catalogs {', '.join(map(stage_catalog, STAGES))} are open to you; name tables as "
+            f"<schema>.<table>.\n{reason}"
         )
     if "cannot become user" in text:
         return f"Trino refused the user name: a person may act only as their own e-mail.\n{reason}"
@@ -151,7 +157,7 @@ def query(
 ) -> None:
     """Run SQL as yourself against a stage's data.
 
-    You need `olf login` first. The stage's catalog is the session default, so
+    You need `olf login` first. The stage's catalog, `lakehouse_<stage>`, is the session default, so
     SQL names `<schema>.<table>`. What you may read or write on each stage and
     layer is your role's `data_access` row, enforced by Polaris. Operators who
     need the stage's workload user use `olf infra query`.
@@ -182,7 +188,7 @@ def query(
             sql,
             bearer=lambda: sessions.active_session(instance).id_token,
             user=str(claims["email"]),
-            catalog=stage,
+            stage=stage,
         )
     except (sessions.PlatformError, OSError, ValueError) as exc:
         raise typer.Exit(code=fail(str(exc))) from exc

@@ -86,11 +86,11 @@ def resolve_stage_report_target(environ: Mapping[str, str], *, stage: str = "") 
     # OPENLAKEFORGE_QUERY_SQLALCHEMY_URI, which `build_contract_env` keeps
     # when the caller exported one and which can belong to another stage.
     # No user and no password: each viewer's own token reaches the stage's
-    # people catalog, named after the stage (ADR 0019 section 9).
+    # stage catalog, lakehouse_<stage> (ADR 0019 section 9).
     sqlalchemy_uri = "trino://{host}:{port}/{catalog}".format(
         host=connection["OPENLAKEFORGE_QUERY_TRINO_HOST"],
         port=connection["OPENLAKEFORGE_QUERY_TRINO_PORT"],
-        catalog=resolved_stage,
+        catalog=f"lakehouse_{resolved_stage}",
     )
     return StageReportTarget(
         stage=resolved_stage,
