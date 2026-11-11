@@ -276,7 +276,7 @@ def _topology_of(contract: dict[str, Any]):  # noqa: ANN202 - DeploymentTopology
     return resolve_topology(
         validate_deployment_profile(
             {
-                "apiVersion": "openlakeforge.io/v1alpha1",
+                "apiVersion": "openlakeforge.io/v1beta1",
                 "kind": "DeploymentProfile",
                 "metadata": {"name": deployment["profile_name"]},
                 "spec": {
@@ -314,7 +314,7 @@ def _single_stage_topology(provider: Provider, *, enabled: tuple[StageName, ...]
     return resolve_topology(
         validate_deployment_profile(
             {
-                "apiVersion": "openlakeforge.io/v1alpha1",
+                "apiVersion": "openlakeforge.io/v1beta1",
                 "kind": "DeploymentProfile",
                 "metadata": {"name": deployment["profile_name"]},
                 "spec": {

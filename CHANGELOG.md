@@ -14,6 +14,95 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Draft beta release notes (#532)
+
+These notes are the draft for the first beta. The version number, the date and
+the acceptance evidence (#182 walkthrough, #531 durability, #329 benchmark) are
+filled in when the tag is cut; the component table is the catalog at the time
+of writing and is regenerated into `docs/reference/compatibility-matrix.md` for
+the tag.
+
+The beta covers the `local` provider (kind), Slim and Full presets, with the
+Deployment Profile, `governance.yml` and `source.yaml` frozen at the versions
+below. `aws` and `azure` stay preview. The step-by-step upgrade is
+[Migrate from v0.5 alpha](docs/guides/migrate-from-v0-5-alpha.md).
+
+#### Frozen contracts
+
+| Contract | Version | Schema |
+| --- | --- | --- |
+| Deployment Profile (`openlakeforge.yaml`) | `openlakeforge.io/v1beta1` | `docs/schema/deployment-profile.schema.json` |
+| `governance.yml` | `openlakeforge.io/v1beta2` | `docs/schema/governance.schema.json` |
+| `source.yaml` | `openlakeforge.io/v1beta1` | `docs/schema/source.schema.json` |
+| ProjectRevision compatibility | runtime contract version, currently 1 (#992) | ADR 0012 |
+
+#### Component versions (from `release/component-catalog.yaml`)
+
+| Component | Version |
+| --- | --- |
+| Terraform (required) / managed | >= 1.10.0 / 1.16.4 |
+| Helm / kubectl / kind | 3.18.6 / 1.31.4 / 0.32.0 |
+| Polaris | 1.8.0 |
+| Trino | 480 (chart 1.42.2) |
+| SeaweedFS | 4.48 (chart 4.48.0) |
+| Dagster | 1.13.7 |
+| `floe-python` / `dagster-floe` | 0.9.0 / 0.5.0 |
+| OpenMetadata | 1.13.6 |
+| Superset | 6.1.0 base (chart 0.15.5) |
+| Dex / oauth2-proxy | v2.46.0 / v7.15.5 |
+| Traefik / cert-manager | v3.7.13 / v1.21.2 |
+| PostgreSQL | 16 |
+
+#### Migrations
+
+- `olf project migrate` rewrites `openlakeforge.yaml` (v1alpha1 to v1beta1),
+  `governance.yml` (v1beta1 to v1beta2) and `source.yaml` (v1alpha3 to v1beta1)
+  in one run and changes nothing if any file cannot be migrated. A v1alpha1
+  profile is refused with a pointer to it.
+- Local and Azure bucket names change to `<metadata.name>-<stage>-<layer>`;
+  `olf infra deploy` refuses to rename deployed buckets (#993).
+- The Trino route is `trino-<stage>.<base_domain>`; each stage has its own
+  coordinator, sized by `spec.stages.<stage>.query.size`.
+- The people catalog `<stage>` is folded into `lakehouse_<stage>` (#1052).
+
+#### Removed or renamed fields
+
+- `spec.access.issuer` is `spec.access.tls`; `issuer` is no longer read.
+- `openlakeforge.io/v1alpha1` profiles are no longer read.
+- Trino has no password or HTTPS listener of its own; Polaris decides every
+  caller's access.
+
+#### Known limitations
+
+- `spec.query.size` accepts `small` only; `medium` and `large` are rejected until
+  workers are qualified (#324).
+- `spec.expose` and a `query.engine` field do not exist: public gateway and DNS
+  are deferred to the cloud beta, and DuckDB is not part of this beta.
+- The adapter selectors (`cluster`, `catalog`, `metadata_database`, `storage`,
+  `state`) accept only the provider's default; existing clusters, external
+  PostgreSQL and S3, and remote state are not available.
+- `aws` and `azure` are preview and outside the compatibility promise.
+- The ProjectRevision manifest, the activation record and the component catalog
+  still say `openlakeforge.io/v1alpha1`; their schemas are not part of this
+  profile freeze.
+- A provider contract already in Terraform state with the v1alpha1 `issuer`
+  key is still read as `tls`.
+
+### Changed
+
+- Each stage's Trino coordinator serves one catalog, `lakehouse_<stage>`. The second name `<stage>` (the former people
+  catalog) is gone. Superset's database URI, the platform API's `query_endpoints[*].catalog` and `olf query` use
+  `lakehouse_<stage>` (#1052).
+
+### Migration
+
+- SQL that names the old catalog (`prod.order_revenue_gold.mart_order_revenue_by_day`) must say `lakehouse_prod.` instead.
+  `olf query` makes `lakehouse_<stage>` the default, so `<schema>.<table>` is unchanged.
+- Imported Superset reports carry the catalog in their dataset permissions. `olf infra deploy` imports them again in its
+  artifacts phase, which points the database at `lakehouse_<stage>` and grants the data-access role the new
+  permissions. Deploy the platform and artifacts phases together; a dashboard saved by hand in the Superset UI against
+  the old `<stage>` catalog has to be exported (`olf report export`) and imported again.
+
 ## [0.5.1-alpha.3] - 2026-11-10
 
 This release republishes the Superset image so a fresh install works again:

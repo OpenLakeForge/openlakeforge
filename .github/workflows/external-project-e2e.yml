@@ -127,6 +127,16 @@ jobs:
             exit 1
           fi
 
+      - name: Migrate the project's descriptors to the current versions
+        # acme pins its own release and may lag a descriptor version (its
+        # profile is v1alpha1 until it moves): the documented upgrade path is
+        # `olf project migrate`, so the check runs it. Current files are left
+        # as they are.
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          olf project migrate
+
       - name: Adapt the project's Deployment Profile to one kind-only DEV stage
         # Two edits to acme's profile, nothing else: drop the PROD stage (one
         # stage keeps the run short) and the `spec.project` block, whose

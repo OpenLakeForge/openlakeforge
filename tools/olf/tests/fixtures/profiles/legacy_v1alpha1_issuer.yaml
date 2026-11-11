@@ -1,0 +1,27 @@
+# The last v1alpha1 shape: the TLS mode is still called `issuer`. Kept for the
+# migration tests (descriptor_migration); every other fixture is v1beta1.
+apiVersion: openlakeforge.io/v1alpha1
+kind: DeploymentProfile
+
+metadata:
+  name: fixture-legacy
+
+spec:
+  provider:
+    type: local
+  preset: slim
+  stages:
+    dev:
+      enabled: true
+  access:
+    base_domain: olf.localhost
+    # HTTPS from the platform CA.
+    issuer: local-ca  # renamed tls in v1beta1
+  identity:
+    issuer: github
+    github:
+      organization: my-org
+      teams:
+        platform-admin: [platform-team]
+      oauth_app_secret_ref:
+        name: github-oauth-app

@@ -207,7 +207,7 @@ The shape is provider-neutral. The AWS mapping (#274) is out of v0.4.
 terminates HTTPS in front of OpenLakeForge, Traefik serves HTTP, and
 `shared.access.tls_mode` is `edge-terminated` while every route URL is
 `https://`. `external` is refused on `*.localhost`. v1alpha1 profiles that say
-`issuer` are read as `tls`; contracts already in state keep the old key and are
+`issuer` are refused in v1beta1 (the profile migrates with `olf project migrate`); contracts already in state keep the old key and are
 read the same way.
 
 #990 built the local adapter for `external` (decisions 1, 6, 8): Traefik serves

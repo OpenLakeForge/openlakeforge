@@ -149,7 +149,7 @@ def test_outcome_tells_polaris_from_storage_by_the_upstream_message() -> None:
 
 def test_a_trino_rule_denial_is_not_read_as_a_read_only_credential() -> None:
     with pytest.raises(E2EError, match="other than an access decision"):
-        person.outcome(_fails("only the people catalogs ...\nAccess Denied: Cannot access catalog lakehouse_dev"))
+        person.outcome(_fails("only the stage catalogs ...\nAccess Denied: Cannot access catalog lakehouse_dev"))
 
 
 def test_any_other_failure_is_not_read_as_a_decision() -> None:
@@ -184,3 +184,21 @@ def test_a_claim_that_lends_another_persons_access_fails_the_check() -> None:
 
     with pytest.raises(E2EError, match="platform-admin claiming viewer on dev"):
         person.check_claimed_user("dev", DATA_ACCESS, run)
+
+
+def test_a_query_broken_in_transit_dumps_each_hops_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked: list[list[str]] = []
+
+    def fake_kubectl(cfg: Any, args: list[str], **kwargs: Any) -> str:
+        asked.append(args)
+        if "traefik" in " ".join(args):
+            raise RuntimeError("no such pod")
+        return "log line"
+
+    monkeypatch.setattr(person, "kubectl", fake_kubectl)
+    person.dump_query_route_state(None, "dev", "SHOW SCHEMAS")  # type: ignore[arg-type]
+    joined = [" ".join(args) for args in asked]
+    # A probe that fails does not hide the ones after it.
+    assert any("app.kubernetes.io/name=trino" in a and "-n olf-dev" in a for a in joined)
+    assert any("app.kubernetes.io/name=traefik" in a for a in joined)
+    assert any("app.kubernetes.io/name=polaris" in a for a in joined)

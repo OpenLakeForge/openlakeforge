@@ -24,7 +24,7 @@ _AWS_IDENTITY = (
 def _write_profile(path: Path, *, provider: str = "local", stages: tuple[str, ...] = ("dev",)) -> None:
     region = "    region: eu-west-3\n" if provider == "aws" else ""
     path.write_text(
-        "apiVersion: openlakeforge.io/v1alpha1\nkind: DeploymentProfile\nmetadata:\n  name: query-test\n"
+        "apiVersion: openlakeforge.io/v1beta1\nkind: DeploymentProfile\nmetadata:\n  name: query-test\n"
         f"spec:\n  provider:\n    type: {provider}\n{region}  preset: slim\n  stages:\n"
         + "".join(f"    {stage}:\n      enabled: true\n" for stage in stages)
         + (_AWS_IDENTITY if provider == "aws" else ""),

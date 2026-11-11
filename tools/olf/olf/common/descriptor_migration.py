@@ -4,6 +4,11 @@
 to v1beta2. A Source's fields are the same in both versions, so its migration is
 the version line alone, checked by validating the result.
 
+The Deployment Profile (``openlakeforge.yaml``) goes from v1alpha1 to v1beta1: the
+version line changes and ``spec.access.issuer`` is renamed ``tls``. Like the
+governance rewrite it is textual, so comments survive, and it is refused rather
+than guessed at when the result differs from the migration of the parsed data.
+
 For governance, v1beta1 declared products in a root ``products:`` list that named their
 domain; v1beta2 nests them under ``domains[].products`` and drops that field.
 The rewrite is textual so comments, ordering and untouched formatting survive,
@@ -28,6 +33,15 @@ from openlakeforge_core.descriptors import (
 )
 from openlakeforge_core.governance import validate_governance_descriptor
 
+from olf.common.profile import (
+    LEGACY_PROFILE_API_VERSION,
+    PROFILE_API_VERSION,
+    PROFILE_KIND,
+    DeploymentProfileError,
+    validate_deployment_profile,
+)
+
+PROFILE_FILE = "openlakeforge.yaml"
 LEGACY_API_VERSION = "openlakeforge.io/v1beta1"
 _ITEM = re.compile(r"^(\s*)-(\s|$)")
 
@@ -265,6 +279,78 @@ def migrate_source_text(text: str, *, source: str = "source.yaml") -> str:
     return result
 
 
+def is_legacy_profile(text: str) -> bool:
+    """Whether the parsed top-level ``apiVersion`` is v1alpha1 (the text may mention it anywhere else)."""
+    try:
+        document = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return False
+    return isinstance(document, dict) and document.get("apiVersion") == LEGACY_PROFILE_API_VERSION
+
+
+def _rename_access_issuer(lines: list[str]) -> list[str]:
+    """Rename the ``issuer`` key of the ``access`` mapping to ``tls``, in block or flow style."""
+    for at, line in enumerate(lines):
+        flow = re.match(r"^(\s+access:\s*\{)(.*)(\}.*)$", line)
+        if flow:
+            renamed = re.sub(r"(^\s*|,\s*)issuer(\s*:)", r"\1tls\2", flow.group(2))
+            return [*lines[:at], flow.group(1) + renamed + flow.group(3) + "\n", *lines[at + 1 :]]
+        block = re.match(r"^(\s+)access:\s*(#.*)?$", line)
+        if not block:
+            continue
+        end = at + 1
+        while end < len(lines) and (not lines[end].strip() or _indent(lines[end]) > len(block.group(1))):
+            end += 1
+        for key in range(at + 1, end):
+            if re.match(r"^\s+issuer:", lines[key]):
+                return [*lines[:key], lines[key].replace("issuer:", "tls:", 1), *lines[key + 1 :]]
+    return lines
+
+
+def migrate_profile_text(text: str, *, source: str = PROFILE_FILE, distribution_root: Path | None = None) -> str:
+    """The v1beta1 text for a v1alpha1 Deployment Profile; raises ``MigrationError`` instead of guessing."""
+    document = _parse(text, source)
+    if document.get("apiVersion") == PROFILE_API_VERSION:
+        raise MigrationError(f"{source}: already {PROFILE_API_VERSION!r}; nothing to migrate")
+    if document.get("apiVersion") != LEGACY_PROFILE_API_VERSION or document.get("kind") != PROFILE_KIND:
+        raise MigrationError(
+            f"{source}: expected kind {PROFILE_KIND!r} with apiVersion {LEGACY_PROFILE_API_VERSION!r}, "
+            f"found {document.get('kind')!r} with {document.get('apiVersion')!r}"
+        )
+    spec = document.get("spec")
+    access = spec.get("access") if isinstance(spec, dict) else None
+    expected = {**document, "apiVersion": PROFILE_API_VERSION}
+    if isinstance(spec, dict) and isinstance(access, dict) and "issuer" in access:
+        if "tls" in access:
+            raise MigrationError(f"{source}: spec.access sets both 'tls' and 'issuer'; keep 'tls' only, then migrate")
+        renamed = {("tls" if key == "issuer" else key): value for key, value in access.items()}
+        expected["spec"] = {**spec, "access": renamed}
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    lines = _rename_access_issuer(lines)
+    result, count = re.subn(
+        rf"^apiVersion:(\s*)([\"']?){re.escape(LEGACY_PROFILE_API_VERSION)}\2",
+        rf"apiVersion:\1\2{PROFILE_API_VERSION}\2",
+        "".join(lines),
+        count=1,
+        flags=re.M,
+    )
+    if count != 1:
+        raise MigrationError(f"{source}: could not find the top-level apiVersion line to rewrite")
+    try:
+        produced = yaml.safe_load(result)
+        validate_deployment_profile(produced, source=source, distribution_root=distribution_root)
+    except (yaml.YAMLError, DeploymentProfileError) as exc:
+        raise MigrationError(f"{source}: not a valid {PROFILE_API_VERSION} profile after migration: {exc}") from exc
+    if produced != expected:
+        raise MigrationError(
+            f"{source}: its layout is not one the text rewrite can move safely (the result differs from the "
+            "parsed migration); rename spec.access.issuer to tls and set apiVersion by hand"
+        )
+    return result
+
+
 @dataclass(frozen=True)
 class Migration:
     path: Path
@@ -272,13 +358,19 @@ class Migration:
     migrated: str
 
 
-def plan_project_migration(root: Path) -> list[Migration]:
-    """Every descriptor under ``root/lakehouse_code`` that is on a previous version, migrated.
+def plan_project_migration(root: Path, *, distribution_root: Path | None = None) -> list[Migration]:
+    """The profile at ``root`` and every descriptor under ``root/lakehouse_code`` on a previous version, migrated.
 
     All of them are migrated in memory first, so one that cannot be leaves the
     project untouched; a descriptor already current is skipped."""
     code = root / "lakehouse_code"
     plan: list[Migration] = []
+    profile = root / PROFILE_FILE
+    if profile.is_file():
+        text = profile.read_text(encoding="utf-8")
+        if is_legacy_profile(text):
+            migrated = migrate_profile_text(text, source=PROFILE_FILE, distribution_root=distribution_root)
+            plan.append(Migration(profile, text, migrated))
     governance = code / "governance.yml"
     if governance.is_file():
         text = governance.read_text(encoding="utf-8")
