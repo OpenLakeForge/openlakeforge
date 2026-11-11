@@ -110,7 +110,9 @@ class Source:
         for table in self.resources:
             if table.name == resource:
                 return table.load
-        raise LakehouseDescriptorError(f"{self.descriptor_path}: source {self.name!r} declares no resource {resource!r}")
+        raise LakehouseDescriptorError(
+            f"{self.descriptor_path}: source {self.name!r} declares no resource {resource!r}"
+        )
 
 
 @dataclass(frozen=True)
@@ -382,7 +384,9 @@ def _product(path: Path, domain_name: str, product: Mapping[str, Any], index: in
         raise LakehouseDescriptorError(f"{path}: product {label!r}: id must match '^[a-z][a-z0-9_]*$'")
     display_name = product.get("displayName")
     if not isinstance(display_name, str) or not display_name:
-        raise LakehouseDescriptorError(f"{path}: product {label!r}: displayName is required and must be a non-empty string")
+        raise LakehouseDescriptorError(
+            f"{path}: product {label!r}: displayName is required and must be a non-empty string"
+        )
     return Product(domain_name=domain_name, id=product_id, display_name=display_name)
 
 
@@ -439,7 +443,8 @@ def _validate_inventory_identities(
         unknown_products = sorted(set(dashboard.products) - seen_product_ids)
         if unknown_products:
             raise LakehouseDescriptorError(
-                f"{lakehouse_root}: dashboard {dashboard.name!r}: products {unknown_products!r} must reference declared products"
+                f"{lakehouse_root}: dashboard {dashboard.name!r}: "
+                f"products {unknown_products!r} must reference declared products"
             )
 
 
@@ -488,7 +493,7 @@ def load_lakehouse_inventory_from_descriptors(
             raise LakehouseDescriptorError(f"{lakehouse_path}: domains[{index}] must be an object")
         domain_name = domain["name"]
         products = tuple(
-            _product(lakehouse_path, domain_name, product, product_index)
+            _product(Path(lakehouse_path), domain_name, product, product_index)
             for product_index, product in enumerate(domain["products"])
             if isinstance(product, Mapping)
         )

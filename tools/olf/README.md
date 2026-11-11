@@ -81,8 +81,8 @@ Run every command from the repository root.
 
 ```sh
    uv run --project tools/olf olf check all
-   uv run --project tools/olf ruff check tools/olf
-   uv run --project tools/olf mypy --config-file tools/olf/pyproject.toml tools/olf/olf
+   uv run --project tools/olf ruff check tools/olf packages/core packages/runtime packages/lakehouse-services
+   uv run --project tools/olf mypy --config-file tools/olf/pyproject.toml tools/olf/olf packages/core/openlakeforge_core packages/runtime/openlakeforge_runtime packages/lakehouse-services/openlakeforge_services
    uv run --project tools/olf pytest tools/olf/tests --cov --cov-config=tools/olf/pyproject.toml
 ```
 

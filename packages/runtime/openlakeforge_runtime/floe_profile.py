@@ -121,7 +121,9 @@ def render_profile(environ: Mapping[str, str]) -> dict[str, object]:
             "oauth2_server_uri": required("OPENLAKEFORGE_CATALOG_TOKEN_URI"),
             "scope": environ.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE") or "PRINCIPAL_ROLE:ALL",
             "warehouse_storage": "lakehouse_silver",
-            "warehouse_prefix": _absolute_prefix(silver_bucket, environ.get("OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX", "")),
+            "warehouse_prefix": _absolute_prefix(
+                silver_bucket, environ.get("OPENLAKEFORGE_CATALOG_WAREHOUSE_PREFIX", "")
+            ),
         }
 
     lineage_on = _governance_enabled(environ)

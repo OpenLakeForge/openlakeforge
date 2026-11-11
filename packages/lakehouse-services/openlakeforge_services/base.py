@@ -87,7 +87,9 @@ class JsonHttpClient:
         status = response.status_code
         if status not in ok_statuses:
             if 500 <= status < 600:
-                raise TransientServiceError(f"{method} {path} failed with HTTP {status}: {response.text}", status=status)
+                raise TransientServiceError(
+                    f"{method} {path} failed with HTTP {status}: {response.text}", status=status
+                )
             raise ServiceClientError(f"{method} {path} failed with HTTP {status}: {response.text}", status=status)
         return response
 
