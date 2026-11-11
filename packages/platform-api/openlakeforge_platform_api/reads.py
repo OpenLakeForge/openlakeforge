@@ -16,7 +16,6 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import date
-from typing import Any
 
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Query, Request
@@ -25,6 +24,18 @@ from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.logs import LogArchive
 from openlakeforge_services.openmetadata import OpenMetadataClient
 
+from openlakeforge_platform_api.models import (
+    DataProduct,
+    DataProducts,
+    Domain,
+    Domains,
+    Job,
+    Jobs,
+    LogLine,
+    Logs,
+    Run,
+    Runs,
+)
 from openlakeforge_platform_api.tokens import Principal
 
 log = logging.getLogger(__name__)
@@ -54,10 +65,10 @@ def _dagster_errors(stage: str) -> Iterator[None]:
         raise HTTPException(status_code=502, detail=f"Dagster for stage {stage!r} answered with an error") from exc
 
 
-def list_jobs(request: Request, stage: str) -> dict[str, Any]:
+def list_jobs(request: Request, stage: str) -> Jobs:
     with _dagster_errors(stage):
         jobs = _dagster(request, stage).list_jobs()
-    return {"jobs": [asdict(job) for job in jobs]}
+    return Jobs(jobs=[Job(**asdict(job)) for job in jobs])
 
 
 def list_runs(
@@ -65,18 +76,18 @@ def list_runs(
     stage: str,
     job: str = "",
     limit: int = Query(default=20, ge=1, le=MAX_RUNS),  # noqa: B008 - FastAPI's parameter API
-) -> dict[str, Any]:
+) -> Runs:
     with _dagster_errors(stage):
         runs = _dagster(request, stage).list_runs(job_name=job, limit=limit)
-    return {"runs": [asdict(run) for run in runs]}
+    return Runs(runs=[Run(**asdict(run)) for run in runs])
 
 
-def get_run(request: Request, stage: str, run_id: str) -> dict[str, Any]:
+def get_run(request: Request, stage: str, run_id: str) -> Run:
     with _dagster_errors(stage):
         run = _dagster(request, stage).get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"no run {run_id!r} in stage {stage!r}")
-    return asdict(run)
+    return Run(**asdict(run))
 
 
 def list_logs(
@@ -87,7 +98,7 @@ def list_logs(
     pod: str = "",
     container: str = "",
     limit: int = Query(default=500, ge=1, le=MAX_LOG_LINES),  # noqa: B008
-) -> dict[str, Any]:
+) -> Logs:
     """The stage's archived pod log lines for a day or one hour of it, oldest archive first."""
     archive = request.app.state.settings.log_archives.get(stage)
     if archive is None:
@@ -111,7 +122,7 @@ def list_logs(
         log.warning("stage %s's log archive is unreadable: %s", stage, exc)
         raise HTTPException(status_code=502, detail=f"stage {stage!r}'s log archive is unreadable") from exc
     # `truncated` tells a client that a narrower window or a higher limit would show more.
-    return {"lines": [asdict(line) for line in lines], "truncated": len(lines) >= limit}
+    return Logs(lines=[LogLine(**asdict(line)) for line in lines], truncated=len(lines) >= limit)
 
 
 def _openmetadata(request: Request) -> OpenMetadataClient:
@@ -179,11 +190,11 @@ def openmetadata_user_name(preferred_username: str | None) -> str | None:
     return preferred_username.split("@")[0].lower()
 
 
-def list_domains(request: Request) -> dict[str, Any]:
+def list_domains(request: Request) -> Domains:
     domains = _read_openmetadata(request, lambda client: client.list_domains())
-    return {"domains": [{"name": name, "display_name": display_name} for name, display_name in domains]}
+    return Domains(domains=[Domain(name=name, display_name=display_name) for name, display_name in domains])
 
 
-def list_data_products(request: Request) -> dict[str, Any]:
+def list_data_products(request: Request) -> DataProducts:
     products = _read_openmetadata(request, lambda client: client.list_data_products())
-    return {"data_products": [asdict(product) for product in products]}
+    return DataProducts(data_products=[DataProduct(**asdict(product)) for product in products])

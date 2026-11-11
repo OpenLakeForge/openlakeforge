@@ -462,8 +462,8 @@ refresh.
 
 Issue #801: `GET /api/v1/query-capabilities` and the per-person schema and table
 listings (`discovery.py`). The `query_endpoints` setting maps each stage to its
-Trino statement URL and people catalog. The committed OpenAPI document of
-decision 5 does not exist yet; these routes are not in it.
+Trino statement URL and people catalog. Both are in the committed OpenAPI
+document of decision 5 (#1063).
 
 Issue #800: `POST /api/v1/stages/{stage}/queries`, `GET` and `DELETE` on
 `.../queries/{id}`, and `GET .../queries/{id}/export?format=csv|json`
@@ -506,3 +506,12 @@ there is no cluster in the change's environment.
 Issue #800 follow-up: a query may name its default schema (`schema` in the
 submit body, the Portal's Schema selector). This reverses the earlier rule that
 queries never set `X-Trino-Schema`; discovery still does not.
+
+Issue #1063: decision 5's document now exists, as
+`docs/schema/platform-api.openapi.json`, listing the 18 routes with Pydantic
+response models (`models.py`). The app still serves no `/openapi.json`; the file
+is rendered by `openlakeforge_platform_api.openapi`, and `tests/test_openapi.py`
+fails when it differs from the app, naming the regeneration command
+(`cd packages/platform-api && uv run --locked python -m
+`openlakeforge_platform_api.openapi`). Its `version` is the path version (`v1`),
+not the release, so a release bump does not change it.

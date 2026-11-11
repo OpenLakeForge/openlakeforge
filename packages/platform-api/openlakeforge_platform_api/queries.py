@@ -29,7 +29,7 @@ import zlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from fastapi import Depends, HTTPException, Query, Request
@@ -48,6 +48,7 @@ from openlakeforge_services.trino import (
 from pydantic import BaseModel, ConfigDict, Field
 
 from openlakeforge_platform_api.discovery import SOURCE
+from openlakeforge_platform_api.models import QueryColumn, QueryResult
 from openlakeforge_platform_api.query_identity import TrinoIdentity, trino_identity
 from openlakeforge_platform_api.settings import Settings
 
@@ -220,21 +221,21 @@ def _response(
     query_id: str,
     started: float,
     *,
-    status: str,
+    status: Literal["queued", "running", "succeeded", "cancelled"],
     page: _Drained | None = None,
     cursor: str | None = None,
-) -> dict[str, Any]:
+) -> QueryResult:
     drained = page or _Drained([], [], [], False)
-    return {
-        "id": query_id,
-        "status": status,
-        "columns": [{"name": n, "type": t} for n, t in zip(drained.columns, drained.types, strict=False)],
-        "rows": drained.rows,
-        "truncated": drained.truncated,
-        "row_count": len(drained.rows),
-        "elapsed_ms": int((time.monotonic() - started) * 1000),
-        "next_cursor": cursor,
-    }
+    return QueryResult(
+        id=query_id,
+        status=status,
+        columns=[QueryColumn(name=n, type=t) for n, t in zip(drained.columns, drained.types, strict=False)],
+        rows=drained.rows,
+        truncated=drained.truncated,
+        row_count=len(drained.rows),
+        elapsed_ms=int((time.monotonic() - started) * 1000),
+        next_cursor=cursor,
+    )
 
 
 @dataclass(frozen=True)
@@ -273,11 +274,11 @@ def _drain(ctx: _Ctx, page: TrinoPage) -> _Drained:
         columns, types = columns or page.columns, types or page.types
 
 
-def _answer(ctx: _Ctx, query_id: str, trino_id: str, started: float, drained: _Drained) -> dict[str, Any]:
+def _answer(ctx: _Ctx, query_id: str, trino_id: str, started: float, drained: _Drained) -> QueryResult:
     if drained.next_uri is None:
         return _response(ctx, query_id, started, status="succeeded", page=drained)
     cursor = _sign(ctx, "cursor", q=trino_id, p=_path(drained.next_uri))
-    status = "queued" if drained.state == "QUEUED" and not drained.rows else "running"
+    status: Literal["queued", "running"] = "queued" if drained.state == "QUEUED" and not drained.rows else "running"
     return _response(ctx, query_id, started, status=status, page=drained, cursor=cursor)
 
 
@@ -286,7 +287,7 @@ def submit_query(
     stage: str,
     body: QuerySubmit,
     identity: TrinoIdentity = Depends(trino_identity),  # noqa: B008 - FastAPI's dependency API
-) -> dict[str, Any]:
+) -> QueryResult:
     ctx = _context(request, stage, identity)
     started = time.monotonic()
     # Trino rejects a trailing semicolon, which every SQL editor writes.
@@ -314,7 +315,7 @@ def get_query(
     query_id: str,
     cursor: str | None = None,
     identity: TrinoIdentity = Depends(trino_identity),  # noqa: B008
-) -> dict[str, Any]:
+) -> QueryResult:
     ctx = _context(request, stage, identity)
     started = time.monotonic()
     record = _open(ctx, "id", query_id)
@@ -340,7 +341,7 @@ def cancel_query(
     stage: str,
     query_id: str,
     identity: TrinoIdentity = Depends(trino_identity),  # noqa: B008
-) -> dict[str, Any]:
+) -> QueryResult:
     ctx = _context(request, stage, identity)
     started = time.monotonic()
     record = _open(ctx, "id", query_id)
