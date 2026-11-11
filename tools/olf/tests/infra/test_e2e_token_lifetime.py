@@ -3,13 +3,36 @@ import pytest
 from olf.infra.e2e._token_lifetime import MIN_LIFETIME_SECONDS, generation_count, shortened_lifetime_seconds
 
 
-@pytest.mark.parametrize("baseline", [0, 5, 20])
-def test_a_fast_baseline_still_gets_a_lifetime_a_dbt_start_up_fits_in(baseline: float) -> None:
-    assert shortened_lifetime_seconds(baseline) == MIN_LIFETIME_SECONDS
+def test_a_fast_build_still_gets_a_lifetime_a_dbt_start_up_fits_in() -> None:
+    # Two 10 s generations: 1.25 x 10 s is under the floor, which still fits under the 20 s exposed interval.
+    assert shortened_lifetime_seconds([0, 10], 20) == MIN_LIFETIME_SECONDS
 
 
-def test_a_slow_baseline_is_outlasted_by_a_run_of_the_same_length() -> None:
-    assert shortened_lifetime_seconds(120) < 120
+def test_the_lifetime_covers_the_slowest_generation_and_is_outlasted_by_the_build() -> None:
+    # Generations of 50 s and 60 s: the lifetime fits the 60 s one and stays under the 110 s exposed interval.
+    lifetime = shortened_lifetime_seconds([1000, 1050], 1110)
+    assert lifetime is not None
+    assert 60 < lifetime < 110
+
+
+@pytest.mark.parametrize(
+    ("mints", "ended"),
+    [
+        ([1000], 1200),  # one generation: its single process is the whole build
+        ([1000, 1100], 1110),  # the first generation takes nearly all the time
+    ],
+)
+def test_no_lifetime_when_no_generation_split_can_prove_anything(mints: list[float], ended: float) -> None:
+    assert shortened_lifetime_seconds(mints, ended) is None
+
+
+def test_a_ref_in_a_comment_is_not_a_dependency(tmp_path) -> None:
+    (tmp_path / "a.sql").write_text(
+        "-- usage: {{ ref('a') }} and {{ ref('b') }}\n/* ref('b') */ select 1 {# ref('b') #}"
+    )
+    (tmp_path / "b.sql").write_text("select * from {{ ref('a') }}")
+
+    assert generation_count(tmp_path) == 2
 
 
 def test_generations_follow_the_ref_graph(tmp_path) -> None:

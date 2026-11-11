@@ -41,12 +41,16 @@ LIFETIME_ENV = "POLARIS_AUTHENTICATION_TOKEN_BROKER_MAX_TOKEN_GENERATION"
 # a runtime test pins the two together).
 TOKEN_MINTED_MESSAGE = "Minted a Polaris token for a dbt build generation"
 # The runtime builds one dbt generation (models whose upstream models are all built) per token, so each
-# generation's own dbt process (start-up and build) must fit inside the lifetime. A floor and 70% of the whole
-# run leave room for that when a product has two or more generations of similar length; a product with a single
-# generation cannot pass, because its one process is the whole build, so the check skips it.
-LIFETIME_FRACTION = 0.7
+# generation's own dbt process (start-up and build) must fit inside the lifetime, while the whole token-exposed
+# interval (first mint to the end of the run) must outlast it. The lifetime is sized from the baseline run's mints:
+# the slowest generation plus headroom, and at most a fraction of the exposed interval. A product with a single
+# generation, or generations too uneven for such a lifetime, cannot prove anything, so the check skips it.
+GENERATION_HEADROOM = 1.25
+MAX_EXPOSED_FRACTION = 0.8
 MIN_LIFETIME_SECONDS = 15
 _REF = re.compile(r"""ref\(\s*['"]([^'"]+)['"]\s*\)""")
+# SQL and Jinja comments, which may mention `ref(...)` without it being a dependency.
+_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/|\{#.*?#\}", re.DOTALL)
 # The catalog implementations backed by Polaris, whose Deployment this check reconfigures:
 # `catalog.iceberg_rest.polaris` (local) and `catalog.iceberg_rest.polaris_on_aks` (Azure). Glue mints no tokens.
 POLARIS_CATALOG_PREFIX = "catalog.iceberg_rest.polaris"
@@ -62,14 +66,31 @@ query RunLogTimes($runId: ID!) {
 """
 
 
-def shortened_lifetime_seconds(baseline_seconds: float) -> int:
-    return max(MIN_LIFETIME_SECONDS, int(baseline_seconds * LIFETIME_FRACTION))
+def shortened_lifetime_seconds(mints: list[float], ended: float) -> int | None:
+    """A token lifetime that each generation of the baseline run fits in and its token-exposed interval outlasts.
+
+    `mints` are the baseline run's token mints (one per generation), `ended` its end, both in Unix seconds. None
+    when no lifetime satisfies both, for example a single generation or one generation taking nearly all the time.
+    """
+    if len(mints) < 2:
+        return None
+    ordered = sorted(mints)
+    slowest = max(later - earlier for earlier, later in zip(ordered, [*ordered[1:], ended], strict=True))
+    lifetime = max(MIN_LIFETIME_SECONDS, int(slowest * GENERATION_HEADROOM) + 1)
+    if lifetime >= (ended - ordered[0]) * MAX_EXPOSED_FRACTION:
+        return None
+    return lifetime
 
 
 def gold_models(models_dir: Path) -> dict[str, set[str]]:
-    """The `.sql` models under `models_dir` (named as dbt names them, so as their asset keys are) and their `ref()`s."""
-    sources = {path.stem: path.read_text() for path in models_dir.rglob("*.sql")}
-    return {name: {ref for ref in _REF.findall(sql) if ref in sources} for name, sql in sources.items()}
+    """The `.sql` models under `models_dir` (named as dbt names them, so as their asset keys are) and their `ref()`s.
+
+    Comments are dropped first, and a model never depends on itself, so a `ref()` in a comment cannot make a cycle.
+    """
+    sources = {path.stem: _COMMENT.sub("", path.read_text()) for path in models_dir.rglob("*.sql")}
+    return {
+        name: {ref for ref in _REF.findall(sql) if ref in sources and ref != name} for name, sql in sources.items()
+    }
 
 
 def generation_count(models_dir: Path) -> int:
@@ -129,11 +150,18 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
             run = client.get_run(run_id)
             if run is None or run.started_at is None or run.ended_at is None:
                 raise E2EError(f"Dagster recorded no start and end time for the {product.id} Gold run.")
-            return run_id, run.ended_at - run.started_at
+            return run_id, float(run.ended_at)
 
-        _, baseline = gold_run()
-        lifetime = shortened_lifetime_seconds(baseline)
-        log.info(f"Gold took {baseline:.0f}s; Polaris tokens now live {lifetime}s.")
+        baseline_id, baseline_end = gold_run()
+        baseline_mints = mint_times(_run_events(client, baseline_id))
+        lifetime = shortened_lifetime_seconds(baseline_mints, baseline_end)
+        if lifetime is None:
+            log.info(
+                f"Skipping the token lifetime proof: {product.id}'s {len(baseline_mints)} generation(s) leave no "
+                "lifetime that each one fits in and the whole build outlasts."
+            )
+            return
+        log.info(f"Gold's slowest generation fits in {lifetime}s; Polaris tokens now live {lifetime}s.")
         try:
             _set_lifetime(cfg, f"PT{lifetime}S")
             run_id, _ = gold_run()
@@ -154,7 +182,7 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
     if committed <= expired:
         raise E2EError(
             f"the last Gold commit landed {expired - committed:.0f}s before the first token's {lifetime}s lifetime "
-            "ran out: it proved nothing. Rerun, or lower LIFETIME_FRACTION if the runner is fast."
+            "ran out: it proved nothing. Rerun, or lower MAX_EXPOSED_FRACTION if the runner is fast."
         )
     log.info(f"Gold committed {committed - expired:.0f}s after its first token expired ({lifetime}s lifetime).")
 
