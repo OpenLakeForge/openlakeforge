@@ -63,8 +63,7 @@ below. `aws` and `azure` stay preview. The step-by-step upgrade is
   `olf infra deploy` refuses to rename deployed buckets (#993).
 - The Trino route is `trino-<stage>.<base_domain>`; each stage has its own
   coordinator, sized by `spec.stages.<stage>.query.size`.
-- The people catalog `<stage>` is folded into `lakehouse_<stage>` (#1052, lands
-  with that change).
+- The people catalog `<stage>` is folded into `lakehouse_<stage>` (#1052).
 
 #### Removed or renamed fields
 
@@ -88,6 +87,21 @@ below. `aws` and `azure` stay preview. The step-by-step upgrade is
   profile freeze.
 - A provider contract already in Terraform state with the v1alpha1 `issuer`
   key is still read as `tls`.
+
+### Changed
+
+- Each stage's Trino coordinator serves one catalog, `lakehouse_<stage>`. The second name `<stage>` (the former people
+  catalog) is gone. Superset's database URI, the platform API's `query_endpoints[*].catalog` and `olf query` use
+  `lakehouse_<stage>` (#1052).
+
+### Migration
+
+- SQL that names the old catalog (`prod.order_revenue_gold.mart_order_revenue_by_day`) must say `lakehouse_prod.` instead.
+  `olf query` makes `lakehouse_<stage>` the default, so `<schema>.<table>` is unchanged.
+- Imported Superset reports carry the catalog in their dataset permissions. `olf infra deploy` imports them again in its
+  artifacts phase, which points the database at `lakehouse_<stage>` and grants the data-access role the new
+  permissions. Deploy the platform and artifacts phases together; a dashboard saved by hand in the Superset UI against
+  the old `<stage>` catalog has to be exported (`olf report export`) and imported again.
 
 ## [0.5.1-alpha.3] - 2026-11-10
 

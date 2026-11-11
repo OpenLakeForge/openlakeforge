@@ -11,7 +11,7 @@ The backend the portal, `olf`'s platform commands and agents share
 | `GET /api/v1/stages/{stage}/runs/{run_id}` | One run's status and times | As above |
 | `GET /api/v1/stages/{stage}/logs?date=&hour=&pod=&container=&limit=` | The stage's archived pod log lines (`openlakeforge_runtime/k8s_log_archive.py`) for a day or one hour of it, oldest archive first; `limit` 1 to 5000, default 500, and `truncated` when it was reached | The API's read-only object-store key for the log prefix, from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; the matrix row decides who reads |
 | `GET /api/v1/query-capabilities` | The stages that offer SQL (engine `trino`, export formats); empty unless `person_query` is on and `query_endpoints` names the stage | None: settings only, no host or secret in the answer |
-| `GET /api/v1/stages/{stage}/schemas?q=&cursor=&limit=` | Schemas visible to the caller in the stage's people catalog, name order; `limit` 1 to 200, default 50; `next_cursor` is opaque | The caller's token as Trino bearer and Polaris credential; Polaris decides. 403 on a denial, 502 when Trino fails, 404 where the stage offers no query |
+| `GET /api/v1/stages/{stage}/schemas?q=&cursor=&limit=` | Schemas visible to the caller in the stage's catalog, name order; `limit` 1 to 200, default 50; `next_cursor` is opaque | The caller's token as Trino bearer and Polaris credential; Polaris decides. 403 on a denial, 502 when Trino fails, 404 where the stage offers no query |
 | `GET /api/v1/stages/{stage}/schemas/{schema}/tables?q=&cursor=&limit=` | Tables and views of one schema, as above | As above |
 | `GET /api/v1/domains` | OpenMetadata domains | The caller's bearer token, forwarded unchanged; OpenMetadata authorizes by the person's own roles |
 | `GET /api/v1/data-products` | OpenMetadata data products and their domains | As above |
@@ -62,4 +62,11 @@ role.
 uv run --project packages/platform-api --locked pytest packages/platform-api/tests
 uv run --project packages/platform-api --locked mypy --config-file packages/platform-api/pyproject.toml \
   packages/platform-api/openlakeforge_platform_api packages/platform-api/tests
+```
+
+After changing a route or a response model, regenerate the committed OpenAPI
+document; `tests/test_openapi.py` fails until you do:
+
+```bash
+cd packages/platform-api && uv run --locked python -m openlakeforge_platform_api.openapi
 ```

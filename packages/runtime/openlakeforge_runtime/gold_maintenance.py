@@ -32,18 +32,13 @@ def connect() -> Any:
     import trino  # deferred: the module loads (and is tested) without a Trino client
 
     env = os.environ
-    https = env.get("OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME", "http") == "https"
     user = env["OPENLAKEFORGE_DBT_TRINO_USER"]
-    password = env.get("OPENLAKEFORGE_DBT_TRINO_PASSWORD", "")
-    ldap = env.get("OPENLAKEFORGE_DBT_TRINO_METHOD", "none") == "ldap"
     return trino.dbapi.connect(
         host=env["OPENLAKEFORGE_QUERY_TRINO_HOST"],
-        port=int(env["OPENLAKEFORGE_QUERY_TRINO_TLS_PORT" if https else "OPENLAKEFORGE_QUERY_TRINO_PORT"]),
+        port=int(env["OPENLAKEFORGE_QUERY_TRINO_PORT"]),
         user=user,
         catalog=env["OPENLAKEFORGE_CATALOG_NAME"],
-        http_scheme="https" if https else "http",
-        auth=trino.auth.BasicAuthentication(user, password) if ldap else None,
-        verify=env.get("OPENLAKEFORGE_QUERY_TRINO_CA") or True,
+        http_scheme="http",
         extra_credential=[("token", mint_token())],
     )
 
@@ -116,7 +111,8 @@ def maintain_gold(
                     )
                     _rows(
                         connection,
-                        f"ALTER TABLE {relation} EXECUTE remove_orphan_files(retention_threshold => '{orphan_delay_days}d')",
+                        f"ALTER TABLE {relation} EXECUTE "
+                        f"remove_orphan_files(retention_threshold => '{orphan_delay_days}d')",
                     )
             except Exception as error:  # recorded per table, then the caller fails the run
                 result["error"] = str(error)

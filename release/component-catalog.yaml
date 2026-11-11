@@ -13,7 +13,7 @@ distribution:
   runtime_contract:
     version: 1
     accepts: [1]
-    binding_fingerprint: sha256:421775946b74f21b4264916236f92c7c49c6d0759daab4f9744ea6f04c2871f6
+    binding_fingerprint: sha256:2375e20795a643bf034214e15b56966bea1e14fa1ab3aa2cb39b3c415122b466
 components:
   terraform:
     required_version: ">= 1.10.0"

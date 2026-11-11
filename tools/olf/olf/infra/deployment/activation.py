@@ -64,6 +64,25 @@ _LOG_ARCHIVE_SCHEDULE = "*/15 * * * *"
 # The gRPC port the platform's workspace entries expect on every code-location
 # host (modules/orchestration/dagster/main.tf, local.workspace_servers).
 _CODE_SERVER_PORT = 3030
+# The UID/GID images/project-code/Dockerfile creates; runAsNonRoot needs a
+# numeric user, since the kubelet cannot prove a named one is not root.
+PROJECT_CODE_UID = 10001
+# Pod level (user and group) and container level (privileges) are separate
+# schemas in Kubernetes, and the Dagster chart takes each for the code server.
+# Run pods get the pod level through includeConfigInLaunchedRuns but not the
+# container level, which modules/orchestration/dagster/release.tf sets.
+PROJECT_CODE_POD_SECURITY_CONTEXT: dict[str, Any] = {
+    "runAsNonRoot": True,
+    "runAsUser": PROJECT_CODE_UID,
+    "runAsGroup": PROJECT_CODE_UID,
+    "seccompProfile": {"type": "RuntimeDefault"},
+}
+PROJECT_CODE_CONTAINER_SECURITY_CONTEXT: dict[str, Any] = {
+    "runAsNonRoot": True,
+    "runAsUser": PROJECT_CODE_UID,
+    "allowPrivilegeEscalation": False,
+    "capabilities": {"drop": ["ALL"]},
+}
 _PULL_SECRET_TYPE = "kubernetes.io/dockerconfigjson"
 # The platform release's webserver Service (modules/orchestration/dagster has
 # no `release_name` override; each stage's namespace tells them apart).
@@ -207,6 +226,7 @@ def _log_archive_manifest(
                             "serviceAccountName": "dagster",
                             "automountServiceAccountToken": True,
                             "restartPolicy": "Never",
+                            "securityContext": dict(PROJECT_CODE_POD_SECURITY_CONTEXT),
                             **({"imagePullSecrets": [{"name": pull_secret}]} if pull_secret else {}),
                             "containers": [
                                 {
@@ -216,6 +236,7 @@ def _log_archive_manifest(
                                     "command": ["python", "-m", "openlakeforge_runtime.k8s_log_archive"],
                                     "env": env,
                                     "envFrom": [{"secretRef": {"name": secret}} for secret in secrets],
+                                    "securityContext": dict(PROJECT_CODE_CONTAINER_SECURITY_CONTEXT),
                                 }
                             ],
                         },
@@ -315,6 +336,8 @@ def _user_values(
                 "dagsterApiGrpcArgs": ["--module-name", location.definitions_module],
                 "port": _CODE_SERVER_PORT,
                 "includeConfigInLaunchedRuns": {"enabled": True},
+                "podSecurityContext": dict(PROJECT_CODE_POD_SECURITY_CONTEXT),
+                "securityContext": dict(PROJECT_CODE_CONTAINER_SECURITY_CONTEXT),
                 "env": env,
                 "envSecrets": [{"name": secret} for secret in secrets],
                 "deploymentLabels": {

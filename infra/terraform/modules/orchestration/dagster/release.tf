@@ -104,8 +104,25 @@ resource "helm_release" "dagster" {
               }
               podSpecConfig = {
                 serviceAccountName = "dagster"
+                # The UID is the one images/project-code/Dockerfile creates.
+                securityContext = {
+                  runAsNonRoot = true
+                  runAsUser    = 10001
+                  runAsGroup   = 10001
+                  seccompProfile = {
+                    type = "RuntimeDefault"
+                  }
+                }
               }
               containerConfig = {
+                securityContext = {
+                  runAsNonRoot             = true
+                  runAsUser                = 10001
+                  allowPrivilegeEscalation = false
+                  capabilities = {
+                    drop = ["ALL"]
+                  }
+                }
                 resources = var.run_pod_resources
                 env       = local.runtime_env
                 envFrom = [

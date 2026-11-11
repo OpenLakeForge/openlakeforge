@@ -64,8 +64,8 @@ locals {
   # Polaris token (the `token` extra credential) and reads files only with the
   # credentials Polaris vends for that table. The catalog's credential serves
   # only the configuration call, and a request without a token falls through
-  # to a token exchange Polaris refuses (#964). Keyed by stage: the people
-  # catalog (people.tf) is the same catalog under the stage's name.
+  # to a token exchange Polaris refuses (#964). Keyed by stage; served under
+  # the contract's catalog_name only.
   rest_catalog_properties = {
     for stage, contract in local.stage_catalog_contracts : stage => <<-CATALOG
       # openlakeforge.catalog-provider=${coalesce(try(contract.catalog_provider, null), "polaris")}
@@ -215,9 +215,7 @@ resource "helm_release" "trino" {
     yamlencode(merge({
       env = concat(local.storage_secret_env, local.catalog_secret_env)
 
-      # The stage's REST catalog is served under its own name too: Superset,
-      # `olf query` and the platform API name the catalog after the stage.
-      catalogs = merge(local.iceberg_catalog_properties, local.rest_catalog_properties)
+      catalogs = local.iceberg_catalog_properties
 
       serviceAccount = {
         create      = local.create_service_account

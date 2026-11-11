@@ -193,7 +193,7 @@ def person_runner(
 
         def statement() -> object:
             with user_trust_environment(route):
-                return query.run_statement(url, sql, bearer=lambda: bearer(role), user=user, catalog=stage)
+                return query.run_statement(url, sql, bearer=lambda: bearer(role), user=user, stage=stage)
 
         return outcome(statement)
 

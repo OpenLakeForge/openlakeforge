@@ -8,6 +8,7 @@ from functools import cache
 from pathlib import Path
 
 import floe
+import lakehouse_code
 from dagster import (
     AssetKey,
     AssetOut,
@@ -29,17 +30,16 @@ from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_runner_from_env
 from floe_dagster.manifest import ManifestEntity
+from openlakeforge_core import full_refresh_scope, inventory_for
 
-import lakehouse_code
 from openlakeforge_runtime import gold_maintenance
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
 from openlakeforge_runtime.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
-from openlakeforge_runtime.polaris_token import polaris_token_env
 from openlakeforge_runtime.floe_profile import write_profile
 from openlakeforge_runtime.openlakeforge_logging import log_event
+from openlakeforge_runtime.polaris_token import polaris_token_env
 from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri
 from openlakeforge_runtime.source_bindings import source_binding_tags
-from openlakeforge_core import full_refresh_scope, inventory_for
 
 __all__ = [
     "ProductDefinitionSpec",
@@ -66,6 +66,13 @@ _FLOE_MANIFEST_NAME = "openlakeforge"
 # through this variable; a run's `dbt build` inherits it from this process.
 for _name, _value in dbt_environment().items():
     os.environ.setdefault(_name, _value)
+
+# Every product run carries its domain under this tag, and the Dagster run queue admits one run per value
+# (infra/helm/values/local/dagster.yaml, `tagConcurrencyLimits`). Products of a domain share its Silver tables, and
+# each run's Floe Job overwrites the ones it reads (`write_mode: overwrite`): two at once are two concurrent Iceberg
+# commits to one table, where the loser fails or replaces the winner's snapshot. The limit is per domain rather than
+# per table because Floe's Job is one per domain, and it holds however many products a domain has.
+SILVER_DOMAIN_TAG = "openlakeforge/silver-domain"
 
 _STAGE_ENV = "OPENLAKEFORGE_STAGE"
 # Only PROD carries the recurring-schedule scaffold. DEV and UAT stay manual:
@@ -458,7 +465,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             ).required_multi_asset_neighbors()
         ),
         executor_def=in_process_executor,
-        tags=_bronze_source_binding_tags(inputs) or None,
+        tags={**_bronze_source_binding_tags(inputs), SILVER_DOMAIN_TAG: spec.domain},
     )
 
     return Definitions(

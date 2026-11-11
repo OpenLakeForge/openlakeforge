@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 pytest.importorskip("dagster")
 
@@ -349,12 +350,7 @@ def test_gold_connects_with_the_dbt_identity(monkeypatch: pytest.MonkeyPatch) ->
     for name, value in {
         "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino",
         "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
-        "OPENLAKEFORGE_QUERY_TRINO_TLS_PORT": "8443",
-        "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME": "https",
-        "OPENLAKEFORGE_QUERY_TRINO_CA": "/ca.crt",
         "OPENLAKEFORGE_DBT_TRINO_USER": "olf-prod-runtime",
-        "OPENLAKEFORGE_DBT_TRINO_METHOD": "ldap",
-        "OPENLAKEFORGE_DBT_TRINO_PASSWORD": "pw",
         "OPENLAKEFORGE_CATALOG_NAME": "prod_cat",
     }.items():
         monkeypatch.setenv(name, value)
@@ -363,12 +359,10 @@ def test_gold_connects_with_the_dbt_identity(monkeypatch: pytest.MonkeyPatch) ->
 
     assert seen == {
         "host": "trino",
-        "port": 8443,
+        "port": 8080,
         "user": "olf-prod-runtime",
         "catalog": "prod_cat",
-        "http_scheme": "https",
-        "auth": ("olf-prod-runtime", "pw"),
-        "verify": "/ca.crt",
+        "http_scheme": "http",
         "extra_credential": [("token", "polaris-token")],
     }
 
@@ -520,3 +514,31 @@ def test_a_product_job_runs_its_steps_in_the_runs_own_process(
     assert job.name == spec.job_name
     assert job.executor_def.name == "in_process"
     assert "execution" not in (job.config or {})
+
+
+@pytest.mark.parametrize(("domain", "product"), sorted(_EXAMPLES))
+def test_a_product_run_carries_its_silver_domain_for_the_run_queue(
+    domain: str, product: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_DBT_PROFILES_DIR", str(tmp_path))
+
+    (job,) = product_dagster.build_product_definitions(ProductDefinitionSpec(domain=domain, product=product)).jobs
+
+    assert job.tags[product_dagster.SILVER_DOMAIN_TAG] == domain
+
+
+def test_the_run_queue_admits_one_run_per_silver_domain() -> None:
+    repo_root = Path(__file__).resolve().parents[4]
+    values = yaml.safe_load((repo_root / "infra/helm/values/local/dagster.yaml").read_text(encoding="utf-8"))
+
+    coordinator = values["dagsterDaemon"]["runCoordinator"]
+
+    assert coordinator["enabled"] is True
+    assert coordinator["type"] == "QueuedRunCoordinator"
+    assert coordinator["config"]["queuedRunCoordinator"]["tagConcurrencyLimits"] == [
+        {
+            "key": product_dagster.SILVER_DOMAIN_TAG,
+            "value": {"applyLimitPerUniqueValue": True},
+            "limit": 1,
+        }
+    ]

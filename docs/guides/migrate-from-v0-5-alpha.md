@@ -139,11 +139,8 @@ safely, and tells you what to fix by hand. The field reference is
 
 ## The people catalog
 
-> [!NOTE]
-> This section lands with #1052 and is not true of a build without it.
-
 Each stage's Trino served the same catalog under two names: `lakehouse_<stage>`
-and, for people, `<stage>`. #1052 folds the second into the first. Fully
+and, for people, `<stage>`. It now serves only `lakehouse_<stage>` (#1052). Fully
 qualified SQL that said `prod.order_revenue_gold.mart_order_revenue_by_day`
 says `lakehouse_prod.order_revenue_gold.mart_order_revenue_by_day`. `olf query`
 and the Superset databases already use the new name, so only SQL you wrote with

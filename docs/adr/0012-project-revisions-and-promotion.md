@@ -64,7 +64,7 @@ cloud S3, `FilesystemRevisionStore` for `olf infra project build --output DIR`).
 
 What a revision depends on is the contract between the platform and the
 project-code image: the environment variables the code server receives
-(`RUNTIME_ENV` and `RUNTIME_ALIASES`) and the query CA mount path, all in
+(`RUNTIME_ENV` and `RUNTIME_ALIASES`), both in
 `olf/common/runtime_contract.py`. `release/component-catalog.yaml` records
 `distribution.runtime_contract` with the current integer `version`, the
 `accepts` list of versions this distribution still runs, and a
@@ -238,3 +238,10 @@ version instead of the exact distribution version (sidecar `schema_version`
 3). The distribution component still records the building distribution's
 version for reference, but a patch release no longer invalidates the revision
 active in PROD.
+
+2026-11-11: #1051 dropped `OPENLAKEFORGE_QUERY_TRINO_TLS_PORT` and the query CA
+mount path from the binding surface, and the runtime package's optional Trino
+TLS and password reads with them (Trino serves plain HTTP with no
+authentication since ADR 0016). Contract 1 stays current and accepted: nothing
+sets the removed variables, so an older revision's runtime takes its defaults
+(`http`, no method, no password) and runs unchanged. Only the fingerprint moved.
