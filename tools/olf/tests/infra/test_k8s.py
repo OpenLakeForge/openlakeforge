@@ -9,6 +9,14 @@ import pytest
 from olf.common.deployment.errors import ToolchainError
 from olf.infra import k8s
 
+_REAL_WAIT_FOR_SERVICE_READY = k8s.wait_for_service_ready
+
+
+@pytest.fixture(autouse=True)
+def _service_is_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The port-forward tests start a fake kubectl; the Ready-pod wait has its own tests at the end."""
+    monkeypatch.setattr(k8s, "wait_for_service_ready", Mock())
+
 
 def test_secret_value_uses_explicit_kube_context(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[list[str], dict]] = []
@@ -579,3 +587,60 @@ def test_a_relaunch_keeps_the_dead_forwards_log_for_the_give_up_error(
     text = log.read_text()
     assert "lost connection to pod" in text
     assert "relaunched" in text
+
+
+def _slices(*endpoints: dict[str, object]) -> str:
+    return json.dumps({"items": [{"endpoints": list(endpoints)}]})
+
+
+def test_wait_for_service_ready_returns_once_an_endpoint_is_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    pending = {"addresses": ["10.0.0.1"], "conditions": {"ready": False}}
+    answers = iter(
+        [
+            json.dumps({"items": []}),  # the Service has no slice yet
+            _slices(pending),  # its pod is still Pending
+            _slices(pending, {"addresses": ["10.0.0.2"]}),  # a second pod is Ready
+        ]
+    )
+    calls: list[list[str]] = []
+
+    def kubectl(args: list[str], **_kw: object) -> str:
+        calls.append(args)
+        return next(answers)
+
+    monkeypatch.setattr(k8s, "_kubectl", kubectl)
+    monkeypatch.setattr(k8s.time, "sleep", lambda _s: None)
+
+    _REAL_WAIT_FOR_SERVICE_READY("dagster-webserver", "olf-prod")
+
+    assert len(calls) == 3
+    assert "kubernetes.io/service-name=dagster-webserver" in calls[0]
+    assert calls[0][calls[0].index("-n") + 1] == "olf-prod"
+
+
+def test_wait_for_service_ready_fails_when_no_pod_becomes_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = iter([0.0, 1.0, 2.0, 99.0])
+    pending = _slices({"addresses": ["10.0.0.1"], "conditions": {"ready": False}})
+    monkeypatch.setattr(k8s, "_kubectl", lambda *_a, **_k: pending)
+    monkeypatch.setattr(k8s.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(k8s.time, "sleep", lambda _s: None)
+
+    with pytest.raises(k8s.KubectlError, match="no Ready pod backs Service olf-prod/dagster-webserver after 10s"):
+        _REAL_WAIT_FOR_SERVICE_READY("dagster-webserver", "olf-prod", timeout_seconds=10)
+
+
+def test_port_forward_waits_for_a_ready_pod_before_it_launches(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    order: list[str] = []
+    process = Mock()
+    process.poll.return_value = None
+    monkeypatch.setattr(k8s, "wait_for_service_ready", lambda *_a, **_k: order.append("ready"))
+    monkeypatch.setattr(k8s.ProcessRunner, "popen", lambda *_a, **_k: order.append("launch") or process)
+    monkeypatch.setattr(k8s, "_wait_for_port_forward", Mock())
+    monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
+
+    with k8s.port_forward("dagster-webserver", 80, "olf-prod", log_path=str(tmp_path / "pf.log"), kube_context="ctx"):
+        pass
+
+    assert order == ["ready", "launch"]
