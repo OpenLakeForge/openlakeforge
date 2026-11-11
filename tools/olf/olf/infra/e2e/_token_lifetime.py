@@ -41,12 +41,13 @@ LIFETIME_ENV = "POLARIS_AUTHENTICATION_TOKEN_BROKER_MAX_TOKEN_GENERATION"
 # a runtime test pins the two together).
 TOKEN_MINTED_MESSAGE = "Minted a Polaris token for a dbt build generation"
 # The runtime builds one dbt generation (models whose upstream models are all built) per token, so each
-# generation's own dbt process (start-up and build) must fit inside the lifetime, while the whole token-exposed
-# interval (first mint to the last Gold commit) must outlast it. The lifetime is sized from the baseline run's mints:
-# the slowest generation plus headroom, and at most a fraction of the exposed interval. A product with a single
-# generation, or generations too uneven for such a lifetime, cannot prove anything, so the check skips it.
-GENERATION_HEADROOM = 1.25
-MAX_EXPOSED_FRACTION = 0.8
+# generation's own dbt process (start-up and build) must fit inside the lifetime: it is the baseline run's slowest
+# generation with headroom. The measured run then pauses that long between generations (the runtime's
+# GENERATION_PAUSE_TAG), so its last commit lands after the first token expired whatever the build's size. A
+# product with a single generation cannot prove anything, so the check skips it.
+GENERATION_HEADROOM = 1.5
+# polaris_token.GENERATION_PAUSE_TAG; a runtime test pins the two together.
+GENERATION_PAUSE_TAG = "openlakeforge/e2e-generation-pause-seconds"
 MIN_LIFETIME_SECONDS = 15
 _REF = re.compile(r"""ref\(\s*['"]([^'"]+)['"]\s*\)""")
 # SQL and Jinja comments, which may mention `ref(...)` without it being a dependency.
@@ -67,20 +68,16 @@ query RunLogTimes($runId: ID!) {
 
 
 def shortened_lifetime_seconds(mints: list[float], ended: float) -> int | None:
-    """A token lifetime that each generation of the baseline run fits in and its token-exposed interval outlasts.
+    """A token lifetime that each generation of the baseline run fits in, with headroom.
 
     `mints` are the baseline run's token mints (one per generation), `ended` its last Gold commit, both in Unix
-    seconds. None when no lifetime satisfies both, for example a single generation or one generation taking
-    nearly all the time.
+    seconds. None for a single generation, which no pause between generations can stretch.
     """
     if len(mints) < 2:
         return None
     ordered = sorted(mints)
     slowest = max(later - earlier for earlier, later in zip(ordered, [*ordered[1:], ended], strict=True))
-    lifetime = max(MIN_LIFETIME_SECONDS, int(slowest * GENERATION_HEADROOM) + 1)
-    if lifetime >= (ended - ordered[0]) * MAX_EXPOSED_FRACTION:
-        return None
-    return lifetime
+    return max(MIN_LIFETIME_SECONDS, int(slowest * GENERATION_HEADROOM) + 1)
 
 
 def gold_models(models_dir: Path) -> dict[str, set[str]]:
@@ -146,8 +143,8 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
     log.step(f"Building {product.id}'s Gold models past a shortened Polaris token lifetime...")
     with dagster_client(cfg) as client:
 
-        def gold_run() -> tuple[str, float]:
-            run_id = launch_and_poll(cfg, client, product.job_name, asset_selection=selection)
+        def gold_run(tags: dict[str, str] | None = None) -> tuple[str, float]:
+            run_id = launch_and_poll(cfg, client, product.job_name, tags=tags, asset_selection=selection)
             run = client.get_run(run_id)
             if run is None or run.started_at is None or run.ended_at is None:
                 raise E2EError(f"Dagster recorded no start and end time for the {product.id} Gold run.")
@@ -167,17 +164,18 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
             log.info(
                 f"Skipping the token lifetime proof: {product.id}'s mints at "
                 f"{[round(m - baseline_mints[0]) for m in baseline_mints]}s and last commit at "
-                f"{round(baseline_commit - baseline_mints[0]) if baseline_mints else None}s leave no lifetime that "
-                "each generation fits in and the whole build outlasts."
+                f"{round(baseline_commit - baseline_mints[0]) if baseline_mints else None}s: it needs two generations."
             )
             return
-        log.info(f"Gold's slowest generation fits in {lifetime}s; Polaris tokens now live {lifetime}s.")
+        log.info(f"Tokens now live {lifetime}s (the slowest generation fits) and generations wait as long.")
         try:
             _set_lifetime(cfg, f"PT{lifetime}S")
             # The restarted Polaris is Ready before kindnet admits traffic to it (see _trino.py); wait until the
             # catalog answers, or the first generation's mint could fail on a healthy runtime.
             retry_until_deadline(lambda: check_trino_write(cfg))
-            run_id, _ = gold_run()
+            # Pausing a lifetime between generations makes the first token expire before the last commit whatever
+            # the build's size; a runtime that minted once per build would fail that commit.
+            run_id, _ = gold_run({GENERATION_PAUSE_TAG: str(lifetime)})
         finally:
             _set_lifetime(cfg, None)
             retry_until_deadline(lambda: check_trino_write(cfg))
@@ -189,7 +187,7 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
     if committed <= expired:
         raise E2EError(
             f"the last Gold commit landed {expired - committed:.0f}s before the first token's {lifetime}s lifetime "
-            "ran out: it proved nothing. Rerun, or lower MAX_EXPOSED_FRACTION if the runner is fast."
+            "ran out: the pause between generations did not take effect, so it proved nothing."
         )
     log.info(f"Gold committed {committed - expired:.0f}s after its first token expired ({lifetime}s lifetime).")
 

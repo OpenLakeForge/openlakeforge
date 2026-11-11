@@ -4,26 +4,20 @@ from olf.infra.e2e._token_lifetime import MIN_LIFETIME_SECONDS, generation_count
 
 
 def test_a_fast_build_still_gets_a_lifetime_a_dbt_start_up_fits_in() -> None:
-    # Two 10 s generations: 1.25 x 10 s is under the floor, which still fits under the 20 s exposed interval.
-    assert shortened_lifetime_seconds([0, 10], 20) == MIN_LIFETIME_SECONDS
+    # Two 5 s generations: 1.5 x 5 s is under the floor.
+    assert shortened_lifetime_seconds([0, 5], 10) == MIN_LIFETIME_SECONDS
 
 
-def test_the_lifetime_covers_the_slowest_generation_and_is_outlasted_by_the_build() -> None:
-    # Generations of 50 s and 60 s: the lifetime fits the 60 s one and stays under the 110 s exposed interval.
-    lifetime = shortened_lifetime_seconds([1000, 1050], 1110)
+def test_the_lifetime_covers_the_slowest_generation_with_headroom() -> None:
+    # The example's customer_health on a CI runner: mints at 0 s and 18 s, last commit at 23 s.
+    lifetime = shortened_lifetime_seconds([1000, 1018], 1023)
     assert lifetime is not None
-    assert 60 < lifetime < 110
+    assert lifetime > 18
 
 
-@pytest.mark.parametrize(
-    ("mints", "ended"),
-    [
-        ([1000], 1200),  # one generation: its single process is the whole build
-        ([1000, 1100], 1110),  # the first generation takes nearly all the time
-    ],
-)
-def test_no_lifetime_when_no_generation_split_can_prove_anything(mints: list[float], ended: float) -> None:
-    assert shortened_lifetime_seconds(mints, ended) is None
+def test_no_lifetime_for_a_single_generation() -> None:
+    # One process is the whole build: no pause between generations can stretch it.
+    assert shortened_lifetime_seconds([1000], 1200) is None
 
 
 def test_a_ref_in_a_comment_is_not_a_dependency(tmp_path) -> None:

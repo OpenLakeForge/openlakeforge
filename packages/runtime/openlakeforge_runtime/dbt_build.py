@@ -164,6 +164,7 @@ def build_by_generation(
     token: Callable[[], AbstractContextManager[Any]],
     failed_nodes: Callable[[list[str], list[DbtTest]], Collection[str]],
     sources: Mapping[str, Collection[str]] | None = None,
+    between: Callable[[], None] | None = None,
 ) -> Iterator[Any]:
     """Build the models one topological generation per dbt invocation, and yield the events.
 
@@ -182,6 +183,9 @@ def build_by_generation(
     failed test on sources blocks the models that read all its sources, given by `sources` (model name
     to the source ids it reads, directly or not). A test over a failed or skipped model does not run.
     Independent models still build, and the first failure is raised once the rest are done.
+
+    `between`, when given, runs before each generation after the first and before its token is minted.
+    The e2e uses it to outlast a shortened token lifetime deterministically (#1061).
     """
     if not dependencies:
         # A selection of checks alone names no model, and dbt still has to run them.
@@ -206,12 +210,16 @@ def build_by_generation(
                     pending.append(child)
         return found
 
+    started = False
     for ready, assigned in zip(generations(dependencies), tests_by_generation(dependencies, tests), strict=True):
         batch = [model for model in ready if model not in blocked and not failed.intersection(dependencies[model])]
         failed.update(set(ready) - set(batch))
         if not batch:
             continue
         run = [test for test in assigned if not failed.intersection(test.parents)]
+        if started and between is not None:
+            between()
+        started = True
         try:
             with token():
                 yield from invoke(batch, run)

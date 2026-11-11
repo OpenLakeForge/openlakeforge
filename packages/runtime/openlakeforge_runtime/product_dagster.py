@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -48,7 +49,7 @@ from openlakeforge_runtime.dbt_build import (
 )
 from openlakeforge_runtime.floe_profile import write_profile
 from openlakeforge_runtime.openlakeforge_logging import log_event
-from openlakeforge_runtime.polaris_token import TOKEN_MINTED_MESSAGE, polaris_token_env
+from openlakeforge_runtime.polaris_token import GENERATION_PAUSE_TAG, TOKEN_MINTED_MESSAGE, polaris_token_env
 from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri
 from openlakeforge_runtime.source_bindings import source_binding_tags
 
@@ -464,6 +465,12 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
                 context.log.info(TOKEN_MINTED_MESSAGE)
                 yield
 
+        pause = context.run.tags.get(GENERATION_PAUSE_TAG)
+
+        def between_generations() -> None:
+            context.log.info(f"Pausing {pause}s before the next generation (e2e, #1061).")
+            time.sleep(float(pause or 0))
+
         try:
             # A dbt process holds its token for good and Polaris lets it expire, so each generation gets its own.
             yield from build_by_generation(
@@ -473,6 +480,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
                 generation_token,
                 lambda models, tests: failed_nodes_in(target_paths[-1], models, tests),
                 sources=model_sources(manifest, selected),
+                between=None if pause is None else between_generations,
             )
         finally:
             if previous_job_name is None:

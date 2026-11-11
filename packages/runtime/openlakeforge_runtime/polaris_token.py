@@ -10,6 +10,9 @@ from contextlib import contextmanager
 TOKEN_ENV = "OPENLAKEFORGE_POLARIS_TOKEN"
 # Logged to the Dagster run when a Gold build mints a token; the e2e finds the mint times by it.
 TOKEN_MINTED_MESSAGE = "Minted a Polaris token for a dbt build generation"
+# e2e only (#1061): a run tagged with a number of seconds pauses that long before each Gold generation after the
+# first, before minting its token, so the previous generation's token expires under a shortened lifetime.
+GENERATION_PAUSE_TAG = "openlakeforge/e2e-generation-pause-seconds"
 
 
 def mint_token(environ: Mapping[str, str] | None = None) -> str:

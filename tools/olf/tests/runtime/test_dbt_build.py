@@ -386,3 +386,40 @@ def test_model_sources_reach_through_upstream_models() -> None:
         "a": frozenset({"source.gold.x"}),
         "b": frozenset({"source.gold.x", "source.gold.y"}),
     }
+
+
+def test_the_pause_tag_the_e2e_sets_is_the_one_the_runtime_reads() -> None:
+    from openlakeforge_runtime import polaris_token
+
+    from olf.infra.e2e import _token_lifetime
+
+    assert _token_lifetime.GENERATION_PAUSE_TAG == polaris_token.GENERATION_PAUSE_TAG
+
+
+def test_the_pause_runs_between_generations_before_the_next_token() -> None:
+    order: list[str] = []
+    tokens = Tokens()
+
+    def invoke(models: list[str], _tests: list[dbt_build.DbtTest]):
+        order.append(f"build {','.join(models)} (tokens {tokens.minted})")
+        yield from models
+
+    list(
+        dbt_build.build_by_generation(
+            {"a": (), "b": ("a",), "c": ("b",)},
+            {},
+            invoke,
+            tokens,
+            lambda *_: [],
+            between=lambda: order.append(f"pause (tokens {tokens.minted})"),
+        )
+    )
+
+    # No pause before the first generation; each pause comes before the next generation's token.
+    assert order == [
+        "build a (tokens 1)",
+        "pause (tokens 1)",
+        "build b (tokens 2)",
+        "pause (tokens 2)",
+        "build c (tokens 3)",
+    ]
