@@ -34,7 +34,12 @@ import lakehouse_code
 from openlakeforge_runtime import gold_maintenance
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
 from openlakeforge_runtime.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
-from openlakeforge_runtime.dbt_build import build_model_by_model, merge_run_results, model_dependencies
+from openlakeforge_runtime.dbt_build import (
+    build_by_generation,
+    failed_models_in,
+    merge_run_results,
+    model_dependencies,
+)
 from openlakeforge_runtime.polaris_token import polaris_token_env
 from openlakeforge_runtime.floe_profile import write_profile
 from openlakeforge_runtime.openlakeforge_logging import log_event
@@ -428,24 +433,29 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         selected = {key.path[-1] for key in context.selected_asset_keys}
         dependencies = model_dependencies(json.loads(manifest_path.read_text()), selected)
 
-        def build_one(exclude: list[str]):
-            # A dbt process holds its token for good and Polaris lets it expire, so each model gets its own.
-            with polaris_token_env():
-                args = ["build", *(["--full-refresh"] if full_refresh else [])]
-                if exclude:
-                    args += ["--exclude", " ".join(exclude)]
-                invocation = dbt.cli(args, context=context)
-                target_paths.append(invocation.target_path)
-                yield from invocation.stream()
+        def build_generation(models: list[str]):
+            args = ["build", *(["--full-refresh"] if full_refresh else [])]
+            if exclude := sorted(set(dependencies) - set(models)):
+                args += ["--exclude", " ".join(exclude)]
+            invocation = dbt.cli(args, context=context)
+            target_paths.append(invocation.target_path)
+            yield from invocation.stream()
 
         try:
-            yield from build_model_by_model(dependencies, build_one)
+            # A dbt process holds its token for good and Polaris lets it expire, so each generation gets its own.
+            yield from build_by_generation(
+                dependencies,
+                build_generation,
+                polaris_token_env,
+                lambda models: failed_models_in(target_paths[-1], models),
+            )
         finally:
             if previous_job_name is None:
                 os.environ.pop("OPENLINEAGE_DBT_JOB_NAME", None)
             else:
                 os.environ["OPENLINEAGE_DBT_JOB_NAME"] = previous_job_name
-        _upload_dbt_artifacts(context, spec, merge_run_results(target_paths))
+        if target_paths:
+            _upload_dbt_artifacts(context, spec, merge_run_results(target_paths))
 
     _dbt_gold_assets.__name__ = f"{spec.product}_dbt_gold_assets"
     manifest_path = ensure_baked_manifest(spec.dbt_project_dir)

@@ -29,6 +29,49 @@ MANIFEST = {
     },
 }
 
+# a feeds b and c, which both feed d; e stands alone.
+DIAMOND = {"a": (), "b": ("a",), "c": ("a",), "d": ("b", "c"), "e": ()}
+
+
+class Tokens:
+    """Stands in for `polaris_token_env`: counts the tokens minted and tracks whether one is open."""
+
+    def __init__(self) -> None:
+        self.minted = 0
+        self.open = False
+
+    def __call__(self):
+        tokens = self
+
+        class Scope:
+            def __enter__(self) -> None:
+                tokens.minted += 1
+                tokens.open = True
+
+            def __exit__(self, *exc: object) -> None:
+                tokens.open = False
+
+        return Scope()
+
+
+def run(dependencies, tokens, fail=(), failed_models=lambda models: []):
+    batches: list[list[str]] = []
+
+    def invoke(models: list[str]):
+        assert tokens.open, "a generation must build under its own token"
+        batches.append(models)
+        if set(fail) & set(models):
+            raise DagsterDbtCliRuntimeError(description="boom")
+        yield from models
+
+    events: list[str] = []
+    error = None
+    try:
+        events.extend(dbt_build.build_by_generation(dependencies, invoke, tokens, failed_models))
+    except DagsterDbtCliRuntimeError as exc:
+        error = exc
+    return batches, events, error
+
 
 def test_dependencies_cover_the_selected_models_of_the_project_only() -> None:
     assert dbt_build.model_dependencies(MANIFEST, {"a", "b", "c", "shared", "t"}) == {
@@ -39,39 +82,67 @@ def test_dependencies_cover_the_selected_models_of_the_project_only() -> None:
     assert dbt_build.model_dependencies(MANIFEST, {"b"}) == {"b": ()}
 
 
-def test_each_model_builds_alone_and_after_its_upstream() -> None:
-    calls: list[list[str]] = []
+def test_a_diamond_is_grouped_into_generations() -> None:
+    batches, events, error = run(DIAMOND, Tokens())
 
-    def invoke(exclude: list[str]):
-        calls.append(exclude)
-        yield f"built-without-{'-'.join(exclude)}"
-
-    events = list(dbt_build.build_model_by_model({"b": ("a",), "a": (), "c": ()}, invoke))
-
-    assert len(events) == 3
-    kept = [({"a", "b", "c"} - set(exclude)).pop() for exclude in calls]
-    assert kept.index("a") < kept.index("b")
-    assert sorted(kept) == ["a", "b", "c"]
+    assert batches == [["a", "e"], ["b", "c"], ["d"]]
+    assert events == ["a", "e", "b", "c", "d"]
+    assert error is None
 
 
-def test_a_failure_skips_dependents_but_not_independent_models_and_is_raised_last() -> None:
-    kept: list[str] = []
+def test_exactly_one_token_is_minted_per_generation() -> None:
+    tokens = Tokens()
 
-    def invoke(exclude: list[str]):
-        name = ({"a", "b", "c", "d"} - set(exclude)).pop()
-        kept.append(name)
-        if name == "a":
-            raise DagsterDbtCliRuntimeError(description="boom")
-        yield name
+    batches, _, _ = run(DIAMOND, tokens)
 
-    stream = dbt_build.build_model_by_model({"a": (), "b": ("a",), "c": (), "d": ("b",)}, invoke)
-    built = []
-    with pytest.raises(DagsterDbtCliRuntimeError):
-        for event in stream:
-            built.append(event)
+    assert tokens.minted == len(batches) == 3
+    assert not tokens.open
 
-    assert built == ["c"]
-    assert sorted(kept) == ["a", "c"]
+
+def test_a_failure_in_the_first_generation_skips_only_its_dependents() -> None:
+    tokens = Tokens()
+
+    batches, _, error = run(DIAMOND, tokens, fail={"a"}, failed_models=lambda models: ["a"])
+
+    # a failed: b, c and d are skipped. e is independent but shares generation 1 with a, so it ran there.
+    assert batches == [["a", "e"]]
+    assert isinstance(error, DagsterDbtCliRuntimeError)
+    assert tokens.minted == 1
+
+
+def test_independent_branches_still_build_after_a_failure_and_the_error_is_raised_last() -> None:
+    dependencies = {"a": (), "b": ("a",), "c": (), "d": ("c",), "e": ("b",)}
+
+    batches, events, error = run(dependencies, Tokens(), fail={"a"}, failed_models=lambda models: ["a"])
+
+    # Generation 1 fails on a; d (via c) still builds, b and e (via a) are skipped; the error comes last.
+    assert batches == [["a", "c"], ["d"]]
+    assert events == ["d"]
+    assert error is not None
+
+
+def test_a_failure_naming_no_model_fails_the_whole_generation() -> None:
+    batches, _, error = run(DIAMOND, Tokens(), fail={"e"}, failed_models=lambda models: [])
+
+    assert batches == [["a", "e"]]
+    assert error is not None
+
+
+def test_failed_models_are_read_from_run_results(tmp_path: Path) -> None:
+    (tmp_path / "run_results.json").write_text(
+        json.dumps(
+            {
+                "results": [
+                    {"unique_id": "model.gold.a", "status": "success"},
+                    {"unique_id": "model.gold.b", "status": "error"},
+                    {"unique_id": "test.gold.t", "status": "fail"},
+                ]
+            }
+        )
+    )
+
+    assert dbt_build.failed_models_in(tmp_path, ["a", "b"]) == {"b"}
+    assert dbt_build.failed_models_in(tmp_path / "missing", ["a", "b"]) == set()
 
 
 def test_run_results_of_every_invocation_end_up_in_the_last(tmp_path: Path) -> None:

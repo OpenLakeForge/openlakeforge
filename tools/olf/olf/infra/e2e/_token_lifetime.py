@@ -12,6 +12,10 @@ It is not a profile field and no Terraform input: a stack must never be configur
 
 from __future__ import annotations
 
+import re
+from graphlib import TopologicalSorter
+from pathlib import Path
+
 from olf.common import log
 from olf.infra.e2e._dagster import dagster_client, launch_and_poll
 from olf.infra.e2e._maintenance import base_tables
@@ -26,19 +30,42 @@ from olf.infra.e2e._trino import (
 
 # Quarkus maps `polaris.authentication.token-broker.max-token-generation` (Polaris 1.8, default PT1H) to this.
 LIFETIME_ENV = "POLARIS_AUTHENTICATION_TOKEN_BROKER_MAX_TOKEN_GENERATION"
-# The second run lasts about as long as the first, so a lifetime below it is outlasted. Each model's own dbt
-# process (start-up and build) must fit inside the lifetime, which a floor and an even split between models
-# keep true for the marts, whose time is mostly dbt's start-up.
+# The second run lasts about as long as the first, so a lifetime below it is outlasted. The runtime builds one
+# dbt generation (models whose upstream models are all built) per token, so each generation's own dbt process
+# (start-up and build) must fit inside the lifetime. A floor and 70% of the whole build leave room for that
+# when a product has two or more generations of similar length; a product with a single generation cannot
+# pass, because its one process is the whole build, so the check skips it.
 LIFETIME_FRACTION = 0.7
 MIN_LIFETIME_SECONDS = 15
+_REF = re.compile(r"""ref\(\s*['"]([^'"]+)['"]\s*\)""")
 
 
 def shortened_lifetime_seconds(baseline_seconds: float) -> int:
     return max(MIN_LIFETIME_SECONDS, int(baseline_seconds * LIFETIME_FRACTION))
 
 
+def generation_count(models_dir: Path) -> int:
+    """How many topological generations the `ref()` graph of the `.sql` models under `models_dir` has."""
+    sources = {path.stem: path.read_text() for path in models_dir.rglob("*.sql")}
+    graph = {name: {ref for ref in _REF.findall(sql) if ref in sources} for name, sql in sources.items()}
+    sorter = TopologicalSorter(graph)
+    sorter.prepare()
+    generations = 0
+    while sorter.is_active():
+        sorter.done(*sorter.get_ready())
+        generations += 1
+    return generations
+
+
 def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
     product = cfg.inventory.default_product
+    generations = generation_count(cfg.repo_root / product.dbt_project_dir / "models")
+    if generations < 2:
+        log.info(
+            f"Skipping the token lifetime proof: {product.id}'s Gold builds in {generations} dbt generation(s), "
+            "one process for the whole build, so no shortened lifetime can be outlasted by it. It needs two."
+        )
+        return
     tables = base_tables(cfg, f"{_glue_namespace_prefix(cfg)}{product.gold_namespace}")
     if len(tables) < 2:
         log.info(f"Skipping the token lifetime proof: {product.id} has {len(tables)} Gold table(s), it needs two.")
