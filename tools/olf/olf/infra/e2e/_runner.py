@@ -31,7 +31,6 @@ from olf.infra.e2e._issuer_outage import check_issuer_outage
 from olf.infra.e2e._layers import Layer, configured_layers
 from olf.infra.e2e._maintenance import check_iceberg_maintenance
 from olf.infra.e2e._network import check_network_and_rbac
-from olf.infra.e2e._silver_serialization import check_silver_writes_serialized
 from olf.infra.e2e._perimeter import check_perimeter
 from olf.infra.e2e._perimeter_latency import check_perimeter_latency
 from olf.infra.e2e._preflight import check_aws_provider_contracts, check_aws_storage_and_glue
@@ -48,6 +47,7 @@ from olf.infra.e2e._shell import (
     _run_retry,
     terraform_output,
 )
+from olf.infra.e2e._silver_serialization import check_silver_writes_serialized
 from olf.infra.e2e._trino import (
     check_catalog_namespaces,
     check_polaris_restart_recovery,
