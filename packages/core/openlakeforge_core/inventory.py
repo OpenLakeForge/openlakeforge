@@ -488,7 +488,7 @@ def load_lakehouse_inventory_from_descriptors(
             raise LakehouseDescriptorError(f"{lakehouse_path}: domains[{index}] must be an object")
         domain_name = domain["name"]
         products = tuple(
-            _product(lakehouse_path, domain_name, product, product_index)
+            _product(Path(lakehouse_path), domain_name, product, product_index)
             for product_index, product in enumerate(domain["products"])
             if isinstance(product, Mapping)
         )
