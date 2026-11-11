@@ -54,20 +54,39 @@ class Tokens:
         return Scope()
 
 
-def run(dependencies, tokens, fail=(), failed_models=lambda models: []):
-    batches: list[list[str]] = []
+def check_of(name: str, *parents: str, explicit: bool = True) -> dbt_build.DbtTest:
+    return dbt_build.DbtTest(f"test.gold.{name}", f"gold.{name}", tuple(sorted(parents)), explicit)
 
-    def invoke(models: list[str]):
+
+# The names of the tests each generation of the last `run` was given.
+test_batches: list[list[str]] = []
+
+
+def run(dependencies, tokens, fail=(), failed_models=lambda models: [], tests=(), failed_tests=()):
+    """Run the generations; `fail` names models whose invocation raises, `failed_tests` tests that fail."""
+    batches: list[list[str]] = []
+    test_batches.clear()
+
+    def invoke(models: list[str], run_tests: list[dbt_build.DbtTest]):
         assert tokens.open, "a generation must build under its own token"
         batches.append(models)
-        if set(fail) & set(models):
+        test_batches.append([test.unique_id.rsplit(".", 1)[-1] for test in run_tests])
+        if set(fail) & set(models) or {t.unique_id for t in run_tests} & {f"test.gold.{n}" for n in failed_tests}:
             raise DagsterDbtCliRuntimeError(description="boom")
         yield from models
+
+    def failed_nodes(models: list[str], run_tests: list[dbt_build.DbtTest]):
+        return [
+            *failed_models(models),
+            *(test.unique_id for test in run_tests if test.unique_id.rsplit(".", 1)[-1] in failed_tests),
+        ]
 
     events: list[str] = []
     error = None
     try:
-        events.extend(dbt_build.build_by_generation(dependencies, invoke, tokens, failed_models))
+        events.extend(
+            dbt_build.build_by_generation(dependencies, {t.unique_id: t for t in tests}, invoke, tokens, failed_nodes)
+        )
     except DagsterDbtCliRuntimeError as exc:
         error = exc
     return batches, events, error
@@ -141,8 +160,19 @@ def test_failed_models_are_read_from_run_results(tmp_path: Path) -> None:
         )
     )
 
-    assert dbt_build.failed_models_in(tmp_path, ["a", "b"]) == {"b"}
-    assert dbt_build.failed_models_in(tmp_path / "missing", ["a", "b"]) == set()
+    t = dbt_build.DbtTest("test.gold.t", "gold.t", ("b",), True)
+    assert dbt_build.failed_nodes_in(tmp_path, ["a", "b"], [t]) == {"b", "test.gold.t"}
+    assert dbt_build.failed_nodes_in(tmp_path, ["a", "b"], []) == {"b"}
+    assert dbt_build.failed_nodes_in(tmp_path / "missing", ["a", "b"], [t]) == set()
+
+
+def test_a_warning_test_is_not_a_failure(tmp_path: Path) -> None:
+    (tmp_path / "run_results.json").write_text(
+        json.dumps({"results": [{"unique_id": "test.gold.t", "status": "warn"}]})
+    )
+    t = dbt_build.DbtTest("test.gold.t", "gold.t", ("b",), True)
+
+    assert dbt_build.failed_nodes_in(tmp_path, ["b"], [t]) == set()
 
 
 def test_run_results_of_every_invocation_end_up_in_the_last(tmp_path: Path) -> None:
@@ -193,3 +223,131 @@ def test_the_minted_message_the_e2e_looks_for_is_the_one_the_runtime_logs() -> N
     from olf.infra.e2e import _token_lifetime
 
     assert _token_lifetime.TOKEN_MINTED_MESSAGE == polaris_token.TOKEN_MINTED_MESSAGE
+
+
+TWO_GENERATIONS = {"a": (), "b": ("a",), "c": ("b",), "z": ()}
+
+
+def test_a_relationships_test_across_generations_runs_once_in_the_later_one() -> None:
+    relationships = check_of("relationships_b_a", "a", "b")
+    own = check_of("unique_a", "a")
+
+    batches, _, error = run(TWO_GENERATIONS, Tokens(), tests=[relationships, own])
+
+    assert batches == [["a", "z"], ["b"], ["c"]]
+    assert test_batches == [["unique_a"], ["relationships_b_a"], []]
+    assert error is None
+
+
+def test_a_singular_test_over_two_generations_runs_once() -> None:
+    singular = check_of("singular_ac", "a", "c")
+
+    run(TWO_GENERATIONS, Tokens(), tests=[singular])
+
+    assert test_batches == [[], [], ["singular_ac"]]
+
+
+def test_a_test_that_reads_no_selected_model_runs_in_the_first_generation() -> None:
+    run(TWO_GENERATIONS, Tokens(), tests=[check_of("source_not_null")])
+
+    assert test_batches == [["source_not_null"], [], []]
+
+
+def test_a_failing_error_test_skips_the_dependents_of_its_model() -> None:
+    check = check_of("not_null_b", "b")
+    dependencies = {"a": (), "b": ("a",), "c": ("b",), "d": ("a",)}
+
+    batches, _, error = run(dependencies, Tokens(), tests=[check], failed_tests={"not_null_b"})
+
+    # b built and its test failed: c is skipped, d (independent of b) still builds.
+    assert batches == [["a"], ["b", "d"]]
+    assert error is not None
+
+
+def test_a_warning_test_does_not_block_the_dependents() -> None:
+    check = check_of("warn_b", "b")
+    dependencies = {"a": (), "b": ("a",), "c": ("b",)}
+
+    # A warn-severity test makes dbt exit 0: nothing raises and nothing fails.
+    batches, _, error = run(dependencies, Tokens(), tests=[check])
+
+    assert batches == [["a"], ["b"], ["c"]]
+    assert error is None
+
+
+def test_a_failed_multi_parent_test_blocks_only_the_models_reading_all_its_parents() -> None:
+    check = check_of("relationships_b_x", "b", "x")
+    dependencies = {"a": (), "b": ("a",), "x": (), "both": ("b", "x"), "only_b": ("b",)}
+
+    batches, _, error = run(dependencies, Tokens(), tests=[check], failed_tests={"relationships_b_x"})
+
+    # `both` reads b and x and waits for the test; `only_b` does not.
+    assert batches == [["a", "x"], ["b"], ["only_b"]]
+    assert error is not None
+
+
+def test_a_test_over_a_skipped_model_does_not_run() -> None:
+    check = check_of("t_ac", "a", "c")
+    dependencies = {"a": (), "b": ("a",), "c": ("b",)}
+
+    batches, _, _ = run(dependencies, Tokens(), fail={"a"}, failed_models=lambda models: ["a"], tests=[check])
+
+    assert batches == [["a"]]
+    assert test_batches == [[]]
+
+
+def test_the_generation_arguments_select_its_models_and_tests_and_exclude_the_rest() -> None:
+    relationships = check_of("relationships_b_a", "a", "b")
+    own = check_of("unique_a", "a")
+    unselected = check_of("on_unselected", "ghost", explicit=False)
+    tests = [relationships, own, unselected]
+
+    first = dbt_build.generation_args(["a", "z"], [own], ["a", "b", "z"], tests)
+    second = dbt_build.generation_args(["b"], [relationships], ["a", "b", "z"], tests)
+
+    assert first == [
+        "--indirect-selection",
+        "empty",
+        "--select",
+        "a z gold.unique_a",
+        "--exclude",
+        "b gold.relationships_b_a gold.on_unselected",
+    ]
+    assert second[second.index("--select") + 1] == "b gold.relationships_b_a"
+    assert dbt_build.generation_args([], [], [], tests) == []
+
+
+def _node(resource_type: str, unique_id: str, fqn: list[str], parents: list[str]) -> dict:
+    return {
+        "unique_id": unique_id,
+        "name": fqn[-1],
+        "resource_type": resource_type,
+        "package_name": "gold",
+        "fqn": fqn,
+        "depends_on": {"nodes": parents},
+    }
+
+
+def test_tests_of_the_manifest_carry_their_selected_parents() -> None:
+    manifest = {
+        "metadata": {"project_name": "gold"},
+        "nodes": {
+            "model.gold.a": _node("model", "model.gold.a", ["gold", "a"], []),
+            "model.gold.b": _node("model", "model.gold.b", ["gold", "b"], ["model.gold.a"]),
+            "test.gold.rel.1": _node("test", "test.gold.rel.1", ["gold", "rel"], ["model.gold.a", "model.gold.b"]),
+            "test.gold.src.2": _node("test", "test.gold.src.2", ["gold", "src"], ["source.gold.s"]),
+            "test.gold.other.3": _node("test", "test.gold.other.3", ["gold", "other"], ["model.gold.ghost"]),
+        },
+        "unit_tests": {
+            "unit_test.gold.b.ut": _node("unit_test", "unit_test.gold.b.ut", ["gold", "b", "ut"], ["model.gold.b"])
+        },
+    }
+
+    tests = dbt_build.dbt_tests(manifest, {"a", "b"})
+
+    assert {t.selector: (t.parents, t.explicit) for t in tests.values()} == {
+        "gold.rel": (("a", "b"), True),
+        "gold.src": ((), True),
+        "gold.other": ((), False),
+        "gold.b.ut": (("b",), True),
+    }

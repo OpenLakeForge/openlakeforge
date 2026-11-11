@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from graphlib import TopologicalSorter
 from pathlib import Path
 from typing import Any
@@ -10,40 +11,134 @@ from typing import Any
 from dagster_dbt.errors import DagsterDbtCliRuntimeError
 
 
-def model_dependencies(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, tuple[str, ...]]:
-    """Each selected model of the manifest's project, with the selected models it reads from."""
+@dataclass(frozen=True)
+class DbtTest:
+    """A dbt test (data, singular or unit) and the selected models it reads."""
+
+    unique_id: str
+    selector: str
+    parents: tuple[str, ...]
+    # False for a test on models outside the selection: dagster-dbt decides whether it runs.
+    explicit: bool
+
+
+def _project_models(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, Mapping[str, Any]]:
     project = manifest.get("metadata", {}).get("project_name")
-    models = {
+    return {
         unique_id: node
         for unique_id, node in manifest.get("nodes", {}).items()
         if node.get("resource_type") == "model" and node.get("package_name") == project and node["name"] in selected
     }
+
+
+def _selected_upstream(
+    manifest: Mapping[str, Any], models: Mapping[str, Mapping[str, Any]], parents: Collection[str]
+) -> set[str]:
+    """The selected models among `parents`, looking through any non-selected node (ephemeral or not)."""
     nodes = manifest.get("nodes", {})
+    found: set[str] = set()
+    seen: set[str] = set()
+    pending = list(parents)
+    while pending:
+        parent = pending.pop()
+        if parent in seen:
+            continue
+        seen.add(parent)
+        if parent in models:
+            found.add(models[parent]["name"])
+        elif parent in nodes:
+            pending.extend(nodes[parent].get("depends_on", {}).get("nodes", []))
+    return found
 
-    def selected_upstream(unique_id: str) -> set[str]:
-        """The selected models `unique_id` reads, looking through any non-selected node (ephemeral or not)."""
-        found: set[str] = set()
-        seen: set[str] = set()
-        pending = list(nodes[unique_id]["depends_on"]["nodes"])
-        while pending:
-            parent = pending.pop()
-            if parent in seen:
-                continue
-            seen.add(parent)
-            if parent in models:
-                found.add(models[parent]["name"])
-            elif parent in nodes:
-                pending.extend(nodes[parent].get("depends_on", {}).get("nodes", []))
-        return found
 
-    return {node["name"]: tuple(sorted(selected_upstream(unique_id))) for unique_id, node in models.items()}
+def model_dependencies(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, tuple[str, ...]]:
+    """Each selected model of the manifest's project, with the selected models it reads from."""
+    models = _project_models(manifest, selected)
+    return {
+        node["name"]: tuple(sorted(_selected_upstream(manifest, models, node["depends_on"]["nodes"])))
+        for node in models.values()
+    }
+
+
+def dbt_tests(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, DbtTest]:
+    """The project's tests by unique id, each with the selected models it reads (unit tests included)."""
+    models = _project_models(manifest, selected)
+    project = manifest.get("metadata", {}).get("project_name")
+    candidates = [*manifest.get("nodes", {}).values(), *manifest.get("unit_tests", {}).values()]
+    tests: dict[str, DbtTest] = {}
+    for node in candidates:
+        if node.get("resource_type") not in ("test", "unit_test") or node.get("package_name") != project:
+            continue
+        direct = node.get("depends_on", {}).get("nodes", [])
+        parents = tuple(sorted(_selected_upstream(manifest, models, direct)))
+        tests[node["unique_id"]] = DbtTest(
+            unique_id=node["unique_id"],
+            selector=".".join(node["fqn"]),
+            parents=parents,
+            explicit=bool(parents) or not any(parent.startswith("model.") for parent in direct),
+        )
+    return tests
+
+
+def generations(dependencies: Mapping[str, Collection[str]]) -> list[list[str]]:
+    """The models grouped by topological generation: each holds the models whose parents are all earlier."""
+    sorter = TopologicalSorter({model: set(parents) for model, parents in dependencies.items()})
+    sorter.prepare()
+    result: list[list[str]] = []
+    while sorter.is_active():
+        ready = sorted(sorter.get_ready())
+        result.append(ready)
+        sorter.done(*ready)
+    return result
+
+
+def tests_by_generation(
+    dependencies: Mapping[str, Collection[str]], tests: Mapping[str, DbtTest]
+) -> list[list[DbtTest]]:
+    """Each test in the generation of its latest parent model: it runs once, after all its parents built.
+
+    `dbt build` drops a test as soon as any parent is excluded, so a test over models of different
+    generations would run in none of the invocations. A test that reads no selected model goes first.
+    """
+    groups = generations(dependencies)
+    index = {model: number for number, group in enumerate(groups) for model in group}
+    assigned: list[list[DbtTest]] = [[] for _ in groups]
+    if assigned:
+        for test in sorted(tests.values(), key=lambda t: t.unique_id):
+            assigned[max((index[parent] for parent in test.parents), default=0)].append(test)
+    return assigned
+
+
+def generation_args(
+    models: Collection[str],
+    run: Collection[DbtTest],
+    all_models: Collection[str],
+    all_tests: Collection[DbtTest],
+) -> list[str]:
+    """The dbt arguments of one generation: its models and the tests assigned to it, and nothing else.
+
+    Indirect selection is off. At dbt's default (eager), excluding a model also excludes every test that
+    reads it, and selecting one pulls in the tests of other generations. Without it, `--select` and
+    `--exclude` act on exactly the nodes they name.
+    """
+    if not all_models:
+        return []
+    running = {test.unique_id for test in run}
+    select = [*sorted(models), *(test.selector for test in run if test.explicit)]
+    exclude = [
+        *sorted(set(all_models) - set(models)),
+        *(test.selector for test in all_tests if test.unique_id not in running),
+    ]
+    args = ["--indirect-selection", "empty", "--select", " ".join(select)]
+    return [*args, "--exclude", " ".join(exclude)] if exclude else args
 
 
 def build_by_generation(
     dependencies: Mapping[str, Collection[str]],
-    invoke: Callable[[list[str]], Iterator[Any]],
+    tests: Mapping[str, DbtTest],
+    invoke: Callable[[list[str], list[DbtTest]], Iterator[Any]],
     token: Callable[[], AbstractContextManager[Any]],
-    failed_models: Callable[[list[str]], Collection[str]],
+    failed_nodes: Callable[[list[str], list[DbtTest]], Collection[str]],
 ) -> Iterator[Any]:
     """Build the models one topological generation per dbt invocation, and yield the events.
 
@@ -54,48 +149,84 @@ def build_by_generation(
     dbt's start-up once per generation, not once per model. `token` opens a freshly minted token around
     each invocation; the limit left is one generation within the token's lifetime.
 
-    `invoke` receives the models to build and runs a `dbt build` of them. When it fails, `failed_models`
-    names the generation's models that failed (none known means all of them). Their dependents are
-    skipped, as `dbt build` does; independent models still build, and the first failure is raised once
-    the rest are done.
+    Each test runs once, in the generation of its latest parent model (see `tests_by_generation`).
+    `invoke` receives the models and tests to build and runs a `dbt build` of them. When it fails,
+    `failed_nodes` names the models (by name) and tests (by unique id) that errored or failed; none
+    known means all of the generation's models. Dependents are skipped, as `dbt build` does: those of a
+    failed model, and those of a failed blocking test (the models that read all the test's parents). A
+    test over a failed or skipped model does not run. Independent models still build, and the first
+    failure is raised once the rest are done.
     """
     if not dependencies:
         # A selection of checks alone names no model, and dbt still has to run them.
         with token():
-            yield from invoke([])
+            yield from invoke([], [])
         return
     failed: set[str] = set()
+    blocked: set[str] = set()
     first_error: DagsterDbtCliRuntimeError | None = None
-    sorter = TopologicalSorter({model: set(parents) for model, parents in dependencies.items()})
-    sorter.prepare()
-    while sorter.is_active():
-        ready = sorted(sorter.get_ready())
-        batch = [model for model in ready if not failed.intersection(dependencies[model])]
+    children: dict[str, set[str]] = {model: set() for model in dependencies}
+    for model, parents in dependencies.items():
+        for parent in parents:
+            children.setdefault(parent, set()).add(model)
+
+    def descendants(model: str) -> set[str]:
+        found: set[str] = set()
+        pending = [model]
+        while pending:
+            for child in children.get(pending.pop(), ()):
+                if child not in found:
+                    found.add(child)
+                    pending.append(child)
+        return found
+
+    for ready, assigned in zip(generations(dependencies), tests_by_generation(dependencies, tests), strict=True):
+        batch = [model for model in ready if model not in blocked and not failed.intersection(dependencies[model])]
         failed.update(set(ready) - set(batch))
-        if batch:
-            try:
-                with token():
-                    yield from invoke(batch)
-            except DagsterDbtCliRuntimeError as exc:
-                failed.update(set(failed_models(batch)) & set(batch) or batch)
-                first_error = first_error or exc
-        sorter.done(*ready)
+        if not batch:
+            continue
+        run = [test for test in assigned if not failed.intersection(test.parents)]
+        try:
+            with token():
+                yield from invoke(batch, run)
+        except DagsterDbtCliRuntimeError as exc:
+            names = set(failed_nodes(batch, run))
+            failed_tests = [test for test in run if test.unique_id in names]
+            failed_models = names & set(batch)
+            if not failed_models and not failed_tests:
+                failed_models = set(batch)
+            failed.update(failed_models)
+            for test in failed_tests:
+                if len(test.parents) == 1:
+                    failed.add(test.parents[0])
+                elif test.parents:
+                    # dbt makes a model wait for a test only when it reads all of the test's parents.
+                    blocked.update(set.intersection(*(descendants(parent) for parent in test.parents)))
+            first_error = first_error or exc
     if first_error is not None:
         raise first_error
 
 
-def failed_models_in(target_path: Path, generation: Collection[str]) -> set[str]:
-    """The models of `generation` that `target_path`'s `run_results.json` reports as errored or skipped."""
+def failed_nodes_in(target_path: Path, models: Collection[str], tests: Collection[DbtTest]) -> set[str]:
+    """What `target_path`'s `run_results.json` reports as failed among `models` and `tests`.
+
+    A model that errored or was skipped is named by its name; a test whose status is `fail` or `error`,
+    by its unique id. A test of severity `warn` reports `warn` and blocks nothing.
+    """
     path = target_path / "run_results.json"
     if not path.exists():
         return set()
-    return {
-        result["unique_id"].rsplit(".", 1)[-1]
-        for result in json.loads(path.read_text())["results"]
-        if result["unique_id"].startswith("model.")
-        and result["status"] in ("error", "skipped")
-        and result["unique_id"].rsplit(".", 1)[-1] in generation
-    }
+    test_ids = {test.unique_id for test in tests}
+    failed: set[str] = set()
+    for result in json.loads(path.read_text())["results"]:
+        unique_id = result["unique_id"]
+        if unique_id.startswith("model."):
+            name = unique_id.rsplit(".", 1)[-1]
+            if result["status"] in ("error", "skipped") and name in models:
+                failed.add(name)
+        elif unique_id in test_ids and result["status"] in ("fail", "error"):
+            failed.add(unique_id)
+    return failed
 
 
 def merge_run_results(target_paths: list[Path]) -> Path:

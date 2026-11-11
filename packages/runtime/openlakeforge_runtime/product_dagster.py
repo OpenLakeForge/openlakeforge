@@ -37,8 +37,11 @@ from openlakeforge_runtime import gold_maintenance
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
 from openlakeforge_runtime.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
 from openlakeforge_runtime.dbt_build import (
+    DbtTest,
     build_by_generation,
-    failed_models_in,
+    dbt_tests,
+    failed_nodes_in,
+    generation_args,
     merge_run_results,
     model_dependencies,
 )
@@ -432,12 +435,16 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         full_refresh = full_refresh_scope(context.run.tags) is not None
         target_paths: list[Path] = []
         selected = {key.path[-1] for key in context.selected_asset_keys}
-        dependencies = model_dependencies(json.loads(manifest_path.read_text()), selected)
+        manifest = json.loads(manifest_path.read_text())
+        dependencies = model_dependencies(manifest, selected)
+        all_tests = dbt_tests(manifest, selected)
 
-        def build_generation(models: list[str]):
-            args = ["build", *(["--full-refresh"] if full_refresh else [])]
-            if exclude := sorted(set(dependencies) - set(models)):
-                args += ["--exclude", " ".join(exclude)]
+        def build_generation(models: list[str], tests: list[DbtTest]):
+            args = [
+                "build",
+                *(["--full-refresh"] if full_refresh else []),
+                *generation_args(models, tests, dependencies, all_tests.values()),
+            ]
             invocation = dbt.cli(args, context=context)
             target_paths.append(invocation.target_path)
             yield from invocation.stream()
@@ -453,9 +460,10 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             # A dbt process holds its token for good and Polaris lets it expire, so each generation gets its own.
             yield from build_by_generation(
                 dependencies,
+                all_tests,
                 build_generation,
                 generation_token,
-                lambda models: failed_models_in(target_paths[-1], models),
+                lambda models, tests: failed_nodes_in(target_paths[-1], models, tests),
             )
         finally:
             if previous_job_name is None:
