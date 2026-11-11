@@ -16,7 +16,7 @@ from typing import Any, Literal
 from olf.common import log
 from olf.infra import access, trino
 from olf.infra.e2e._perimeter_bearer import CLI_CLIENT, issue_id_token
-from olf.infra.e2e._shell import E2EConfig, E2EError, user_trust_environment
+from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, user_trust_environment
 from olf.infra.e2e._trino import PROBE_SCHEMA, list_tables, stage_catalog_name
 from olf.platform import query, session
 
@@ -100,6 +100,58 @@ def check_claimed_user(
                         raise E2EError(f"{role} claiming {other} on {stage}: {sql!r} expected {mine}, got {got}")
                     return
     log.info(f"Skipping the claimed-user check on {stage}: every role has the same access to the probe table.")
+
+
+def dump_query_route_state(cfg: E2EConfig, stage: str, sql: str) -> None:
+    """A person's query broke in transit (#1088): print what each hop saw, since the failure leaves no other trace.
+    Best effort; the query's own error is what the run reports."""
+    log.error(f"The query to {stage}'s Trino broke in transit: {sql!r}. State of each hop:")
+    probes = {
+        "Trino pods (restarts, last state)": [
+            "get",
+            "pods",
+            "-A",
+            "-l",
+            "app.kubernetes.io/name=trino",
+            "-o",
+            "custom-columns=NS:.metadata.namespace,POD:.metadata.name,"
+            "RESTARTS:.status.containerStatuses[*].restartCount,"
+            "LAST:.status.containerStatuses[*].lastState.terminated.reason",
+        ],
+        f"Trino log, last 3 minutes (namespace olf-{stage})": [
+            "logs",
+            "-n",
+            f"olf-{stage}",
+            "-l",
+            "app.kubernetes.io/name=trino",
+            "--since=3m",
+            "--tail=80",
+        ],
+        "Traefik log, last 3 minutes": [
+            "logs",
+            "-n",
+            "olf-system",
+            "-l",
+            "app.kubernetes.io/name=traefik",
+            "--since=3m",
+            "--tail=200",
+        ],
+        "Polaris log, last 3 minutes": [
+            "logs",
+            "-n",
+            "olf-system",
+            "-l",
+            "app.kubernetes.io/name=polaris",
+            "--since=3m",
+            "--tail=60",
+        ],
+    }
+    for label, args in probes.items():
+        try:
+            text = kubectl(cfg, args, capture=True)
+        except Exception as exc:  # noqa: BLE001 - a probe that fails must not hide the others
+            text = f"(unavailable: {exc})"
+        log.info(f"--- {label}\n{text}")
 
 
 def outcome(call: Callable[[], object]) -> Outcome:
@@ -193,7 +245,12 @@ def person_runner(
 
         def statement() -> object:
             with user_trust_environment(route):
-                return query.run_statement(url, sql, bearer=lambda: bearer(role), user=user, stage=stage)
+                try:
+                    return query.run_statement(url, sql, bearer=lambda: bearer(role), user=user, stage=stage)
+                except session.PlatformError as exc:
+                    if "cannot reach Trino" in str(exc):
+                        dump_query_route_state(cfg, stage, sql)
+                    raise
 
         return outcome(statement)
 

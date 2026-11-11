@@ -82,7 +82,11 @@ resource "helm_release" "openmetadata" {
     ], var.oidc == null ? [] : [
     # The JVM does not read the system CA store, so a copy of its cacerts with
     # the local CA added is built before the server (and its migration) start.
-    # OpenMetadata reaches the issuer's discovery, token and keys URLs with it.
+    # The one issuer caller that keeps the public URL (ADR 0013, decision 8,
+    # #991): its code exchange follows the discovery document, and 1.13.6's
+    # oidcClientConfig has no token-URL setting (checked against its schema:
+    # discoveryUri, serverUrl, customParams and callbackUrl only). Only the keys
+    # use the Service (main.tf).
     # The provider itself is switched by `olf infra openmetadata deploy-metadata`, not here (main.tf).
     yamlencode({
       extraVolumes = [

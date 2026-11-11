@@ -109,7 +109,7 @@ def _config(tmp_path: Path, size: Size) -> LocalDeploymentConfig:
     topology = resolve_topology(
         validate_deployment_profile(
             {
-                "apiVersion": "openlakeforge.io/v1alpha1",
+                "apiVersion": "openlakeforge.io/v1beta1",
                 "kind": "DeploymentProfile",
                 "metadata": {"name": "acme-data"},
                 "spec": {

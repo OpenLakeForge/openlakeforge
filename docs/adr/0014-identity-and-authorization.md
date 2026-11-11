@@ -393,7 +393,7 @@ is not.
 
 ## History
 
-In-cluster issuer endpoints (#991): `identity.oidc` gains the optional `internal_url`; the perimeter proxy, Polaris and the platform API (`jwks_url` setting) use it instead of the public URL. The bearer-token row changes accordingly.
+In-cluster issuer endpoints (#991): `identity.oidc` gains the optional `internal_url`; the perimeter proxy, Polaris and the platform API (`jwks_url` setting) use it instead of the public URL. The bearer-token row changes accordingly. OpenMetadata (1.13.6 has no token-URL override) and Superset (its image change waits for #1092, behind the image source-drift guard) keep the public URL through the CoreDNS rewrite and `olf-local-ca`.
 
 OpenMetadata bootstrap in `olf` (#562): the Terraform bootstrap Job is deleted;
 `olf` creates the admin automation bot after the platform apply. The sign-in

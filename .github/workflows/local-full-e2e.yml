@@ -98,6 +98,15 @@ on:
           Estimated at 35 minutes. The nightly schedule always runs it.
         type: boolean
         default: false
+      stage_drill:
+        description: >
+          'full' suite with stage_scope 'dev+prod' only. After the PROD suite, redeploy three times with a changed
+          profile: PROD governance off (#1049: no polaris-om-creds and no Trino crawl left in PROD), PROD disabled
+          with --allow-stage-removal (#1050: its namespace and Polaris principals gone), and PROD enabled again
+          (activated, the core suite passes). Then scan for Secret values (.github/actions/stage-drill).
+          Estimated at 30 minutes, so it is not in the nightly. Runs before the restore drill.
+        type: boolean
+        default: false
       access_tls:
         description: >
           'full' suite only. 'local-ca' (default; the nightly always uses it)
@@ -472,6 +481,24 @@ jobs:
             olf infra project deploy -f openlakeforge.yaml --stage "${stage}" --revision "${REVISION}"
             olf infra e2e registry-pull -f openlakeforge.yaml --stage "${stage}" --allow-public
           done
+
+      - name: Stage drill needs a PROD stage
+        if: (inputs.suite || 'full') != 'smoke' && inputs.stage_drill && (inputs.stage_scope || 'dev+prod') == 'dev-only'
+        run: |
+          echo "::error::stage_drill removes and re-enables PROD, so it needs stage_scope dev+prod"
+          exit 1
+
+      - name: Stage drill (PROD governance off, PROD removed, PROD enabled again, scan)
+        # After the registry-pull step, which puts the profile back, and before the restore drill, which would
+        # rebuild the cluster this drill redeploys. It rewrites the profile and puts it back at the end.
+        if: (inputs.suite || 'full') != 'smoke' && inputs.stage_drill && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        uses: ./.github/actions/stage-drill
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-local
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+        with:
+          profile: ${{ env.PROJECT_DIR }}/openlakeforge.yaml
+          revision: ${{ steps.revision.outputs.revision }}
 
       - name: Restore drill (back up, destroy, rebuild the platform, restore, verify, scan)
         # Last, because it destroys the cluster the steps above used. The
