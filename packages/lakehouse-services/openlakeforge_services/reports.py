@@ -259,7 +259,11 @@ def prepare_upload(archive: bytes, databases: dict[str, str], *, schema_prefix: 
                 continue
             if path.is_absolute() or ".." in path.parts or "\\" in name:
                 raise UploadRejected(f"{name!r} is not a path inside the report")
-            if path.suffix.lower() not in {".yaml", ".yml"} or len(path.parts) < 2 or path.parts[0] not in _UPLOAD_KINDS:
+            if (
+                path.suffix.lower() not in {".yaml", ".yml"}
+                or len(path.parts) < 2
+                or path.parts[0] not in _UPLOAD_KINDS
+            ):
                 continue  # metadata.yaml is rewritten above; databases/ and anything else are never imported
             try:
                 document = yaml.safe_load(_read_bounded(source, info))

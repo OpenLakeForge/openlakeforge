@@ -243,8 +243,8 @@ registered there.
 
 ```bash
 uv run --project tools/olf olf check all
-uv run --project tools/olf ruff check tools/olf
-uv run --project tools/olf mypy --config-file tools/olf/pyproject.toml tools/olf/olf
+uv run --project tools/olf ruff check tools/olf packages/core packages/runtime packages/lakehouse-services
+uv run --project tools/olf mypy --config-file tools/olf/pyproject.toml tools/olf/olf packages/core/openlakeforge_core packages/runtime/openlakeforge_runtime packages/lakehouse-services/openlakeforge_services
 uv run --project tools/olf pytest tools/olf/tests --cov --cov-config=tools/olf/pyproject.toml
 ```
 
@@ -253,7 +253,8 @@ are written against. Coverage also needs `--cov-config` because it will not
 otherwise find its settings — without the flag it silently measures line
 coverage only and enforces no threshold at all.
 
-**Type checking** covers every module in `tools/olf/olf`; none is exempt, and
+**Type checking** covers every module in `tools/olf/olf` and in the three shared
+packages (`packages/core`, `packages/runtime`, `packages/lakehouse-services`); none is exempt, and
 the gate stays strict -- a new type error anywhere fails it (mypy's own
 `strict` flag is deliberately off; the config comment says why). Fix the
 error rather than silencing it: no blanket `# type: ignore`, and a narrow one

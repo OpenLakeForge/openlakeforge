@@ -63,3 +63,10 @@ uv run --project packages/platform-api --locked pytest packages/platform-api/tes
 uv run --project packages/platform-api --locked mypy --config-file packages/platform-api/pyproject.toml \
   packages/platform-api/openlakeforge_platform_api packages/platform-api/tests
 ```
+
+After changing a route or a response model, regenerate the committed OpenAPI
+document; `tests/test_openapi.py` fails until you do:
+
+```bash
+cd packages/platform-api && uv run --locked python -m openlakeforge_platform_api.openapi
+```

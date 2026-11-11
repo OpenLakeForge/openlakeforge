@@ -69,7 +69,12 @@ select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["olf"]
+files = [
+  "olf",
+  "../../packages/core/openlakeforge_core",
+  "../../packages/runtime/openlakeforge_runtime",
+  "../../packages/lakehouse-services/openlakeforge_services",
+]
 # openlakeforge-runtime is an editable install, whose import hook mypy cannot follow.
 mypy_path = "$MYPY_CONFIG_FILE_DIR/../../packages/runtime"
 # Deliberately not `strict`. The gate's job on a 25k-line codebase that has
@@ -80,16 +85,23 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 warn_unreachable = true
 
-# Dagster, Floe and dlt are installed only in the project-code environment
+# Dagster, Floe, dlt and the runtime data-plane clients (DuckDB, SQLAlchemy, Trino, Kubernetes)
+# are installed only in the project-code environment
 # `olf check project-code` builds, and `lakehouse_code` is a user-project root that is not
 # importable from the CLI package.
 [[tool.mypy.overrides]]
 module = [
   "dagster.*",
+  "dagster_dbt.*",
   "dlt",
   "dlt.*",
+  "duckdb.*",
+  "floe.*",
   "floe_dagster.*",
+  "kubernetes.*",
   "lakehouse_code.*",
+  "sqlalchemy.*",
+  "trino.*",
 ]
 ignore_missing_imports = true
 

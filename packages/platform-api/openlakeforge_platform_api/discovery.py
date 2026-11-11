@@ -22,6 +22,14 @@ from openlakeforge_services.trino import (
     TrinoStatementClient,
 )
 
+from openlakeforge_platform_api.models import (
+    QueryCapabilities,
+    QueryStage,
+    QueryStageCapability,
+    Schemas,
+    Table,
+    Tables,
+)
 from openlakeforge_platform_api.query_identity import TrinoIdentity, trino_identity
 
 log = logging.getLogger(__name__)
@@ -58,18 +66,21 @@ def _encode(name: str) -> str:
     return base64.urlsafe_b64encode(name.encode()).decode()
 
 
-def query_capabilities(request: Request) -> dict[str, Any]:
+def query_capabilities(request: Request) -> QueryCapabilities:
     settings = request.app.state.settings
     # Without the signing key every query route answers 503, so no stage is offered.
     ready = settings.person_query and request.app.state.query_signing_key is not None
     stages = [stage for stage in settings.stages if stage in settings.query_endpoints] if ready else []
-    return {
-        "query_available": bool(stages),
-        "stages": [
-            {"stage": stage, "query": {"engine": "trino", "available": True, "export_formats": EXPORT_FORMATS}}
+    return QueryCapabilities(
+        query_available=bool(stages),
+        stages=[
+            QueryStage(
+                stage=stage,
+                query=QueryStageCapability(engine="trino", available=True, export_formats=EXPORT_FORMATS),
+            )
             for stage in stages
         ],
-    }
+    )
 
 
 def _page(
@@ -138,9 +149,9 @@ def list_schemas(
     cursor: str | None = None,
     limit: int = Query(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),  # noqa: B008 - FastAPI's parameter API
     identity: TrinoIdentity = Depends(trino_identity),  # noqa: B008
-) -> dict[str, Any]:
+) -> Schemas:
     rows, next_cursor = _page(request, identity, stage, "schema_name", "schemata", [], q, cursor, limit)
-    return {"schemas": [row[0] for row in rows], "next_cursor": next_cursor}
+    return Schemas(schemas=[row[0] for row in rows], next_cursor=next_cursor)
 
 
 def list_tables(
@@ -151,8 +162,8 @@ def list_tables(
     cursor: str | None = None,
     limit: int = Query(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),  # noqa: B008
     identity: TrinoIdentity = Depends(trino_identity),  # noqa: B008
-) -> dict[str, Any]:
+) -> Tables:
     where = [f"table_schema = {literal(schema)}"]
     rows, next_cursor = _page(request, identity, stage, "table_name", "tables", where, q, cursor, limit)
-    tables = [{"name": name, "type": "view" if kind == "VIEW" else "table"} for name, kind in rows]
-    return {"tables": tables, "next_cursor": next_cursor}
+    tables = [Table(name=name, type="view" if kind == "VIEW" else "table") for name, kind in rows]
+    return Tables(tables=tables, next_cursor=next_cursor)

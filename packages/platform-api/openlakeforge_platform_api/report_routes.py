@@ -22,7 +22,6 @@ import logging
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
 
 from fastapi import HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -31,6 +30,7 @@ from openlakeforge_services.base import ServiceClientError, TransientServiceErro
 from openlakeforge_services.superset import SupersetClient
 
 from openlakeforge_platform_api.audit import audited
+from openlakeforge_platform_api.models import ImportedReports
 from openlakeforge_platform_api.settings import superset_password_env
 
 log = logging.getLogger(__name__)
@@ -80,14 +80,14 @@ async def _read_capped(request: Request) -> bytes:
     return bytes(body)
 
 
-async def import_report(request: Request, stage: str) -> dict[str, Any]:
+async def import_report(request: Request, stage: str) -> ImportedReports:
     """Import a report directory, zipped from its root, into the stage's Superset, overwriting what it carries."""
     archive = await _read_capped(request)
     # Superset's client blocks; the event loop stays free while it runs.
     return await run_in_threadpool(_import_report, request, stage, archive)
 
 
-def _import_report(request: Request, stage: str, archive: bytes) -> dict[str, Any]:
+def _import_report(request: Request, stage: str, archive: bytes) -> ImportedReports:
     prefix = request.app.state.settings.superset_schema_prefixes.get(stage, "")
     with audited(request, stage=stage, target={"report": f"{len(archive)} bytes"}) as outcome:
         client = _superset(request, stage)
@@ -108,7 +108,7 @@ def _import_report(request: Request, stage: str, archive: bytes) -> dict[str, An
                 )
             client.import_assets(prepared.bundle, sparse=True)
         outcome.result["dashboards"] = ",".join(prepared.dashboards)
-    return {"dashboards": list(prepared.dashboards), "stage": stage, "request_id": request.state.request_id}
+    return ImportedReports(dashboards=list(prepared.dashboards), stage=stage, request_id=request.state.request_id)
 
 
 def export_report(request: Request, stage: str, dashboard: str) -> Response:
