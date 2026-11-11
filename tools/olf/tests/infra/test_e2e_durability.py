@@ -188,18 +188,45 @@ def test_a_lost_data_product_is_not_hidden_by_a_domain_of_the_same_name(monkeypa
     assert durability.verify(baseline, lost_product) == ["OpenMetadata entity dataProduct:sales_orders is missing"]
 
 
-def test_capture_requires_only_the_default_product_to_have_reached_gold(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    # The upgrade drill loads data with the smoke suite, which runs the default product alone.
-    default = object()
-    checked: list[object] = []
-    cfg = cast(Any, SimpleNamespace(inventory=SimpleNamespace(default_product=default), environ={}))
-    monkeypatch.setattr(durability, "check_trino_product_tables_and_marts", lambda _cfg, p: checked.append(p))
+
+def _lake_with_only_the_default_product(monkeypatch: pytest.MonkeyPatch, *, gold_rows: str) -> None:
+    """Trino answers as after the smoke suite: the default product's Silver and Gold hold tables, nothing else does."""
+    from conftest import E2E_INVENTORY
+
+    from olf.infra.e2e import _trino
+
+    product = E2E_INVENTORY.default_product
+    domain = E2E_INVENTORY.domain_for_product(product)
+    tables = {
+        domain.silver_namespace: [entity.name for entity in E2E_INVENTORY.floe_entities(domain)][:1],
+        product.gold_namespace: ["mart"],
+    }
+    monkeypatch.setattr(_trino, "check_trino_catalog", lambda _cfg: None)
+    monkeypatch.setattr(_trino, "trino_query", lambda _cfg, sql: "\n".join(tables.get(sql.rsplit(".", 1)[-1], [])))
+    monkeypatch.setattr(_trino, "trino_scalar", lambda _cfg, _sql: gold_rows)
     monkeypatch.setattr(durability, "cluster_sources", lambda _cfg: _sources())
     monkeypatch.setattr(durability, "secret_values", lambda _cfg: {})
 
-    durability.capture_to_file(cfg, tmp_path / "baseline.json")
 
-    assert checked == [default]
+def test_a_lake_loaded_by_the_smoke_suite_can_be_captured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from conftest import E2E_INVENTORY, e2e_cfg
+
+    # The upgrade drill loads data with the smoke suite: other domains and products stay empty.
+    assert len(E2E_INVENTORY.domains) > 1
+    _lake_with_only_the_default_product(monkeypatch, gold_rows="5")
+
+    durability.capture_to_file(e2e_cfg(tmp_path, suite="smoke"), tmp_path / "baseline.json")
+
     assert (tmp_path / "baseline.json").exists()
+
+
+def test_a_lake_whose_default_product_never_reached_gold_is_not_captured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from conftest import e2e_cfg
+
+    _lake_with_only_the_default_product(monkeypatch, gold_rows="0")
+
+    with pytest.raises(E2EError, match="to contain rows"):
+        durability.capture_to_file(e2e_cfg(tmp_path, suite="smoke"), tmp_path / "baseline.json")
+    assert not (tmp_path / "baseline.json").exists()
