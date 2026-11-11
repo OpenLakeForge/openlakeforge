@@ -8,6 +8,7 @@ from functools import cache
 from pathlib import Path
 
 import floe
+import lakehouse_code
 from dagster import (
     AssetKey,
     AssetOut,
@@ -29,8 +30,8 @@ from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_runner_from_env
 from floe_dagster.manifest import ManifestEntity
+from openlakeforge_core import full_refresh_scope, inventory_for
 
-import lakehouse_code
 from openlakeforge_runtime import gold_maintenance
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
 from openlakeforge_runtime.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
@@ -40,12 +41,11 @@ from openlakeforge_runtime.dbt_build import (
     merge_run_results,
     model_dependencies,
 )
-from openlakeforge_runtime.polaris_token import polaris_token_env
 from openlakeforge_runtime.floe_profile import write_profile
 from openlakeforge_runtime.openlakeforge_logging import log_event
+from openlakeforge_runtime.polaris_token import polaris_token_env
 from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri
 from openlakeforge_runtime.source_bindings import source_binding_tags
-from openlakeforge_core import full_refresh_scope, inventory_for
 
 __all__ = [
     "ProductDefinitionSpec",

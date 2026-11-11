@@ -6,18 +6,20 @@ import functools
 import os
 import uuid
 from collections.abc import Callable
-from typing import Any, NoReturn
+from typing import NoReturn
 
 import boto3
 import requests
 from botocore.config import Config
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 from openlakeforge_services.logs import ObjectStore
 
 from openlakeforge_platform_api import csrf, discovery, queries, reads, report_routes, writes
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
+from openlakeforge_platform_api.models import Health, WhoAmI
 from openlakeforge_platform_api.permissions import ANONYMOUS, Permission, PermissionMatrix
 from openlakeforge_platform_api.settings import QUERY_SIGNING_KEY_ENV, Settings
 from openlakeforge_platform_api.tokens import InvalidToken, IssuerUnavailable, Principal, TokenValidator
@@ -27,6 +29,11 @@ DEFAULT_SETTINGS_PATH = "/config/settings.json"
 # The write-only audit key, mounted from its own Secret under names boto3 does not read on its own.
 AUDIT_ACCESS_KEY_ENV = "OPENLAKEFORGE_AUDIT_ACCESS_KEY_ID"
 AUDIT_SECRET_KEY_ENV = "OPENLAKEFORGE_AUDIT_SECRET_ACCESS_KEY"
+
+_BINARY_ZIP: dict[str, object] = {
+    "description": "A stage-neutral assets bundle.",
+    "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}},
+}
 
 _UNAUTHORIZED = {"WWW-Authenticate": 'Bearer error="invalid_token"'}
 
@@ -115,20 +122,20 @@ def _principal(request: Request) -> Principal:
     return principal
 
 
-def healthz() -> dict[str, str]:
+def healthz() -> Health:
     # Liveness of this process only: the issuer is not called, so an issuer
     # outage does not restart the pod.
-    return {"status": "ok"}
+    return Health(status="ok")
 
 
-def whoami(principal: Principal = Depends(_principal)) -> dict[str, Any]:  # noqa: B008 - FastAPI's dependency API
-    return {
-        "subject": principal.subject,
-        "role": principal.role,
-        "email": principal.email,
-        "name": principal.name,
-        "audience": principal.audience,
-    }
+def whoami(principal: Principal = Depends(_principal)) -> WhoAmI:  # noqa: B008 - FastAPI's dependency API
+    return WhoAmI(
+        subject=principal.subject,
+        role=principal.role,
+        email=principal.email,
+        name=principal.name,
+        audience=principal.audience,
+    )
 
 
 def _object_store(settings: Settings) -> ObjectStore | None:
@@ -190,6 +197,7 @@ def create_app(
     # matrix. ADR 0021 decision 5 commits the OpenAPI document under docs/schema.
     app = FastAPI(
         title="OpenLakeForge platform API",
+        version="v1",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -219,12 +227,21 @@ def create_app(
         report_routes.import_report,
         methods=["POST"],
         name="import_report",
+        # The handler reads the raw body, so FastAPI cannot infer it.
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}},
+            }
+        },
     )
     app.add_api_route(
         "/api/v1/stages/{stage}/reports/{dashboard}/export",
         report_routes.export_report,
         methods=["GET"],
         name="export_report",
+        response_class=Response,
+        responses={200: _BINARY_ZIP},
     )
     app.add_api_route(
         "/api/v1/query-capabilities", discovery.query_capabilities, methods=["GET"], name="query_capabilities"
@@ -237,7 +254,31 @@ def create_app(
     app.add_api_route(queries_path, queries.submit_query, methods=["POST"], name="submit_query")
     app.add_api_route(queries_path + "/{query_id}", queries.get_query, methods=["GET"], name="get_query")
     app.add_api_route(queries_path + "/{query_id}", queries.cancel_query, methods=["DELETE"], name="cancel_query")
-    app.add_api_route(queries_path + "/{query_id}/export", queries.export_query, methods=["GET"], name="export_query")
+    app.add_api_route(
+        queries_path + "/{query_id}/export",
+        queries.export_query,
+        methods=["GET"],
+        name="export_query",
+        response_class=StreamingResponse,
+        responses={
+            200: {
+                "description": "The result, as the requested format.",
+                "content": {
+                    "text/csv": {"schema": {"type": "string"}},
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "columns": {"type": "array", "items": {"type": "string"}},
+                                "rows": {"type": "array", "items": {"type": "array", "items": {}}},
+                            },
+                            "required": ["columns", "rows"],
+                        }
+                    },
+                },
+            }
+        },
+    )
     app.add_api_route("/api/v1/domains", reads.list_domains, methods=["GET"], name="list_domains")
     app.add_api_route("/api/v1/data-products", reads.list_data_products, methods=["GET"], name="list_data_products")
     return app

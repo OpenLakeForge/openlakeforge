@@ -105,7 +105,8 @@ def load_dlt_source(
     """
     # The project imported as `lakehouse_code`: beside openlakeforge_runtime/ in the image, but a
     # separate root when olf checks a customer project against the distribution.
-    root = lakehouse_root or Path(import_module("lakehouse_code").__file__).resolve().parent
+    # `__file__` is None only for namespace packages; `lakehouse_code` is a regular package.
+    root = lakehouse_root or Path(import_module("lakehouse_code").__file__).resolve().parent  # type: ignore[arg-type]
     declared = load_source(root / "bronze" / source / "source.yaml")
     selected = dlt_source.with_resources(*resources)
     for name in resources:

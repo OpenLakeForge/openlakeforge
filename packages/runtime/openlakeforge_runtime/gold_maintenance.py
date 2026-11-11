@@ -116,7 +116,8 @@ def maintain_gold(
                     )
                     _rows(
                         connection,
-                        f"ALTER TABLE {relation} EXECUTE remove_orphan_files(retention_threshold => '{orphan_delay_days}d')",
+                        f"ALTER TABLE {relation} EXECUTE "
+                        f"remove_orphan_files(retention_threshold => '{orphan_delay_days}d')",
                     )
             except Exception as error:  # recorded per table, then the caller fails the run
                 result["error"] = str(error)

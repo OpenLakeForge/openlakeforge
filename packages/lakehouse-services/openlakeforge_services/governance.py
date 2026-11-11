@@ -558,7 +558,9 @@ class MetadataDeployer:
                     json_body={"assets": refs, "dryRun": False},
                     ok_statuses=(200, 201),
                 )
-                self.progress.info(f"Attached {len(refs)} OpenMetadata asset(s) to data product: {product_body['name']}")
+                self.progress.info(
+                    f"Attached {len(refs)} OpenMetadata asset(s) to data product: {product_body['name']}"
+                )
 
         if missing_assets:
             message = "\n".join(f"  - {fqn}" for fqn in sorted(set(missing_assets)))

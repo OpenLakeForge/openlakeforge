@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from openlakeforge_platform_api import reads
 from openlakeforge_platform_api.audit import audited
+from openlakeforge_platform_api.models import LaunchedRun
 from openlakeforge_platform_api.tokens import Principal
 
 # Tags on every run the API launches: who asked for it, and the request it came from, by which a launch whose
@@ -20,7 +21,7 @@ class LaunchRequest(BaseModel):
     job: str = Field(min_length=1, max_length=255, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-def launch_run(request: Request, stage: str, body: LaunchRequest) -> dict[str, str]:
+def launch_run(request: Request, stage: str, body: LaunchRequest) -> LaunchedRun:
     """Launch one of the stage's jobs as the signed-in person; the run is tagged with who asked for it."""
     principal: Principal = request.state.principal
     request_id: str = request.state.request_id
@@ -47,4 +48,4 @@ def launch_run(request: Request, stage: str, body: LaunchRequest) -> dict[str, s
                 key_tag=LAUNCH_KEY_TAG,
             )
         outcome.result["run_id"] = run_id
-    return {"run_id": run_id, "job": job.name, "stage": stage, "request_id": request_id}
+    return LaunchedRun(run_id=run_id, job=job.name, stage=stage, request_id=request_id)
