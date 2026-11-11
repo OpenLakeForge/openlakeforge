@@ -80,7 +80,7 @@ class Settings:
     # The portal's origin (scheme://host[:port]), the only one the CSRF guard lets write. Unset, every request with an
     # Origin header is refused on a POST, PUT, PATCH or DELETE; a client that sends none (the CLI) is unaffected.
     public_origin: str | None = None
-    # True only where the people's query route exists (Dex-backed identity, ADR 0019). False refuses every per-person query.
+    # True only where Dex-backed identity runs (ADR 0019). False refuses every per-person query.
     person_query: bool = False
     # Each stage's Trino. A stage with no entry offers no query, and with none at all capabilities list no stage.
     query_endpoints: Mapping[str, QueryEndpointSetting] = field(default_factory=dict)
