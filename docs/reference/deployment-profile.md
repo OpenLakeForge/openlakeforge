@@ -24,7 +24,7 @@ in [ADR 0011](../adr/0011-deployment-profile-and-stages.md) (profile and stages)
 ## A complete example
 
 ```yaml
-apiVersion: openlakeforge.io/v1alpha1
+apiVersion: openlakeforge.io/v1beta1
 kind: DeploymentProfile
 
 metadata:
@@ -59,7 +59,7 @@ spec:
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `apiVersion` | string | yes | Must be `openlakeforge.io/v1alpha1`. |
+| `apiVersion` | string | yes | Must be `openlakeforge.io/v1beta1`. A `v1alpha1` file is refused until `olf project migrate` rewrites it ([migration guide](../guides/migrate-from-v0-5-alpha.md)). |
 | `kind` | string | yes | Must be `DeploymentProfile`. |
 | `metadata` | object | yes | See below. |
 | `spec` | object | yes | See below. |
@@ -365,7 +365,7 @@ Without it there is no ingress at all.
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `base_domain` | string | `olf.localhost` | Lowercase DNS name with at least one dot. Every service host is `<service>.<base_domain>` or `<service>-<stage>.<base_domain>`, and the portal is served at the base domain itself. |
-| `tls` | `none`, `local-ca` or `external` | `none` on `local`, `local-ca` elsewhere | Who terminates TLS for the routes. `none` serves plain HTTP and is valid only on `local` with a `*.localhost` base domain. `local-ca` signs the routes with a CA the platform creates; it is for evaluation, because every browser must trust that CA (`olf infra access trust`). `external` means your own proxy, tunnel or load balancer terminates HTTPS in front of OpenLakeForge: Traefik serves HTTP and every generated URL, callback and cookie is `https://`; it needs a `base_domain` that does not end in `.localhost`. `issuer` is the v1alpha1 name of this field: it is still read as `tls`, and setting both is an error. cert-manager and the CA exist either way, for Trino's certificate (ADR 0016). |
+| `tls` | `none`, `local-ca` or `external` | `none` on `local`, `local-ca` elsewhere | Who terminates TLS for the routes. `none` serves plain HTTP and is valid only on `local` with a `*.localhost` base domain. `local-ca` signs the routes with a CA the platform creates; it is for evaluation, because every browser must trust that CA (`olf infra access trust`). `external` means your own proxy, tunnel or load balancer terminates HTTPS in front of OpenLakeForge: Traefik serves HTTP and every generated URL, callback and cookie is `https://`; it needs a `base_domain` that does not end in `.localhost`. `issuer` was the v1alpha1 name of this field and is rejected in v1beta1. cert-manager and the CA exist either way, for Trino's certificate (ADR 0016). |
 | `trusted_proxies` | list of CIDR blocks | none | Required with `tls: external`, refused with any other `tls`. The address range your proxy connects to Traefik from; only those peers' `X-Forwarded-Proto` and `X-Forwarded-Host` are believed, and a request from anywhere else is handled as plain HTTP whatever headers it carries. `0.0.0.0/0` and `::/0` are refused. |
 
 ### `spec.identity`
@@ -442,7 +442,7 @@ public client and has no Secret.
 | A local project names its image | `type: local` declares `spec.project` without `image.repository`: kind has no default registry. |
 | Plain HTTP is local-only | `spec.access.tls` is `none` and the provider is not `local`, or `base_domain` does not end in `.localhost`. |
 | External TLS needs a public name | `spec.access.tls` is `external` and `base_domain` ends in `.localhost`: no upstream proxy can terminate TLS there. |
-| One TLS field | `spec.access` sets both `tls` and `issuer`. |
+| Renamed TLS field | `spec.access` says `issuer`, the v1alpha1 name of `tls`. |
 | Trusted proxies | `tls` is `external` without `trusted_proxies`; `trusted_proxies` with another `tls`; an entry that is not a CIDR block, or that is `0.0.0.0/0` or `::/0`. |
 | Issuer shape | `external` lacks `issuer_url`, `role_claim` or `role_mapping`; `github` lacks `github` or sets `issuer_url`, `role_claim` or `role_mapping`; `github` is set without `issuer: github`; `client_ids` is set without `issuer: external`. |
 

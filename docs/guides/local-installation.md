@@ -172,7 +172,7 @@ The `URLs` section lists every service. With the default profile:
 | --- | --- |
 | Portal, linking every service | `http://olf.localhost` |
 | Dagster, per stage | `http://dagster-dev.olf.localhost` |
-| Trino | `http://trino.olf.localhost` |
+| Trino, per stage | `http://trino-dev.olf.localhost` |
 | Superset, per stage (Full) | `http://superset-dev.olf.localhost` |
 | OpenMetadata (Full) | `http://openmetadata.olf.localhost` |
 

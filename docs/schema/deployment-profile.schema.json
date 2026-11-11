@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://openlakeforge.io/schemas/deployment-profile/v1alpha1",
+  "$id": "https://openlakeforge.io/schemas/deployment-profile/v1beta1",
   "title": "OpenLakeForge Deployment Profile",
   "type": "object",
   "additionalProperties": false,
   "required": ["apiVersion", "kind", "metadata", "spec"],
   "properties": {
-    "apiVersion": {"const": "openlakeforge.io/v1alpha1"},
+    "apiVersion": {"const": "openlakeforge.io/v1beta1"},
     "kind": {"const": "DeploymentProfile"},
     "metadata": {
       "type": "object",
@@ -151,7 +151,7 @@
             "tls": {
               "enum": ["none", "local-ca", "external"],
               "default": "none",
-              "description": "none: plain HTTP on *.localhost (local only). local-ca: the platform CA, evaluation only. external: the customer terminates HTTPS in front of OpenLakeForge; not valid on *.localhost. The olf validator also reads the v1alpha1 name `issuer` as `tls`; it is not part of this schema."
+              "description": "none: plain HTTP on *.localhost (local only). local-ca: the platform CA, evaluation only. external: the customer terminates HTTPS in front of OpenLakeForge; not valid on *.localhost. `issuer` was the v1alpha1 name of this field and is rejected; `olf project migrate` renames it."
             },
             "trusted_proxies": {
               "type": "array",

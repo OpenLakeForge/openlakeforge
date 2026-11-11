@@ -162,6 +162,10 @@ jobs:
           set -euo pipefail
           export PATH="${OLF_HEAD_BIN}:${PATH}"
           olf version --json
+          # The base release wrote the project in its own descriptor versions;
+          # the documented upgrade step brings them to the current ones. A
+          # base that is already current prints "nothing to migrate".
+          olf project migrate
           olf infra e2e durability capture --output "${DRILL_DIR}/baseline.json" 2>&1 | tee "${DRILL_DIR}/3-capture.log"
 
       - name: "4. Upgrade in place with the current olf"

@@ -34,7 +34,8 @@ def migrate(
     """Rewrite the project's descriptors to the current API versions.
 
     governance.yml: v1beta1 -> v1beta2, nesting each root product under its
-    domain. bronze/*/source.yaml: v1alpha3 -> v1beta1. Refuses, leaving every
+    domain. bronze/*/source.yaml: v1alpha3 -> v1beta1. openlakeforge.yaml:
+    v1alpha1 -> v1beta1, renaming spec.access.issuer to tls. Refuses, leaving every
     file untouched, if any descriptor cannot be migrated safely."""
     import difflib
     import os
