@@ -349,12 +349,7 @@ def test_gold_connects_with_the_dbt_identity(monkeypatch: pytest.MonkeyPatch) ->
     for name, value in {
         "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino",
         "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
-        "OPENLAKEFORGE_QUERY_TRINO_TLS_PORT": "8443",
-        "OPENLAKEFORGE_QUERY_TRINO_HTTP_SCHEME": "https",
-        "OPENLAKEFORGE_QUERY_TRINO_CA": "/ca.crt",
         "OPENLAKEFORGE_DBT_TRINO_USER": "olf-prod-runtime",
-        "OPENLAKEFORGE_DBT_TRINO_METHOD": "ldap",
-        "OPENLAKEFORGE_DBT_TRINO_PASSWORD": "pw",
         "OPENLAKEFORGE_CATALOG_NAME": "prod_cat",
     }.items():
         monkeypatch.setenv(name, value)
@@ -363,12 +358,10 @@ def test_gold_connects_with_the_dbt_identity(monkeypatch: pytest.MonkeyPatch) ->
 
     assert seen == {
         "host": "trino",
-        "port": 8443,
+        "port": 8080,
         "user": "olf-prod-runtime",
         "catalog": "prod_cat",
-        "http_scheme": "https",
-        "auth": ("olf-prod-runtime", "pw"),
-        "verify": "/ca.crt",
+        "http_scheme": "http",
         "extra_credential": [("token", "polaris-token")],
     }
 

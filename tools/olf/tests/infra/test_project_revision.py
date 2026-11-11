@@ -206,6 +206,28 @@ def test_a_revision_runs_on_a_patch_release_that_accepts_its_contract(external_p
     assert verified.distribution_version == _DISTRIBUTION_VERSION
 
 
+def test_a_revision_built_before_the_trino_tls_and_password_reads_were_dropped_still_activates(
+    external_project: Path, tmp_path: Path
+) -> None:
+    """#1051 removed optional reads nothing sets since #983, so contract 1 is still accepted, unchanged.
+
+    The shipped catalog is the authority: a revision built at contract 1 verifies against it, and its old
+    runtime package finds every variable it reads either still supplied or defaulted (plain HTTP, no password).
+    """
+    from olf.common.runtime_contract import runtime_contract_at
+
+    shipped = runtime_contract_at(_DISTRIBUTION_ROOT)
+    assert shipped is not None
+    store, revision = _contract_revision(external_project, tmp_path, contract=1)
+
+    verified = project_revision.verify(
+        store, revision, running_distribution_version="0.5.1-alpha.9", running_contract=shipped
+    )
+
+    assert verified.runtime_contract_version == 1
+    assert shipped.accepts_version(1)
+
+
 def test_a_revision_for_a_contract_outside_the_accepted_range_is_refused_with_the_remedy(
     external_project: Path, tmp_path: Path
 ) -> None:
