@@ -7,6 +7,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /opt/openlakeforge
 
+# The fixed identity every pod of this image runs as (the code server, run pods,
+# Floe Jobs, the log archiver). The pod specs pin the same UID with
+# runAsNonRoot, so a derived image that switches USER must keep it. Everything
+# the runtime writes (dbt target/ and logs/, DAGSTER_HOME, the DuckDB extension
+# directory) is owned by it; the installed packages stay root-owned and
+# read-only to it.
+RUN groupadd --gid 10001 olf \
+    && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/olf --shell /usr/sbin/nologin olf
+
 COPY images/project-code/pyproject.toml images/project-code/requirements.lock ./
 
 COPY packages/core ./packages/core
@@ -33,8 +42,10 @@ RUN if [ -f project-layer/requirements.txt ]; then \
 # loaded once with downloads disabled so a missing one fails the build. The
 # module is standard-library only, so it runs as a script from its own copy and
 # this layer stays cached while the rest of the runtime package changes.
-COPY packages/runtime/openlakeforge_runtime/duckdb_extensions.py /tmp/duckdb_extensions.py
+COPY --chown=olf:olf packages/runtime/openlakeforge_runtime/duckdb_extensions.py /tmp/duckdb_extensions.py
+USER olf
 RUN python /tmp/duckdb_extensions.py install && python /tmp/duckdb_extensions.py verify && rm /tmp/duckdb_extensions.py
+USER root
 
 # Its dependencies (Dagster, dlt, dbt, Floe) are all in requirements.lock.
 COPY packages/runtime ./packages/runtime
@@ -60,6 +71,11 @@ ENV OPENLAKEFORGE_PROJECT_ROOT=/opt/openlakeforge
 # code-server pods neither render nor parse on rollout.
 RUN python -m openlakeforge_runtime.dbt.render_profiles --bake
 
-RUN mkdir -p "${DAGSTER_HOME}"
+# The baked manifests and the project's dbt directories are written to at run
+# time (dbt target/, logs/); only they and DAGSTER_HOME change hands.
+RUN mkdir -p "${DAGSTER_HOME}" \
+    && chown -R olf:olf "${DAGSTER_HOME}" /opt/openlakeforge/lakehouse_code
+
+USER 10001:10001
 
 CMD ["dagster", "api", "grpc", "--module-name", "lakehouse_code.definitions", "--host", "0.0.0.0", "--port", "3030"]
