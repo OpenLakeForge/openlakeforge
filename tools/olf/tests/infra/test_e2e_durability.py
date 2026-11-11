@@ -186,3 +186,20 @@ def test_a_lost_data_product_is_not_hidden_by_a_domain_of_the_same_name(monkeypa
     baseline = durability.capture(_sources(entities=lambda: entities), stage="dev")
     lost_product = _sources(entities=lambda: [e for e in entities if e != "dataProduct:sales_orders"])
     assert durability.verify(baseline, lost_product) == ["OpenMetadata entity dataProduct:sales_orders is missing"]
+
+
+def test_capture_requires_only_the_default_product_to_have_reached_gold(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The upgrade drill loads data with the smoke suite, which runs the default product alone.
+    default = object()
+    checked: list[object] = []
+    cfg = cast(Any, SimpleNamespace(inventory=SimpleNamespace(default_product=default), environ={}))
+    monkeypatch.setattr(durability, "check_trino_product_tables_and_marts", lambda _cfg, p: checked.append(p))
+    monkeypatch.setattr(durability, "cluster_sources", lambda _cfg: _sources())
+    monkeypatch.setattr(durability, "secret_values", lambda _cfg: {})
+
+    durability.capture_to_file(cfg, tmp_path / "baseline.json")
+
+    assert checked == [default]
+    assert (tmp_path / "baseline.json").exists()

@@ -27,7 +27,12 @@ from olf.infra.e2e._isolation import _materialized_tables, stage_bucket_items
 from olf.infra.e2e._layers import configured_layers
 from olf.infra.e2e._secret_exposure import scan, secret_values
 from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
-from olf.infra.e2e._trino import check_trino_tables_and_marts, stage_catalog_name, trino_query, trino_scalar
+from olf.infra.e2e._trino import (
+    check_trino_product_tables_and_marts,
+    stage_catalog_name,
+    trino_query,
+    trino_scalar,
+)
 from olf.infra.openmetadata._auth import admin_password
 
 BASELINE_VERSION = 1
@@ -268,8 +273,9 @@ def _objects(cfg: E2EConfig, stage: str) -> State:
 
 
 def capture_to_file(cfg: E2EConfig, output: Path) -> None:
-    # A baseline of an empty lake would verify anything.
-    check_trino_tables_and_marts(cfg)
+    # A baseline of an empty lake would verify anything, so the default product must have reached Gold. Only that
+    # product: the upgrade drill loads data with the smoke suite, and the baseline records whatever else exists.
+    check_trino_product_tables_and_marts(cfg, cfg.inventory.default_product)
     log.step("Capturing the durability baseline...")
     baseline = capture(cluster_sources(cfg), stage=config.env(CONTRACT_STAGE_ENV, "dev", environ=cfg.environ))
     write_baseline(baseline, output, secret_values(cfg))
