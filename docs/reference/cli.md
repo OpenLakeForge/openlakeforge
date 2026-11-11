@@ -164,7 +164,7 @@ olf query --stage prod "SELECT count(*) FROM order_revenue_gold.mart_order_reven
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--stage` | `dev` | `dev`, `uat` or `prod`: the stage's people catalog is the session default, so SQL names `<schema>.<table>` |
+| `--stage` | `dev` | `dev`, `uat` or `prod`: the stage's catalog, `lakehouse_<stage>`, is the session default, so SQL names `<schema>.<table>` |
 | `--format` | `table` | `table`, `csv` or `json` (one object per row) |
 | `--file` | — | Read the SQL from a file instead of the argument |
 | `--profile-file`, `-f` | `openlakeforge.yaml` | Deployment Profile of the deployment |

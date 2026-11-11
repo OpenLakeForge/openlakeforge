@@ -188,7 +188,7 @@ def test_report_import_targets_the_stage_and_credentials_of_the_contract_environ
         with ZipFile(io.BytesIO(imported)) as bundle:
             databases = [yaml.safe_load(bundle.read(name)) for name in bundle.namelist() if "/databases/" in name]
         assert {database["sqlalchemy_uri"] for database in databases} == {
-            "trino://trino.contract:9090/dev"
+            "trino://trino.contract:9090/lakehouse_dev"
         }
     assert (tmp_path / "work").is_dir()  # the import's scratch directory came from SUPERSET_REPORT_WORK_DIR
     _assert_cluster_calls_use_the_contract(kubectl_log)

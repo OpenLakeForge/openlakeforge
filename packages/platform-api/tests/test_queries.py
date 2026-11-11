@@ -99,7 +99,10 @@ def _api(settings: Settings, trino: FakeTrino, **overrides: Any) -> TestClient:
     values: dict[str, Any] = {
         "stages": ("dev", "prod"),
         "person_query": True,
-        "query_endpoints": {"dev": QueryEndpointSetting(TRINO, "dev"), "prod": QueryEndpointSetting(TRINO, "prod")},
+        "query_endpoints": {
+            "dev": QueryEndpointSetting(TRINO, "lakehouse_dev"),
+            "prod": QueryEndpointSetting(TRINO, "lakehouse_prod"),
+        },
         "query_wait_seconds": 0.0,
         "public_origin": "https://portal.example.com",
         **overrides,
@@ -153,7 +156,7 @@ def test_every_trino_call_is_the_persons_in_the_stage_catalog_without_a_session_
     assert trino.sent
     for call in trino.sent:
         assert call["headers"]["X-Trino-User"] == "ada@example.com"
-        assert call["headers"]["X-Trino-Catalog"] == "dev"
+        assert call["headers"]["X-Trino-Catalog"] == "lakehouse_dev"
         assert call["headers"]["Authorization"] == f"Bearer {token}"
         assert "X-Trino-Schema" not in call["headers"]
     assert trino.sent[-1]["headers"]["X-Trino-Extra-Credential"] == f"token={token}"
@@ -380,7 +383,7 @@ def test_without_a_session_the_routes_answer_401(api: TestClient) -> None:
 
 
 def test_unknown_stage_and_stage_without_an_endpoint_are_404(settings: Settings, trino: FakeTrino, token: str) -> None:
-    api = _api(settings, trino, query_endpoints={"dev": QueryEndpointSetting(TRINO, "dev")})
+    api = _api(settings, trino, query_endpoints={"dev": QueryEndpointSetting(TRINO, "lakehouse_dev")})
     assert _submit(api, token, stage="uat").status_code == 404
     assert _submit(api, token, stage="prod").status_code == 404
     assert trino.sent == []
