@@ -19,6 +19,8 @@ from graphlib import TopologicalSorter
 from pathlib import Path
 from typing import Any
 
+from openlakeforge_core import Product
+
 from olf.common import log
 from olf.infra.e2e._dagster import dagster_client, launch_and_poll
 from olf.infra.e2e._maintenance import base_tables
@@ -95,19 +97,29 @@ def mint_times(events: list[dict[str, Any]]) -> list[float]:
     return sorted(int(event["timestamp"]) / 1000 for event in events if event.get("message") == TOKEN_MINTED_MESSAGE)
 
 
+def proof_product(cfg: E2EConfig) -> Product | None:
+    """The default product if its Gold builds in two or more generations, else the first product that does."""
+    default = cfg.inventory.default_product
+    candidates = [default, *(product for product in cfg.inventory.products if product.id != default.id)]
+    for product in candidates:
+        if generation_count(cfg.repo_root / product.dbt_project_dir / "models") >= 2:
+            return product
+    return None
+
+
 def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
     if not uses_polaris(cfg):
         log.info("Skipping the token lifetime proof: the stage's catalog is not Polaris, so it mints no tokens.")
         return
-    product = cfg.inventory.default_product
-    models_dir = cfg.repo_root / product.dbt_project_dir / "models"
-    generations = generation_count(models_dir)
-    if generations < 2:
+    product = proof_product(cfg)
+    if product is None:
         log.info(
-            f"Skipping the token lifetime proof: {product.id}'s Gold builds in {generations} dbt generation(s), "
-            "one process for the whole build, so no shortened lifetime can be outlasted by it. It needs two."
+            "Skipping the token lifetime proof: every product's Gold builds in one dbt generation, one process for "
+            "the whole build, so no shortened lifetime can be outlasted by it. It needs a product with two."
         )
         return
+    models_dir = cfg.repo_root / product.dbt_project_dir / "models"
+    generations = generation_count(models_dir)
     selection = [(product.id, model) for model in sorted(gold_models(models_dir))]
     log.step(f"Building {product.id}'s Gold models past a shortened Polaris token lifetime...")
     with dagster_client(cfg) as client:

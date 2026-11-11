@@ -53,3 +53,19 @@ def test_the_check_runs_on_every_polaris_catalog_and_skips_glue(implementation: 
     from olf.infra.e2e._token_lifetime import catalog_is_polaris
 
     assert catalog_is_polaris(implementation) is expected
+
+
+def test_the_proof_uses_a_product_whose_gold_has_two_generations(tmp_path) -> None:
+    from dataclasses import replace
+
+    from conftest import E2E_INVENTORY, E2E_REPO_ROOT, e2e_cfg
+
+    from olf.infra.e2e._token_lifetime import generation_count, proof_product
+
+    cfg = replace(e2e_cfg(tmp_path), repo_root=E2E_REPO_ROOT)
+    product = proof_product(cfg)
+
+    # The example's default product builds Gold in one generation, so the proof needs another product.
+    assert product is not None
+    assert generation_count(cfg.repo_root / product.dbt_project_dir / "models") >= 2
+    assert product.id in {p.id for p in E2E_INVENTORY.products}
