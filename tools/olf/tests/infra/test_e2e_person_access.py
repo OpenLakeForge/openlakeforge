@@ -149,7 +149,7 @@ def test_outcome_tells_polaris_from_storage_by_the_upstream_message() -> None:
 
 def test_a_trino_rule_denial_is_not_read_as_a_read_only_credential() -> None:
     with pytest.raises(E2EError, match="other than an access decision"):
-        person.outcome(_fails("only the people catalogs ...\nAccess Denied: Cannot access catalog lakehouse_dev"))
+        person.outcome(_fails("only the stage catalogs ...\nAccess Denied: Cannot access catalog lakehouse_dev"))
 
 
 def test_any_other_failure_is_not_read_as_a_decision() -> None:

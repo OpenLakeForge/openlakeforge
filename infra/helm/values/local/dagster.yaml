@@ -23,6 +23,19 @@ dagsterWebserver:
 
 dagsterDaemon:
   enabled: true
+  # One run per Silver domain at a time: a domain's products read and overwrite the same Silver tables, so their
+  # runs queue behind each other. The tag is set by openlakeforge_runtime.product_dagster (SILVER_DOMAIN_TAG).
+  # Local, AWS and Azure all take this file as the release's base values.
+  runCoordinator:
+    enabled: true
+    type: QueuedRunCoordinator
+    config:
+      queuedRunCoordinator:
+        tagConcurrencyLimits:
+          - key: openlakeforge/silver-domain
+            value:
+              applyLimitPerUniqueValue: true
+            limit: 1
   image:
     repository: docker.io/dagster/dagster-celery-k8s
     tag: "1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee"

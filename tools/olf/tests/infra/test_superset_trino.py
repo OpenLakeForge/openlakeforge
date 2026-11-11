@@ -167,7 +167,7 @@ def test_the_trino_sign_in_reuses_the_superset_client_and_keeps_shared_caches_pe
         "issuer_url": "https://auth.olf.localhost/",
         "client_id": "superset",
         "database_redirect_uri": "https://superset-prod.olf.localhost/api/v1/database/oauth2/",
-        "people_catalog": "prod",
+        "people_catalog": "lakehouse_prod",
     }
 
     out = olf_oidc.trino_settings(cfg, "s")
@@ -183,7 +183,7 @@ def test_the_trino_sign_in_reuses_the_superset_client_and_keeps_shared_caches_pe
         "THUMBNAILS": False,
     }
     assert "line" in out["VIZ_TYPE_DENYLIST"]
-    assert out["OLF_ICEBERG_CATALOGS"] == ["iceberg", "prod"]
+    assert out["OLF_ICEBERG_CATALOGS"] == ["iceberg", "lakehouse_prod"]
 
 
 def test_the_image_pins_the_trino_client_and_ships_the_module() -> None:

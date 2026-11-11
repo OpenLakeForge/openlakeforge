@@ -142,6 +142,15 @@ def _runner(environ: dict[str, str]) -> dict[str, Any]:
     return render_profile(environ)["execution"]["runner"]
 
 
+def test_a_floe_job_runs_as_the_image_user_without_privileges() -> None:
+    security = _runner({**_STAGE, "AWS_REGION": "us-east-1"})["security_context"]
+
+    assert security["runAsNonRoot"] is True
+    assert security["runAsUser"] == 10001
+    assert security["allowPrivilegeEscalation"] is False
+    assert security["capabilities"] == {"drop": ["ALL"]}
+
+
 def test_floe_runs_one_kubernetes_job_per_domain_on_the_project_code_image() -> None:
     runner = _runner({**_STAGE, "AWS_REGION": "us-east-1"})
 

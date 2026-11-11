@@ -40,5 +40,6 @@ def test_run_pods_carry_the_default_resources() -> None:
     variables = (module / "variables.tf").read_text()
     default = variables[variables.index('variable "run_pod_resources"') :].split("\n}\n", 1)[0]
 
-    assert re.search(r"containerConfig = \{\s*resources\s*=\s*var\.run_pod_resources", release)
+    container_config = release[release.index("containerConfig = {") :].split("envFrom", 1)[0]
+    assert re.search(r"^\s*resources\s*=\s*var\.run_pod_resources", container_config, re.MULTILINE)
     assert 'memory = "512Mi"' in default and 'memory = "2Gi"' in default

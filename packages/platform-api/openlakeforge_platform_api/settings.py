@@ -29,7 +29,7 @@ class LogArchiveSetting:
 
 @dataclass(frozen=True)
 class QueryEndpointSetting:
-    """One stage's Trino: the statement endpoint and the people catalog the API names in every query.
+    """One stage's Trino: the statement endpoint and the catalog the API names in every query.
 
     The catalog is fixed here, never taken from a request: the stage in the path is what the permission matrix
     checks, so it alone decides which catalog a person's SQL reaches.
@@ -80,7 +80,7 @@ class Settings:
     # The portal's origin (scheme://host[:port]), the only one the CSRF guard lets write. Unset, every request with an
     # Origin header is refused on a POST, PUT, PATCH or DELETE; a client that sends none (the CLI) is unaffected.
     public_origin: str | None = None
-    # True only where the people catalogs exist (Dex-backed identity, ADR 0019). False refuses every per-person query.
+    # True only where Dex-backed identity runs (ADR 0019). False refuses every per-person query.
     person_query: bool = False
     # Each stage's Trino. A stage with no entry offers no query, and with none at all capabilities list no stage.
     query_endpoints: Mapping[str, QueryEndpointSetting] = field(default_factory=dict)

@@ -462,8 +462,8 @@ refresh.
 
 Issue #801: `GET /api/v1/query-capabilities` and the per-person schema and table
 listings (`discovery.py`). The `query_endpoints` setting maps each stage to its
-Trino statement URL and people catalog. Both are in the committed OpenAPI
-document of decision 5 (#1063).
+Trino statement URL and catalog (`lakehouse_<stage>`). Both are in the committed
+OpenAPI document of decision 5 (#1063).
 
 Issue #800: `POST /api/v1/stages/{stage}/queries`, `GET` and `DELETE` on
 `.../queries/{id}`, and `GET .../queries/{id}/export?format=csv|json`

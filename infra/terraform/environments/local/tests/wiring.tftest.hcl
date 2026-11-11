@@ -76,15 +76,15 @@ run "dex_serves_person_queries" {
 
   assert {
     condition     = keys(jsondecode(module.platform_api[0].settings_json).query_endpoints) == ["dev", "prod"]
-    error_message = "query_endpoints must name exactly the stages with people catalogs"
+    error_message = "query_endpoints must name exactly the stages with a person query route"
   }
 
   assert {
     condition = alltrue([
       for stage, endpoint in jsondecode(module.platform_api[0].settings_json).query_endpoints :
-      endpoint.catalog == stage && endpoint.statement_url == "http://trino.olf-${stage}.svc.cluster.local:8080/v1/statement"
+      endpoint.catalog == "lakehouse_${stage}" && endpoint.statement_url == "http://trino.olf-${stage}.svc.cluster.local:8080/v1/statement"
     ])
-    error_message = "each endpoint names its stage as catalog and its own coordinator's plain HTTP URL: Trino has no authentication of its own"
+    error_message = "each endpoint names its stage's lakehouse_<stage> catalog and its own coordinator's plain HTTP URL: Trino has no authentication of its own"
   }
 
   assert {

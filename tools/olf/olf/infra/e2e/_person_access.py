@@ -119,13 +119,31 @@ def dump_query_route_state(cfg: E2EConfig, stage: str, sql: str) -> None:
             "LAST:.status.containerStatuses[*].lastState.terminated.reason",
         ],
         f"Trino log, last 3 minutes (namespace olf-{stage})": [
-            "logs", "-n", f"olf-{stage}", "-l", "app.kubernetes.io/name=trino", "--since=3m", "--tail=80",
+            "logs",
+            "-n",
+            f"olf-{stage}",
+            "-l",
+            "app.kubernetes.io/name=trino",
+            "--since=3m",
+            "--tail=80",
         ],
         "Traefik log, last 3 minutes": [
-            "logs", "-n", "olf-system", "-l", "app.kubernetes.io/name=traefik", "--since=3m", "--tail=200",
+            "logs",
+            "-n",
+            "olf-system",
+            "-l",
+            "app.kubernetes.io/name=traefik",
+            "--since=3m",
+            "--tail=200",
         ],
         "Polaris log, last 3 minutes": [
-            "logs", "-n", "olf-system", "-l", "app.kubernetes.io/name=polaris", "--since=3m", "--tail=60",
+            "logs",
+            "-n",
+            "olf-system",
+            "-l",
+            "app.kubernetes.io/name=polaris",
+            "--since=3m",
+            "--tail=60",
         ],
     }
     for label, args in probes.items():
@@ -228,7 +246,7 @@ def person_runner(
         def statement() -> object:
             with user_trust_environment(route):
                 try:
-                    return query.run_statement(url, sql, bearer=lambda: bearer(role), user=user, catalog=stage)
+                    return query.run_statement(url, sql, bearer=lambda: bearer(role), user=user, stage=stage)
                 except session.PlatformError as exc:
                     if "cannot reach Trino" in str(exc):
                         dump_query_route_state(cfg, stage, sql)
