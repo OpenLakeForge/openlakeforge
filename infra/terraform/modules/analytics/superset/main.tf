@@ -3,14 +3,11 @@ locals {
   repository = var.chart_package_path != null ? null : var.chart_repository
   version    = var.chart_package_path != null ? null : var.chart_version
 
-  trust_volumes = concat(
-    var.oidc == null ? [] : [{ name = "oidc-ca", path = "/etc/olf/oidc-ca", configmap = var.oidc.ca_configmap_name }],
-  )
-
   # Non-secret contract fields; olf_oidc.settings turns them into Superset
   # config in the image. The client secret arrives through the environment.
   oidc_config = var.oidc == null ? null : {
     issuer_url   = var.oidc.issuer_url
+    internal_url = var.oidc.internal_url
     client_id    = var.oidc.client_id
     scope        = var.oidc.scope
     role_claim   = var.oidc.role_claim
@@ -173,11 +170,6 @@ resource "helm_release" "superset" {
         },
       ])
     }),
-    ], length(local.trust_volumes) == 0 ? [] : [
-    yamlencode({
-      extraVolumes      = [for v in local.trust_volumes : { name = v.name, configMap = { name = v.configmap } }]
-      extraVolumeMounts = [for v in local.trust_volumes : { name = v.name, mountPath = v.path, readOnly = true }]
-    })
     ], var.oidc != null || !var.public_admin ? [] : [
     # Authentication off (no spec.identity; local-only, enforced by profile
     # validation). Not derived from oidc == null: an external issuer also
@@ -204,14 +196,6 @@ resource "helm_release" "superset" {
       configOverrides = {
         openlakeforge_oidc = <<-EOT
           import json, os, sys
-          import certifi
-          # The issuer's certificate is signed by the local CA. REQUESTS_CA_BUNDLE
-          # replaces the trust store of every requests call, so the local CA is
-          # appended to the public roots rather than standing alone: alerts and
-          # reports still reach public HTTPS endpoints.
-          with open("/tmp/olf-ca-bundle.pem", "w") as bundle:
-              bundle.write(open(certifi.where()).read() + "\n" + open("/etc/olf/oidc-ca/ca.crt").read())
-          os.environ["REQUESTS_CA_BUNDLE"] = "/tmp/olf-ca-bundle.pem"
           sys.path.insert(0, "/app/olf")
           from olf_oidc import settings, trino_settings
           from olf_trino import db_connection_mutator, install

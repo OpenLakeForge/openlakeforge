@@ -384,27 +384,25 @@ module "perimeter" {
   github_organization = try(var.identity_github.organization, null)
 }
 
-# Pods reach <scheme>://<service>.<base_domain> through Traefik and, over
-# HTTPS, trust the local CA, so a back-channel call sees the same URL (and
-# token `iss`) as a browser. ADR 0013.
+# OpenMetadata is the one pod that still calls the issuer by its public URL
+# (its code exchange follows the discovery document, and 1.13.6 has no
+# token-URL override), so the name resolves to Traefik and, over HTTPS, the
+# server trusts the local CA. Every other consumer uses the issuer's Service
+# (internal_url). ADR 0013, decision 8.
 module "in_cluster_resolution" {
   source = "../../modules/access/in-cluster-resolution"
   count  = local.access_enabled ? 1 : 0
 
-  namespace        = kubernetes_namespace_v1.shared.metadata[0].name
-  base_domain      = local.base_domain
-  trust_namespaces = values(local.stage_namespaces)
+  namespace   = kubernetes_namespace_v1.shared.metadata[0].name
+  base_domain = local.base_domain
   # `external`: the public name belongs to the customer's edge (and, under the
   # e2e fixture, to test_edge), not to Traefik, which serves no TLS.
   rewrite_to_ingress   = var.access_tls != "external" || var.access_test_edge
   ingress_service_name = var.access_tls == "external" && var.access_test_edge ? module.traefik[0].test_edge_service_name : "traefik"
-  trust_namespace_uids = concat(
-    [kubernetes_namespace_v1.shared.metadata[0].uid],
-    [for ns in kubernetes_namespace_v1.stage : ns.metadata[0].uid],
-  )
+  trust_namespace_uids = [kubernetes_namespace_v1.shared.metadata[0].uid]
 
-  # Not on Traefik: the CoreDNS rewrite only names its Service, and Superset
-  # and Dex mount olf-local-ca, which this module publishes. Waiting on Traefik,
+  # Not on Traefik: the CoreDNS rewrite only names its Service, and OpenMetadata
+  # and Dex (GitHub Enterprise) mount olf-local-ca, which this module publishes. Waiting on Traefik,
   # which waits on their routes, left a fresh cluster waiting forever.
   depends_on = [module.cert_manager]
 }
@@ -576,16 +574,16 @@ module "superset" {
   # minted by the platform API module's Job, which this waits for.
   platform_api_user = local.platform_api_enabled ? module.platform_api[0].superset_user : null
   oidc = !local.identity_deployed ? null : {
-    issuer_url        = local.identity_oidc.issuer_url
-    role_claim        = local.identity_oidc.role_claim
-    role_mapping      = local.identity_oidc.role_mapping
-    grants            = local.identity_roles.grants.reporting
-    sign_out_url      = local.sign_out_url
-    scope             = local.identity_scope
-    client_id         = local.identity_oidc.clients.superset.client_id
-    secret_ref        = local.identity_oidc.clients.superset.secret_ref
-    secret_namespace  = kubernetes_namespace_v1.shared.metadata[0].name
-    ca_configmap_name = "olf-local-ca" # the fixed name in_cluster_resolution publishes
+    issuer_url       = local.identity_oidc.issuer_url
+    role_claim       = local.identity_oidc.role_claim
+    role_mapping     = local.identity_oidc.role_mapping
+    grants           = local.identity_roles.grants.reporting
+    sign_out_url     = local.sign_out_url
+    scope            = local.identity_scope
+    client_id        = local.identity_oidc.clients.superset.client_id
+    secret_ref       = local.identity_oidc.clients.superset.secret_ref
+    secret_namespace = kubernetes_namespace_v1.shared.metadata[0].name
+    internal_url     = local.identity_oidc.internal_url
 
     database_redirect_uri = "${local.route_scheme}://superset-${each.key}.${local.base_domain}/api/v1/database/oauth2/"
     people_catalog        = each.key

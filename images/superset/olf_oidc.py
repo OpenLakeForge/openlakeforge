@@ -46,6 +46,30 @@ def _sign_in_scope(cfg: dict) -> str:
     return f"{cfg['scope']} federated:id {TRINO_AUDIENCE} audience:server:client_id:{cfg['client_id']}"
 
 
+def _endpoints(cfg: dict) -> dict:
+    """Authlib's view of the issuer.
+
+    A deployed issuer has an in-cluster Service (`internal_url`): the browser
+    is sent to the public authorize URL, while the pod's own calls (code
+    exchange, keys, userinfo) go to the Service, so they need neither the
+    public name's DNS rewrite nor its CA. Authlib is told the issuer instead of
+    reading it from discovery, whose document names only public URLs, and
+    checks the token's `iss` against it. An external issuer is publicly
+    reachable and trusted, so its discovery document is used as is.
+    """
+    issuer = cfg["issuer_url"].rstrip("/")
+    internal = (cfg.get("internal_url") or "").rstrip("/")
+    if not internal:
+        return {"server_metadata_url": f"{issuer}/.well-known/openid-configuration"}
+    return {
+        "issuer": issuer,
+        "authorize_url": f"{issuer}/auth",
+        "access_token_url": f"{internal}/token",
+        "jwks_uri": f"{internal}/keys",
+        "userinfo_endpoint": f"{internal}/userinfo",
+    }
+
+
 def settings(cfg: dict, client_secret: str) -> dict:
     issuer = cfg["issuer_url"].rstrip("/")
     return {
@@ -58,7 +82,7 @@ def settings(cfg: dict, client_secret: str) -> dict:
                 "remote_app": {
                     "client_id": cfg["client_id"],
                     "client_secret": client_secret,
-                    "server_metadata_url": f"{issuer}/.well-known/openid-configuration",
+                    **_endpoints(cfg),
                     "api_base_url": issuer,
                     "client_kwargs": {"scope": _sign_in_scope(cfg)},
                 },
@@ -88,6 +112,8 @@ LEGACY_VIZ_TYPES = [
 def trino_settings(cfg: dict, client_secret: str) -> dict:
     """Superset's per-user Trino sign-in on the same client as the login (ADR 0019 section 9)."""
     issuer = cfg["issuer_url"].rstrip("/")
+    # The token request is made by Superset's server, the authorization one by the browser.
+    token_base = (cfg.get("internal_url") or issuer).rstrip("/")
     return {
         "DATABASE_OAUTH2_CLIENTS": {
             "Trino": {
@@ -95,7 +121,7 @@ def trino_settings(cfg: dict, client_secret: str) -> dict:
                 "secret": client_secret,
                 "scope": f"openid email groups federated:id offline_access {TRINO_AUDIENCE}",
                 "authorization_request_uri": f"{issuer}/auth",
-                "token_request_uri": f"{issuer}/token",
+                "token_request_uri": f"{token_base}/token",
                 "request_content_type": "data",  # Dex takes a form body, not JSON
             }
         },
