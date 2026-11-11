@@ -45,9 +45,11 @@ def crawl_problems(
     """
     problems = []
     for stage in present:
-        for needed in (f"Secret/{POLARIS_SECRET}", f"CronJob/{JOB_NAME}"):
-            if needed not in held[stage]:
-                problems.append(f"{stage} has no {needed}, but its governance is on")
+        if f"Secret/{POLARIS_SECRET}" not in held[stage]:
+            problems.append(f"{stage} has no Secret/{POLARIS_SECRET}, but its governance is on")
+        # Named by the catalog it crawls (`ingestion_cronjob`), so any CronJob carrying the crawl's label counts.
+        if not any(item.startswith("CronJob/") for item in held[stage]):
+            problems.append(f"{stage} has no crawl CronJob, but its governance is on")
     for stage in absent:
         for found in sorted(held[stage]):
             problems.append(f"{stage} still has {found}, but its governance is off")

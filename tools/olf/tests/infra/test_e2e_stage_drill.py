@@ -11,21 +11,27 @@ from olf.infra.commands import e2e as e2e_commands
 from olf.infra.e2e import _stage_drill as drill
 from olf.infra.e2e._shell import E2EError
 
-GOVERNED = {"Secret/polaris-om-creds", "CronJob/openmetadata-trino-ingestion"}
+GOVERNED = {"Secret/polaris-om-creds", "CronJob/openmetadata-trino-ingestion-lakehouse-dev"}
 
 
 def test_a_governed_stage_must_hold_the_secret_and_the_cronjob() -> None:
-    held = {"dev": {"CronJob/openmetadata-trino-ingestion"}}
+    held = {"dev": {"CronJob/openmetadata-trino-ingestion-lakehouse-dev"}}
 
     assert drill.crawl_problems(held, ["dev"], []) == ["dev has no Secret/polaris-om-creds, but its governance is on"]
 
 
+def test_a_governed_stage_without_a_crawl_cronjob_is_reported() -> None:
+    held = {"dev": {"Secret/polaris-om-creds", "Job/openmetadata-trino-ingestion-lakehouse-dev-1"}}
+
+    assert drill.crawl_problems(held, ["dev"], []) == ["dev has no crawl CronJob, but its governance is on"]
+
+
 def test_an_ungoverned_stage_may_hold_none_of_the_crawl() -> None:
-    held = {"prod": {*GOVERNED, "Job/openmetadata-trino-ingestion-123"}}
+    held = {"prod": {*GOVERNED, "Job/openmetadata-trino-ingestion-lakehouse-prod-123"}}
 
     assert drill.crawl_problems(held, [], ["prod"]) == [
-        "prod still has CronJob/openmetadata-trino-ingestion, but its governance is off",
-        "prod still has Job/openmetadata-trino-ingestion-123, but its governance is off",
+        "prod still has CronJob/openmetadata-trino-ingestion-lakehouse-dev, but its governance is off",
+        "prod still has Job/openmetadata-trino-ingestion-lakehouse-prod-123, but its governance is off",
         "prod still has Secret/polaris-om-creds, but its governance is off",
     ]
 
@@ -79,7 +85,7 @@ class _Cluster:
 def test_the_crawl_is_read_from_the_stage_namespace(monkeypatch: pytest.MonkeyPatch) -> None:
     cluster = _Cluster(
         {
-            "olf-dev": {"Secret": ["polaris-om-creds"], "CronJob": ["openmetadata-trino-ingestion"]},
+            "olf-dev": {"Secret": ["polaris-om-creds"], "CronJob": ["openmetadata-trino-ingestion-lakehouse-dev"]},
             "olf-prod": {"Secret": [], "CronJob": []},
         }
     )

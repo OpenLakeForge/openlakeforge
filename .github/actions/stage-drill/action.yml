@@ -24,6 +24,10 @@ inputs:
 runs:
   using: composite
   steps:
+    # Every step below unsets OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE: the workflow exports the DEV+PROD contract it
+    # rendered once, and a deploy or assertion that reads it after a stage is removed or ungoverned refuses the
+    # stale topology instead of reading the live Terraform state. The nested deploy-stage runs with the stack back
+    # as exported, so the file is valid again there.
     - name: Keep the profile and check DEV and PROD both hold the crawl
       shell: bash
       env:
@@ -31,6 +35,7 @@ runs:
         DIRECTORY: ${{ inputs.directory }}
       run: |
         set -euo pipefail
+        unset OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE
         mkdir -p "${DIRECTORY}/logs"
         {
           echo "DRILL_PROFILE=$(realpath "${PROFILE}")"
@@ -44,6 +49,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        unset OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE
         cd "$(dirname "${DRILL_PROFILE}")"
         sed -i '/^    prod:$/,/^      enabled: true$/ s/^      enabled: true$/      enabled: true\n      capabilities:\n        governance: false/' \
           "${DRILL_PROFILE}"
@@ -57,6 +63,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        unset OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE
         cd "$(dirname "${DRILL_PROFILE}")"
         cp "${RUNNER_TEMP}/stage-drill.original.yaml" "${DRILL_PROFILE}"
         sed -i '/^    prod:$/,/^      enabled: true$/ s/^      enabled: true$/      enabled: false/' "${DRILL_PROFILE}"
@@ -70,6 +77,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        unset OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE
         cd "$(dirname "${DRILL_PROFILE}")"
         cp "${RUNNER_TEMP}/stage-drill.original.yaml" "${DRILL_PROFILE}"
         olf profile validate --project .
@@ -91,6 +99,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        unset OPENLAKEFORGE_PROVIDER_CONTRACTS_FILE
         cd "$(dirname "${DRILL_PROFILE}")"
         olf infra e2e stage-drill crawl --present dev --present prod -f "${DRILL_PROFILE}"
         olf infra e2e secret-scan --path "${DRILL_DIR}/logs" -f "${DRILL_PROFILE}"
