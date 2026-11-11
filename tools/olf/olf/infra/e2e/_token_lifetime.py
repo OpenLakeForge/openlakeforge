@@ -42,7 +42,7 @@ LIFETIME_ENV = "POLARIS_AUTHENTICATION_TOKEN_BROKER_MAX_TOKEN_GENERATION"
 TOKEN_MINTED_MESSAGE = "Minted a Polaris token for a dbt build generation"
 # The runtime builds one dbt generation (models whose upstream models are all built) per token, so each
 # generation's own dbt process (start-up and build) must fit inside the lifetime, while the whole token-exposed
-# interval (first mint to the end of the run) must outlast it. The lifetime is sized from the baseline run's mints:
+# interval (first mint to the last Gold commit) must outlast it. The lifetime is sized from the baseline run's mints:
 # the slowest generation plus headroom, and at most a fraction of the exposed interval. A product with a single
 # generation, or generations too uneven for such a lifetime, cannot prove anything, so the check skips it.
 GENERATION_HEADROOM = 1.25
@@ -69,8 +69,9 @@ query RunLogTimes($runId: ID!) {
 def shortened_lifetime_seconds(mints: list[float], ended: float) -> int | None:
     """A token lifetime that each generation of the baseline run fits in and its token-exposed interval outlasts.
 
-    `mints` are the baseline run's token mints (one per generation), `ended` its end, both in Unix seconds. None
-    when no lifetime satisfies both, for example a single generation or one generation taking nearly all the time.
+    `mints` are the baseline run's token mints (one per generation), `ended` its last Gold commit, both in Unix
+    seconds. None when no lifetime satisfies both, for example a single generation or one generation taking
+    nearly all the time.
     """
     if len(mints) < 2:
         return None
@@ -152,13 +153,22 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
                 raise E2EError(f"Dagster recorded no start and end time for the {product.id} Gold run.")
             return run_id, float(run.ended_at)
 
-        baseline_id, baseline_end = gold_run()
+        def last_commit() -> float:
+            schema = f"{_glue_namespace_prefix(cfg)}{product.gold_namespace}"
+            return _last_gold_commit(cfg, [(product.gold_namespace, table) for table in base_tables(cfg, schema)])
+
+        baseline_id, _ = gold_run()
         baseline_mints = mint_times(_run_events(client, baseline_id))
-        lifetime = shortened_lifetime_seconds(baseline_mints, baseline_end)
+        # The token-exposed interval ends at the last commit, not the run's end: Dagster spends time after dbt
+        # (artifact upload, teardown) that no token covers, and counting it would oversize the last generation.
+        baseline_commit = last_commit()
+        lifetime = shortened_lifetime_seconds(baseline_mints, baseline_commit)
         if lifetime is None:
             log.info(
-                f"Skipping the token lifetime proof: {product.id}'s {len(baseline_mints)} generation(s) leave no "
-                "lifetime that each one fits in and the whole build outlasts."
+                f"Skipping the token lifetime proof: {product.id}'s mints at "
+                f"{[round(m - baseline_mints[0]) for m in baseline_mints]}s and last commit at "
+                f"{round(baseline_commit - baseline_mints[0]) if baseline_mints else None}s leave no lifetime that "
+                "each generation fits in and the whole build outlasts."
             )
             return
         log.info(f"Gold's slowest generation fits in {lifetime}s; Polaris tokens now live {lifetime}s.")
@@ -172,13 +182,7 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
             _set_lifetime(cfg, None)
             retry_until_deadline(lambda: check_trino_write(cfg))
         minted = mint_times(_run_events(client, run_id))
-        committed = _last_gold_commit(
-            cfg,
-            [
-                (product.gold_namespace, table)
-                for table in base_tables(cfg, f"{_glue_namespace_prefix(cfg)}{product.gold_namespace}")
-            ],
-        )
+        committed = last_commit()
     if len(minted) < generations:
         raise E2EError(f"the Gold run minted {len(minted)} token(s) for {generations} dbt generations.")
     expired = minted[0] + lifetime

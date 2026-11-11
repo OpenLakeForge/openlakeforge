@@ -44,6 +44,7 @@ from openlakeforge_runtime.dbt_build import (
     generation_args,
     merge_run_results,
     model_dependencies,
+    model_sources,
 )
 from openlakeforge_runtime.floe_profile import write_profile
 from openlakeforge_runtime.openlakeforge_logging import log_event
@@ -471,6 +472,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
                 build_generation,
                 generation_token,
                 lambda models, tests: failed_nodes_in(target_paths[-1], models, tests),
+                sources=model_sources(manifest, selected),
             )
         finally:
             if previous_job_name is None:

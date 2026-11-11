@@ -62,7 +62,7 @@ def check_of(name: str, *parents: str, explicit: bool = True) -> dbt_build.DbtTe
 test_batches: list[list[str]] = []
 
 
-def run(dependencies, tokens, fail=(), failed_models=lambda models: [], tests=(), failed_tests=()):
+def run(dependencies, tokens, fail=(), failed_models=lambda models: [], tests=(), failed_tests=(), sources=None):
     """Run the generations; `fail` names models whose invocation raises, `failed_tests` tests that fail."""
     batches: list[list[str]] = []
     test_batches.clear()
@@ -85,7 +85,9 @@ def run(dependencies, tokens, fail=(), failed_models=lambda models: [], tests=()
     error = None
     try:
         events.extend(
-            dbt_build.build_by_generation(dependencies, {t.unique_id: t for t in tests}, invoke, tokens, failed_nodes)
+            dbt_build.build_by_generation(
+                dependencies, {t.unique_id: t for t in tests}, invoke, tokens, failed_nodes, sources=sources
+            )
         )
     except DagsterDbtCliRuntimeError as exc:
         error = exc
@@ -350,4 +352,37 @@ def test_tests_of_the_manifest_carry_their_selected_parents() -> None:
         "gold.src": ((), True),
         "gold.other": ((), False),
         "gold.b.ut": (("b",), True),
+    }
+
+
+def test_a_failed_source_test_blocks_the_models_reading_that_source() -> None:
+    # a reads source x; b reads a and source y. The test on y fails alongside a, so b must not build.
+    check = dbt_build.DbtTest("test.gold.not_null_y", "gold.not_null_y", (), True, ("source.gold.y",))
+    dependencies = {"a": (), "b": ("a",), "c": ("a",)}
+    sources = {"a": {"source.gold.x"}, "b": {"source.gold.x", "source.gold.y"}, "c": {"source.gold.x"}}
+
+    batches, _, error = run(dependencies, Tokens(), tests=[check], failed_tests={"not_null_y"}, sources=sources)
+
+    assert batches == [["a"], ["c"]]
+    assert error is not None
+
+
+def test_model_sources_reach_through_upstream_models() -> None:
+    manifest = {
+        "metadata": {"project_name": "gold"},
+        "nodes": {
+            "model.gold.a": {
+                "name": "a", "resource_type": "model", "package_name": "gold",
+                "depends_on": {"nodes": ["source.gold.x"]},
+            },
+            "model.gold.b": {
+                "name": "b", "resource_type": "model", "package_name": "gold",
+                "depends_on": {"nodes": ["model.gold.a", "source.gold.y"]},
+            },
+        },
+    }
+
+    assert dbt_build.model_sources(manifest, {"a", "b"}) == {
+        "a": frozenset({"source.gold.x"}),
+        "b": frozenset({"source.gold.x", "source.gold.y"}),
     }

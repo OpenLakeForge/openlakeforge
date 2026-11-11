@@ -20,6 +20,8 @@ class DbtTest:
     parents: tuple[str, ...]
     # False for a test on models outside the selection: dagster-dbt decides whether it runs.
     explicit: bool
+    # The sources the test reads directly (unique ids): a failed source test blocks the models reading them.
+    sources: tuple[str, ...] = ()
 
 
 def _project_models(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, Mapping[str, Any]]:
@@ -76,8 +78,30 @@ def dbt_tests(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[st
             selector=".".join(node["fqn"]),
             parents=parents,
             explicit=bool(parents) or not any(parent.startswith("model.") for parent in direct),
+            sources=tuple(sorted(parent for parent in direct if parent.startswith("source."))),
         )
     return tests
+
+
+def model_sources(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, frozenset[str]]:
+    """Each selected model with every source it reads, directly or through any upstream node."""
+    nodes = manifest.get("nodes", {})
+    result: dict[str, frozenset[str]] = {}
+    for node in _project_models(manifest, selected).values():
+        found: set[str] = set()
+        seen: set[str] = set()
+        pending = list(node.get("depends_on", {}).get("nodes", []))
+        while pending:
+            parent = pending.pop()
+            if parent in seen:
+                continue
+            seen.add(parent)
+            if parent.startswith("source."):
+                found.add(parent)
+            elif parent in nodes:
+                pending.extend(nodes[parent].get("depends_on", {}).get("nodes", []))
+        result[node["name"]] = frozenset(found)
+    return result
 
 
 def generations(dependencies: Mapping[str, Collection[str]]) -> list[list[str]]:
@@ -139,6 +163,7 @@ def build_by_generation(
     invoke: Callable[[list[str], list[DbtTest]], Iterator[Any]],
     token: Callable[[], AbstractContextManager[Any]],
     failed_nodes: Callable[[list[str], list[DbtTest]], Collection[str]],
+    sources: Mapping[str, Collection[str]] | None = None,
 ) -> Iterator[Any]:
     """Build the models one topological generation per dbt invocation, and yield the events.
 
@@ -154,8 +179,9 @@ def build_by_generation(
     `failed_nodes` names the models (by name) and tests (by unique id) that errored or failed; none
     known means all of the generation's models. Dependents are skipped, as `dbt build` does: those of a
     failed model, and those of a failed blocking test (the models that read all the test's parents). A
-    test over a failed or skipped model does not run. Independent models still build, and the first
-    failure is raised once the rest are done.
+    failed test on sources blocks the models that read all its sources, given by `sources` (model name
+    to the source ids it reads, directly or not). A test over a failed or skipped model does not run.
+    Independent models still build, and the first failure is raised once the rest are done.
     """
     if not dependencies:
         # A selection of checks alone names no model, and dbt still has to run them.
@@ -202,6 +228,12 @@ def build_by_generation(
                 elif test.parents:
                     # dbt makes a model wait for a test only when it reads all of the test's parents.
                     blocked.update(set.intersection(*(descendants(parent) for parent in test.parents)))
+                elif test.sources and sources is not None:
+                    # A source test: block every model reading all its sources, and what reads those.
+                    readers = {model for model, read in sources.items() if set(test.sources) <= set(read)}
+                    blocked.update(readers)
+                    for reader in readers:
+                        blocked.update(descendants(reader))
             first_error = first_error or exc
     if first_error is not None:
         raise first_error
