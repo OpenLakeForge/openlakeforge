@@ -629,18 +629,50 @@ def test_wait_for_service_ready_fails_when_no_pod_becomes_ready(monkeypatch: pyt
         _REAL_WAIT_FOR_SERVICE_READY("dagster-webserver", "olf-prod", timeout_seconds=10)
 
 
-def test_port_forward_waits_for_a_ready_pod_before_it_launches(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    order: list[str] = []
+def _forward_once_slices_answer(monkeypatch: pytest.MonkeyPatch, answers: list[str], clock: list[float]) -> list[int]:
+    """Drive the real readiness wait through `port_forward`: kubectl answers `answers` in turn (the last one
+    repeats), and `launched` records how many answers were read when kubectl port-forward started."""
+    read: list[str] = []
+    launched: list[int] = []
     process = Mock()
     process.poll.return_value = None
-    monkeypatch.setattr(k8s, "wait_for_service_ready", lambda *_a, **_k: order.append("ready"))
-    monkeypatch.setattr(k8s.ProcessRunner, "popen", lambda *_a, **_k: order.append("launch") or process)
+    ticks = iter(clock)
+
+    def kubectl(args: list[str], **_kw: object) -> str:
+        assert args[:2] == ["get", "endpointslices"], args
+        read.append(answers[min(len(read), len(answers) - 1)])
+        return read[-1]
+
+    monkeypatch.setattr(k8s, "wait_for_service_ready", _REAL_WAIT_FOR_SERVICE_READY)
+    monkeypatch.setattr(k8s, "_kubectl", kubectl)
+    monkeypatch.setattr(k8s.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(k8s.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(k8s.ProcessRunner, "popen", lambda *_a, **_k: launched.append(len(read)) or process)
     monkeypatch.setattr(k8s, "_wait_for_port_forward", Mock())
     monkeypatch.setattr(k8s, "_kubectl_executable", lambda: "kubectl")
+    return launched
+
+
+def test_port_forward_starts_only_once_a_pod_behind_the_service_is_ready(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pending = _slices({"addresses": ["10.0.0.1"], "conditions": {"ready": False}})
+    ready = _slices({"addresses": ["10.0.0.1"], "conditions": {"ready": True}})
+    launched = _forward_once_slices_answer(monkeypatch, [pending, pending, ready], [0.0] * 10)
 
     with k8s.port_forward("dagster-webserver", 80, "olf-prod", log_path=str(tmp_path / "pf.log"), kube_context="ctx"):
         pass
 
-    assert order == ["ready", "launch"]
+    # Two Pending answers, then Ready: kubectl port-forward started after the third read, not before.
+    assert launched == [3]
+
+
+def test_port_forward_never_starts_when_no_pod_becomes_ready(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    pending = _slices({"addresses": ["10.0.0.1"], "conditions": {"ready": False}})
+    launched = _forward_once_slices_answer(monkeypatch, [pending], [0.0, 1.0, 10_000.0])
+
+    with pytest.raises(k8s.KubectlError, match="no Ready pod backs Service olf-prod/dagster-webserver"):
+        with k8s.port_forward("dagster-webserver", 80, "olf-prod", log_path=str(tmp_path / "pf.log")):
+            pass
+
+    assert launched == []
