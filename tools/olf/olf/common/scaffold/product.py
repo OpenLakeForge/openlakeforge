@@ -103,7 +103,9 @@ def _load(text: str) -> dict:
 def _source_tables(text: str, domain: str) -> set[str]:
     sources = _load(text).get("sources") or []
     source = next((item for item in sources if isinstance(item, dict) and item.get("name") == domain), None) or {}
-    return {table.get("name") for table in source.get("tables") or [] if isinstance(table, dict)}
+    return {
+        str(table["name"]) for table in source.get("tables") or [] if isinstance(table, dict) and table.get("name")
+    }
 
 
 def _render_product_block(*, product: str, display_name: str) -> str:

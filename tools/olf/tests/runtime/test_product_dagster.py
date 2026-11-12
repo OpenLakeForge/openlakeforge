@@ -460,14 +460,14 @@ def _model(name: str, product: str, *reads: str) -> dict:
     }
 
 
-def _source(domain: str, name: str) -> tuple[str, dict]:
+def _silver_source(domain: str, name: str) -> tuple[str, dict]:
     unique_id = f"source.gold.{domain}.{name}"
     return unique_id, {"name": name, "source_name": domain, "resource_type": "source", "package_name": "gold"}
 
 
 def _manifest(tmp_path: Path, *, source: str, domain: str = "sales") -> Path:
-    source_id, source_node = _source(domain, source)
-    unused_id, unused_node = _source("sales", "promotions")
+    source_id, source_node = _silver_source(domain, source)
+    unused_id, unused_node = _silver_source("sales", "promotions")
     path = tmp_path / "manifest.json"
     path.write_text(
         json.dumps(
