@@ -176,6 +176,7 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "lakehouse_code/gold/__init__.py",
     "lakehouse_code/gold/dbt_project.yml",
     "lakehouse_code/gold/packages.yml",
+    "lakehouse_code/gold/macros/generate_schema_name.sql",
     "lakehouse_code/gold/models/_sources/sales.yml",
     "lakehouse_code/gold/models/_sources/supply_chain.yml",
     "lakehouse_code/gold/models/order_revenue/schema.yml",

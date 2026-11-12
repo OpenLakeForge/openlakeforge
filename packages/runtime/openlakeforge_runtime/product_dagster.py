@@ -139,7 +139,9 @@ class ProductDefinitionSpec:
 
     @property
     def dbt_select(self) -> str:
-        return f"path:models/{self.product}"
+        # A product folder is a dbt group (ADR 0004). dagster-dbt resolves a `path:` selector
+        # without the project directory, so it would match nothing.
+        return f"group:{self.product}"
 
     def resolve(self, manifest_path: Path | None = None) -> ResolvedProductInputs:
         """The effective inputs; `manifest_path` defaults to the Gold project's baked dbt manifest."""
@@ -162,9 +164,8 @@ class ProductDefinitionSpec:
                 )
         silver = self.silver_inputs
         if silver is None:
+            # Empty for a product that reads only other products' public marts through ref().
             silver = self._read_silver_tables(manifest, models)
-            if not silver:
-                raise ValueError(f"product {self.product!r}: its dbt models read no Silver source")
         bronze = self.bronze_inputs
         if bronze is None:
             bronze = self._floe_bronze_inputs(silver)

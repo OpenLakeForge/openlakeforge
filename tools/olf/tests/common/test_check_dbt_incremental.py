@@ -33,6 +33,7 @@ def _product(root: Path, model_from: str) -> Path:
     files = {
         "dbt_project.yml": _templates.render_dbt_project_yml(products=("food_quality",)),
         "packages.yml": _templates.render_dbt_packages_yml(),
+        _templates.GOLD_SCHEMA_MACRO_PATH: _templates.render_dbt_schema_macro(),
         "models/_sources/quality.yml": _templates.render_dbt_sources_yml(
             domain="quality", tables=(("products", "Validated."),)
         ),

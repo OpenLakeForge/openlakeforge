@@ -13,6 +13,7 @@ from olf.common.deployment.errors import DeploymentError
 from olf.common.log import fail
 from olf.common.tooling.toolkit import Toolkit
 
+
 def _refuse_per_product_dbt_projects(gold_root: Path) -> None:
     """A project still on the per-product layout parses nothing and builds no product, so it fails loudly."""
     legacy = sorted(path.parent for path in gold_root.glob("*/dbt/dbt_project.yml"))

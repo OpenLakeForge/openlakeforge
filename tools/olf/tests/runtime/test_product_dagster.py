@@ -32,7 +32,7 @@ _SPEC = ProductDefinitionSpec(
 def test_spec_names_the_job_and_selects_its_folder_of_the_gold_project() -> None:
     assert _SPEC.job_name == "revenue_pipeline"
     assert _SPEC.dbt_project_dir.parts[-2:] == ("lakehouse_code", "gold")
-    assert _SPEC.dbt_select == "path:models/revenue"
+    assert _SPEC.dbt_select == "group:revenue"
 
 
 def test_only_prod_gets_a_daily_schedule_and_it_is_stopped() -> None:
@@ -501,6 +501,27 @@ def test_a_product_reading_another_domains_silver_is_refused(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match=r"reads \['supply_chain.shipments'\]"):
         spec.resolve(_manifest(tmp_path, source="shipments", domain="supply_chain"))
+
+
+def test_a_product_reading_only_another_products_public_mart_needs_no_silver(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "metadata": {"project_name": "gold"},
+                "nodes": {
+                    "model.gold.revenue": _model("revenue", "order_revenue"),
+                    "model.gold.forecast": _model("forecast", "revenue_forecast", "model.gold.revenue"),
+                },
+                "sources": {},
+            }
+        )
+    )
+    spec = ProductDefinitionSpec(domain="sales", product="revenue_forecast")
+
+    resolved = spec.resolve(path)
+
+    assert (resolved.silver_inputs, resolved.bronze_inputs, resolved.gold_assets) == ((), (), ("forecast",))
 
 
 def test_a_product_without_a_folder_of_models_is_refused(tmp_path: Path) -> None:

@@ -11,7 +11,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-
 from openlakeforge_core import load_transitional_lakehouse_inventory
 
 from olf.common.scaffold import _templates
@@ -54,6 +53,7 @@ def _gold_project_changes(
     if not project_file.is_file():
         files.append(ScaffoldFile(project_path, _templates.render_dbt_project_yml(products=(product,))))
         files.append(ScaffoldFile(f"{_GOLD}/packages.yml", _templates.render_dbt_packages_yml()))
+        files.append(ScaffoldFile(f"{_GOLD}/{_templates.GOLD_SCHEMA_MACRO_PATH}", _templates.render_dbt_schema_macro()))
     else:
         text = project_file.read_text(encoding="utf-8")
         edited = _append(text, _templates.render_dbt_product_block(product=product))

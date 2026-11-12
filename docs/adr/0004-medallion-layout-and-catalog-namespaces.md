@@ -73,7 +73,7 @@ product.
 | --- | --- |
 | `dbt_project.yml`: materialization, `on_table_exists`, `view_security` | `models/<product>/*.sql` |
 | `packages.yml`: `openlakeforge_dbt` and any other dbt package | `models/<product>/schema.yml`: descriptions, tests, the product's dbt `group` |
-| `macros/`: project macros any product calls | |
+| `macros/`: the `generate_schema_name` wrapper, and project macros any product calls | |
 | `models/_sources/<domain>.yml`: one dbt source per domain | |
 
 **A source is named after its domain.** `source('sales', 'orders')` reads
@@ -85,7 +85,9 @@ table.
 **The schema comes from the folder.** `generate_schema_name` in
 `openlakeforge_dbt` names every model's schema
 `<prefix><product>_gold`, where `<product>` is the model's folder under
-`models/`. A model outside a product folder fails to parse. A `schema` config
+`models/`. dbt takes `generate_schema_name` only from the root project, so
+the Gold project's `macros/generate_schema_name.sql` delegates to the
+package's. A model outside a product folder fails to parse. A `schema` config
 that names any other schema is still rejected by `olf check contracts`
 (ADR 0005). The profile's target schema is never written to.
 
@@ -99,8 +101,9 @@ Dagster. The reading product's job does not rebuild it.
 
 **Dagster selects each product out of one manifest.** The image parses the
 project once. Each product's assets are
-`dbt_assets(select="path:models/<product>")` over that manifest. Its Silver
-inputs are the sources its models read, not every source in the project. Its
+`dbt_assets(select="group:<product>")` over that manifest. Its Silver
+inputs are the sources its models read, not every source in the project, and
+are empty for a product that reads only public marts. Its
 job still builds only its own models. Run artifacts keep their per-product
 prefix.
 

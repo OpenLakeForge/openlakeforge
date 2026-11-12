@@ -27,8 +27,10 @@ engine (`trino.yml` today). `openlakeforge_runtime.dbt.render_profiles` renders 
 `env_var()` reference, never a default. `olf check project-code` renders the
 checked project's own profile into its cache and points the code location at
 it with `OPENLAKEFORGE_DBT_PROFILES_DIR`. The Gold dbt project holds a folder
-of models per product; `openlakeforge_dbt`'s `generate_schema_name` names each
-model's schema after its folder (ADR 0004).
+of models per product. `openlakeforge_dbt`'s `generate_schema_name` names each
+model's schema after its folder (ADR 0004); dbt takes that macro only from the
+root project, so the project's `macros/generate_schema_name.sql` delegates to
+it.
 
 The Gold project's `packages.yml` reaches the shared `openlakeforge_dbt` package
 as `{{ env_var('OPENLAKEFORGE_DBT_PACKAGES_DIR') }}/openlakeforge_dbt`. A

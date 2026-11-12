@@ -31,6 +31,7 @@ lakehouse_code/
 ├── gold/
 │   ├── dbt_project.yml
 │   ├── packages.yml
+│   ├── macros/generate_schema_name.sql
 │   └── models/
 │       ├── _sources/
 │       │   └── marketing.yml
@@ -53,6 +54,8 @@ edit most of it:
   dbt profile whose connection comes from each stage's environment. It also
   puts each product's folder in a dbt group of the same name, whose models
   other products cannot `ref()` unless they are marked public.
+- `macros/generate_schema_name.sql` hands each model's schema to the shared
+  package, which names it after the product's folder.
 - `packages.yml` pulls in the shared OpenLakeForge dbt package. It ships
   with OpenLakeForge, not with your project, so the file names it through
   `OPENLAKEFORGE_DBT_PACKAGES_DIR`, which `olf` and the project-code image

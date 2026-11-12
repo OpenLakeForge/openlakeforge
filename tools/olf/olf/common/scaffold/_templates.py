@@ -417,6 +417,21 @@ models:
 ''' + "".join(render_dbt_product_block(product=product) for product in products)
 
 
+GOLD_SCHEMA_MACRO_PATH = "macros/generate_schema_name.sql"
+
+
+def render_dbt_schema_macro() -> str:
+    # dbt takes generate_schema_name only from the root project, never from an
+    # installed package, so the project delegates to the distribution's.
+    return (
+        "{#- Each model's schema is its product folder's <product>_gold (ADR 0004). dbt takes this macro\n"
+        "    only from the root project, so it delegates to the OpenLakeForge package's. -#}\n"
+        "{% macro generate_schema_name(custom_schema_name, node) -%}\n"
+        "  {{ openlakeforge_dbt.generate_schema_name(custom_schema_name, node) }}\n"
+        "{%- endmacro %}\n"
+    )
+
+
 def render_dbt_product_block(*, product: str) -> str:
     return f"    {product}:\n      +group: {product}\n"
 

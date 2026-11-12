@@ -27,6 +27,7 @@ def _customer_project(root: Path) -> Path:
     files = {
         "dbt_project.yml": _templates.render_dbt_project_yml(products=tuple(_PRODUCTS)),
         "packages.yml": _templates.render_dbt_packages_yml(),
+        _templates.GOLD_SCHEMA_MACRO_PATH: _templates.render_dbt_schema_macro(),
     }
     for product, (domain, silver) in _PRODUCTS.items():
         files[f"models/_sources/{domain}.yml"] = _templates.render_dbt_sources_yml(

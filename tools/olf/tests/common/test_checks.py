@@ -94,6 +94,8 @@ def test_the_reference_project_and_the_scaffold_reach_the_dbt_package_the_same_w
     gold = Path(__file__).resolve().parents[4] / "lakehouse_code/gold"
 
     assert (gold / "packages.yml").read_text() == _templates.render_dbt_packages_yml()
+    # Without it dbt keeps every model in the profile's target schema, not its product's.
+    assert (gold / _templates.GOLD_SCHEMA_MACRO_PATH).read_text() == _templates.render_dbt_schema_macro()
     _shared._refuse_per_product_dbt_projects(gold)
 
 

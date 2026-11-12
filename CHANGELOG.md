@@ -32,7 +32,10 @@ for how a release is cut and verified.
    `name: gold`, `profile: gold`, the `models.gold` block of one of your
    product projects plus `+access: private`, and one
    `<product>: {+group: <product>}` entry per product. Move one product's
-   `packages.yml` to `lakehouse_code/gold/packages.yml`.
+   `packages.yml` to `lakehouse_code/gold/packages.yml`, and add
+   `lakehouse_code/gold/macros/generate_schema_name.sql` as the reference
+   project has it: without it dbt puts every model in the profile's `gold`
+   schema.
 2. For each domain, merge its products' `models/sources.yml` into
    `lakehouse_code/gold/models/_sources/<domain>.yml`, renaming the source
    from `silver` to the domain, and in every model replace
