@@ -59,7 +59,7 @@ Desktop, raise its memory and disk limits to these values.
 With uv, which fetches Python 3.12 if your machine has none:
 
 ```bash
-uv tool install "openlakeforge==0.6.0a1" --python 3.12
+uv tool install "openlakeforge==0.6.0a2" --python 3.12
 ```
 
 Or with pip, in a virtual environment:
@@ -67,7 +67,7 @@ Or with pip, in a virtual environment:
 ```bash
 python3.12 -m venv ~/.venvs/olf
 source ~/.venvs/olf/bin/activate
-python3.12 -m pip install "openlakeforge==0.6.0a1"
+python3.12 -m pip install "openlakeforge==0.6.0a2"
 ```
 
 With pip, activate the environment again in each new shell. Check the install

@@ -14,6 +14,15 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+## [0.6.0-alpha.2] - 2026-11-12
+
+This release reorganises the user code under `lakehouse_code/`: Gold becomes
+one dbt project with a folder per product, and each domain's Floe contracts
+sit directly in `contracts/`. Both are breaking layout changes for an existing
+project; Migration below lists the moves, and `olf check` names any file still
+in the old place. Schema, table and Dagster asset names do not change. It also
+moves Silver to Floe 0.10.
+
 ### Changed
 
 - Gold is one dbt project at `lakehouse_code/gold/` instead of one per product
@@ -32,6 +41,13 @@ for how a release is cut and verified.
   a project still on `contracts/floe/` and names the move. `olf domain new` and
   `olf product new` refuse a resource named `domain`, whose entity file would
   be the domain file.
+- The project-code image pins `floe-python` 0.10.0 and `dagster-floe` 0.6.0
+  (#1098). Floe 0.10 refuses `profile.validation.strict`, so the rendered
+  EnvironmentProfile no longer sets it.
+- The OpenMetadata deployer builds its domains and data products straight
+  from `governance.yml` and the source descriptors, instead of rebuilding the
+  shape the removed `domains/` layout produced (#1100). A domain with no
+  product yet now also registers the Bronze containers its Silver reads.
 
 ### Migration
 

@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openlakeforge-runtime"
-version = "0.6.0a1"
+version = "0.6.0a2"
 description = "OpenLakeForge project-code runtime: Dagster, dlt, dbt and Floe glue imported by lakehouse code"
 requires-python = ">=3.12"
 # Dagster, dlt, dbt and Floe come from the project-code image's hashed lock
 # (images/project-code), not from here; the image installs with --no-deps.
-dependencies = ["openlakeforge-core==0.6.0a1"]
+dependencies = ["openlakeforge-core==0.6.0a2"]
 
 [tool.setuptools.packages.find]
 include = ["openlakeforge_runtime*"]
