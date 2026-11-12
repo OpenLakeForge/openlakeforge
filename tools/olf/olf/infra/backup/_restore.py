@@ -155,17 +155,19 @@ def _replace_secrets(
         except (binascii.Error, UnicodeDecodeError):
             raise BackupError(f"Secret {ref.namespace}/{ref.name} does not hold text values") from None
         k8s.delete_secret(ref.name, ref.namespace, environ=environ)
+        secret_type = secret.get("type") or "Opaque"
         try:
-            k8s.write_secret(
-                ref.name,
-                ref.namespace,
-                data,
-                overwrite=False,
-                secret_type=secret.get("type") or "Opaque",
-                environ=environ,
-            )
+            k8s.write_secret(ref.name, ref.namespace, data, overwrite=False, secret_type=secret_type, environ=environ)
         except k8s.KubectlError:
-            raise BackupError(f"could not write Secret {ref.namespace}/{ref.name}") from None
+            # A controller can re-create a Secret it owns between the delete and the create: cert-manager does
+            # at once for `local-ca`, its CA Certificate's Secret. Write the backed-up keys over what it made;
+            # they are the same keys, and `_expire_local_ca_artifacts` then makes it re-issue from them.
+            try:
+                k8s.write_secret(
+                    ref.name, ref.namespace, data, overwrite=True, secret_type=secret_type, environ=environ
+                )
+            except k8s.KubectlError:
+                raise BackupError(f"could not write Secret {ref.namespace}/{ref.name}") from None
         log.info(f"Restored Secret {ref.namespace}/{ref.name}.")
 
 

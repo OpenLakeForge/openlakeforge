@@ -108,6 +108,8 @@ class DataPlane:
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.secrets: dict[tuple[str, str], tuple[str, dict[str, str]]] = {}
         self.secret_error: str | None = None
+        # Secrets a controller re-creates as soon as they are deleted, as cert-manager does for a Certificate's.
+        self.recreated_on_delete: dict[tuple[str, str], tuple[str, dict[str, str]]] = {}
         self.postgres = FakePostgres()
         self.s3 = FakeS3()
         monkeypatch.setattr(k8s, "delete_secret", self.delete_secret)
@@ -122,12 +124,15 @@ class DataPlane:
     def delete_secret(self, name: str, namespace: str, **_: Any) -> None:
         self.require_quiet("a Secret was replaced")
         self.secrets.pop((namespace, name), None)
+        if (namespace, name) in self.recreated_on_delete:
+            self.secrets[(namespace, name)] = self.recreated_on_delete[(namespace, name)]
 
     def write_secret(self, name: str, namespace: str, data: dict[str, str], **kwargs: Any) -> None:
         self.require_quiet("a Secret was written")
         if self.secret_error:
             raise k8s.KubectlError(f"{self.secret_error} {data}")
-        assert (namespace, name) not in self.secrets and not kwargs["overwrite"]
+        if (namespace, name) in self.secrets and not kwargs["overwrite"]:
+            raise k8s.KubectlError(f"secrets \"{name}\" already exists")
         self.secrets[(namespace, name)] = (kwargs["secret_type"], data)
 
     def exec_in_pod(self, pod: str, namespace: str, argv: list[str], **kwargs: Any) -> None:

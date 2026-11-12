@@ -183,3 +183,15 @@ def test_restored_polaris_state_and_secrets_are_kept_by_the_bootstrap(cluster: C
     assert fake.issued == issued_before
     assert fake.writes == writes_before
     assert credentials["clientSecret"] not in json.dumps(cluster.argv)
+
+
+def test_a_secret_its_controller_recreates_on_delete_still_gets_the_backed_up_keys(
+    plane: DataPlane, backup: Backup
+) -> None:
+    # cert-manager re-creates `local-ca`, its CA Certificate's Secret, the moment restore deletes it, so the
+    # create that follows finds it there (main run 43179953271: "could not write Secret olf-system/local-ca").
+    plane.recreated_on_delete[(SHARED, "local-ca")] = ("kubernetes.io/tls", {"tls.crt": "NEW", "tls.key": "NEW"})
+
+    _replace_secrets(_manifest(backup).secrets, _secrets(backup), _ENVIRON)
+
+    assert plane.secrets[(SHARED, "local-ca")] == ("kubernetes.io/tls", {"tls.crt": "CERT", "tls.key": "KEY"})
