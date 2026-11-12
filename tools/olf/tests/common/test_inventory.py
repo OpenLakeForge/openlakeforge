@@ -181,9 +181,9 @@ def test_renaming_descriptor_product_changes_discovered_work_without_shared_code
 
 def test_a_floe_entity_reading_an_undeclared_bronze_resource_is_rejected(tmp_path: Path) -> None:
     _write_lakehouse(tmp_path)
-    entity_dir = tmp_path / "lakehouse_code" / "silver" / "sales" / "contracts" / "floe"
+    entity_dir = tmp_path / "lakehouse_code" / "silver" / "sales" / "contracts"
     entity_dir.mkdir(parents=True)
-    (entity_dir / "_domain.yml").write_text('name: "sales"\n', encoding="utf-8")
+    (entity_dir / "domain.yml").write_text('name: "sales"\n', encoding="utf-8")
     (entity_dir / "orders.yml").write_text('name: "orders"\nsource: { ref: "crm", resource: "orders" }\n')
     (entity_dir / "refunds.yml").write_text('name: "refunds"\nsource: { ref: "crm", resource: "refunds" }\n')
 

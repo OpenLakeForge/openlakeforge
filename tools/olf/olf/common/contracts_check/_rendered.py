@@ -18,7 +18,7 @@ def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
     its own `<domain>_silver` namespace through the logical `iceberg_catalog`
     alias (never a shared namespace, per ADR 0004, nor a provider name).
 
-    A domain sets both in its `_domain.yml` defaults; an entity file may
+    A domain sets both in its `domain.yml` defaults; an entity file may
     repeat them but not point elsewhere.
     """
     name = "floe_contract_structure"
@@ -26,13 +26,24 @@ def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
     project = repo_root / "lakehouse_code" / "silver" / "floe.yml"
     if not project.is_file():
         return CheckResult(name, ok=False, detail="lakehouse_code/silver/floe.yml not found")
-    domain_files = sorted(repo_root.glob("lakehouse_code/silver/*/contracts/floe/_domain.yml"))
+    legacy = sorted(repo_root.glob("lakehouse_code/silver/*/contracts/floe/_domain.yml"))
+    if legacy:
+        moved = ", ".join(str(path.parent.relative_to(repo_root)) for path in legacy)
+        return CheckResult(
+            name,
+            ok=False,
+            detail=(
+                f"Floe contracts sit in {moved}; move each domain's files up to `contracts/`, rename "
+                "`_domain.yml` to `domain.yml`, and include `*/contracts/domain.yml` in silver/floe.yml"
+            ),
+        )
+    domain_files = sorted(repo_root.glob("lakehouse_code/silver/*/contracts/domain.yml"))
     if not domain_files:
-        return CheckResult(name, ok=False, detail="no lakehouse_code/silver/*/contracts/floe/_domain.yml files found")
+        return CheckResult(name, ok=False, detail="no lakehouse_code/silver/*/contracts/domain.yml files found")
 
     checked = 0
     for domain_file in domain_files:
-        folder = domain_file.parents[2].name
+        folder = domain_file.parents[1].name
         expected_namespace = f"{folder}_silver"
         domain = yaml.safe_load(domain_file.read_text(encoding="utf-8")) or {}
         rel_domain = domain_file.relative_to(repo_root)
@@ -84,7 +95,7 @@ def _check_silver_load_modes(repo_root: Path) -> CheckResult:
     loads = {(source.name, table.name): table.load for source in inventory.sources for table in source.resources}
     errors: list[str] = []
     checked = 0
-    for domain_file in sorted(repo_root.glob("lakehouse_code/silver/*/contracts/floe/_domain.yml")):
+    for domain_file in sorted(repo_root.glob("lakehouse_code/silver/*/contracts/domain.yml")):
         defaults = (yaml.safe_load(domain_file.read_text(encoding="utf-8")) or {}).get("defaults") or {}
         for path in sorted(domain_file.parent.glob("*.yml")):
             if path == domain_file:

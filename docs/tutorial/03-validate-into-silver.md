@@ -32,9 +32,8 @@ lakehouse_code/silver/marketing/
 ├── __init__.py
 ├── README.md
 └── contracts/
-    └── floe/
-        ├── _domain.yml
-        └── campaigns.yml
+    ├── domain.yml
+    └── campaigns.yml
 ```
 
 It also declares `marketing_platform` in `lakehouse_code/silver/sources.yml`,
@@ -42,7 +41,7 @@ the named Bronze sources every domain's entities read from.
 
 ## 2. Read the contract
 
-The Floe contract of a domain is split in two. `_domain.yml` holds what every
+The Floe contract of a domain is split in two. `domain.yml` holds what every
 entity of the domain shares:
 
 ```yaml

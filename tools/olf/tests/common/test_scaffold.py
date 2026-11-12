@@ -109,7 +109,7 @@ def test_an_incremental_source_gets_a_merging_parquet_silver_entity_that_checks(
     plan = plan_domain_new(repo_root, domain="commerce", display_name=None, inputs=(("shop", "orders"),))
     commit_plan(repo_root, plan)
 
-    entity = yaml.safe_load((repo_root / "lakehouse_code/silver/commerce/contracts/floe/orders.yml").read_text())
+    entity = yaml.safe_load((repo_root / "lakehouse_code/silver/commerce/contracts/orders.yml").read_text())
     assert entity["incremental_mode"] == "file"
     assert entity["sink"] == {"write_mode": "merge_scd1"}
     assert entity["schema"]["primary_key"] == ["sku"]
@@ -293,7 +293,7 @@ def test_domain_new_rejects_a_pre_existing_but_undeclared_domain_directory(tmp_p
     source_plan = plan_source_new(repo_root, source="workday", display_name=None, resources=("employees",))
     commit_plan(repo_root, source_plan)
 
-    stray = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe" / "old.yml"
+    stray = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "old.yml"
     stray.parent.mkdir(parents=True)
     stray.write_text("apiVersion: floe/v1alpha1\n", encoding="utf-8")
     before = _tree(repo_root)
@@ -303,6 +303,14 @@ def test_domain_new_rejects_a_pre_existing_but_undeclared_domain_directory(tmp_p
         commit_plan(repo_root, plan)
 
     assert _tree(repo_root) == before
+
+
+def test_domain_new_refuses_an_entity_named_like_the_domain_file(tmp_path: Path) -> None:
+    repo_root = _seed_repo(tmp_path)
+    commit_plan(repo_root, plan_source_new(repo_root, source="workday", display_name=None, resources=("domain",)))
+
+    with pytest.raises(ScaffoldError, match=r"a Silver entity cannot be named 'domain'"):
+        plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "domain"),))
 
 
 def test_domain_new_rejects_unresolved_source_resource_and_writes_nothing(tmp_path: Path) -> None:
@@ -383,8 +391,8 @@ def test_product_new_creates_first_product_and_domain_implicitly(tmp_path: Path)
     # The products already there keep their blocks.
     assert project["order_revenue"] == {"+group": "order_revenue"}
     assert (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").is_file()
-    floe = repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts" / "floe"
-    assert (floe / "_domain.yml").is_file()
+    floe = repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts"
+    assert (floe / "domain.yml").is_file()
     assert (floe / "campaigns.yml").is_file()
 
     inventory = load_lakehouse_inventory(repo_root)
@@ -513,10 +521,10 @@ def test_product_new_extends_existing_domain_with_new_input(tmp_path: Path) -> N
     )
     commit_plan(repo_root, plan)
 
-    floe = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe"
+    floe = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts"
     entity = yaml.safe_load((floe / "absences.yml").read_text(encoding="utf-8"))
     assert entity["source"] == {"ref": "workday", "resource": "absences"}
-    assert sorted(path.name for path in floe.glob("*.yml")) == ["_domain.yml", "absences.yml", "employees.yml"]
+    assert sorted(path.name for path in floe.glob("*.yml")) == ["absences.yml", "domain.yml", "employees.yml"]
 
     inventory = load_lakehouse_inventory(repo_root)
     hr = next(d for d in inventory.domains if d.name == "hr")
@@ -829,7 +837,7 @@ def test_generated_product_artifacts_are_internally_consistent(tmp_path: Path) -
     assert "schema: \"{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}marketing_silver\"" in sources_yml
 
     floe_domain = (
-        repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts" / "floe" / "_domain.yml"
+        repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts" / "domain.yml"
     ).read_text()
     assert 'namespace: "marketing_silver"' in floe_domain
 
@@ -927,7 +935,7 @@ def test_csv_header_with_yaml_metacharacters_produces_valid_floe_contract(tmp_pa
     plan = plan_domain_new(repo_root, domain="hr", display_name=None, inputs=(("workday", "employees"),))
     commit_plan(repo_root, plan)
 
-    entity_path = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "floe" / "employees.yml"
+    entity_path = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts" / "employees.yml"
     columns = yaml.safe_load(entity_path.read_text())["schema"]["columns"]
     assert {column["name"] for column in columns} == {"employees_id", tricky_column}
 

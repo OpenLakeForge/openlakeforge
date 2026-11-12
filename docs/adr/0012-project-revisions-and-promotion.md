@@ -30,7 +30,7 @@ content-addressed revision, covering the complete promotable project:
 | Component | Source | Excluded because |
 | --- | --- | --- |
 | `descriptors` | `lakehouse_code/governance.yml`, `bronze/<source>/source.yaml` | — |
-| `floe` | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/contracts/floe/*.yml` | — |
+| `floe` | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/contracts/*.yml` | — |
 | `dbt` | `gold/**` (no `profiles.yml`, `target/`, `dbt_packages/`, `logs/`) | stage connection and build output, not input |
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | — |
 | `reports` | `dashboards/superset/<dashboard>/**`, when any dashboard exists | — |
@@ -248,3 +248,7 @@ sets the removed variables, so an older revision's runtime takes its defaults
 
 2026-11-12: the `dbt` component is `gold/**`, the single Gold dbt project
 (ADR 0004). It was each product's `gold/<product>/dbt/**`.
+
+2026-11-12: the `floe` component's domain files are
+`silver/<domain>/contracts/*.yml`, with the domain file named `domain.yml`.
+They were `silver/<domain>/contracts/floe/*.yml` with `_domain.yml`.

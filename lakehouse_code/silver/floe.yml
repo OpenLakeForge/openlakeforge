@@ -13,4 +13,4 @@ report:
 include:
   sources: "sources.yml"
   domains:
-    - "*/contracts/floe/_domain.yml"
+    - "*/contracts/domain.yml"

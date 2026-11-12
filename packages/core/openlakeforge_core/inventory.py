@@ -395,10 +395,10 @@ def _resource_load(load: Mapping[str, Any] | None) -> ResourceLoad:
 
 
 def _read_floe_entities(lakehouse_root: Path, domain: str) -> tuple[FloeEntity, ...]:
-    entity_dir = lakehouse_root / "silver" / domain / "contracts" / "floe"
+    entity_dir = lakehouse_root / "silver" / domain / "contracts"
     entities = []
     for path in sorted(entity_dir.glob("*.yml")):
-        if path.name == "_domain.yml":
+        if path.name == "domain.yml":
             continue
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         try:
