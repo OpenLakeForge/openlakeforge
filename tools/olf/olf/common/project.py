@@ -169,7 +169,7 @@ def _project_assets_check(project: ProjectSpec, inventory: LakehouseInventory | 
         if not path.is_file():
             missing.append(path.relative_to(project.root).as_posix())
     floe_files = [project.floe_project] + [
-        project.silver_root / domain.name / "contracts" / "floe" / "_domain.yml" for domain in inventory.domains
+        project.silver_root / domain.name / "contracts" / "domain.yml" for domain in inventory.domains
     ]
     for path in floe_files:
         if not path.is_file():

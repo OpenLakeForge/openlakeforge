@@ -22,16 +22,16 @@ it is not a dbt model or a Dagster job.
 | --- | --- |
 | [`floe.yml`](../../lakehouse_code/silver/floe.yml) | The project: report location and the includes below. |
 | [`sources.yml`](../../lakehouse_code/silver/sources.yml) | One named source per Bronze source: CSV options, cast mode, and the `<source>/{{resource}}` path dlt lands it under. |
-| `<domain>/contracts/floe/_domain.yml` | The domain, and the defaults every entity inherits: the Iceberg sink in the `<domain>_silver` namespace, the CSV quarantine sink, the `reject` policy, and column normalization. |
-| `<domain>/contracts/floe/<entity>.yml` | One entity per file: its `source: { ref, resource }`, primary key, and columns. |
+| `<domain>/contracts/domain.yml` | The domain, and the defaults every entity inherits: the Iceberg sink in the `<domain>_silver` namespace, the CSV quarantine sink, the `reject` policy, and column normalization. |
+| `<domain>/contracts/<entity>.yml` | One entity per file: its `source: { ref, resource }`, primary key, and columns. |
 
 Start with the domains the seed products use:
-[sales](../../lakehouse_code/silver/sales/contracts/floe/_domain.yml) and
-[supply chain](../../lakehouse_code/silver/supply_chain/contracts/floe/_domain.yml).
+[sales](../../lakehouse_code/silver/sales/contracts/domain.yml) and
+[supply chain](../../lakehouse_code/silver/supply_chain/contracts/domain.yml).
 An entity such as
-[`orders.yml`](../../lakehouse_code/silver/sales/contracts/floe/orders.yml)
+[`orders.yml`](../../lakehouse_code/silver/sales/contracts/orders.yml)
 names only what is specific to it; its `severity: reject` policy, inherited
-from `_domain.yml`, sends invalid rows to the quarantine path instead of mixing
+from `domain.yml`, sends invalid rows to the quarantine path instead of mixing
 them into Silver. `olf domain new` and `olf product new` write these files and
 declare a Bronze source in `sources.yml` the first time an entity reads it.
 

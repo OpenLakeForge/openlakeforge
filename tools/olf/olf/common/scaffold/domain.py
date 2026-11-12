@@ -25,6 +25,10 @@ from olf.common.scaffold._shared import (
 from olf.common.scaffold._templates import FloeEntitySpec
 
 
+# The domain file Floe includes (`include.domains` in `silver/floe.yml`); its sibling files are the entities.
+DOMAIN_FILE = "domain.yml"
+
+
 def resolve_input(inventory: LakehouseInventory, source: str, resource: str) -> None:
     """Raise unless `source/resource` names a declared source resource."""
     matching_source = next((candidate for candidate in inventory.sources if candidate.name == source), None)
@@ -32,6 +36,12 @@ def resolve_input(inventory: LakehouseInventory, source: str, resource: str) -> 
         raise ScaffoldError(f"--input {source}/{resource}: unknown source {source!r}")
     if resource not in {r.name for r in matching_source.resources}:
         raise ScaffoldError(f"--input {source}/{resource}: source {source!r} has no resource {resource!r}")
+    if f"{resource}.yml" == DOMAIN_FILE:
+        # Its entity file would be the domain's own file, which Floe reads as the domain.
+        raise ScaffoldError(
+            f"--input {source}/{resource}: a Silver entity cannot be named {resource!r}; "
+            f"contracts/{DOMAIN_FILE} is the domain's file"
+        )
 
 
 def example_csv_text(repo_root: Path, source: str, resource: str) -> str | None:
@@ -65,7 +75,7 @@ def floe_entity_files(repo_root: Path, *, domain: str, inputs: tuple[tuple[str, 
         )
         files.append(
             ScaffoldFile(
-                f"lakehouse_code/silver/{domain}/contracts/floe/{resource}.yml", _templates.render_floe_entity(spec)
+                f"lakehouse_code/silver/{domain}/contracts/{resource}.yml", _templates.render_floe_entity(spec)
             )
         )
     return tuple(files)
@@ -152,7 +162,7 @@ def build_domain_artifacts(
     silver_dir = f"lakehouse_code/silver/{domain}"
     files = (
         ScaffoldFile(f"{silver_dir}/__init__.py", ""),
-        ScaffoldFile(f"{silver_dir}/contracts/floe/_domain.yml", _templates.render_floe_domain(domain=domain)),
+        ScaffoldFile(f"{silver_dir}/contracts/{DOMAIN_FILE}", _templates.render_floe_domain(domain=domain)),
         *floe_entity_files(repo_root, domain=domain, inputs=inputs),
         ScaffoldFile(
             f"{silver_dir}/README.md",

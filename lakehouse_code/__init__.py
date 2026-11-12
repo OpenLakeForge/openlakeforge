@@ -7,7 +7,7 @@ data teams and the OpenLakeForge platform:
 - ``bronze/<source>/source.yaml`` — per-source ``Source`` descriptors and the
   dlt extract code that lands each source's resources in Bronze.
 - ``silver/floe.yml``, ``silver/sources.yml`` and
-  ``silver/<domain>/contracts/floe/`` — the Floe project, its Bronze sources,
+  ``silver/<domain>/contracts/`` — the Floe project, its Bronze sources,
   and the per-domain Floe contracts.
 - ``gold/<product>/dbt/`` — product dbt projects.
 - ``dashboards/superset/<product>/`` — Superset report bundles.

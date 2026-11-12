@@ -287,8 +287,8 @@ lakehouse_code/
 │   ├── source.yaml                                              resource inventory
 │   └── dlt/<source>.py                       ← extract:         raw source → Bronze                      → dlt
 ├── silver/                                   ← the Floe project: floe.yml · sources.yml
-│   └── <domain>/contracts/floe/              ← domain-owned
-│       ├── _domain.yml                       ← contract:        domain defaults · sinks · reject policy  → Floe
+│   └── <domain>/contracts/                   ← domain-owned
+│       ├── domain.yml                        ← contract:        domain defaults · sinks · reject policy  → Floe
 │       └── <entity>.yml                                         one per entity: schema · PK
 ├── gold/<product>/                           ← product-owned
 │   └── dbt/models/gold/*.sql · sources.yml · schema.yml         Silver→Gold SQL                            → dbt-trino → Trino

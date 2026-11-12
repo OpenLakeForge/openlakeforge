@@ -14,6 +14,25 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Changed
+
+- A domain's Floe contracts sit directly in `lakehouse_code/silver/<domain>/contracts/`,
+  and the domain file is `domain.yml` instead of `_domain.yml`; the `floe/` level
+  is gone. Floe still reads a domain's entities from the files beside its domain
+  file, so the domain file stays in `contracts/`. `olf check contracts` refuses
+  a project still on `contracts/floe/` and names the move. `olf domain new` and
+  `olf product new` refuse a resource named `domain`, whose entity file would
+  be the domain file.
+
+### Migration
+
+1. For each domain, move `silver/<domain>/contracts/floe/*.yml` up to
+   `silver/<domain>/contracts/` and rename `_domain.yml` to `domain.yml`.
+2. In `lakehouse_code/silver/floe.yml`, change the `include.domains` pattern
+   to `"*/contracts/domain.yml"`.
+3. Run `olf check contracts`. Table and asset names do not change; the project
+   revision digest does.
+
 ## [0.6.0-alpha.1] - 2026-11-12
 
 This release closes the v0.6 milestone (Workloads, Sizing and Scale) and ends

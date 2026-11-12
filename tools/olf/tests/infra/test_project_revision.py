@@ -539,10 +539,10 @@ def test_dbt_local_artifacts_do_not_change_the_revision(external_project: Path) 
 
 @pytest.mark.parametrize(
     "relative_path",
-    ["lakehouse_code/silver/sales/contracts/floe/orders.yml", "lakehouse_code/silver/sources.yml"],
+    ["lakehouse_code/silver/sales/contracts/orders.yml", "lakehouse_code/silver/sources.yml"],
 )
 def test_editing_any_file_floe_reads_moves_the_revision(external_project: Path, relative_path: str) -> None:
-    """Floe loads the project file, `sources.yml`, and every entity beside a `_domain.yml`."""
+    """Floe loads the project file, `sources.yml`, and every entity beside a `domain.yml`."""
     before = _build(external_project).revision
     path = external_project / relative_path
     path.write_text(path.read_text() + "# edited\n")

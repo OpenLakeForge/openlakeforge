@@ -54,7 +54,7 @@ in one operation. For APIs/databases, scaffold the source using
 | Layer | Files to edit | Contract |
 | --- | --- | --- |
 | Bronze | `bronze/<source>/source.yaml`, `bronze/<source>/dlt/` | Describe source resources and full/incremental load; implement the dlt extractor with declared runtime config/secret keys. |
-| Silver | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/contracts/floe/` | One entity per input; validate columns, nullability, keys, rejected-row policy and Iceberg sink. Generated `_domain.yml` supplies stage-neutral defaults. |
+| Silver | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/contracts/` | One entity per input; validate columns, nullability, keys, rejected-row policy and Iceberg sink. Generated `domain.yml` supplies stage-neutral defaults. |
 | Gold | `gold/<product>/dbt/models/` | Transform with dbt-trino; read `{{ source('silver', 'campaigns') }}`, add tests and descriptions in `models/gold/schema.yml`. |
 | Orchestration | `pipelines/dagster/<product>.py` | The scaffolded `ProductDefinitionSpec(domain, product)` derives Gold marts from the dbt models, Silver inputs from the dbt sources and Bronze resources from the Floe entities; pass `gold_assets`, `silver_inputs` or `bronze_inputs` only to override. `definitions.py` discovers modules automatically. |
 | Governance | `governance.yml` | Define domain `name` and, nested in its `products`, product `id`, plus business descriptions. Never list tables here or embed physical storage/catalog config. |

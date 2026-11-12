@@ -22,7 +22,7 @@ import tempfile
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-# `_domain.yml` sinks name this catalog; it is part of the project contract,
+# `domain.yml` sinks name this catalog; it is part of the project contract,
 # not a stage binding, so the stage's own catalog name never reaches it.
 CATALOG_NAME = "iceberg_catalog"
 

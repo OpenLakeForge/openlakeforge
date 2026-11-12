@@ -372,7 +372,7 @@ def test_hcl_phase_two_invariants_rejects_forbidden_resolved_field(tmp_path: Pat
 def _floe_project(repo_root: Path) -> Path:
     """A copy of the real Floe project to break one rule in."""
     shutil.copytree(ROOT / "lakehouse_code" / "silver", repo_root / "lakehouse_code" / "silver")
-    return repo_root / "lakehouse_code" / "silver" / "sales" / "contracts" / "floe"
+    return repo_root / "lakehouse_code" / "silver" / "sales" / "contracts"
 
 
 def test_floe_contract_structure_rejects_an_entity_writing_a_shared_silver_namespace(tmp_path: Path) -> None:
@@ -391,7 +391,7 @@ def test_floe_contract_structure_rejects_an_entity_writing_a_shared_silver_names
 
 
 def test_floe_contract_structure_rejects_a_provider_named_catalog(tmp_path: Path) -> None:
-    domain = _floe_project(tmp_path) / "_domain.yml"
+    domain = _floe_project(tmp_path) / "domain.yml"
     domain.write_text(domain.read_text(encoding="utf-8").replace('"iceberg_catalog"', '"polaris"'), encoding="utf-8")
 
     result = contracts_check._check_floe_contract_structure(tmp_path)
@@ -400,8 +400,22 @@ def test_floe_contract_structure_rejects_a_provider_named_catalog(tmp_path: Path
     assert "'iceberg_catalog'" in result.detail
 
 
+def test_floe_contract_structure_names_the_move_for_a_project_on_contracts_floe(tmp_path: Path) -> None:
+    contracts = _floe_project(tmp_path)
+    legacy = contracts / "floe"
+    legacy.mkdir()
+    for path in contracts.glob("*.yml"):
+        path.rename(legacy / ("_domain.yml" if path.name == "domain.yml" else path.name))
+
+    result = contracts_check._check_floe_contract_structure(tmp_path)
+
+    assert not result.ok
+    assert "lakehouse_code/silver/sales/contracts/floe" in result.detail.replace("\\", "/")
+    assert "rename `_domain.yml` to `domain.yml`" in result.detail
+
+
 def test_floe_contract_structure_rejects_a_domain_named_unlike_its_folder(tmp_path: Path) -> None:
-    domain = _floe_project(tmp_path) / "_domain.yml"
+    domain = _floe_project(tmp_path) / "domain.yml"
     domain.write_text(domain.read_text(encoding="utf-8").replace('name: "sales"', 'name: "revenue"'), encoding="utf-8")
 
     result = contracts_check._check_floe_contract_structure(tmp_path)
@@ -451,7 +465,7 @@ def test_run_contracts_check_passes_for_an_installed_project_layout(tmp_path: Pa
     `lakehouse_code/` (ADR 0009) -- `docs/schema`, `infra/`, and `openlakeforge_runtime/` all
     live in the separate, immutable distribution root instead.
     Copying the real repo's `lakehouse_code/` (which carries real Floe
-    contracts under `silver/*/contracts/floe/`) and `openlakeforge.yaml` into
+    contracts under `silver/*/contracts/`) and `openlakeforge.yaml` into
     an otherwise-bare project dir, and pointing `distribution_root` at the
     real repo, reproduces exactly what `olf init` leaves behind."""
     project_root = tmp_path / "my-lakehouse"
@@ -639,7 +653,7 @@ def _project_with_incremental_orders(repo_root: Path) -> Path:
         ),
         encoding="utf-8",
     )
-    return repo_root / "lakehouse_code" / "silver" / "sales" / "contracts" / "floe" / "orders.yml"
+    return repo_root / "lakehouse_code" / "silver" / "sales" / "contracts" / "orders.yml"
 
 
 def test_silver_load_modes_reject_overwriting_an_incremental_resource(tmp_path: Path) -> None:
@@ -666,7 +680,7 @@ def test_silver_load_modes_accept_new_files_merged_or_appended(tmp_path: Path, w
 
 def test_silver_load_modes_reject_appending_a_full_resource(tmp_path: Path) -> None:
     shutil.copytree(ROOT / "lakehouse_code", tmp_path / "lakehouse_code")
-    entity = tmp_path / "lakehouse_code" / "silver" / "supply_chain" / "contracts" / "floe" / "warehouses.yml"
+    entity = tmp_path / "lakehouse_code" / "silver" / "supply_chain" / "contracts" / "warehouses.yml"
     entity.write_text(entity.read_text(encoding="utf-8") + 'sink: { write_mode: "append" }\n', encoding="utf-8")
 
     result = contracts_check._check_silver_load_modes(tmp_path)
