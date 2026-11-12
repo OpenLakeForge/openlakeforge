@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 import urllib.parse
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,87 +48,62 @@ class MetadataConfig:
     storage_gold_bucket: str
 
 
-def display_name_from_name(name: str) -> str:
-    return " ".join(part.capitalize() for part in name.replace("-", " ").replace("_", " ").split())
+@dataclass(frozen=True)
+class BronzeContainer:
+    """One Bronze resource, landed at `<bucket>/<source>/<resource>`, to register under the storage service."""
+
+    source: str
+    resource: str
+    description: str
 
 
-def domain_description(domain: dict) -> str:
-    parts = []
-    if domain.get("description"):
-        parts.append(str(domain["description"]))
-    if domain.get("status"):
-        parts.append(f"Status: {domain['status']}")
-    medallion = domain.get("medallion")
-    if isinstance(medallion, dict) and medallion:
-        parts.append("Medallion layers:")
-        for layer, config in medallion.items():
-            if isinstance(config, dict):
-                owner = config.get("owner", "unknown")
-                description = config.get("description", "")
-                parts.append(f"- {layer}: {description} Owner: {owner}.")
-    return "\n".join(parts)
+@dataclass(frozen=True)
+class ProductSpec:
+    """One data product of `governance.yml`, with the Gold tables its dbt models build."""
+
+    id: str
+    display_name: str
+    description: str
+    domain: str
+    gold_tables: tuple[str, ...]
 
 
-def domain_payload(domain: dict) -> dict:
-    name = domain.get("name")
-    if not name:
-        raise OpenMetadataError("OpenMetadata domain metadata is missing required field 'name'.")
-    payload = {
-        "name": name,
-        "displayName": domain.get("displayName") or domain.get("display_name") or display_name_from_name(name),
-        "domainType": domain.get("domainType") or domain.get("domain_type") or "Source-aligned",
-        "description": domain_description(domain),
+@dataclass(frozen=True)
+class DomainSpec:
+    """One domain of `governance.yml`, its Silver tables and the Bronze resources they read."""
+
+    name: str
+    display_name: str
+    description: str
+    status: str
+    silver_tables: tuple[str, ...]
+    bronze: tuple[BronzeContainer, ...]
+    products: tuple[ProductSpec, ...]
+
+
+def domain_payload(domain: DomainSpec) -> dict:
+    description = "\n".join(part for part in (domain.description, domain.status and f"Status: {domain.status}") if part)
+    return {
+        "name": domain.name,
+        "displayName": domain.display_name,
+        "domainType": "Source-aligned",
+        "description": description,
     }
-    for optional in ["owners", "experts", "reviewers", "tags", "style", "extension"]:
-        if domain.get(optional):
-            payload[optional] = domain[optional]
-    return payload
 
 
-def product_payload(product: dict) -> dict:
-    name = product.get("name")
-    if not name:
-        raise OpenMetadataError("OpenMetadata data-product metadata is missing required field 'name'.")
-    domains = product.get("domains")
-    if domains is None and product.get("domain"):
-        domains = [product["domain"]]
-    if not domains:
-        raise OpenMetadataError(f"OpenMetadata data product '{name}' must define 'domain' or 'domains'.")
-    payload = {
-        "name": name,
-        "displayName": product.get("displayName") or product.get("display_name") or display_name_from_name(name),
-        "description": product.get("description") or "",
-        "domains": domains,
+def product_payload(product: ProductSpec) -> dict:
+    return {
+        "name": product.id,
+        "displayName": product.display_name,
+        "description": product.description,
+        "domains": [product.domain],
     }
-    for optional in ["owners", "experts", "reviewers", "tags", "style", "extension"]:
-        if product.get(optional):
-            payload[optional] = product[optional]
-    return payload
-
-
-def product_entries(domain: dict) -> Iterator[dict]:
-    products = domain.get("data_products") or []
-    if not isinstance(products, list):
-        raise OpenMetadataError(f"Domain '{domain.get('name', '<unknown>')}' data_products must be a list.")
-    for product in products:
-        if not isinstance(product, dict):
-            raise OpenMetadataError(f"Unsupported data product entry in domain '{domain.get('name')}': {product!r}")
-        normalized = dict(product)
-        if not normalized.get("name"):
-            normalized["name"] = f"{domain['name']}_{normalized.get('id', '')}".rstrip("_")
-        if not normalized.get("domain") and not normalized.get("domains"):
-            normalized["domain"] = domain["name"]
-        yield normalized
 
 
 def _gold_models(lakehouse_root: Path, product_id: str) -> list[str]:
     """A product's Gold tables: one per dbt model, named by its file (no model sets an alias)."""
     models = lakehouse_root / "gold" / product_id / "dbt" / "models"
     return sorted({path.stem for path in models.rglob("*.sql")})
-
-
-def product_contract_key(product: dict) -> str:
-    return product.get("asset_prefix") or product.get("name") or product.get("id") or ""
 
 
 class MetadataReconciler:
@@ -311,24 +286,22 @@ class MetadataDeployer:
 
     # --- schema coverage ---------------------------------------------------
 
-    def validate_deployment_inputs(self, domain_specs: list[tuple[Path, dict]]) -> None:
+    def validate_deployment_inputs(self, domains: Sequence[DomainSpec]) -> None:
         """Check every schema FQN and its coverage before metadata writes."""
         for schema_fqn in (
             *self.config.catalog_silver_schema_fqns.values(),
             *self.config.catalog_gold_schema_fqns.values(),
         ):
             self._reconciler.require_stage_scoped(schema_fqn, "database schema")
-        self.validate_bronze_entries(domain_specs)
-        for _, domain in domain_specs:
-            if domain["name"] not in self.config.catalog_silver_schema_fqns:
+        for domain in domains:
+            if domain.name not in self.config.catalog_silver_schema_fqns:
                 raise OpenMetadataError(
-                    f"Domain {domain['name']!r} Silver schema is not covered by the provider contract schema FQNs."
+                    f"Domain {domain.name!r} Silver schema is not covered by the provider contract schema FQNs."
                 )
-            for product in product_entries(domain):
-                if product_contract_key(product) not in self.config.catalog_gold_schema_fqns:
+            for product in domain.products:
+                if product.id not in self.config.catalog_gold_schema_fqns:
                     raise OpenMetadataError(
-                        f"Data product '{product_contract_key(product)}' Gold schema is not covered "
-                        "by the provider contract schema FQNs."
+                        f"Data product {product.id!r} Gold schema is not covered by the provider contract schema FQNs."
                     )
 
     def storage_bucket_specs(self):
@@ -347,67 +320,47 @@ class MetadataDeployer:
             seen.add(name)
             yield {"name": name, "path": f"s3://{name}", "description": description}
 
-    def bronze_container_specs(self, domain_specs: list[tuple[Path, dict]]):
-        """Build provider-specific Bronze container hierarchies from domain contracts."""
+    def bronze_container_specs(self, domains: Sequence[DomainSpec]):
+        """The Bronze container hierarchy: one container per source prefix, then one per resource under it."""
         bucket = self.config.storage_bronze_bucket
         root_fqn = f"{self.config.storage_service}.{bucket}"
         seen = set()
 
-        for _, domain in domain_specs:
-            for product in product_entries(domain):
-                for source in product.get("bronze") or []:
-                    source_path = source["path"]
-                    parsed = urllib.parse.urlparse(source_path)
-                    if parsed.scheme != "s3":
-                        raise OpenMetadataError(
-                            f"Data product '{product['name']}' Bronze path must use s3://: {source_path}"
-                        )
-
-                    segments = [segment for segment in parsed.path.split("/") if segment]
-                    parent_fqn = root_fqn
-                    full_path = f"s3://{bucket}"
-                    for index, segment in enumerate(segments):
-                        full_path = f"{full_path}/{segment}"
-                        current_fqn = f"{parent_fqn}.{segment}"
-                        if full_path not in seen:
-                            is_source = index == len(segments) - 1
-                            description = (
-                                source.get("description", "") if is_source else f"Bronze source prefix for {full_path}."
-                            )
-                            yield {
-                                "name": segment,
-                                "parent_fqn": parent_fqn,
-                                "path": full_path,
-                                "description": description,
-                            }
-                            seen.add(full_path)
-                        parent_fqn = current_fqn
+        for domain in domains:
+            for container in domain.bronze:
+                source_path = f"s3://{bucket}/{container.source}"
+                if source_path not in seen:
+                    seen.add(source_path)
+                    yield {
+                        "name": container.source,
+                        "parent_fqn": root_fqn,
+                        "path": source_path,
+                        "description": f"Bronze source prefix for {source_path}.",
+                    }
+                resource_path = f"{source_path}/{container.resource}"
+                if resource_path not in seen:
+                    seen.add(resource_path)
+                    yield {
+                        "name": container.resource,
+                        "parent_fqn": f"{root_fqn}.{container.source}",
+                        "path": resource_path,
+                        "description": container.description,
+                    }
 
     # --- source discovery -------------------------------------------------
 
     def domain_files(self) -> list[Path]:
         return self._descriptor_paths
 
-    def _domain_specs(self) -> list[tuple[Path, dict]]:
-        """Transform the canonical lakehouse descriptor into deployer domain specs.
+    def _domain_specs(self) -> list[DomainSpec]:
+        """The domains and products of the governance descriptor, with what they cover.
 
-        The canonical lakehouse inventory nests domains with products whose
-        bronze references are provider-neutral ``{source, resources}`` pairs.
-        The deployer machinery consumes v1alpha2-shaped dicts (``data_products``
-        with explicit bronze container entries), so this maps between the two:
-        bronze entries are derived from the source name plus each resource,
-        and physical s3 paths are resolved from the provider contract at deploy
-        time -- never stored in the descriptor.
-
-        The two files are also loaded independently below (as raw dicts, to
-        keep every cosmetic ``description``/``status`` field the deployer
-        payloads need). ``load_lakehouse_inventory_from_descriptors`` runs
-        first purely for its cross-descriptor validation: it is the same
-        check every other consumer of these descriptors relies on to catch a
-        Silver table naming a source/resource no Source descriptor declares.
-        Without it, a bad reference would still build an
-        ``s3://.../<source>/<resource>`` Bronze path below and publish a
-        phantom asset to OpenMetadata instead of failing before any writes.
+        `load_lakehouse_inventory_from_descriptors` runs first for its
+        cross-descriptor validation: a Silver table naming a source or resource
+        no Source descriptor declares fails here, before any write, instead of
+        publishing a phantom Bronze container. The governance and source
+        documents are read again for the `description`/`status` text the
+        inventory does not keep.
         """
         descriptor_paths = self.domain_files()
         if not descriptor_paths:
@@ -419,95 +372,56 @@ class MetadataDeployer:
             entities = {domain.name: inventory.floe_entities(domain) for domain in inventory.domains}
         except LakehouseDescriptorError as exc:
             raise OpenMetadataError(str(exc)) from exc
-        lakehouse_document = load_governance_lakehouse_document(lakehouse_path)
-        resource_descriptions: dict[str, dict[str, str]] = {}
+        resource_descriptions: dict[tuple[str, str], str] = {}
         for source_path in source_paths:
             source_document = load_source_descriptor(source_path)
-            resource_descriptions[source_document["name"]] = {
-                resource["name"]: resource.get("description", "")
-                for resource in source_document["resources"]
-                if isinstance(resource, dict) and "name" in resource
-            }
-        bronze_bucket = self.config.storage_bronze_bucket
-        domain_specs: list[tuple[Path, dict]] = []
+            for resource in source_document["resources"]:
+                resource_descriptions[(source_document["name"], resource["name"])] = resource.get("description", "")
         root = inventory.lakehouse_root
-        for domain in lakehouse_document["domains"]:
-            products = []
-            for product in domain["products"]:
-                bronze_entries = [
-                    {
-                        "name": entity.resource,
-                        "path": f"s3://{bronze_bucket}/{entity.source}/{entity.resource}",
-                        "description": resource_descriptions.get(entity.source, {}).get(entity.resource, ""),
-                    }
-                    for entity in entities[domain["name"]]
-                ]
-                bronze_entries = list({entry["path"]: entry for entry in bronze_entries}.values())
-                products.append(
-                    {
-                        "id": product["id"],
-                        "name": product["id"],
-                        "displayName": product["displayName"],
-                        "description": product.get("description", ""),
-                        "status": product.get("status", ""),
-                        "domain": domain["name"],
-                        "bronze": bronze_entries,
-                        "gold_tables": _gold_models(root, product["id"]),
-                    }
+        domains: list[DomainSpec] = []
+        for domain in load_governance_lakehouse_document(lakehouse_path)["domains"]:
+            domain_entities = entities[domain["name"]]
+            bronze = {
+                (entity.source, entity.resource): BronzeContainer(
+                    entity.source, entity.resource, resource_descriptions.get((entity.source, entity.resource), "")
                 )
-            domain_specs.append(
-                (
-                    lakehouse_path,
-                    {
-                        "name": domain["name"],
-                        "displayName": domain["displayName"],
-                        "description": domain.get("description", ""),
-                        "status": domain.get("status", ""),
-                        "silver_tables": [entity.name for entity in entities[domain["name"]]],
-                        "data_products": products,
-                    },
+                for entity in domain_entities
+            }
+            products = tuple(
+                ProductSpec(
+                    id=product["id"],
+                    display_name=product["displayName"],
+                    description=product.get("description", ""),
+                    domain=domain["name"],
+                    gold_tables=tuple(_gold_models(root, product["id"])),
+                )
+                for product in domain["products"]
+            )
+            domains.append(
+                DomainSpec(
+                    name=domain["name"],
+                    display_name=domain["displayName"],
+                    description=domain.get("description", ""),
+                    status=domain.get("status", ""),
+                    silver_tables=tuple(entity.name for entity in domain_entities),
+                    bronze=tuple(bronze.values()),
+                    products=products,
                 )
             )
-        return domain_specs
-
-    def validate_bronze_entries(self, domain_specs) -> None:
-        for _, domain in domain_specs:
-            for product in product_entries(domain):
-                bronze_entries = product.get("bronze")
-                if bronze_entries is None:
-                    continue
-                if not isinstance(bronze_entries, list):
-                    raise OpenMetadataError(
-                        f"Data product '{product['name']}' Bronze entries must be an array."
-                    )
-                for index, container in enumerate(bronze_entries):
-                    if not isinstance(container, dict):
-                        raise OpenMetadataError(
-                            f"Data product '{product['name']}' Bronze entry at index {index} must be an object."
-                        )
-                    if not isinstance(container.get("name"), str) or not container["name"]:
-                        raise OpenMetadataError(
-                            f"Data product '{product['name']}' Bronze entry at index {index} "
-                            "is missing required 'name'."
-                        )
-                    if not isinstance(container.get("path"), str) or not container["path"]:
-                        raise OpenMetadataError(
-                            f"Data product '{product['name']}' Bronze entry at index {index} "
-                            "is missing required 'path'."
-                        )
+        return domains
 
     def deploy(self) -> None:
         self.wait_for_openmetadata()
         self.login()
 
-        domain_specs = self._domain_specs()
-        self.validate_deployment_inputs(domain_specs)
+        domains = self._domain_specs()
+        self.validate_deployment_inputs(domains)
 
         # Phase A+B: Object Store service and medallion bucket containers.
         self.ensure_storage_service()
         for container in self.storage_bucket_specs():
             self.ensure_container(container["name"], None, container["path"], container["description"])
-        for container in self.bronze_container_specs(domain_specs):
+        for container in self.bronze_container_specs(domains):
             self.ensure_container(
                 container["name"],
                 container["parent_fqn"],
@@ -521,25 +435,25 @@ class MetadataDeployer:
         # has none of its own (TableRepository.setInheritedFields, 1.13.6), so
         # tables the Trino ingestion finds later need no per-table write.
         missing_assets = []
-        for _, domain in domain_specs:
+        for domain in domains:
             domain_body = domain_payload(domain)
             self.client.request("PUT", "/api/v1/domains", json_body=domain_body, ok_statuses=(200, 201))
             self.progress.info(f"Upserted OpenMetadata domain: {domain_body['name']}")
-            silver_fqn = self.config.catalog_silver_schema_fqns[domain["name"]]
-            self.ensure_database_schema(silver_fqn, domain["name"])
+            silver_fqn = self.config.catalog_silver_schema_fqns[domain.name]
+            self.ensure_database_schema(silver_fqn, domain.name)
             # Every table a pipeline writes is registered before it runs, so
             # its lineage resolves (ensure_table); the domain comes from the
             # schema.
-            for table in domain.get("silver_tables", []):
+            for table in domain.silver_tables:
                 self.ensure_table(silver_fqn, table)
 
-            for product in product_entries(domain):
+            for product in domain.products:
                 product_body = product_payload(product)
                 self.client.request("PUT", "/api/v1/dataProducts", json_body=product_body, ok_statuses=(200, 201))
                 self.progress.info(f"Upserted OpenMetadata data product: {product_body['name']}")
-                schema_fqn = self.config.catalog_gold_schema_fqns[product_contract_key(product)]
-                self.ensure_database_schema(schema_fqn, domain["name"])
-                for table in product.get("gold_tables", []):
+                schema_fqn = self.config.catalog_gold_schema_fqns[product.id]
+                self.ensure_database_schema(schema_fqn, domain.name)
+                for table in product.gold_tables:
                     self.ensure_table(schema_fqn, table)
 
                 # A schema is a valid data-product asset, but a table does not

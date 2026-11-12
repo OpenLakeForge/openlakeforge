@@ -1,68 +1,46 @@
-import pytest
 from openlakeforge_services import governance
-from openlakeforge_services.openmetadata import OpenMetadataError
 
 
-def test_display_name_from_name() -> None:
-    assert governance.display_name_from_name("order_revenue") == "Order Revenue"
-    assert governance.display_name_from_name("supply-chain") == "Supply Chain"
-
-
-def test_domain_payload_builds_description_and_defaults() -> None:
-    payload = governance.domain_payload(
-        {
-            "name": "sales",
-            "description": "Sales domain",
-            "status": "active",
-            "medallion": {"bronze": {"owner": "ingest", "description": "raw."}},
-        }
-    )
-    assert payload["name"] == "sales"
-    assert payload["displayName"] == "Sales"
-    assert payload["domainType"] == "Source-aligned"
-    assert "Status: active" in payload["description"]
-    assert "- bronze: raw. Owner: ingest." in payload["description"]
-
-
-def test_product_payload_requires_domain() -> None:
-    with pytest.raises(OpenMetadataError):
-        governance.product_payload({"name": "order_revenue"})
-    payload = governance.product_payload({"name": "order_revenue", "domain": "sales"})
-    assert payload["domains"] == ["sales"]
-
-
-def test_product_entries_defaults_name_and_domain() -> None:
-    domain = {"name": "sales", "data_products": [{"id": "orders"}]}
-    products = list(governance.product_entries(domain))
-    assert products[0]["name"] == "sales_orders"
-    assert products[0]["domain"] == "sales"
-
-
-def test_product_entries_does_not_mutate_input() -> None:
-    domain = {
+def _domain(**overrides: object) -> governance.DomainSpec:
+    fields = {
         "name": "sales",
-        "data_products": [{"id": "orders", "description": "Order revenue"}],
+        "display_name": "Sales",
+        "description": "Sales domain",
+        "status": "active",
+        "silver_tables": ("orders",),
+        "bronze": (),
+        "products": (),
     }
-    snapshot = {
-        "name": domain["name"],
-        "data_products": [
-            {"id": p["id"], "description": p["description"]} for p in domain["data_products"]
-        ],
+    return governance.DomainSpec(**{**fields, **overrides})
+
+
+def test_domain_payload_carries_the_governance_text_and_status() -> None:
+    payload = governance.domain_payload(_domain())
+
+    assert payload == {
+        "name": "sales",
+        "displayName": "Sales",
+        "domainType": "Source-aligned",
+        "description": "Sales domain\nStatus: active",
     }
 
-    products = list(governance.product_entries(domain))
 
-    assert products[0]["name"] == "sales_orders"
-    assert products[0]["domain"] == "sales"
-    assert products[0]["id"] == "orders"
-    assert domain == snapshot, "product_entries mutated the input descriptor"
+def test_a_domain_without_description_or_status_has_an_empty_description() -> None:
+    assert governance.domain_payload(_domain(description="", status=""))["description"] == ""
 
 
-def test_product_entries_yields_normalized_copy() -> None:
-    domain = {"name": "sales", "data_products": [{"id": "orders"}]}
-    products = list(governance.product_entries(domain))
+def test_product_payload_names_its_domain() -> None:
+    product = governance.ProductSpec(
+        id="order_revenue",
+        display_name="Sales Order Revenue",
+        description="Revenue from orders.",
+        domain="sales",
+        gold_tables=("mart_order_revenue_by_day",),
+    )
 
-    assert len(products) == 1
-    assert products[0] is not domain["data_products"][0]
-    assert "name" not in domain["data_products"][0]
-    assert "domain" not in domain["data_products"][0]
+    assert governance.product_payload(product) == {
+        "name": "order_revenue",
+        "displayName": "Sales Order Revenue",
+        "description": "Revenue from orders.",
+        "domains": ["sales"],
+    }
