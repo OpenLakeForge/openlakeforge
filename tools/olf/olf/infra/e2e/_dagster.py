@@ -129,11 +129,15 @@ def launch_and_poll(
     *,
     tags: Mapping[str, str] | None = None,
     run_config: Mapping[str, Any] | None = None,
+    asset_selection: Sequence[Sequence[str]] | None = None,
 ) -> str:
     """Launch `job`, wait for it to succeed, and return its run id."""
     timeout_seconds = int(cfg_environ(cfg).get("DAGSTER_JOB_TIMEOUT_SECONDS", str(DAGSTER_JOB_TIMEOUT_SECONDS)))
     try:
-        run_id = client.launch(job, tags=tags, run_config=run_config)
+        if asset_selection:
+            run_id = client.launch(job, tags=tags, run_config=run_config, asset_selection=asset_selection)
+        else:
+            run_id = client.launch(job, tags=tags, run_config=run_config)
     except ServiceClientError as exc:
         diagnostics = _bounded_pod_diagnostics(
             cfg,

@@ -362,7 +362,7 @@ holds a storage key", is extended from the person path to every path.
    own. A query engine added later (DuckDB, #888) follows the same adapter
    rules with nothing to configure in policy.
    Built so far (#980): dbt and Gold maintenance mint the processing principal's
-   token (`openlakeforge_runtime/polaris_token.py`, once per dbt invocation) and
+   token (`openlakeforge_runtime/polaris_token.py`, once per dbt invocation, one invocation per Gold generation) and
    send it as the `token` extra credential; Gold models are `view_security: invoker`,
    enforced by `olf check dbt`.
    Built so far (#981): `olf infra query` and every `olf e2e` Trino call run
@@ -426,7 +426,7 @@ Four spikes were run on the pinned Trino 480, Polaris 1.8.0 and SeaweedFS
 | Spike | Result | What the build must do |
 | --- | --- | --- |
 | S4, keyless unauthenticated Trino (#964) | Fails closed, run. No token: every statement fails (Trino exchanges its unsigned JWT and Polaris answers 400). A token without the grant: 403. `X-Trino-User` labels the session and never changes the decision. A location override, `register_table` (Trino refuses to start it beside vended credentials) and `add_files` cannot reach storage outside the vended table scope. An expired token falls back to the catalog's own credential, which holds no grant, so 403 | Keep the catalog credential grantless; it is what makes the fallback inert |
-| S1, dbt with a workload token (#961) | Works unpatched, run: profile `http_headers` carries `X-Trino-Extra-Credential: token=`. `table` and `incremental` merge write their own stage; the same token on another stage gets 403 | Mint one token per dbt invocation (it is frozen for the run, 1 hour by default, `polaris.authentication.token-broker.max-token-generation`). Set `view_security: invoker` on Gold models: a definer view is re-read without the caller's token and breaks the merge |
+| S1, dbt with a workload token (#961) | Works unpatched, run: profile `http_headers` carries `X-Trino-Extra-Credential: token=`. `table` and `incremental` merge write their own stage; the same token on another stage gets 403 | Mint one token per dbt invocation (it is frozen for the run, 1 hour by default, `polaris.authentication.token-broker.max-token-generation`); the runtime runs one invocation per Gold generation (#1061), so one generation must build within that hour. Set `view_security: invoker` on Gold models: a definer view is re-read without the caller's token and breaks the merge |
 | S2, Superset per user (#962) | Works with a `DB_CONNECTION_MUTATOR` module, run against the image with a fake Trino and Dex. The same module fixes a stock 6.1.0 bug: a refresh token Dex refuses leaves the user stuck instead of signing in again | Dex `trustedPeers` adds `superset` to `olf-cli`; no audience change in Polaris or Trino. Per-user result cache on. Alerts, reports and thumbnails stay disabled: their executors are local accounts with no Dex token |
 | S3, OpenMetadata crawl (#963) | The crawl needs no rows, and its token passes as `connectionArguments.extra_credential`, run. A metadata-only principal sees no table on a vended catalog (point 5) | Superseded by point 5: the crawler reads with its own token |
 
@@ -725,6 +725,20 @@ People catalog (#1011): the Iceberg client copies the catalog's OAuth2
 credential into every session it builds from a person's token and reads that
 token's `exp`; an expired token was exchanged for the catalog's own, which
 holds no grant. Step 9 records the property that stops it.
+
+Gold token lifetime (#1061): a dbt process reads the processing token once,
+when its profile renders, and Trino gives that token to Polaris at every
+commit, so a `dbt build` longer than the token's lifetime (one hour by
+default) failed at its first later commit. The runtime now builds the Gold
+models one topological generation at a time (a generation holds the models
+whose upstream models are all in earlier generations), each in its own dbt
+invocation with a freshly minted token. Generations rather than one
+invocation per model: a model-by-model build serialises every model, losing
+the stage's dbt `threads` parallelism, and pays dbt's start-up and manifest
+parse once per model, which is a large cost on a product of about a hundred
+tables. A generation keeps both, and the depth of the `ref()` graph, not the
+model count, sets the number of processes. The limit that remains is one
+generation's build, start-up included, within the token lifetime.
 
 Stage catalog (#1052): each coordinator serves one catalog per stage,
 `lakehouse_<stage>`. The second name `<stage>`, the former people catalog, ended

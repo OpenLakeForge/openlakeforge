@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -35,9 +37,20 @@ from openlakeforge_core import full_refresh_scope, inventory_for
 from openlakeforge_runtime import gold_maintenance
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
 from openlakeforge_runtime.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
+from openlakeforge_runtime.dbt_build import (
+    DbtTest,
+    build_by_generation,
+    dbt_tests,
+    failed_nodes_in,
+    generation_args,
+    merge_run_results,
+    model_dependencies,
+    model_sources,
+    without_deselected_checks,
+)
 from openlakeforge_runtime.floe_profile import write_profile
 from openlakeforge_runtime.openlakeforge_logging import log_event
-from openlakeforge_runtime.polaris_token import polaris_token_env
+from openlakeforge_runtime.polaris_token import GENERATION_PAUSE_TAG, TOKEN_MINTED_MESSAGE, polaris_token_env
 from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri
 from openlakeforge_runtime.source_bindings import source_binding_tags
 
@@ -430,17 +443,57 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         # Both scopes rebuild Gold: after a Bronze reload, an incremental model
         # would otherwise keep rows its rebuilt inputs no longer hold.
         full_refresh = full_refresh_scope(context.run.tags) is not None
-        try:
-            # Minted per invocation: the token is frozen for the run and lives about an hour.
+        target_paths: list[Path] = []
+        selected = {key.path[-1] for key in context.selected_asset_keys}
+        manifest = json.loads(manifest_path.read_text())
+        dependencies = model_dependencies(manifest, selected)
+        all_tests = without_deselected_checks(
+            dbt_tests(manifest, selected),
+            known={key.name for key in context.assets_def.check_keys},
+            selected={key.name for key in context.selected_asset_check_keys},
+        )
+
+        def build_generation(models: list[str], tests: list[DbtTest]):
+            args = [
+                "build",
+                *(["--full-refresh"] if full_refresh else []),
+                *generation_args(models, tests, dependencies, all_tests.values()),
+            ]
+            invocation = dbt.cli(args, context=context)
+            target_paths.append(invocation.target_path)
+            yield from invocation.stream()
+
+        @contextmanager
+        def generation_token():
             with polaris_token_env():
-                invocation = dbt.cli(["build", *(["--full-refresh"] if full_refresh else [])], context=context)
-                yield from invocation.stream()
+                # The e2e reads these events' times: a token's life starts here (#1061).
+                context.log.info(TOKEN_MINTED_MESSAGE)
+                yield
+
+        pause = context.run.tags.get(GENERATION_PAUSE_TAG)
+
+        def between_generations() -> None:
+            context.log.info(f"Pausing {pause}s before the next generation (e2e, #1061).")
+            time.sleep(float(pause or 0))
+
+        try:
+            # A dbt process holds its token for good and Polaris lets it expire, so each generation gets its own.
+            yield from build_by_generation(
+                dependencies,
+                all_tests,
+                build_generation,
+                generation_token,
+                lambda models, tests: failed_nodes_in(target_paths[-1], models, tests),
+                sources=model_sources(manifest, selected),
+                between=None if pause is None else between_generations,
+            )
         finally:
             if previous_job_name is None:
                 os.environ.pop("OPENLINEAGE_DBT_JOB_NAME", None)
             else:
                 os.environ["OPENLINEAGE_DBT_JOB_NAME"] = previous_job_name
-        _upload_dbt_artifacts(context, spec, invocation.target_path)
+        if target_paths:
+            _upload_dbt_artifacts(context, spec, merge_run_results(target_paths))
 
     _dbt_gold_assets.__name__ = f"{spec.product}_dbt_gold_assets"
     manifest_path = ensure_baked_manifest(spec.dbt_project_dir)
@@ -482,9 +535,7 @@ def _bronze_source_binding_tags(inputs: ResolvedProductInputs) -> dict[str, str]
     return source_binding_tags(sources)
 
 
-def build_stage_schedules(
-    spec: ProductDefinitionSpec, *, stage: str | None = None
-) -> list[ScheduleDefinition]:
+def build_stage_schedules(spec: ProductDefinitionSpec, *, stage: str | None = None) -> list[ScheduleDefinition]:
     """Build the daily schedule scaffold a stage is entitled to.
 
     `stage` defaults to the deployed stage the activation release puts on the

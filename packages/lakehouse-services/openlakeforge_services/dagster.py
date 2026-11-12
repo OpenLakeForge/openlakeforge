@@ -96,6 +96,7 @@ class DagsterClient:
         launch_key: str | None = None,
         key_tag: str = E2E_KEY_TAG,
         run_config: Mapping[str, Any] | None = None,
+        asset_selection: Sequence[Sequence[str]] | None = None,
     ) -> str:
         """Launch `job_name` and return its run id.
 
@@ -115,6 +116,12 @@ class DagsterClient:
                     "repositoryLocationName": location_name,
                     "repositoryName": repository_name,
                     "pipelineName": job_name,
+                    # Only those asset keys (each a path) of an asset job.
+                    **(
+                        {"assetSelection": [{"path": list(path)} for path in asset_selection]}
+                        if asset_selection
+                        else {}
+                    ),
                 },
                 "runConfigData": dict(run_config or {}),
                 "mode": "default",
