@@ -41,6 +41,11 @@ class KubectlError(RuntimeError):
 REPLICAS_ANNOTATION = "openlakeforge.io/restore-replicas"
 PORT_FORWARD_READY_TIMEOUT_SECONDS = 30.0
 PORT_FORWARD_READY_POLL_SECONDS = 0.1
+# How long a port-forward waits for a Ready pod behind its Service before it opens: a rollout that pulls images
+# and waits on late Secrets takes minutes, and `kubectl port-forward` does not wait it out ("unable to forward
+# port because pod is not running. Current status=Pending").
+SERVICE_READY_TIMEOUT_SECONDS = 300.0
+SERVICE_READY_POLL_SECONDS = 2.0
 
 
 def kubectl_command(
@@ -453,6 +458,41 @@ def wait_for_deployments(selector: str, namespace: str, *, environ: Mapping[str,
     _kubectl(["rollout", "status", "deployment", "-l", selector, "-n", namespace, "--timeout=300s"], environ=environ)
 
 
+def wait_for_service_ready(
+    service: str,
+    namespace: str,
+    *,
+    kube_context: str | None = None,
+    environ: Mapping[str, str] | None = None,
+    timeout_seconds: float = SERVICE_READY_TIMEOUT_SECONDS,
+    poll_seconds: float = SERVICE_READY_POLL_SECONDS,
+) -> None:
+    """Wait until a Ready pod backs the Service, so that `kubectl port-forward` has a running pod to pick.
+
+    A Deployment that has replicas is not enough: its pod can still be Pending on an image pull or on a Secret
+    that a later step creates. The Service's EndpointSlices list an address only for a Ready pod.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        raw = _kubectl(
+            ["get", "endpointslices", "-l", f"kubernetes.io/service-name={service}", "-n", namespace, "-o", "json"],
+            capture=True,
+            kube_context=kube_context,
+            environ=environ,
+        )
+        for item in json.loads(raw or "{}").get("items", []):
+            for endpoint in item.get("endpoints") or []:
+                # An endpoint without a `ready` condition is ready, by the EndpointSlice API's definition.
+                if endpoint.get("conditions", {}).get("ready", True) and endpoint.get("addresses"):
+                    return
+        if time.monotonic() >= deadline:
+            raise KubectlError(
+                f"no Ready pod backs Service {namespace}/{service} after {timeout_seconds:g}s; "
+                f"see `kubectl -n {namespace} describe pod` for why."
+            )
+        time.sleep(poll_seconds)
+
+
 def _free_local_port() -> int:
     with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -559,7 +599,11 @@ def supervised_port_forward(
     kube_context: str | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> Iterator[PortForwardHandle]:
-    """Run `kubectl port-forward` for the block; the handle re-establishes it if it dies."""
+    """Run `kubectl port-forward` for the block; the handle re-establishes it if it dies.
+
+    It first waits for a Ready pod behind the Service, so every caller can forward right after a rollout.
+    """
+    wait_for_service_ready(service, namespace, kube_context=kube_context, environ=environ)
     port = local_port or _free_local_port()
     command = _resolved_kubectl_argv(
         ["port-forward", f"svc/{service}", f"{port}:{remote_port}", "-n", namespace],

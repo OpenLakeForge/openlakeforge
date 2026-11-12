@@ -92,6 +92,17 @@ def _query_sizes_in_stub_roots(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(context, "load_query_sizing", load)
 
 
+@pytest.fixture(autouse=True)
+def _services_are_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A port-forward waits for a Ready pod behind its Service (#1090); tests fake kubectl, so none is ever Ready.
+
+    `tests/infra/test_k8s.py` tests the wait itself through the function it saves at import.
+    """
+    from olf.infra import k8s
+
+    monkeypatch.setattr(k8s, "wait_for_service_ready", lambda *_args, **_kwargs: None)
+
+
 @pytest.fixture
 def external_project(tmp_path: Path) -> Path:
     """Copy only the versioned data-project payload into a separate root."""
