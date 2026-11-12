@@ -87,6 +87,18 @@ def _gold_project_changes(
     return files, edits
 
 
+def _existing_gold_models(repo_root: Path) -> dict[str, str]:
+    """Each model of the Gold project, by name, with the `models/` folder that holds it."""
+    models = repo_root / _GOLD / "models"
+    if not models.is_dir():
+        return {}
+    return {
+        path.stem: path.parent.relative_to(models).as_posix()
+        for suffix in ("*.sql", "*.py")
+        for path in models.rglob(suffix)
+    }
+
+
 def _append(text: str, addition: str) -> str:
     return (text if text.endswith("\n") else text + "\n") + addition
 
@@ -138,6 +150,16 @@ def plan_product_new(
         raise ScaffoldError("product new: at least one --gold-table is required")
     if len(set(gold_tables)) != len(gold_tables):
         raise ScaffoldError(f"product {product!r}: --gold-table values must be unique")
+    # One dbt project holds every product's models (ADR 0004), and dbt refuses two models of one name
+    # whatever their folders: a clash would fail the manifest bake and the whole code location.
+    taken = _existing_gold_models(repo_root)
+    clashes = sorted(name for name in gold_tables if name in taken)
+    if clashes:
+        raise ScaffoldError(
+            "product new: "
+            + ", ".join(f"--gold-table {name!r} is already a model of {taken[name]}" for name in clashes)
+            + "; dbt model names are unique across the Gold project"
+        )
 
     inventory = load_transitional_lakehouse_inventory(repo_root)
     if product in {p.id for p in inventory.products}:

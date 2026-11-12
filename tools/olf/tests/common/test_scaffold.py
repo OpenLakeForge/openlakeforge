@@ -441,6 +441,21 @@ def test_product_new_declares_a_new_silver_table_in_the_domains_existing_source(
     assert "promotions" in [table["name"] for table in source["tables"]]
 
 
+def test_product_new_refuses_a_gold_table_another_product_already_models(tmp_path: Path) -> None:
+    repo_root = _seed_repo(tmp_path)
+
+    with pytest.raises(ScaffoldError, match="'mart_order_revenue_by_day' is already a model of order_revenue"):
+        plan_product_new(
+            repo_root,
+            target="sales/revenue_copy",
+            display_name=None,
+            silver_inputs=("orders",),
+            inputs=(),
+            gold_tables=("mart_order_revenue_by_day",),
+            with_report=False,
+        )
+
+
 def test_product_new_refuses_a_dbt_project_it_cannot_append_to(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
     project = repo_root / "lakehouse_code" / "gold" / "dbt_project.yml"
