@@ -24,7 +24,7 @@ pinned copies under `~/.openlakeforge`.
 ## 1. Install `olf` and create a project
 
 ```bash
-uv tool install "openlakeforge==0.5.1a3" --python 3.12
+uv tool install "openlakeforge==0.6.0a1" --python 3.12
 
 mkdir my-lakehouse && cd my-lakehouse
 olf init

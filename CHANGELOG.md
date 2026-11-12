@@ -14,15 +14,23 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
-### Draft beta release notes (#532)
+## [0.6.0-alpha.1] - 2026-11-12
 
-These notes are the draft for the first beta. The version number, the date and
-the acceptance evidence (#182 walkthrough, #531 durability, #329 benchmark) are
-filled in when the tag is cut; the component table is the catalog at the time
-of writing and is regenerated into `docs/reference/compatibility-matrix.md` for
-the tag.
+This release closes the v0.6 milestone (Workloads, Sizing and Scale) and ends
+the alpha line: the next release is the first beta. The component table below
+is the catalog for this tag; `docs/reference/compatibility-matrix.md` renders
+the same catalog.
 
-The beta covers the `local` provider (kind), Slim and Full presets, with the
+#### Acceptance evidence
+
+| Gate | Evidence |
+| --- | --- |
+| Local end-to-end walkthrough (#182) | `local-full-e2e.yml` on `main`: runs `43070740290` and `43195461063` |
+| Upgrade from v0.5 without data loss (#531) | `upgrade-drill.yml` run `43068688822` (#1087) |
+| Backup and restore (#531) | Restore drill with `access_tls: none` (run `43070740290`) and `access_tls: local-ca` (run `43195461063`, after #1093) |
+| Size envelope (#329) | OpenLakeForge/openlakeforge-bench `results/2026-11-01-*`: 15.2M rows (0.9 GB) exact on every pass, 41.4M rows (2.5 GB) on a first pass |
+
+The release covers the `local` provider (kind), Slim and Full presets, with the
 Deployment Profile, `governance.yml` and `source.yaml` frozen at the versions
 below. `aws` and `azure` stay preview. The step-by-step upgrade is
 [Migrate from v0.5 alpha](docs/guides/migrate-from-v0-5-alpha.md).
