@@ -172,11 +172,22 @@ class ProductDefinitionSpec:
         return ResolvedProductInputs(silver_inputs=tuple(silver), bronze_inputs=tuple(bronze), gold_assets=tuple(gold))
 
     def _read_silver_tables(self, manifest: dict, models: list[dict]) -> tuple[str, ...]:
+        """The Silver the product's build reads: its models' sources, and those of the tests that run with them.
+
+        A test runs with the product when one of its parents is a product model (eager selection, as
+        `dbt_build.dbt_tests` schedules it); a relationships test can read a source no model does.
+        """
         sources = manifest.get("sources", {})
+        model_ids = {model.get("unique_id") for model in models} - {None}
+        tests = [
+            node
+            for node in manifest.get("nodes", {}).values()
+            if node.get("resource_type") == "test" and model_ids & set(node.get("depends_on", {}).get("nodes", ()))
+        ]
         read = [
             sources[parent]
-            for model in models
-            for parent in model.get("depends_on", {}).get("nodes", ())
+            for node in (*models, *tests)
+            for parent in node.get("depends_on", {}).get("nodes", ())
             if parent in sources
         ]
         foreign = sorted(

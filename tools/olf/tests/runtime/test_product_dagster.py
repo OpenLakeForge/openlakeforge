@@ -452,6 +452,7 @@ def test_a_dbt_source_that_is_not_a_silver_table_of_the_domain_is_refused() -> N
 
 def _model(name: str, product: str, *reads: str) -> dict:
     return {
+        "unique_id": f"model.gold.{name}",
         "name": name,
         "resource_type": "model",
         "package_name": "gold",
@@ -501,6 +502,39 @@ def test_a_product_reading_another_domains_silver_is_refused(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match=r"reads \['supply_chain.shipments'\]"):
         spec.resolve(_manifest(tmp_path, source="shipments", domain="supply_chain"))
+
+
+def test_a_product_takes_the_silver_its_tests_read_but_not_other_products_tests(tmp_path: Path) -> None:
+    orders_id, orders = _silver_source("sales", "orders")
+    accounts_id, accounts = _silver_source("sales", "accounts")
+    channels_id, channels = _silver_source("sales", "channels")
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "metadata": {"project_name": "gold"},
+                "nodes": {
+                    "model.gold.mart": _model("mart", "order_revenue", orders_id),
+                    "model.gold.other": _model("other", "customer_health", orders_id),
+                    # A relationships test reads a source no model of the product does.
+                    "test.gold.mart_accounts": {
+                        "resource_type": "test",
+                        "depends_on": {"nodes": ["model.gold.mart", accounts_id]},
+                    },
+                    "test.gold.other_channels": {
+                        "resource_type": "test",
+                        "depends_on": {"nodes": ["model.gold.other", channels_id]},
+                    },
+                },
+                "sources": {orders_id: orders, accounts_id: accounts, channels_id: channels},
+            }
+        )
+    )
+
+    resolved = ProductDefinitionSpec(domain="sales", product="order_revenue").resolve(path)
+
+    assert resolved.silver_inputs == ("accounts", "orders")
+    assert resolved.bronze_inputs == (("crm", "accounts"), ("crm", "orders"))
 
 
 def test_a_product_reading_only_another_products_public_mart_needs_no_silver(tmp_path: Path) -> None:
