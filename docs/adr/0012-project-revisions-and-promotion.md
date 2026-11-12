@@ -31,7 +31,7 @@ content-addressed revision, covering the complete promotable project:
 | --- | --- | --- |
 | `descriptors` | `lakehouse_code/governance.yml`, `bronze/<source>/source.yaml` | — |
 | `floe` | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/contracts/floe/*.yml` | — |
-| `dbt` | `gold/<product>/dbt/**` (no `profiles.yml`, `target/`, `dbt_packages/`, `logs/`) | stage connection and build output, not input |
+| `dbt` | `gold/**` (no `profiles.yml`, `target/`, `dbt_packages/`, `logs/`) | stage connection and build output, not input |
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | — |
 | `reports` | `dashboards/superset/<dashboard>/**`, when any dashboard exists | — |
 | `image` | The project-code repository plus an immutable `@sha256:` digest | mutable tags are rejected |
@@ -245,3 +245,6 @@ TLS and password reads with them (Trino serves plain HTTP with no
 authentication since ADR 0016). Contract 1 stays current and accepted: nothing
 sets the removed variables, so an older revision's runtime takes its defaults
 (`http`, no method, no password) and runs unchanged. Only the fingerprint moved.
+
+2026-11-12: the `dbt` component is `gold/**`, the single Gold dbt project
+(ADR 0004). It was each product's `gold/<product>/dbt/**`.

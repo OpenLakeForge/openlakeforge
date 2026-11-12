@@ -152,8 +152,8 @@ class Product:
         return f"run-artifacts/dbt/{self.domain_name}/{self.id}/"
 
     @property
-    def dbt_project_dir(self) -> str:
-        return f"lakehouse_code/gold/{self.id}/dbt"
+    def dbt_models_dir(self) -> str:
+        return f"lakehouse_code/gold/models/{self.id}"
 
     @property
     def openmetadata_data_product_fqns(self) -> tuple[str, str]:

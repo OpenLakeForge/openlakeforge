@@ -29,7 +29,7 @@ owner (see
 | --- | --- | --- |
 | Bronze | A source | `lakehouse_code/bronze/<source>/` |
 | Silver | A domain | `lakehouse_code/silver/<domain>/` |
-| Gold | A data product | `lakehouse_code/gold/<product>/` |
+| Gold | A data product | `lakehouse_code/gold/models/<product>/` |
 
 Across the next lessons you add the source `marketing_platform`, the domain
 `marketing` and the product `campaign_performance`. OpenLakeForge derives

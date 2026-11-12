@@ -4,7 +4,6 @@ import argparse
 import os
 import re
 import subprocess
-from collections.abc import Iterable
 from pathlib import Path
 
 # The project root is an input, never derived from where this module is installed.
@@ -58,8 +57,17 @@ def dbt_environment() -> dict[str, str]:
     return {PACKAGES_DIR_ENV: str(DBT_PACKAGES_DIR)}
 
 
-def discover_project_dirs(gold_root: Path) -> list[Path]:
-    return sorted(path.parent for path in gold_root.glob("*/dbt/dbt_project.yml"))
+def gold_project_dir(gold_root: Path) -> Path | None:
+    """The Gold dbt project (ADR 0004): `gold_root` itself, when it holds one."""
+    return gold_root if (gold_root / "dbt_project.yml").is_file() else None
+
+
+def product_names(gold_root: Path) -> list[str]:
+    """Each product's folder under `models/`; `_`-prefixed folders, such as `_sources`, are shared."""
+    models = gold_root / "models"
+    if not models.is_dir():
+        return []
+    return sorted(path.name for path in models.iterdir() if path.is_dir() and not path.name.startswith(("_", ".")))
 
 
 def profile_name(project_dir: Path) -> str:
@@ -77,36 +85,14 @@ def render_profile(project_dir: Path, adapter: str = DEFAULT_ADAPTER) -> str:
         supported = ", ".join(sorted(path.stem for path in PROFILE_TEMPLATE_DIR.glob("*.yml")))
         raise ValueError(f"Unsupported dbt adapter {adapter!r}. Supported: {supported}.")
 
-    replacements = {
-        "{{PROFILE_NAME}}": profile_name(project_dir),
-        "{{GOLD_SCHEMA}}": f"{project_dir.parent.name}_gold",
-    }
-    rendered = template_path.read_text(encoding="utf-8")
-    for placeholder, value in replacements.items():
-        rendered = rendered.replace(placeholder, value)
-    return rendered
-
-
-def write_profiles(project_dirs: Iterable[Path], output_dir: Path, adapter: str = DEFAULT_ADAPTER) -> Path:
-    """Write one profiles.yml holding every product's profile."""
-    project_dirs = list(project_dirs)
-    # Each product's profile carries its own Gold schema. In one shared file a
-    # repeated name would be a duplicate YAML key, and the last product's
-    # schema would silently win for both.
-    names = [profile_name(project_dir) for project_dir in project_dirs]
-    shared = sorted({name for name in names if names.count(name) > 1})
-    if shared:
-        raise ValueError(f"dbt products must use distinct profile names; shared: {', '.join(shared)}")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    profile_path = output_dir / "profiles.yml"
-    profile_path.write_text(
-        "".join(render_profile(project_dir, adapter=adapter) for project_dir in project_dirs), encoding="utf-8"
-    )
-    return profile_path
+    return template_path.read_text(encoding="utf-8").replace("{{PROFILE_NAME}}", profile_name(project_dir))
 
 
 def write_profile(project_dir: Path, output_dir: Path, adapter: str = DEFAULT_ADAPTER) -> Path:
-    return write_profiles([project_dir], output_dir, adapter=adapter)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    profile_path = output_dir / "profiles.yml"
+    profile_path.write_text(render_profile(project_dir, adapter=adapter), encoding="utf-8")
+    return profile_path
 
 
 def bake_manifest(project_dir: Path, profiles_dir: Path, dbt: str = "dbt") -> Path:
@@ -134,7 +120,7 @@ def ensure_baked_manifest(project_dir: Path, profiles_dir: Path | None = None) -
     """
     profiles_dir = profiles_dir or resolve_profiles_dir()
     if not (profiles_dir / "profiles.yml").is_file():
-        write_profiles(discover_project_dirs(project_dir.parents[1]), profiles_dir)
+        write_profile(project_dir, profiles_dir)
     manifest_path = project_dir / "target" / "manifest.json"
     if manifest_path.is_file():
         return manifest_path
@@ -151,29 +137,24 @@ def _read_dbt_project_field(path: Path, field: str) -> str | None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Render the OpenLakeForge dbt profiles and bake product manifests.")
+    parser = argparse.ArgumentParser(description="Render the OpenLakeForge dbt profile and bake the Gold manifest.")
     parser.add_argument("--adapter", default=DEFAULT_ADAPTER)
-    parser.add_argument("--project-dir", action="append", type=Path, default=[])
+    parser.add_argument("--project-dir", type=Path, help="The dbt project; default lakehouse_code/gold.")
     parser.add_argument("--root", type=Path, help=f"Project root; default ${PROJECT_ROOT_ENV}, else the working dir.")
     parser.add_argument("--output-dir", type=Path)
-    parser.add_argument("--bake", action="store_true", help="Also resolve and parse each project's manifest.")
+    parser.add_argument("--bake", action="store_true", help="Also resolve and parse the project's manifest.")
     args = parser.parse_args()
 
     root = args.root.resolve() if args.root else project_root()
     output_dir = args.output_dir or root / BAKED_PROFILES_SUBDIR
-    project_dirs = (
-        [path.resolve() for path in args.project_dir]
-        if args.project_dir
-        else discover_project_dirs(root / "lakehouse_code" / "gold")
-    )
-    if not project_dirs:
-        raise SystemExit("ERROR: no product dbt projects found.")
+    project_dir = args.project_dir.resolve() if args.project_dir else gold_project_dir(root / "lakehouse_code" / "gold")
+    if project_dir is None:
+        raise SystemExit("ERROR: no Gold dbt project at lakehouse_code/gold/dbt_project.yml.")
 
-    profile_path = write_profiles(project_dirs, output_dir, adapter=args.adapter)
+    profile_path = write_profile(project_dir, output_dir, adapter=args.adapter)
     print(f"Rendered {profile_path}")
     if args.bake:
-        for project_dir in project_dirs:
-            print(f"dbt manifest baked at {bake_manifest(project_dir, output_dir)}")
+        print(f"dbt manifest baked at {bake_manifest(project_dir, output_dir)}")
 
 
 if __name__ == "__main__":

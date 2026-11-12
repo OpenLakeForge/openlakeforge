@@ -29,9 +29,10 @@ _SPEC = ProductDefinitionSpec(
 )
 
 
-def test_spec_names_the_job_and_dbt_project_from_the_product() -> None:
+def test_spec_names_the_job_and_selects_its_folder_of_the_gold_project() -> None:
     assert _SPEC.job_name == "revenue_pipeline"
-    assert _SPEC.dbt_project_dir.parts[-3:] == ("gold", "revenue", "dbt")
+    assert _SPEC.dbt_project_dir.parts[-2:] == ("lakehouse_code", "gold")
+    assert _SPEC.dbt_select == "group:revenue"
 
 
 def test_only_prod_gets_a_daily_schedule_and_it_is_stopped() -> None:
@@ -449,30 +450,119 @@ def test_a_dbt_source_that_is_not_a_silver_table_of_the_domain_is_refused() -> N
         spec.resolve()
 
 
-def _manifest(tmp_path: Path, *, source: str) -> Path:
+def _model(name: str, product: str, *reads: str) -> dict:
+    return {
+        "unique_id": f"model.gold.{name}",
+        "name": name,
+        "resource_type": "model",
+        "package_name": "gold",
+        "fqn": ["gold", product, name],
+        "depends_on": {"nodes": list(reads)},
+    }
+
+
+def _silver_source(domain: str, name: str) -> tuple[str, dict]:
+    unique_id = f"source.gold.{domain}.{name}"
+    return unique_id, {"name": name, "source_name": domain, "resource_type": "source", "package_name": "gold"}
+
+
+def _manifest(tmp_path: Path, *, source: str, domain: str = "sales") -> Path:
+    source_id, source_node = _silver_source(domain, source)
+    unused_id, unused_node = _silver_source("sales", "promotions")
     path = tmp_path / "manifest.json"
     path.write_text(
         json.dumps(
             {
-                "metadata": {"project_name": "order_revenue"},
+                "metadata": {"project_name": "gold"},
                 "nodes": {
-                    "model.order_revenue.mart": {
-                        "name": "mart",
-                        "resource_type": "model",
-                        "package_name": "order_revenue",
-                    }
+                    "model.gold.mart": _model("mart", "order_revenue", source_id),
+                    "model.gold.other": _model("other", "customer_health", unused_id),
                 },
-                "sources": {
-                    "source.order_revenue.silver.x": {
-                        "name": source,
-                        "resource_type": "source",
-                        "package_name": "order_revenue",
-                    }
-                },
+                "sources": {source_id: source_node, unused_id: unused_node},
             }
         )
     )
     return path
+
+
+def test_a_product_takes_its_own_folders_models_and_only_the_silver_they_read(tmp_path: Path) -> None:
+    spec = ProductDefinitionSpec(domain="sales", product="order_revenue")
+
+    resolved = spec.resolve(_manifest(tmp_path, source="orders"))
+
+    assert (resolved.silver_inputs, resolved.bronze_inputs, resolved.gold_assets) == (
+        ("orders",),
+        (("crm", "orders"),),
+        ("mart",),
+    )
+
+
+def test_a_product_reading_another_domains_silver_is_refused(tmp_path: Path) -> None:
+    spec = ProductDefinitionSpec(domain="sales", product="order_revenue")
+
+    with pytest.raises(ValueError, match=r"reads \['supply_chain.shipments'\]"):
+        spec.resolve(_manifest(tmp_path, source="shipments", domain="supply_chain"))
+
+
+def test_a_product_takes_the_silver_its_tests_read_but_not_other_products_tests(tmp_path: Path) -> None:
+    orders_id, orders = _silver_source("sales", "orders")
+    accounts_id, accounts = _silver_source("sales", "accounts")
+    channels_id, channels = _silver_source("sales", "channels")
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "metadata": {"project_name": "gold"},
+                "nodes": {
+                    "model.gold.mart": _model("mart", "order_revenue", orders_id),
+                    "model.gold.other": _model("other", "customer_health", orders_id),
+                    # A relationships test reads a source no model of the product does.
+                    "test.gold.mart_accounts": {
+                        "resource_type": "test",
+                        "depends_on": {"nodes": ["model.gold.mart", accounts_id]},
+                    },
+                    "test.gold.other_channels": {
+                        "resource_type": "test",
+                        "depends_on": {"nodes": ["model.gold.other", channels_id]},
+                    },
+                },
+                "sources": {orders_id: orders, accounts_id: accounts, channels_id: channels},
+            }
+        )
+    )
+
+    resolved = ProductDefinitionSpec(domain="sales", product="order_revenue").resolve(path)
+
+    assert resolved.silver_inputs == ("accounts", "orders")
+    assert resolved.bronze_inputs == (("crm", "accounts"), ("crm", "orders"))
+
+
+def test_a_product_reading_only_another_products_public_mart_needs_no_silver(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "metadata": {"project_name": "gold"},
+                "nodes": {
+                    "model.gold.revenue": _model("revenue", "order_revenue"),
+                    "model.gold.forecast": _model("forecast", "revenue_forecast", "model.gold.revenue"),
+                },
+                "sources": {},
+            }
+        )
+    )
+    spec = ProductDefinitionSpec(domain="sales", product="revenue_forecast")
+
+    resolved = spec.resolve(path)
+
+    assert (resolved.silver_inputs, resolved.bronze_inputs, resolved.gold_assets) == ((), (), ("forecast",))
+
+
+def test_a_product_without_a_folder_of_models_is_refused(tmp_path: Path) -> None:
+    spec = ProductDefinitionSpec(domain="sales", product="returns")
+
+    with pytest.raises(ValueError, match="no models under models/returns/"):
+        spec.resolve(_manifest(tmp_path, source="orders"))
 
 
 def test_a_renamed_dbt_source_asks_for_explicit_silver_inputs(tmp_path: Path) -> None:

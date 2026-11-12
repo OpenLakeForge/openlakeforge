@@ -1,10 +1,10 @@
 version: 2
 
 sources:
-  - name: silver
+  - name: sales
     database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}"
     schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}sales_silver"
-    description: Floe-owned Order Revenue Silver Iceberg tables.
+    description: The sales domain's Floe-owned Silver Iceberg tables.
     tables:
       - name: orders
         description: Validated sales order headers.
@@ -18,3 +18,9 @@ sources:
         description: Validated promotion dimension.
       - name: accounts
         description: Validated account dimension.
+      - name: subscriptions
+        description: Validated subscription records.
+      - name: support_tickets
+        description: Validated support ticket facts.
+      - name: nps_responses
+        description: Validated NPS response facts.

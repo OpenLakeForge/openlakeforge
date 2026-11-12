@@ -42,12 +42,12 @@ _YAML_SUFFIXES = (".yaml", ".yml")
 
 # Matches the owned root directory of a brand-new source/domain/product/
 # dashboard: `lakehouse_code/bronze/<source>/...`,
-# `lakehouse_code/silver/<domain>/...`, `lakehouse_code/gold/<product>/...`,
+# `lakehouse_code/silver/<domain>/...`, `lakehouse_code/gold/models/<product>/...`,
 # `lakehouse_code/dashboards/superset/<name>/...`. A path that isn't nested
 # under one of these (e.g. a Dagster module added beside existing ones) has
 # no such root and is not checked here -- only genuinely new ownership
 # subtrees are.
-_OWNERSHIP_ROOT = re.compile(r"^lakehouse_code/(?:bronze|silver|gold|dashboards/superset)/[a-z][a-z0-9_]*")
+_OWNERSHIP_ROOT = re.compile(r"^lakehouse_code/(?:bronze|silver|gold/models|dashboards/superset)/[a-z][a-z0-9_]*")
 # One entity per file: extending an existing domain adds a file beside its
 # `_domain.yml`, inside an ownership root that already has content.
 _FLOE_GLOB = "silver/*/contracts/floe/*.yml"

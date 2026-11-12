@@ -116,9 +116,9 @@ class ProductDefinitionSpec:
     Each list defaults to what the project already declares, and an explicit
     value wins over the default:
 
-    - `gold_assets`: the models of the product's dbt project;
-    - `silver_inputs`: the sources of the product's dbt project, which are the
-      domain's Silver tables;
+    - `gold_assets`: the models in the product's folder of the Gold dbt
+      project (ADR 0004);
+    - `silver_inputs`: the domain's Silver tables those models read;
     - `bronze_inputs`: the Bronze resource each of `silver_inputs` reads, from
       the domain's Floe entities.
     """
@@ -135,10 +135,16 @@ class ProductDefinitionSpec:
 
     @property
     def dbt_project_dir(self) -> Path:
-        return _LAKEHOUSE_CODE_ROOT / "gold" / self.product / "dbt"
+        return _LAKEHOUSE_CODE_ROOT / "gold"
+
+    @property
+    def dbt_select(self) -> str:
+        # A product folder is a dbt group (ADR 0004). dagster-dbt resolves a `path:` selector
+        # without the project directory, so it would match nothing.
+        return f"group:{self.product}"
 
     def resolve(self, manifest_path: Path | None = None) -> ResolvedProductInputs:
-        """The effective inputs; `manifest_path` defaults to the product's baked dbt manifest."""
+        """The effective inputs; `manifest_path` defaults to the Gold project's baked dbt manifest."""
         manifest: dict = {}
         if self.gold_assets is None or self.silver_inputs is None:
             path = manifest_path or ensure_baked_manifest(self.dbt_project_dir)
@@ -148,20 +154,51 @@ class ProductDefinitionSpec:
                     "pass gold_assets and silver_inputs explicitly or build the dbt project's manifest"
                 )
             manifest = json.loads(path.read_text())
+        models = _product_models(manifest, self.product)
         gold = self.gold_assets
         if gold is None:
-            gold = _manifest_names(manifest, "nodes", "model")
+            gold = tuple(sorted({model["name"] for model in models}))
             if not gold:
-                raise ValueError(f"product {self.product!r}: its dbt project declares no models to build")
+                raise ValueError(
+                    f"product {self.product!r}: the Gold dbt project has no models under models/{self.product}/"
+                )
         silver = self.silver_inputs
         if silver is None:
-            silver = _manifest_names(manifest, "sources", "source")
-            if not silver:
-                raise ValueError(f"product {self.product!r}: its dbt project declares no sources to read")
+            # Empty for a product that reads only other products' public marts through ref().
+            silver = self._read_silver_tables(manifest, models)
         bronze = self.bronze_inputs
         if bronze is None:
             bronze = self._floe_bronze_inputs(silver)
         return ResolvedProductInputs(silver_inputs=tuple(silver), bronze_inputs=tuple(bronze), gold_assets=tuple(gold))
+
+    def _read_silver_tables(self, manifest: dict, models: list[dict]) -> tuple[str, ...]:
+        """The Silver the product's build reads: its models' sources, and those of the tests that run with them.
+
+        A test runs with the product when one of its parents is a product model (eager selection, as
+        `dbt_build.dbt_tests` schedules it); a relationships test can read a source no model does.
+        """
+        sources = manifest.get("sources", {})
+        model_ids = {model.get("unique_id") for model in models} - {None}
+        tests = [
+            node
+            for node in manifest.get("nodes", {}).values()
+            if node.get("resource_type") == "test" and model_ids & set(node.get("depends_on", {}).get("nodes", ()))
+        ]
+        read = [
+            sources[parent]
+            for node in (*models, *tests)
+            for parent in node.get("depends_on", {}).get("nodes", ())
+            if parent in sources
+        ]
+        foreign = sorted(
+            {f"{source['source_name']}.{source['name']}" for source in read if source["source_name"] != self.domain}
+        )
+        if foreign:
+            raise ValueError(
+                f"product {self.product!r} of domain {self.domain!r} reads {foreign}: "
+                "a product reads its own domain's Silver, or another product's public mart through ref()"
+            )
+        return tuple(sorted({source["name"] for source in read}))
 
     def _floe_bronze_inputs(self, silver: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
         inventory = inventory_for(_LAKEHOUSE_CODE_ROOT)
@@ -179,18 +216,20 @@ class ProductDefinitionSpec:
         return tuple(entities[name] for name in silver)
 
 
-def _manifest_names(manifest: dict, section: str, resource_type: str) -> tuple[str, ...]:
-    """Sorted names of the project's own `resource_type` entries; packages' models are not the product's."""
+def _product_models(manifest: dict, product: str) -> list[dict]:
+    """The project's own models in `models/<product>/`; a package's models are no product's.
+
+    A model's fqn is the project name, then its folders under `models/`, then its name.
+    """
     project = manifest.get("metadata", {}).get("project_name")
-    return tuple(
-        sorted(
-            {
-                entry["name"]
-                for entry in manifest.get(section, {}).values()
-                if entry["resource_type"] == resource_type and project in (None, entry.get("package_name"))
-            }
-        )
-    )
+    return [
+        node
+        for node in manifest.get("nodes", {}).values()
+        if node["resource_type"] == "model"
+        and project in (None, node.get("package_name"))
+        and len(node.get("fqn", ())) > 2
+        and node["fqn"][1] == product
+    ]
 
 
 @dataclass(frozen=True)
@@ -419,8 +458,12 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
     class ProductDbtTranslator(DagsterDbtTranslator):
         def get_asset_key(self, dbt_resource_props) -> AssetKey:
             if dbt_resource_props["resource_type"] == "source":
-                return AssetKey([spec.domain, dbt_resource_props["name"]])
-            return AssetKey([spec.product, dbt_resource_props["name"]])
+                # A Gold source is named after its domain (ADR 0004), as is the Silver asset.
+                return AssetKey([dbt_resource_props["source_name"], dbt_resource_props["name"]])
+            # A model of the project is keyed by the product folder it sits in, so another
+            # product's public mart this product refs keeps its owner's key.
+            owner = dbt_resource_props["fqn"][1] if len(dbt_resource_props.get("fqn", ())) > 2 else spec.product
+            return AssetKey([owner, dbt_resource_props["name"]])
 
         def get_group_name(self, dbt_resource_props) -> str:
             return spec.product
@@ -500,6 +543,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
     inputs = spec.resolve(manifest_path)
     dbt_gold_assets = dbt_assets(
         manifest=manifest_path,
+        select=spec.dbt_select,
         dagster_dbt_translator=ProductDbtTranslator(),
     )(_dbt_gold_assets)
 

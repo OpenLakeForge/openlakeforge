@@ -102,7 +102,7 @@ def product_payload(product: ProductSpec) -> dict:
 
 def _gold_models(lakehouse_root: Path, product_id: str) -> list[str]:
     """A product's Gold tables: one per dbt model, named by its file (no model sets an alias)."""
-    models = lakehouse_root / "gold" / product_id / "dbt" / "models"
+    models = lakehouse_root / "gold" / "models" / product_id
     return sorted({path.stem for path in models.rglob("*.sql")})
 
 

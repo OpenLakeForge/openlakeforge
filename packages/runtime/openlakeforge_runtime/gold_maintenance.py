@@ -4,7 +4,7 @@ import os
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from openlakeforge_runtime.dbt.render_profiles import discover_project_dirs
+from openlakeforge_runtime.dbt.render_profiles import product_names
 from openlakeforge_runtime.polaris_token import mint_token
 
 # Trino refuses `expire_snapshots` / `remove_orphan_files` below
@@ -44,9 +44,9 @@ def connect() -> Any:
 
 
 def gold_schemas(gold_root: Any) -> list[str]:
-    """Each product's Gold schema, named as the dbt profile names it (render_profiles.render_profile)."""
+    """Each product's Gold schema, named as openlakeforge_dbt's generate_schema_name names it."""
     prefix = os.environ.get("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", "")
-    return [f"{prefix}{project_dir.parent.name}_gold" for project_dir in discover_project_dirs(gold_root)]
+    return [f"{prefix}{product}_gold" for product in product_names(gold_root)]
 
 
 def _rows(connection: Any, sql: str) -> list[tuple]:

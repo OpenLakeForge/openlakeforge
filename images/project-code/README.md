@@ -18,7 +18,7 @@ uv run --project tools/olf --locked olf infra images load project-code
 
 The image contains Dagster, the Floe Python core (`floe-python`) with
 `dagster-floe`, dlt extract code, the Floe project under
-`lakehouse_code/silver/`, product dbt projects, domain Python code, and shared
+`lakehouse_code/silver/`, the Gold dbt project, domain Python code, and shared
 OpenLakeForge libraries. The code location builds the Floe manifest in memory
 from the project and the EnvironmentProfile `openlakeforge_runtime/floe_profile.py` renders from
 the stage's contract values, so the image carries no generated manifest and no

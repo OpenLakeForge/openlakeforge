@@ -1,5 +1,10 @@
 version: 2
 
+groups:
+  - name: inventory_reliability
+    owner:
+      name: inventory_reliability
+
 models:
   - name: mart_inventory_position
     description: Latest inventory position and reorder status by product and warehouse.

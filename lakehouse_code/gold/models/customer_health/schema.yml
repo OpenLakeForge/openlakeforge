@@ -1,5 +1,10 @@
 version: 2
 
+groups:
+  - name: customer_health
+    owner:
+      name: customer_health
+
 models:
   - name: mart_customer_health_score
     description: Account-level health score using subscription, support, and NPS signals.

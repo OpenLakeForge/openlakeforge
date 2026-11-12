@@ -4,7 +4,7 @@ with order_lines as (
         cast(quantity as integer) as quantity,
         cast(unit_price as double) as unit_price,
         cast(discount_amount as double) as discount_amount
-    from {{ source('silver', 'order_lines') }}
+    from {{ source('sales', 'order_lines') }}
 ),
 
 products as (
@@ -13,7 +13,7 @@ products as (
         product_name,
         category,
         cast(unit_cost as double) as unit_cost
-    from {{ source('silver', 'products') }}
+    from {{ source('sales', 'products') }}
 )
 
 select

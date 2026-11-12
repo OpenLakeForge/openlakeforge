@@ -10,12 +10,12 @@ with ranked_snapshots as (
             partition by warehouse_id, product_id
             order by cast(snapshot_date as date) desc
         ) as snapshot_rank
-    from {{ source('silver', 'inventory_snapshots') }}
+    from {{ source('supply_chain', 'inventory_snapshots') }}
 ),
 
 warehouses as (
     select warehouse_id, warehouse_name, region
-    from {{ source('silver', 'warehouses') }}
+    from {{ source('supply_chain', 'warehouses') }}
 )
 
 select
