@@ -24,7 +24,6 @@ from olf.common.scaffold._shared import (
 )
 from olf.common.scaffold._templates import FloeEntitySpec
 
-
 # The domain file Floe includes (`include.domains` in `silver/floe.yml`); its sibling files are the entities.
 DOMAIN_FILE = "domain.yml"
 
