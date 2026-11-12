@@ -461,7 +461,7 @@ def test_product_new_extends_existing_domain_with_new_input(tmp_path: Path) -> N
     floe = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts"
     entity = yaml.safe_load((floe / "absences.yml").read_text(encoding="utf-8"))
     assert entity["source"] == {"ref": "workday", "resource": "absences"}
-    assert sorted(path.name for path in floe.glob("*.yml")) == ["domain.yml", "absences.yml", "employees.yml"]
+    assert sorted(path.name for path in floe.glob("*.yml")) == ["absences.yml", "domain.yml", "employees.yml"]
 
     inventory = load_lakehouse_inventory(repo_root)
     hr = next(d for d in inventory.domains if d.name == "hr")
