@@ -22,5 +22,6 @@ infra
 openlakeforge_project.egg-info
 scripts
 vendor
-domains/**/target
-domains/**/.dbt
+lakehouse_code/gold/**/target
+lakehouse_code/gold/**/dbt_packages
+lakehouse_code/gold/**/logs
