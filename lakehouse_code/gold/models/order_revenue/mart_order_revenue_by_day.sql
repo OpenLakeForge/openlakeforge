@@ -3,7 +3,7 @@ with orders as (
         order_id,
         cast(order_date as date) as order_date,
         region
-    from {{ source('silver', 'orders') }}
+    from {{ source('sales', 'orders') }}
     where status = 'fulfilled'
 ),
 
@@ -13,7 +13,7 @@ order_lines as (
         cast(quantity as integer) as quantity,
         cast(unit_price as double) as unit_price,
         cast(discount_amount as double) as discount_amount
-    from {{ source('silver', 'order_lines') }}
+    from {{ source('sales', 'order_lines') }}
 )
 
 select

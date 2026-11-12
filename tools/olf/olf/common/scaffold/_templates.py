@@ -387,31 +387,53 @@ def render_floe_source(*, source: str, parquet: bool = False) -> str:
 # --------------------------------------------------------------------------
 
 
-def render_dbt_project_yml(*, domain: str, product: str) -> str:
-    return f'''name: {product}
+GOLD_DBT_PROJECT_NAME = "gold"
+
+
+def render_dbt_project_yml(*, products: tuple[str, ...]) -> str:
+    """The Gold dbt project every product shares (ADR 0004); it ends with the product blocks
+    so `olf product new` can append one."""
+    return f'''name: {GOLD_DBT_PROJECT_NAME}
 version: "1.0.0"
 config-version: 2
 
-profile: {product}
+profile: {GOLD_DBT_PROJECT_NAME}
 
 model-paths: ["models"]
-macro-paths: []
+macro-paths: ["macros"]
 target-path: "target"
 clean-targets: ["target", "dbt_packages"]
 
 models:
-  {product}:
+  {GOLD_DBT_PROJECT_NAME}:
     +database: "{{{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}}}"
     +materialized: table
     +on_table_exists: replace
     # A definer view is re-read by Polaris without the caller's token (#967).
     +view_security: invoker
-    +meta:
-      dagster:
-        group: {product}
-    gold:
-      +tags: ["{domain}", "{product}", "gold"]
-'''
+    # Another product can ref() a model only once its owner marks it public.
+    +access: private
+    # One block per product: its folder under models/ joins its dbt group.
+''' + "".join(render_dbt_product_block(product=product) for product in products)
+
+
+GOLD_SCHEMA_MACRO_PATH = "macros/generate_schema_name.sql"
+
+
+def render_dbt_schema_macro() -> str:
+    # dbt takes generate_schema_name only from the root project, never from an
+    # installed package, so the project delegates to the distribution's.
+    return (
+        "{#- Each model's schema is its product folder's <product>_gold (ADR 0004). dbt takes this macro\n"
+        "    only from the root project, so it delegates to the OpenLakeForge package's. -#}\n"
+        "{% macro generate_schema_name(custom_schema_name, node) -%}\n"
+        "  {{ openlakeforge_dbt.generate_schema_name(custom_schema_name, node) }}\n"
+        "{%- endmacro %}\n"
+    )
+
+
+def render_dbt_product_block(*, product: str) -> str:
+    return f"    {product}:\n      +group: {product}\n"
 
 
 def render_dbt_packages_yml() -> str:
@@ -425,27 +447,28 @@ def render_dbt_sources_yml(*, domain: str, tables: tuple[tuple[str, str], ...]) 
         "version: 2",
         "",
         "sources:",
-        "  - name: silver",
+        f"  - name: {domain}",
         "    database: \"{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}\"",
         f"    schema: \"{{{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}}}{domain}_silver\"",
-        f"    description: Floe-owned {domain.replace('_', ' ').title()} Silver Iceberg tables.",
+        f"    description: The {domain} domain's Floe-owned Silver Iceberg tables.",
         "    tables:",
     ]
-    for name, description in tables:
-        lines.append(f"      - name: {name}")
-        lines.append(f"        description: {description}")
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n" + render_dbt_source_tables(tables)
 
 
-def render_gold_mart_sql(*, mart: str, first_silver_input: str) -> str:
+def render_dbt_source_tables(tables: tuple[tuple[str, str], ...]) -> str:
+    return "".join(f"      - name: {name}\n        description: {description}\n" for name, description in tables)
+
+
+def render_gold_mart_sql(*, mart: str, domain: str, first_silver_input: str) -> str:
     return f"""-- TODO: replace this starter model with real aggregation logic.
 select *
-from {{{{ source('silver', '{first_silver_input}') }}}}
+from {{{{ source('{domain}', '{first_silver_input}') }}}}
 """
 
 
-def render_gold_schema_yml(*, gold_tables: tuple[tuple[str, str], ...]) -> str:
-    lines = ["version: 2", "", "models:"]
+def render_gold_schema_yml(*, product: str, gold_tables: tuple[tuple[str, str], ...]) -> str:
+    lines = ["version: 2", "", "groups:", f"  - name: {product}", "    owner:", f"      name: {product}", "", "models:"]
     for name, description in gold_tables:
         lines.append(f"  - name: {name}")
         lines.append(f"    description: {description}")

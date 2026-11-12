@@ -35,7 +35,9 @@ lakehouse_code/
 ├── bronze/<source>/          source-owned: source.yaml + dlt extract
 ├── silver/floe.yml, sources.yml   the Floe project and its named Bronze sources
 ├── silver/<domain>/          domain-owned: Floe domain defaults and one file per entity
-├── gold/<product>/           product-owned: dbt project
+├── gold/dbt_project.yml, packages.yml, macros/   the dbt project and what every product shares
+├── gold/models/_sources/<domain>.yml   each domain's Silver tables, declared once
+├── gold/models/<product>/    product-owned: dbt models and their schema.yml
 ├── dashboards/superset/<dashboard>/   consumption-owned: exported report bundles
 ├── pipelines/dagster/        user-maintained orchestration
 └── governance.yml            the descriptor (ADR 0005)
@@ -57,6 +59,53 @@ namespace. A Bronze source is ingested once and referenced by any domain. A doma
 validates its sources into one Silver namespace. A product consumes Silver
 tables from its domain and owns only its Gold namespace. Product `id` is
 unique across the whole lakehouse, so `<product>_gold` needs no domain prefix.
+
+### Gold is one dbt project; a product is a folder in it
+
+Gold has the same shape as Silver: one project for the whole lakehouse, and
+an owner's folder inside it. Silver is one Floe project with a folder per
+domain. Gold is one dbt project at `lakehouse_code/gold/` with a folder per
+product under `models/`. The folder name is the product `id` from
+`governance.yml`, and `olf check contracts` requires each one to match a
+product.
+
+| Shared by every product | Owned by one product |
+| --- | --- |
+| `dbt_project.yml`: materialization, `on_table_exists`, `view_security` | `models/<product>/*.sql` |
+| `packages.yml`: `openlakeforge_dbt` and any other dbt package | `models/<product>/schema.yml`: descriptions, tests, the product's dbt `group` |
+| `macros/`: the `generate_schema_name` wrapper, and project macros any product calls | |
+| `models/_sources/<domain>.yml`: one dbt source per domain | |
+
+**A source is named after its domain.** `source('sales', 'orders')` reads
+`<prefix>sales_silver.orders`. Each Silver table is declared once, and a
+product does not redeclare it. The source's name and table name are the
+domain and entity names, which are also the Dagster asset key of the Silver
+table.
+
+**The schema comes from the folder.** `generate_schema_name` in
+`openlakeforge_dbt` names every model's schema
+`<prefix><product>_gold`, where `<product>` is the model's folder under
+`models/`. dbt takes `generate_schema_name` only from the root project, so
+the Gold project's `macros/generate_schema_name.sql` delegates to the
+package's. A model outside a product folder fails to parse. A `schema` config
+that names any other schema is still rejected by `olf check contracts`
+(ADR 0005). The profile's target schema is never written to.
+
+**A product is a dbt group, and its models are private by default.** Each
+product's `schema.yml` declares a dbt `group` named after the product, and
+`dbt_project.yml` defaults every model to `access: private`. dbt then refuses
+a `ref()` from one product to another product's model unless that model is
+marked `access: public`. Unless a product publishes a mart this way, it still
+reads only Silver. A `ref()` to a public mart is an asset dependency in
+Dagster. The reading product's job does not rebuild it.
+
+**Dagster selects each product out of one manifest.** The image parses the
+project once. Each product's assets are
+`dbt_assets(select="group:<product>")` over that manifest. Its Silver
+inputs are the sources its models read, not every source in the project, and
+are empty for a product that reads only public marts. Its
+job still builds only its own models. Run artifacts keep their per-product
+prefix.
 
 The namespace contract is **flat** — a single-level name, not a hierarchy. This
 is deliberate: it is the shape both Polaris and AWS Glue implement natively, so
@@ -141,9 +190,16 @@ observability adapter, not a replacement for this baseline.
 ## Consequences
 
 Adding a product that reuses an existing source touches
-`lakehouse_code/gold/<product>/`, `governance.yml`, and one Dagster module at
+`lakehouse_code/gold/models/<product>/`, `governance.yml`, and one Dagster module at
 `lakehouse_code/pipelines/dagster/<product>.py`; no Bronze or Silver work is
-duplicated.
+duplicated, and no dbt project configuration is copied.
+
+A single Gold project costs some isolation. A model that fails to parse fails
+`olf check dbt` and the image's manifest bake for every product, not just its
+own. The code location already failed as a whole before this change, because
+it baked every product's manifest at import, so a deployed stack is no worse
+off. Each run also parses the whole Gold project, not just one product's
+models.
 
 Catalog namespaces are derived from descriptors, so they are reconciled in the
 artifacts phase by `olf infra catalog sync-namespaces` (ADR 0002), never templated into
@@ -183,3 +239,12 @@ after the platform apply; the Terraform Job that did it is deleted.
 2026-11-07 (#993): stage buckets are `<prefix>-<stage>-<layer>` on local, AWS
 and Azure, derived by the resolver; they were `lakehouse-<stage>-<layer>` on
 local and Azure and suffixed or legacy names on AWS.
+
+2026-11-12: Gold is one dbt project at `lakehouse_code/gold/`, with a folder
+per product under `models/`. Before this, each product had its own dbt project
+at `gold/<product>/dbt/`. Those projects differed only in name, so each
+repeated the same configuration and its own `packages.yml`. Each also declared
+the Silver tables it read under a source named `silver`, so a table two
+products read was declared twice. The Gold schema used to come from each
+product's dbt profile. It now comes from the model's folder, and products are
+dbt groups whose models are private by default.

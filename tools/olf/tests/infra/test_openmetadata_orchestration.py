@@ -1,7 +1,9 @@
+import dataclasses
 from pathlib import Path
 
 import pytest
 from conftest import write_floe_entity
+from openlakeforge_services import governance
 
 from olf.infra import openmetadata as om
 
@@ -25,7 +27,7 @@ def test_storage_bucket_specs_dedup() -> None:
         base_url="http://x",
         admin_email="a",
         admin_password="p",
-        metadata_root="domains",
+        metadata_root="lakehouse_code",
         metadata_source_dir="",
         allow_missing_assets=False,
         catalog_service="polaris",
@@ -46,61 +48,31 @@ def test_deployment_input_validation_rejects_new_product_without_contract() -> N
         base_url="http://x",
         admin_email="a",
         admin_password="p",
-        metadata_root="domains",
+        metadata_root="lakehouse_code",
         metadata_source_dir="",
         allow_missing_assets=False,
         catalog_service="polaris",
         catalog_database="lakehouse_dev",
     )
     deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
-    domain_specs = [
-        (
-            Path("domains/sales/domain.yaml"),
-            {
-                "name": "sales",
-                "data_products": [
-                    {
-                        "id": "new_product",
-                        "name": "sales_new_product",
-                    }
-                ],
-            },
+    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
+    product = governance.ProductSpec(
+        id="new_product", display_name="New Product", description="", domain="sales", gold_tables=()
+    )
+    domains = [
+        governance.DomainSpec(
+            name="sales",
+            display_name="Sales",
+            description="",
+            status="",
+            silver_tables=(),
+            bronze=(),
+            products=(product,),
         )
     ]
 
     with pytest.raises(om.OpenMetadataError, match="not covered by the provider contract"):
-        deployer.validate_deployment_inputs(domain_specs)
-
-
-def test_deployment_input_validation_rejects_malformed_bronze_before_writes() -> None:
-    cfg = om.OpenMetadataConfig.from_environment(
-        {
-            **APPLIED_DEV_CONTRACT,
-            "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "{}",
-            "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": "{}",
-        },
-        base_url="http://x",
-        admin_email="a",
-        admin_password="p",
-        metadata_root="domains",
-        metadata_source_dir="",
-        allow_missing_assets=False,
-        catalog_service="polaris",
-        catalog_database="lakehouse_dev",
-    )
-    deployer = om.OpenMetadataDeployer(cfg, om.OpenMetadataClient(cfg.base_url))
-    domain_specs = [
-        (
-            Path("domains/sales/domain.yaml"),
-            {
-                "name": "sales",
-                "data_products": [{"name": "sales_order_revenue", "bronze": ["raw_orders"]}],
-            },
-        )
-    ]
-
-    with pytest.raises(om.OpenMetadataError, match="Bronze entry at index 0 must be an object"):
-        deployer.validate_deployment_inputs(domain_specs)
+        deployer.validate_deployment_inputs(domains)
 
 
 def test_domain_specs_validate_composite_inventory_with_provider_schema_fqns(tmp_path: Path) -> None:
@@ -271,7 +243,7 @@ domains:
 """
     )
     write_floe_entity(tmp_path, "sales", "orders", "crm")
-    models = tmp_path / "gold" / "order_revenue" / "dbt" / "models" / "gold"
+    models = tmp_path / "gold" / "models" / "order_revenue"
     models.mkdir(parents=True)
     (models / "mart_revenue_by_day.sql").write_text("select 1\n")
     cfg = om.OpenMetadataConfig.from_environment(
@@ -442,12 +414,12 @@ def test_missing_assets_guidance_is_stage_neutral_in_error_and_warning_modes(
     """The guidance names the empty Gold schema and tells the operator to rerun
     with their original options, without prescribing local-only flags."""
     deployer = _single_product_deployer(tmp_path)
-    ((spec_path, domain),) = deployer._domain_specs()
-    [product] = domain["data_products"]
+    (domain,) = deployer._domain_specs()
+    [product] = domain.products
     # Unsorted, with a repeated product: the message must list each missing
     # table FQN once, in sorted order.
-    domain = {**domain, "data_products": [product, {**product, "name": "churn", "asset_prefix": "churn"}, product]}
-    monkeypatch.setattr(deployer, "_domain_specs", lambda: [(spec_path, domain)])
+    domain = dataclasses.replace(domain, products=(product, dataclasses.replace(product, id="churn"), product))
+    monkeypatch.setattr(deployer, "_domain_specs", lambda: [domain])
     monkeypatch.setattr(
         deployer.config,
         "catalog_gold_schema_fqns",

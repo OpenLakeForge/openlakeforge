@@ -52,7 +52,7 @@ validated with the same flag: `olf infra e2e run --env local --profile slim`.
 | `olf init` | Write `openlakeforge.yaml` and `lakehouse_code/` with the demo products. Options: `--stages dev,prod`, `--preset full`, `--name`, `--empty`, `--profile-only`. |
 | `olf source new <source> --resource <r>` | Scaffold a Bronze source: `source.yaml`, a dlt loader and a placeholder CSV per resource. `--kind api\|sql` writes an incremental connector instead (`--cursor`, `--primary-key`). |
 | `olf domain new <domain> --input <source>/<resource>` | Scaffold a domain and its Floe contract, one Silver table per `--input`. |
-| `olf product new <domain>/<product> --gold-table <mart>` | Scaffold a dbt project and Dagster module. Inputs: `--silver-input <table>` or `--input <source>/<resource>`; `--with-report` adds a Superset draft. |
+| `olf product new <domain>/<product> --gold-table <mart>` | Scaffold the product's folder of the Gold dbt project and its Dagster module. Inputs: `--silver-input <table>` or `--input <source>/<resource>`; `--with-report` adds a Superset draft. |
 
 All `new` commands validate the result before writing and accept
 `--display-name`.
@@ -89,7 +89,7 @@ All `new` commands validate the result before writing and accept
 | `olf check contracts` | `governance.yml`, every `source.yaml`, and the Floe project's namespaces |
 | `olf project migrate [--dry-run]` | Rewrites `openlakeforge.yaml` from `v1alpha1` to `v1beta1` (`spec.access.issuer` becomes `tls`), `governance.yml` from `v1beta1` to `v1beta2` and each `source.yaml` from `v1alpha3` to `v1beta1`; `--dry-run` prints the diff and changes nothing. See [Migrate from v0.5 alpha](../guides/migrate-from-v0-5-alpha.md) |
 | `olf project graph --project .` | Prints the Source → Domain → Product → Dashboard lineage as Mermaid text |
-| `olf check dbt` | Every product's dbt project parses and compiles, and its models and sources sit in the schemas the descriptors name. Incremental models are parsed (refs, sources, Jinja) but not compiled: `is_incremental()` needs a warehouse connection, so their rendered SQL is not checked |
+| `olf check dbt` | The Gold dbt project parses and compiles, each product's models sit in its `<product>_gold` and read only its own domain's Silver, and every source sits in its domain's schema. Incremental models are parsed (refs, sources, Jinja) but not compiled: `is_incremental()` needs a warehouse connection, so their rendered SQL is not checked |
 | `olf check resources` | Every `container` and `init_container` in `infra/terraform/modules` sets `requests` (cpu and memory) and a memory limit; an expression such as `var.x` is accepted unchecked. Helm chart containers are sized through the values files and are not covered |
 | `olf check disruption` | A Terraform module that sets `replicas`, `replicaCount` or `workers` to anything but 0 or 1, or a Helm values file with `replicaCount`/`replicas` above 1, defines a PodDisruptionBudget. Single-replica workloads are exempt by design: a budget on one pod blocks node drains |
 | `olf check security` | Every entry in `.trivyignore.yaml` has an owner and an unexpired date within 90 days; not part of `olf check all` |

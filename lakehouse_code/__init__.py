@@ -9,7 +9,8 @@ data teams and the OpenLakeForge platform:
 - ``silver/floe.yml``, ``silver/sources.yml`` and
   ``silver/<domain>/contracts/`` — the Floe project, its Bronze sources,
   and the per-domain Floe contracts.
-- ``gold/<product>/dbt/`` — product dbt projects.
+- ``gold/`` — the Gold dbt project, with a folder of models per product
+  under ``gold/models/<product>/``.
 - ``dashboards/superset/<product>/`` — Superset report bundles.
 - ``pipelines/dagster/<product>.py`` — user-authored Dagster pipeline modules.
 - ``definitions.py`` — aggregates every product pipeline module into one

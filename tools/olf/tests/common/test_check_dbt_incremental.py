@@ -29,12 +29,18 @@ where last_modified_t > (select coalesce(max(last_modified_t), 0) from {{ this }
 
 
 def _product(root: Path, model_from: str) -> Path:
-    project = root / "lakehouse_code/gold/food_quality/dbt"
+    project = root / "lakehouse_code/gold"
     files = {
-        "dbt_project.yml": _templates.render_dbt_project_yml(domain="quality", product="food_quality"),
+        "dbt_project.yml": _templates.render_dbt_project_yml(products=("food_quality",)),
         "packages.yml": _templates.render_dbt_packages_yml(),
-        "models/sources.yml": _templates.render_dbt_sources_yml(domain="quality", tables=(("products", "Validated."),)),
-        "models/gold/mart_incremental.sql": _INCREMENTAL.replace("@@FROM@@", model_from),
+        _templates.GOLD_SCHEMA_MACRO_PATH: _templates.render_dbt_schema_macro(),
+        "models/_sources/quality.yml": _templates.render_dbt_sources_yml(
+            domain="quality", tables=(("products", "Validated."),)
+        ),
+        "models/food_quality/schema.yml": _templates.render_gold_schema_yml(
+            product="food_quality", gold_tables=(("mart_incremental", "Mart."),)
+        ),
+        "models/food_quality/mart_incremental.sql": _INCREMENTAL.replace("@@FROM@@", model_from),
     }
     for relative, text in files.items():
         (project / relative).parent.mkdir(parents=True, exist_ok=True)
@@ -55,16 +61,16 @@ def _check(project: Path, tmp_path: Path) -> None:
     profiles = tmp_path / "profiles"
     render_profiles.write_profile(project, output_dir=profiles)
     assert DBT is not None
-    _dbt._check_product(DBT, project, profiles_dir=str(profiles), cwd=tmp_path, env=env)
+    _dbt._check_project(DBT, project, profiles_dir=str(profiles), cwd=tmp_path, env=env)
 
 
 def test_an_incremental_model_passes_without_a_warehouse(tmp_path: Path) -> None:
-    _check(_product(tmp_path, "{{ source('silver', 'products') }}"), tmp_path)
+    _check(_product(tmp_path, "{{ source('quality', 'products') }}"), tmp_path)
 
 
 def test_an_incremental_model_with_an_unknown_source_still_fails(tmp_path: Path) -> None:
     with pytest.raises(typer.Exit):
-        _check(_product(tmp_path, "{{ source('silver', 'nope') }}"), tmp_path)
+        _check(_product(tmp_path, "{{ source('quality', 'nope') }}"), tmp_path)
 
 
 def test_an_incremental_model_with_an_unknown_ref_still_fails(tmp_path: Path) -> None:

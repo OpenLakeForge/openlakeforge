@@ -16,6 +16,15 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Gold is one dbt project at `lakehouse_code/gold/` instead of one per product
+  (ADR 0004). `dbt_project.yml`, `packages.yml` and `macros/` are shared; each
+  domain's Silver tables are declared once in `models/_sources/<domain>.yml`
+  as a source named after the domain; each product owns
+  `models/<product>/`. A model's schema is `<product>_gold`, from its folder,
+  and every product is a dbt group whose models are private unless marked
+  `access: public`. Schema, table and asset names do not change. `olf check
+  dbt` and `olf check project-code` refuse a project still on
+  `gold/<product>/dbt/`.
 - A domain's Floe contracts sit directly in `lakehouse_code/silver/<domain>/contracts/`,
   and the domain file is `domain.yml` instead of `_domain.yml`; the `floe/` level
   is gone. Floe still reads a domain's entities from the files beside its domain
@@ -25,6 +34,28 @@ for how a release is cut and verified.
   be the domain file.
 
 ### Migration
+
+Gold:
+
+1. Create `lakehouse_code/gold/dbt_project.yml` as `olf product new` writes it:
+   `name: gold`, `profile: gold`, the `models.gold` block of one of your
+   product projects plus `+access: private`, and one
+   `<product>: {+group: <product>}` entry per product. Move one product's
+   `packages.yml` to `lakehouse_code/gold/packages.yml`, and add
+   `lakehouse_code/gold/macros/generate_schema_name.sql` as the reference
+   project has it: without it dbt puts every model in the profile's `gold`
+   schema.
+2. For each domain, merge its products' `models/sources.yml` into
+   `lakehouse_code/gold/models/_sources/<domain>.yml`, renaming the source
+   from `silver` to the domain, and in every model replace
+   `source('silver', ...)` with `source('<domain>', ...)`.
+3. Move each `gold/<product>/dbt/models/gold/` to
+   `gold/models/<product>/`, and add to its `schema.yml` a
+   `groups: [{name: <product>, owner: {name: <product>}}]` entry.
+4. Delete the `gold/<product>/` directories, then run
+   `olf check dbt` and `olf check contracts`.
+
+Silver:
 
 1. For each domain, move `silver/<domain>/contracts/floe/*.yml` up to
    `silver/<domain>/contracts/` and rename `_domain.yml` to `domain.yml`.

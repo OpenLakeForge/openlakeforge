@@ -381,11 +381,15 @@ def test_product_new_creates_first_product_and_domain_implicitly(tmp_path: Path)
     )
     commit_plan(repo_root, plan)
 
-    gold = repo_root / "lakehouse_code" / "gold" / "campaign_performance"
-    assert (gold / "dbt" / "dbt_project.yml").is_file()
-    assert (gold / "dbt" / "models" / "gold" / "mart_campaign_performance.sql").is_file()
-    assert (gold / "dbt" / "models" / "gold" / "schema.yml").is_file()
-    assert (gold / "dbt" / "models" / "sources.yml").is_file()
+    gold = repo_root / "lakehouse_code" / "gold"
+    assert (gold / "models" / "campaign_performance" / "mart_campaign_performance.sql").is_file()
+    assert (gold / "models" / "campaign_performance" / "schema.yml").is_file()
+    assert (gold / "models" / "_sources" / "marketing.yml").is_file()
+    assert not (gold / "campaign_performance").exists()
+    project = yaml.safe_load((gold / "dbt_project.yml").read_text())["models"]["gold"]
+    assert project["campaign_performance"] == {"+group": "campaign_performance"}
+    # The products already there keep their blocks.
+    assert project["order_revenue"] == {"+group": "order_revenue"}
     assert (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").is_file()
     floe = repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts"
     assert (floe / "domain.yml").is_file()
@@ -416,6 +420,65 @@ def test_product_new_adds_second_product_to_existing_domain_sharing_silver(tmp_p
     assert {p.id for p in sales.products} == {"order_revenue", "customer_health", "order_summary"}
     order_summary = next(p for p in sales.products if p.id == "order_summary")
     assert order_summary.silver_namespace == "sales_silver"
+    # The domain's Silver is declared once: the existing source file is reused, not copied.
+    gold = repo_root / "lakehouse_code" / "gold"
+    (source,) = yaml.safe_load((gold / "models" / "_sources" / "sales.yml").read_text())["sources"]
+    assert [table["name"] for table in source["tables"]].count("orders") == 1
+    sql = (gold / "models" / "order_summary" / "mart_order_summary.sql").read_text()
+    assert "source('sales', 'orders')" in sql
+
+
+def test_product_new_declares_a_new_silver_table_in_the_domains_existing_source(tmp_path: Path) -> None:
+    repo_root = _seed_repo(tmp_path)
+    sources = repo_root / "lakehouse_code" / "gold" / "models" / "_sources" / "sales.yml"
+    declared = "      - name: promotions\n        description: Validated promotion dimension.\n"
+    sources.write_text(sources.read_text().replace(declared, ""))
+
+    plan = plan_product_new(
+        repo_root,
+        target="sales/promo_lift",
+        display_name=None,
+        silver_inputs=("promotions",),
+        inputs=(),
+        gold_tables=("mart_promo_lift",),
+        with_report=False,
+    )
+    commit_plan(repo_root, plan)
+
+    (source,) = yaml.safe_load(sources.read_text())["sources"]
+    assert "promotions" in [table["name"] for table in source["tables"]]
+
+
+def test_product_new_refuses_a_gold_table_another_product_already_models(tmp_path: Path) -> None:
+    repo_root = _seed_repo(tmp_path)
+
+    with pytest.raises(ScaffoldError, match="'mart_order_revenue_by_day' is already a model of order_revenue"):
+        plan_product_new(
+            repo_root,
+            target="sales/revenue_copy",
+            display_name=None,
+            silver_inputs=("orders",),
+            inputs=(),
+            gold_tables=("mart_order_revenue_by_day",),
+            with_report=False,
+        )
+
+
+def test_product_new_refuses_a_dbt_project_it_cannot_append_to(tmp_path: Path) -> None:
+    repo_root = _seed_repo(tmp_path)
+    project = repo_root / "lakehouse_code" / "gold" / "dbt_project.yml"
+    project.write_text(project.read_text() + "\nvars:\n  region: eu\n")
+
+    with pytest.raises(ScaffoldError, match="cannot add product 'order_summary'"):
+        plan_product_new(
+            repo_root,
+            target="sales/order_summary",
+            display_name=None,
+            silver_inputs=("orders",),
+            inputs=(),
+            gold_tables=("mart_order_summary",),
+            with_report=False,
+        )
 
 
 def test_one_source_resource_shared_by_two_domains_creates_no_second_ingestion(tmp_path: Path) -> None:
@@ -767,8 +830,7 @@ def test_generated_product_artifacts_are_internally_consistent(tmp_path: Path) -
     )
     commit_plan(repo_root, plan)
 
-    gold = repo_root / "lakehouse_code" / "gold" / "campaign_performance"
-    sources_yml = (gold / "dbt" / "models" / "sources.yml").read_text()
+    sources_yml = (repo_root / "lakehouse_code" / "gold" / "models" / "_sources" / "marketing.yml").read_text()
     # No default for the catalog: an unset stage binding fails the run
     # instead of reaching DEV; the Silver schema carries the stage prefix.
     assert "database: \"{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}\"" in sources_yml

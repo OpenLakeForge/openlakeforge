@@ -1,5 +1,10 @@
 version: 2
 
+groups:
+  - name: order_revenue
+    owner:
+      name: order_revenue
+
 models:
   - name: mart_order_revenue_by_day
     description: Daily order revenue, units, and discount amount by region.

@@ -89,11 +89,12 @@ catalogs Floe 0.8 supports.
 The image holds one dbt profile, rendered at build from
 `openlakeforge_runtime/dbt/profiles/trino.yml` into `generated/dbt-profiles/`. Every
 connection value in it (host, port, TLS, user, catalog, schema prefix) is an
-`env_var()` reference with no stage default. The build also parses each
-product's manifest once, with placeholder values
+`env_var()` reference with no stage default. The build also parses the Gold
+dbt project's manifest once, with placeholder values
 (`openlakeforge_runtime/dbt/render_profiles.py`). Dagster reads that manifest for the asset
-graph. Its asset keys come from domain, product and node names, never from a
-catalog or schema, so the graph is the same in every stage. Products reach
+graph, and each product's assets select the product's folder from it
+(ADR 0004). Its asset keys come from domain, product and node names, never from a
+catalog or schema, so the graph is the same in every stage. The Gold project reaches
 the shared `openlakeforge_dbt` package through
 `OPENLAKEFORGE_DBT_PACKAGES_DIR`, which the image sets, never through a path
 relative to the project, so a customer repository resolves it too.
@@ -103,7 +104,7 @@ the run pod's environment. The image ships no partial-parse state, so the SQL
 a run executes, its lineage and the run artifacts it uploads name that
 stage's relations. A stage that leaves a required variable unset fails the
 run. It cannot fall back to another stage's catalog. The cost is a full dbt
-parse per run, which is seconds per product.
+parse of the Gold project per run, which takes seconds.
 
 ### One merged code location by default
 

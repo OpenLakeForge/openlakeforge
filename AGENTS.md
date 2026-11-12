@@ -61,7 +61,7 @@ labels expressing intended sequence within a milestone.
 | `lakehouse_code/bronze/<source>/` | Source-owned: `source.yaml` descriptor plus dlt extract |
 | `lakehouse_code/silver/floe.yml`, `sources.yml` | The Floe 0.8 project spanning every domain, and its named Bronze sources |
 | `lakehouse_code/silver/<domain>/` | Domain-owned: Floe `contracts/domain.yml` defaults and one file per entity |
-| `lakehouse_code/gold/<product>/` | Product-owned: dbt project |
+| `lakehouse_code/gold/` | The Gold dbt project: shared config, packages and macros, `models/_sources/<domain>.yml`, and a product-owned `models/<product>/` folder per product |
 | `lakehouse_code/dashboards/superset/<dashboard>/` | Consumption-owned: Superset reports |
 | `lakehouse_code/pipelines/dagster/` | User-maintained Dagster orchestration code |
 | `lakehouse_code/governance.yml` | Canonical domain/product business metadata descriptor; tables belong to a domain or product by schema, not by a list |

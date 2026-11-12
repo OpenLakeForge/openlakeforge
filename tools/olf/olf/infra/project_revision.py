@@ -448,12 +448,12 @@ def _floe_component(project: ProjectSpec) -> ComponentEntries:
     return ComponentEntries("floe", entries)
 
 
-def _dbt_component(project: ProjectSpec, inventory: Any) -> ComponentEntries:
-    entries: dict[str, str] = {}
-    for product in inventory.products:
-        for path in _walk_files(project.gold_root / product.id / "dbt"):
-            key = _relative_key(project, path)
-            entries[key] = _hash_and_scan(key, path, project_root=project.root)
+def _dbt_component(project: ProjectSpec) -> ComponentEntries:
+    # The Gold dbt project is one tree shared by every product (ADR 0004).
+    entries = {
+        (key := _relative_key(project, path)): _hash_and_scan(key, path, project_root=project.root)
+        for path in _walk_files(project.gold_root)
+    }
     return ComponentEntries("dbt", entries)
 
 
@@ -580,7 +580,7 @@ def build_project_revision(
     components = [
         _descriptors_component(project, inventory),
         _floe_component(project),
-        _dbt_component(project, inventory),
+        _dbt_component(project),
         _dagster_component(project, inventory),
     ]
     reports = _reports_component(project, inventory)

@@ -11,9 +11,7 @@ Canonical identities:
 * Gold    ``<product>.<table>``
 
 with the dependency chain Source/Bronze -> Domain/Silver -> Product/Gold ->
-Dashboard. The legacy v1alpha1/v1alpha2 ``Domain`` inventory loaders below are
-preserved for migration diagnostics; the canonical loaders are the
-``load_lakehouse_inventory*`` functions.
+Dashboard. The loaders are the ``load_lakehouse_inventory*`` functions.
 """
 
 from __future__ import annotations
@@ -154,8 +152,8 @@ class Product:
         return f"run-artifacts/dbt/{self.domain_name}/{self.id}/"
 
     @property
-    def dbt_project_dir(self) -> str:
-        return f"lakehouse_code/gold/{self.id}/dbt"
+    def dbt_models_dir(self) -> str:
+        return f"lakehouse_code/gold/models/{self.id}"
 
     @property
     def openmetadata_data_product_fqns(self) -> tuple[str, str]:

@@ -174,12 +174,15 @@ def _project_assets_check(project: ProjectSpec, inventory: LakehouseInventory | 
     for path in floe_files:
         if not path.is_file():
             missing.append(path.relative_to(project.root).as_posix())
+    if inventory.products and not (project.gold_root / "dbt_project.yml").is_file():
+        missing.append((project.gold_root / "dbt_project.yml").relative_to(project.root).as_posix())
     for product in inventory.products:
-        dbt_path = project.gold_root / product.id / "dbt" / "dbt_project.yml"
+        models_dir = project.gold_root / "models" / product.id
+        if not models_dir.is_dir():
+            missing.append(models_dir.relative_to(project.root).as_posix() + "/")
         pipeline_path = project.pipelines_root / f"{product.id}.py"
-        for path in (dbt_path, pipeline_path):
-            if not path.is_file():
-                missing.append(path.relative_to(project.root).as_posix())
+        if not pipeline_path.is_file():
+            missing.append(pipeline_path.relative_to(project.root).as_posix())
     for dashboard in inventory.dashboards:
         path = project.root / dashboard.report_source_dir / "metadata.yaml"
         if not path.is_file():

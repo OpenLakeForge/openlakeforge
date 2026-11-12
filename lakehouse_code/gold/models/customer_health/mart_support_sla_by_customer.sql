@@ -1,6 +1,6 @@
 with accounts as (
     select account_id, account_name, segment, region
-    from {{ source('silver', 'accounts') }}
+    from {{ source('sales', 'accounts') }}
 ),
 
 tickets as (
@@ -9,7 +9,7 @@ tickets as (
         priority,
         cast(resolution_hours as integer) as resolution_hours,
         cast(sla_met as boolean) as sla_met
-    from {{ source('silver', 'support_tickets') }}
+    from {{ source('sales', 'support_tickets') }}
 )
 
 select

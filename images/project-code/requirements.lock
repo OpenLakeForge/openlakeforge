@@ -547,9 +547,9 @@ dagster-dbt==0.29.7 \
     --hash=sha256:76c5c3275cfe2234f0b3784b87ffb981cec3370b730158b88c404ee755365071 \
     --hash=sha256:b94ff7406f87b3cdd6fef02c02b2ece6241a262afd3d9499e5de2f3535a0e511
     # via openlakeforge-project-code (images/project-code/pyproject.toml)
-dagster-floe==0.5.0 \
-    --hash=sha256:7606841ea42b2c374ca080f659f9bae1271d58840ab9d4cd525205c6af6c5df2 \
-    --hash=sha256:d6c2e96238830d8e65c637efd55db43bc984c176918a0932ff0b36d24e72340f
+dagster-floe==0.6.0 \
+    --hash=sha256:07b6a8a7a3ee6c09e73c8f476482ceeb420d3af31749ed24776bf3406baf7c4f \
+    --hash=sha256:ebb0570a38507e43fadd721fd2f064adf4007c9a9a473c0eabbd62a6fb178d44
     # via openlakeforge-project-code (images/project-code/pyproject.toml)
 dagster-graphql==1.13.7 \
     --hash=sha256:c8658e8e353ceedd08fc88e3ba1258fc80f480170ca15363f668a44d1ea953ee \
@@ -703,9 +703,9 @@ filelock==3.30.3 \
     --hash=sha256:06e1c6d5e12277022172b7f8d090affe0e8f940f1a37ca45f548855ee51a6b86 \
     --hash=sha256:6575420cd497ed15fc43a7ac46c48f6b6371c733fc40cf5a4e216871397bc1e2
     # via dagster
-floe-python==0.9.0 \
-    --hash=sha256:4f73cedbbf17d6921426d894e09e91ce5a276eafc00c0cfed132720c48755206 \
-    --hash=sha256:50563915b98f2eb707a95388447a326a1d12e1add7c6cbcf41c4d6beba760849
+floe-python==0.10.0 \
+    --hash=sha256:9028efda1dceb8e929a8b65614e665118b74cbe28d4540e3cf218d9e0fcaf01c \
+    --hash=sha256:9628300dc4eb893b2a0d5b2646c522ea843cf7b19e8ac86a4f92a0849ad1fcf4
     # via
     #   openlakeforge-project-code (images/project-code/pyproject.toml)
     #   dagster-floe

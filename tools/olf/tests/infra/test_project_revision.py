@@ -494,7 +494,7 @@ def test_validate_rejects_a_self_consistent_sidecar_with_a_mutable_image(externa
 
 
 def test_dbt_component_excludes_local_artifacts(external_project: Path) -> None:
-    dbt_root = external_project / "lakehouse_code/gold/order_revenue/dbt"
+    dbt_root = external_project / "lakehouse_code/gold"
     (dbt_root / "logs").mkdir(parents=True, exist_ok=True)
     (dbt_root / "logs/dbt.log").write_text("http://seaweedfs-s3:8333 would trip the scanner if included\n")
     (dbt_root / ".user.yml").write_text("id: local-only\n")
@@ -514,7 +514,7 @@ def test_dbt_component_excludes_local_artifacts(external_project: Path) -> None:
 
 
 def test_a_stage_profile_does_not_change_the_revision(external_project: Path) -> None:
-    dbt_root = external_project / "lakehouse_code/gold/order_revenue/dbt"
+    dbt_root = external_project / "lakehouse_code/gold"
     before = _build(external_project).revision
 
     (dbt_root / "profiles.yml").write_text("order_revenue:\n  outputs:\n    prod:\n      database: lakehouse_prod\n")
@@ -527,7 +527,7 @@ def test_a_stage_profile_does_not_change_the_revision(external_project: Path) ->
 def test_dbt_local_artifacts_do_not_change_the_revision(external_project: Path) -> None:
     before = _build(external_project).revision
 
-    dbt_root = external_project / "lakehouse_code/gold/order_revenue/dbt"
+    dbt_root = external_project / "lakehouse_code/gold"
     (dbt_root / "logs").mkdir(parents=True, exist_ok=True)
     (dbt_root / "logs/dbt.log").write_text("ran locally\n")
     (dbt_root / "package-lock.yml").write_text("packages: []\n")
@@ -607,7 +607,7 @@ def test_build_rejects_a_path_escaping_the_project_root_via_a_symlinked_director
     # validate_project still passes) by copying the real dbt dir out, then
     # replace it with a symlink to the copy.
     outside_dir = tmp_path / "outside-the-project" / "dbt"
-    dbt_root = external_project / "lakehouse_code/gold/order_revenue/dbt"
+    dbt_root = external_project / "lakehouse_code/gold"
     shutil.copytree(dbt_root, outside_dir)
     (outside_dir / "host-file.sql").write_text("select 1\n")
     shutil.rmtree(dbt_root)

@@ -142,7 +142,6 @@ def render_profile(environ: Mapping[str, str]) -> dict[str, object]:
         "execution": {"runner": runner, "orchestration": FLOE_ORCHESTRATION},
         "storages": {"default": "lakehouse_bronze", "definitions": storages},
         "catalogs": {"default": CATALOG_NAME, "definitions": [catalog]},
-        "validation": {"strict": True},
     }
     if lineage_on:
         profile["lineage"] = {

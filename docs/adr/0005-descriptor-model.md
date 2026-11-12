@@ -33,7 +33,8 @@ A product's `id` is its only identity and is unique across the lakehouse. A
 table belongs to a domain or product by the schema it lives in, not by a list:
 `<domain>_silver` belongs to the domain, `<product>_gold` to the product and,
 through it, the product's domain. Silver tables are the entities of the
-domain's Floe files; Gold tables are the product's dbt models; neither is
+domain's Floe files; Gold tables are the dbt models in the product's folder
+of the Gold project (ADR 0004); neither is
 declared in a descriptor. A dbt model that writes outside `<product>_gold` is
 rejected, because its table would belong to no product.
 

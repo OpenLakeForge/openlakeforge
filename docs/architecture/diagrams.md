@@ -290,8 +290,10 @@ lakehouse_code/
 │   └── <domain>/contracts/                   ← domain-owned
 │       ├── domain.yml                        ← contract:        domain defaults · sinks · reject policy  → Floe
 │       └── <entity>.yml                                         one per entity: schema · PK
-├── gold/<product>/                           ← product-owned
-│   └── dbt/models/gold/*.sql · sources.yml · schema.yml         Silver→Gold SQL                            → dbt-trino → Trino
+├── gold/                                     ← the Gold dbt project: dbt_project.yml · packages.yml · macros/
+│   └── models/
+│       ├── _sources/<domain>.yml                                 each domain's Silver, declared once
+│       └── <product>/                        ← product-owned:   *.sql · schema.yml  Silver→Gold SQL       → dbt-trino → Trino
 ├── pipelines/dagster/<product>.py            ← pipeline:        asset graph wiring bronze→floe→dbt        → Dagster
 ├── dashboards/superset/<dashboard>/          ← consumption-owned
 │   └── metadata.yaml                                             charts · dashboards · datasets · databases → Superset

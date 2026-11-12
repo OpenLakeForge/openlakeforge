@@ -52,12 +52,12 @@ override.tf.json
 generated/
 
 # dbt local artifacts
-lakehouse_code/gold/*/dbt/.user.yml
-lakehouse_code/gold/*/dbt/profiles.yml
-lakehouse_code/gold/*/dbt/package-lock.yml
-lakehouse_code/gold/*/dbt/logs/
-lakehouse_code/gold/*/dbt/target/
-lakehouse_code/gold/*/dbt/dbt_packages/
+lakehouse_code/gold/.user.yml
+lakehouse_code/gold/profiles.yml
+lakehouse_code/gold/package-lock.yml
+lakehouse_code/gold/logs/
+lakehouse_code/gold/target/
+lakehouse_code/gold/dbt_packages/
 
 # Local Kubernetes and tooling
 kubeconfig*

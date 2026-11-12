@@ -18,24 +18,28 @@ def _dirs(path: Path) -> set[str]:
     return {p.name for p in path.iterdir() if p.is_dir() and not p.name.startswith(("_", "."))}
 
 
-def _out_of_schema_models(project: Path, product: str) -> list[str]:
-    """Models dbt itself resolved outside `<product>_gold` (`dbt parse` writes the manifest)."""
-    manifest = project / "target" / "manifest.json"
-    if not manifest.is_file():
+def _out_of_schema_models(project: Path) -> list[str]:
+    """Models dbt itself resolved outside their folder's `<product>_gold` (`dbt parse` writes the manifest)."""
+    manifest_path = project / "target" / "manifest.json"
+    if not manifest_path.is_file():
         return []
-    nodes = json.loads(manifest.read_text(encoding="utf-8")).get("nodes", {}).values()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    project_name = manifest.get("metadata", {}).get("project_name")
     return [
-        f"dbt model {node['name']!r} of product {product!r} lands in {node['schema']!r}, not {product}_gold"
-        for node in nodes
+        f"dbt model {node['name']!r} of product {node['fqn'][1]!r} lands in {node['schema']!r}, "
+        f"not {node['fqn'][1]}_gold"
+        for node in manifest.get("nodes", {}).values()
         if node["resource_type"] == "model"
+        and node.get("package_name") == project_name
+        and len(node["fqn"]) > 2
         and node["config"]["materialized"] != "ephemeral"
-        and node["schema"] != f"{product}_gold"
+        and node["schema"] != f"{node['fqn'][1]}_gold"
     ]
 
 
 def _check_governance_conformance(repo_root: Path, *, schema_root: Path | None = None) -> CheckResult:
     """When `governance.yml` exists, it must match its JSON Schema and the code:
-    one governance domain per `silver/<domain>/`, one product per `gold/<product>/`,
+    one governance domain per `silver/<domain>/`, one product per `gold/models/<product>/`,
     and no dbt model outside `<product>_gold`. Offline; nothing reads a cluster."""
     name = "governance_conformance"
     code = repo_root / "lakehouse_code"
@@ -54,12 +58,11 @@ def _check_governance_conformance(repo_root: Path, *, schema_root: Path | None =
         return CheckResult(name, ok=False, detail="; ".join([*errors, str(exc)]))
     for kind, declared, found in (
         ("domain", {d["name"] for d in document["domains"]}, _dirs(code / "silver")),
-        ("product", {p["id"] for p in governance_products(document)}, _dirs(code / "gold")),
+        ("product", {p["id"] for p in governance_products(document)}, _dirs(code / "gold" / "models")),
     ):
         errors += [f"{kind} {n!r} has no lakehouse_code directory" for n in sorted(declared - found)]
         errors += [f"{kind} {n!r} has a directory but is not in governance.yml" for n in sorted(found - declared)]
-    for product in sorted(_dirs(code / "gold")):
-        errors += _out_of_schema_models(code / "gold" / product / "dbt", product)
+    errors += _out_of_schema_models(code / "gold")
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))
     return CheckResult(name, ok=True, detail="governance.yml matches project code")
