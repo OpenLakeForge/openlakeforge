@@ -99,7 +99,7 @@ catalog boundary, never part of an asset's identity.
 | --- | --- | --- |
 | `descriptors` | `lakehouse_code/governance.yml`, `bronze/<source>/source.yaml` | Provider-neutral project truth |
 | `floe` | `silver/*.yml`, `silver/<domain>/contracts/floe/*.yml` | The Floe project and its contracts, never the rendered profile |
-| `dbt` | `gold/<product>/dbt/**` | Excludes `profiles.yml`, `target/`, `dbt_packages/` and `logs/` |
+| `dbt` | `gold/**` | Excludes `profiles.yml`, `target/`, `dbt_packages/` and `logs/` |
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | Orchestration and extract code |
 | `reports` | `dashboards/superset/<dashboard>/**` | Only when at least one dashboard is declared; validated first |
 | `image` | The project-code repository, plus an immutable `@sha256:` digest | A mutable tag is rejected |

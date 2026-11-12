@@ -10,7 +10,9 @@
       user: "{{ env_var('OPENLAKEFORGE_DBT_TRINO_USER') }}"
       http_scheme: http
       database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}"
-      schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}{{GOLD_SCHEMA}}"
+      # No model is written here: openlakeforge_dbt's generate_schema_name puts each
+      # model in its product's <product>_gold (ADR 0004). dbt still needs a target schema.
+      schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}gold"
       # One model at a time unless the stage says otherwise. Slim's Trino has a 2G heap whose usable 70% (1.4G)
       # is smaller than two queries at the 1GB query.max-memory-per-node cap, and a single 41M-row Gold
       # rebuild already OOM-killed its coordinator (#755); see release/query-sizes.yaml. Raising it trades

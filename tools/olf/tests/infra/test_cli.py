@@ -167,7 +167,7 @@ def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: p
 
 
 def test_dbt_parse_hydrates_selected_provider_contracts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    project = tmp_path / "gold/demo/dbt"
+    project = tmp_path / "gold"
     project.mkdir(parents=True)
     (project / "dbt_project.yml").write_text("name: demo\nprofile: demo\n")
     options: dict[str, str] = {}
@@ -219,16 +219,16 @@ def test_dbt_parse_hydrates_selected_provider_contracts(monkeypatch: pytest.Monk
     assert "--target" not in commands[-1]
 
 
-def test_dbt_parse_discovers_projects_under_the_contract_environments_repo_root(
+def test_dbt_parse_finds_the_gold_project_under_the_contract_environments_repo_root(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Project discovery must read config.repo_root() *after* entering the
+    """The Gold project lookup must read config.repo_root() *after* entering the
     contract environment, since that's what applies --project-root's
     OPENLAKEFORGE_REPO_ROOT - reading it beforehand always resolved the
     ambient/default root instead of a custom --project-root selection.
     """
     project_root = tmp_path / "custom-project"
-    project = project_root / "lakehouse_code/gold/demo/dbt"
+    project = project_root / "lakehouse_code/gold"
     project.mkdir(parents=True)
     (project / "dbt_project.yml").write_text("name: demo\nprofile: demo\n")
     commands: list[list[str]] = []
@@ -275,7 +275,7 @@ def test_dbt_parse_imports_runtime_from_the_distribution_not_the_project_root(
     """
     distribution_root = Path(__file__).resolve().parents[4]
     project_root = tmp_path / "custom-project"
-    project = project_root / "lakehouse_code/gold/demo/dbt"
+    project = project_root / "lakehouse_code/gold"
     project.mkdir(parents=True)
     (project / "dbt_project.yml").write_text("name: demo\nprofile: demo\n")
     commands: list[list[str]] = []

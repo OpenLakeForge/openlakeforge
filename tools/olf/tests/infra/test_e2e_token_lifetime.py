@@ -84,7 +84,7 @@ def test_the_proof_uses_a_product_whose_gold_has_two_generations(tmp_path) -> No
 
     # The example's default product builds Gold in one generation, so the proof needs another product.
     assert product is not None
-    assert generation_count(cfg.repo_root / product.dbt_project_dir / "models") >= 2
+    assert generation_count(cfg.repo_root / product.dbt_models_dir) >= 2
     assert product.id in {p.id for p in E2E_INVENTORY.products}
 
 

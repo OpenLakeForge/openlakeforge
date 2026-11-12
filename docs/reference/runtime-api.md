@@ -41,8 +41,8 @@ project declares, and a list you pass wins over its default:
 
 | Field | Default |
 | --- | --- |
-| `gold_assets` | The models of `gold/<product>/dbt` |
-| `silver_inputs` | The sources of `gold/<product>/dbt`, which are the domain's Silver tables |
+| `gold_assets` | The models under `gold/models/<product>/` in the Gold dbt project |
+| `silver_inputs` | The domain's Silver tables those models read; a source of another domain is refused |
 | `bronze_inputs` | The Bronze resource each of `silver_inputs` reads, from the domain's Floe entities |
 
 ```python

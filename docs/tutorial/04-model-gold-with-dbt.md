@@ -28,38 +28,43 @@ and `--gold-table` a mart it produces. The command adds the product to
 
 ```text
 lakehouse_code/
-├── gold/campaign_performance/
-│   ├── __init__.py
-│   └── dbt/
-│       ├── dbt_project.yml
-│       ├── packages.yml
-│       └── models/
-│           ├── sources.yml
-│           └── gold/
-│               ├── mart_campaign_performance.sql
-│               └── schema.yml
+├── gold/
+│   ├── dbt_project.yml
+│   ├── packages.yml
+│   └── models/
+│       ├── _sources/
+│       │   └── marketing.yml
+│       └── campaign_performance/
+│           ├── mart_campaign_performance.sql
+│           └── schema.yml
 └── pipelines/dagster/campaign_performance.py
 ```
 
 ## 2. Know the generated dbt project
 
-You do not edit most of it:
+Gold is one dbt project for every product, and `campaign_performance/` is
+this product's folder in it. The first product creates the shared files;
+the next ones add their folder and a line to `dbt_project.yml`. You do not
+edit most of it:
 
 - `dbt_project.yml` materializes every model as an Iceberg table that is
   replaced on each run, in the catalog of the stage being deployed. Do not
   hard-code Trino hosts or catalog settings in it: OpenLakeForge supplies one
-  dbt profile whose connection comes from each stage's environment.
+  dbt profile whose connection comes from each stage's environment. It also
+  puts each product's folder in a dbt group of the same name, whose models
+  other products cannot `ref()` unless they are marked public.
 - `packages.yml` pulls in the shared OpenLakeForge dbt package. It ships
   with OpenLakeForge, not with your project, so the file names it through
   `OPENLAKEFORGE_DBT_PACKAGES_DIR`, which `olf` and the project-code image
   set.
-- `models/sources.yml` declares the Silver table as a dbt source, in the
-  `marketing_silver` schema. dbt reads the table Floe owns and does not build a
-  second staging layer.
+- `models/_sources/marketing.yml` declares the `marketing` domain's Silver
+  tables as one dbt source, in the `marketing_silver` schema. Every product of
+  the domain reads them from there. dbt reads the table Floe owns and does not
+  build a second staging layer.
 
 Ownership follows the layer: Bronze belongs to dlt, Silver to Floe, Gold to
-dbt. The Gold namespace is owned by the product and has no domain prefix:
-`campaign_performance_gold`.
+dbt. The Gold namespace is owned by the product and named after its folder,
+with no domain prefix: `campaign_performance_gold`.
 
 ## 3. Write the model
 
@@ -67,7 +72,7 @@ The scaffold generated a placeholder that selects everything from Silver.
 Replace it with an aggregation by channel:
 
 ```bash
-cat > lakehouse_code/gold/campaign_performance/dbt/models/gold/mart_campaign_performance.sql <<'SQL'
+cat > lakehouse_code/gold/models/campaign_performance/mart_campaign_performance.sql <<'SQL'
 with campaigns as (
     select
         campaign_id,
@@ -75,7 +80,7 @@ with campaigns as (
         channel,
         cast(spend as double) as spend,
         cast(conversions as bigint) as conversions
-    from {{ source('silver', 'campaigns') }}
+    from {{ source('marketing', 'campaigns') }}
 )
 
 select
@@ -91,11 +96,18 @@ SQL
 ## 4. Document and test the model
 
 Describe the mart and its columns, and add dbt tests. dbt runs them in the
-same `dbt build` that creates the table, so a failing test fails the run:
+same `dbt build` that creates the table, so a failing test fails the run.
+Keep the `groups` entry the scaffold wrote: it declares the product's dbt
+group.
 
 ```bash
-cat > lakehouse_code/gold/campaign_performance/dbt/models/gold/schema.yml <<'YAML'
+cat > lakehouse_code/gold/models/campaign_performance/schema.yml <<'YAML'
 version: 2
+
+groups:
+  - name: campaign_performance
+    owner:
+      name: campaign_performance
 
 models:
   - name: mart_campaign_performance

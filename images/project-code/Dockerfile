@@ -66,12 +66,12 @@ ENV OPENLAKEFORGE_PROJECT_ROOT=/opt/openlakeforge
 # location for every dbt invocation (render_profiles.dbt_environment).
 
 # One dbt profile for every stage and provider, made only of env_var()
-# references the pod's stage environment fills at run time, plus a manifest per
-# product parsed once with placeholder values (openlakeforge_runtime/dbt/render_profiles.py), so
+# references the pod's stage environment fills at run time, plus the Gold
+# project's manifest parsed once with placeholder values (openlakeforge_runtime/dbt/render_profiles.py), so
 # code-server pods neither render nor parse on rollout.
 RUN python -m openlakeforge_runtime.dbt.render_profiles --bake
 
-# The baked manifests and the project's dbt directories are written to at run
+# The baked manifest and the Gold dbt project are written to at run
 # time (dbt target/, logs/); only they and DAGSTER_HOME change hands.
 RUN mkdir -p "${DAGSTER_HOME}" \
     && chown -R olf:olf "${DAGSTER_HOME}" /opt/openlakeforge/lakehouse_code

@@ -1,10 +1,10 @@
 version: 2
 
 sources:
-  - name: silver
+  - name: supply_chain
     database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}"
     schema: "{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}supply_chain_silver"
-    description: Floe-owned Inventory Reliability Silver Iceberg tables.
+    description: The supply_chain domain's Floe-owned Silver Iceberg tables.
     tables:
       - name: warehouses
         description: Validated warehouse dimension.

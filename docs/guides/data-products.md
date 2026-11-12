@@ -17,7 +17,7 @@ Ownership follows the medallion layer:
 | --- | --- | --- | --- |
 | Bronze | A source | `lakehouse_code/bronze/<source>/` | dlt |
 | Silver | A domain | `lakehouse_code/silver/<domain>/` | Floe |
-| Gold | A data product | `lakehouse_code/gold/<product>/` | dbt-trino |
+| Gold | A data product | `lakehouse_code/gold/models/<product>/` | dbt-trino |
 | Dashboards | A dashboard | `lakehouse_code/dashboards/superset/<dashboard>/` | Superset |
 
 `lakehouse_code/governance.yml` names the domains and, nested under each, its
@@ -89,14 +89,18 @@ olf product new marketing/campaign_performance \
 | `--gold-table <mart>` | A Gold mart the product produces. Repeatable, at least one. |
 | `--with-report` | Also scaffold a draft Superset report; see [Dashboards as code](dashboards-as-code.md). |
 
-It creates a dbt project under `gold/campaign_performance/dbt/` and a Dagster
-module `pipelines/dagster/campaign_performance.py`, and registers the product
-in `governance.yml`. Dagster loads every module in that directory by itself.
+It creates the product's folder `gold/models/campaign_performance/` in the
+Gold dbt project and a Dagster module `pipelines/dagster/campaign_performance.py`,
+and registers the product in `governance.yml`. It also adds the product's
+`+group` block to `gold/dbt_project.yml` and declares any Silver table the
+domain's `gold/models/_sources/<domain>.yml` lacks; the first product creates
+the project itself. Dagster loads every module in `pipelines/dagster/` by
+itself.
 
-The generated model `models/gold/mart_campaign_performance.sql` selects
-everything from the first Silver input. Replace it with your SQL, reading
-Silver through `{{ source('silver', '<table>') }}`, and describe and test it in
-`models/gold/schema.yml`; dbt runs the tests in the same build, so a failing
+The generated model `mart_campaign_performance.sql` selects everything from
+the first Silver input. Replace it with your SQL, reading Silver through
+`{{ source('<domain>', '<table>') }}`, and describe and test it in the
+product's `schema.yml`; dbt runs the tests in the same build, so a failing
 test fails the run. Do not hard-code Trino hosts or catalogs: OpenLakeForge
 renders the dbt profile for each stage.
 
@@ -124,16 +128,30 @@ hand:
 | File | Add |
 | --- | --- |
 | `silver/marketing/contracts/floe/ad_groups.yml` | An entity file, copied from an existing one, with `source: { ref: marketing_platform, resource: ad_groups }` |
-| `gold/<product>/dbt/models/sources.yml` | `- name: ad_groups` under the `silver` source |
-| `gold/<product>/dbt/models/gold/<mart>.sql` | A read of `{{ source('silver', 'ad_groups') }}` |
+| `gold/models/_sources/marketing.yml` | `- name: ad_groups` under the `marketing` source |
+| `gold/models/<product>/<mart>.sql` | A read of `{{ source('marketing', 'ad_groups') }}` |
 
 ## Add a Gold model to an existing product
 
-1. Add `models/gold/<mart>.sql` and describe it in `models/gold/schema.yml`.
-   No descriptor lists it: a table in `<product>_gold` belongs to the product.
+1. Add `gold/models/<product>/<mart>.sql` and describe it in the product's
+   `schema.yml`. No descriptor lists it: its folder puts it in
+   `<product>_gold`, and a table there belongs to the product.
 
    The product's Dagster job picks the model up from the dbt project; nothing in
    `pipelines/dagster/<product>.py` lists it.
+
+A product's models are private to it: `gold/dbt_project.yml` sets
+`+access: private`, and each product is a dbt group. To let another product
+`ref()` a mart, set `access: public` on that model in its `schema.yml`:
+
+```yaml
+models:
+  - name: mart_campaign_performance
+    access: public
+```
+
+A `ref()` to a model that is not public fails to parse. The reading product's
+job uses the mart as it is and never rebuilds it.
 
 Keep one model's reads to about 150 tables or fewer. Trino counts about two
 stages per table a query reads and stops at `max_stage_count` (300 in every
@@ -144,8 +162,8 @@ staging models.
 
 ## Remove a product
 
-Delete its entry from `governance.yml`, its `gold/<product>/` directory and its
-Dagster module. Dagster loads every module under `pipelines/dagster/`,
+Delete its entry from `governance.yml`, its `gold/models/<product>/` folder,
+its block in `gold/dbt_project.yml` and its Dagster module. Dagster loads every module under `pipelines/dagster/`,
 declared or not, so a leftover module keeps the job alive.
 
 Renaming a source, domain, product or table changes the derived namespaces,

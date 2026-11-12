@@ -271,7 +271,7 @@ domains:
 """
     )
     write_floe_entity(tmp_path, "sales", "orders", "crm")
-    models = tmp_path / "gold" / "order_revenue" / "dbt" / "models" / "gold"
+    models = tmp_path / "gold" / "models" / "order_revenue"
     models.mkdir(parents=True)
     (models / "mart_revenue_by_day.sql").write_text("select 1\n")
     cfg = om.OpenMetadataConfig.from_environment(

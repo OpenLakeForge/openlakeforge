@@ -1,4 +1,4 @@
-"""`olf product new` -- generate a product-owned Gold dbt project and Dagster
+"""`olf product new` -- generate a product's folder of the Gold dbt project and its Dagster
 job, referencing existing or newly-declared domain Silver tables.
 
 Never generates a new dlt Bronze loader for a source resource that already
@@ -9,6 +9,8 @@ exists: `--input <source>/<resource>` always resolves to the source's own
 from __future__ import annotations
 
 from pathlib import Path
+
+import yaml
 
 from openlakeforge_core import load_transitional_lakehouse_inventory
 
@@ -31,6 +33,77 @@ def _parse_target(target: str) -> tuple[str, str]:
     if not domain or not product or "/" in product:
         raise ScaffoldError(f"product new: target {target!r} must be '<domain>/<product>'")
     return domain, product
+
+
+_GOLD = "lakehouse_code/gold"
+
+
+def _gold_project_changes(
+    repo_root: Path, *, domain: str, product: str, silver_tables: tuple[str, ...]
+) -> tuple[list[ScaffoldFile], list[ScaffoldFile]]:
+    """The shared Gold dbt project's part of a new product (ADR 0004): new files and edits to existing ones.
+
+    The project file gains the product's group block and the domain's source file the Silver tables it
+    does not declare yet. Both are appended as text so a hand-written comment survives, then re-read: a
+    file whose last block is not the one appended to is refused rather than silently misplaced.
+    """
+    files: list[ScaffoldFile] = []
+    edits: list[ScaffoldFile] = []
+    project_path = f"{_GOLD}/dbt_project.yml"
+    project_file = repo_root / project_path
+    if not project_file.is_file():
+        files.append(ScaffoldFile(project_path, _templates.render_dbt_project_yml(products=(product,))))
+        files.append(ScaffoldFile(f"{_GOLD}/packages.yml", _templates.render_dbt_packages_yml()))
+    else:
+        text = project_file.read_text(encoding="utf-8")
+        edited = _append(text, _templates.render_dbt_product_block(product=product))
+        models = _load(edited).get("models") or {}
+        block = next(iter(models.values()), None) if isinstance(models, dict) and len(models) == 1 else None
+        if not isinstance(block, dict) or (block.get(product) or {}).get("+group") != product:
+            raise ScaffoldError(
+                f"{project_path}: cannot add product {product!r}; its last block must be the project's models "
+                f"config. Add `{product}: {{+group: {product}}}` under it by hand, then re-run."
+            )
+        edits.append(ScaffoldFile(project_path, edited))
+
+    sources_path = f"{_GOLD}/models/_sources/{domain}.yml"
+    sources_file = repo_root / sources_path
+    descriptions = {name: f"Validated {name.replace('_', ' ')}." for name in silver_tables}
+    if not sources_file.is_file():
+        tables = tuple(descriptions.items())
+        files.append(ScaffoldFile(sources_path, _templates.render_dbt_sources_yml(domain=domain, tables=tables)))
+        return files, edits
+    text = sources_file.read_text(encoding="utf-8")
+    declared = _source_tables(text, domain)
+    missing = tuple((name, description) for name, description in descriptions.items() if name not in declared)
+    if missing:
+        edited = _append(text, _templates.render_dbt_source_tables(missing))
+        if not {name for name, _ in missing} <= _source_tables(edited, domain):
+            raise ScaffoldError(
+                f"{sources_path}: cannot declare {[name for name, _ in missing]}; its last block must be "
+                f"source {domain!r}'s tables. Add them there by hand, then re-run."
+            )
+        edits.append(ScaffoldFile(sources_path, edited))
+    return files, edits
+
+
+def _append(text: str, addition: str) -> str:
+    return (text if text.endswith("\n") else text + "\n") + addition
+
+
+def _load(text: str) -> dict:
+    """The document, or nothing when the appended text broke it: either way the caller refuses the edit."""
+    try:
+        document = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return {}
+    return document if isinstance(document, dict) else {}
+
+
+def _source_tables(text: str, domain: str) -> set[str]:
+    sources = _load(text).get("sources") or []
+    source = next((item for item in sources if isinstance(item, dict) and item.get("name") == domain), None) or {}
+    return {table.get("name") for table in source.get("tables") or [] if isinstance(table, dict)}
 
 
 def _render_product_block(*, product: str, display_name: str) -> str:
@@ -123,24 +196,18 @@ def plan_product_new(
     product_block = _render_product_block(product=product, display_name=resolved_display_name)
     governance_text = domain_module.add_governance_product(repo_root, governance_text, domain, product_block)
 
-    gold_dir = f"lakehouse_code/gold/{product}"
-    dbt_sources = tuple((name, f"Validated {name.replace('_', ' ')}.") for name in all_silver_inputs)
+    models_dir = f"{_GOLD}/models/{product}"
     gold_schema = tuple((name, "Generated Gold mart; describe its grain and metrics here.") for name in gold_tables)
 
+    shared_files, shared_edits = _gold_project_changes(
+        repo_root, domain=domain, product=product, silver_tables=all_silver_inputs
+    )
+    edits.extend(shared_edits)
     product_files = [
-        ScaffoldFile(f"{gold_dir}/__init__.py", ""),
+        *shared_files,
         ScaffoldFile(
-            f"{gold_dir}/dbt/dbt_project.yml",
-            _templates.render_dbt_project_yml(domain=domain, product=product),
-        ),
-        ScaffoldFile(f"{gold_dir}/dbt/packages.yml", _templates.render_dbt_packages_yml()),
-        ScaffoldFile(
-            f"{gold_dir}/dbt/models/sources.yml",
-            _templates.render_dbt_sources_yml(domain=domain, tables=dbt_sources),
-        ),
-        ScaffoldFile(
-            f"{gold_dir}/dbt/models/gold/schema.yml",
-            _templates.render_gold_schema_yml(gold_tables=gold_schema),
+            f"{models_dir}/schema.yml",
+            _templates.render_gold_schema_yml(product=product, gold_tables=gold_schema),
         ),
         ScaffoldFile(
             f"lakehouse_code/pipelines/dagster/{product}.py",
@@ -150,8 +217,8 @@ def plan_product_new(
     for mart in gold_tables:
         product_files.append(
             ScaffoldFile(
-                f"{gold_dir}/dbt/models/gold/{mart}.sql",
-                _templates.render_gold_mart_sql(mart=mart, first_silver_input=all_silver_inputs[0]),
+                f"{models_dir}/{mart}.sql",
+                _templates.render_gold_mart_sql(mart=mart, domain=domain, first_silver_input=all_silver_inputs[0]),
             )
         )
 

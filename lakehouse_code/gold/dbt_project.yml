@@ -1,0 +1,27 @@
+name: gold
+version: "1.0.0"
+config-version: 2
+
+profile: gold
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  gold:
+    +database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}"
+    +materialized: table
+    +on_table_exists: replace
+    # A definer view is re-read by Polaris without the caller's token (#967).
+    +view_security: invoker
+    # Another product can ref() a model only once its owner marks it public.
+    +access: private
+    # One block per product: its folder under models/ joins its dbt group.
+    customer_health:
+      +group: customer_health
+    inventory_reliability:
+      +group: inventory_reliability
+    order_revenue:
+      +group: order_revenue

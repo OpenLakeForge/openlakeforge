@@ -539,13 +539,13 @@ def build_contract_env(
             "OPENLAKEFORGE_CATALOG_GOLD_NAMESPACES_JSON",
             json.dumps(schema_fqn_physical.gold_namespaces, separators=(",", ":")),
         )
-    # The dbt profile (openlakeforge_runtime/dbt/profiles/trino.yml) bakes its bare
-    # `{{GOLD_SCHEMA}}` (e.g. "order_revenue_gold") at project-code image
-    # BUILD time - the image is provider/stage-agnostic ("one image digest
-    # deploys to every stage"), so it cannot know this account's
-    # shared-catalog namespace_prefix. Prepend it at dbt-invoke time
-    # instead, via this runtime-only env var the profile reads with
-    # `env_var(...)` alongside its build-time-baked schema name.
+    # A Gold model's schema is its product folder's bare name (e.g.
+    # "order_revenue_gold", from openlakeforge_dbt's generate_schema_name),
+    # fixed when the project-code image is built - the image is
+    # provider/stage-agnostic ("one image digest deploys to every stage"),
+    # so it cannot know this account's shared-catalog namespace_prefix.
+    # The macro and the dbt sources prepend it at dbt-invoke time instead,
+    # reading this runtime-only env var with `env_var(...)`.
     env.set("OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX", f"{catalog_name}_" if is_glue else "")
     if not om_catalog_service_user_set:
         env.set("OPENMETADATA_CATALOG_SERVICE", catalog_om_service_name)

@@ -103,6 +103,16 @@ def test_project_validation_reports_missing_declared_asset(external_project: Pat
     assert "lakehouse_code/pipelines/dagster/order_revenue.py" in report.checks[-1].detail
 
 
+def test_project_validation_reports_a_product_without_its_folder_of_gold_models(external_project: Path) -> None:
+    shutil.rmtree(external_project / "lakehouse_code/gold/models/order_revenue")
+    distribution = Path(__file__).resolve().parents[4]
+
+    report = validate_project(ProjectSpec(root=external_project, distribution_root=distribution))
+
+    assert not report.ok
+    assert "lakehouse_code/gold/models/order_revenue/" in report.checks[-1].detail
+
+
 def test_project_validation_reports_invalid_descriptors(external_project: Path) -> None:
     lakehouse = external_project / "lakehouse_code/governance.yml"
     lakehouse.write_text("apiVersion: invalid\n", encoding="utf-8")

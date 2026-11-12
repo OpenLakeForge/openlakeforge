@@ -6,7 +6,7 @@ with purchase_orders as (
         warehouse_id,
         cast(expected_date as date) as expected_date,
         cast(ordered_units as integer) as ordered_units
-    from {{ source('silver', 'purchase_orders') }}
+    from {{ source('supply_chain', 'purchase_orders') }}
 ),
 
 shipments as (
@@ -14,12 +14,12 @@ shipments as (
         purchase_order_id,
         cast(delivered_date as date) as delivered_date,
         cast(received_units as integer) as received_units
-    from {{ source('silver', 'shipments') }}
+    from {{ source('supply_chain', 'shipments') }}
 ),
 
 suppliers as (
     select supplier_id, supplier_name, country, risk_tier
-    from {{ source('silver', 'suppliers') }}
+    from {{ source('supply_chain', 'suppliers') }}
 )
 
 select

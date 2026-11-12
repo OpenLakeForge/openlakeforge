@@ -134,7 +134,7 @@ def proof_product(cfg: E2EConfig) -> Product | None:
     default = cfg.inventory.default_product
     candidates = [default, *(product for product in cfg.inventory.products if product.id != default.id)]
     for product in candidates:
-        if generation_count(cfg.repo_root / product.dbt_project_dir / "models") >= 2:
+        if generation_count(cfg.repo_root / product.dbt_models_dir) >= 2:
             return product
     return None
 
@@ -150,7 +150,7 @@ def check_gold_outlasts_polaris_token(cfg: E2EConfig) -> None:
             "the whole build, so no shortened lifetime can be outlasted by it. It needs a product with two."
         )
         return
-    models_dir = cfg.repo_root / product.dbt_project_dir / "models"
+    models_dir = cfg.repo_root / product.dbt_models_dir
     groups = model_generations(models_dir)
     generations = len(groups)
     later_models = {model for group in groups[1:] for model in group}

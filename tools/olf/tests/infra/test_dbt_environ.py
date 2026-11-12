@@ -57,9 +57,9 @@ def test_dbt_parse_runs_in_the_contract_project_with_the_contract_environment(
     dbt.chmod(0o755)
     dbt_log = tmp_path / "dbt.log"
     project_root = tmp_path / "customer"
-    product = project_root / "lakehouse_code" / "gold" / "sales" / "dbt"
+    product = project_root / "lakehouse_code" / "gold"
     product.mkdir(parents=True)
-    (product / "dbt_project.yml").write_text("name: sales\nprofile: sales\n")
+    (product / "dbt_project.yml").write_text("name: gold\nprofile: gold\n")
     # The executable search itself still reads the process PATH; everything else comes from the contract.
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
     contract = ContractEnvironment(

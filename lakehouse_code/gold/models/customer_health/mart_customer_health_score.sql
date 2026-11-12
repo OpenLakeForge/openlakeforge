@@ -5,7 +5,7 @@ with accounts as (
         segment,
         region,
         cast(arr as double) as arr
-    from {{ source('silver', 'accounts') }}
+    from {{ source('sales', 'accounts') }}
 ),
 
 subscriptions as (
@@ -13,7 +13,7 @@ subscriptions as (
         account_id,
         status,
         cast(monthly_recurring_revenue as double) as monthly_recurring_revenue
-    from {{ source('silver', 'subscriptions') }}
+    from {{ source('sales', 'subscriptions') }}
 ),
 
 tickets as (
@@ -21,14 +21,14 @@ tickets as (
         account_id,
         cast(resolution_hours as integer) as resolution_hours,
         cast(sla_met as boolean) as sla_met
-    from {{ source('silver', 'support_tickets') }}
+    from {{ source('sales', 'support_tickets') }}
 ),
 
 nps as (
     select
         account_id,
         cast(score as integer) as score
-    from {{ source('silver', 'nps_responses') }}
+    from {{ source('sales', 'nps_responses') }}
 ),
 
 ticket_rollup as (

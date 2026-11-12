@@ -8,7 +8,7 @@ stockouts as (
         warehouse_id,
         product_id,
         cast(lost_units as integer) as lost_units
-    from {{ source('silver', 'stockout_events') }}
+    from {{ source('supply_chain', 'stockout_events') }}
 ),
 
 stockout_rollup as (

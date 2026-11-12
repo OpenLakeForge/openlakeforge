@@ -3,7 +3,7 @@ with orders as (
         order_id,
         customer_id,
         region
-    from {{ source('silver', 'orders') }}
+    from {{ source('sales', 'orders') }}
     where status = 'fulfilled'
 ),
 
@@ -13,12 +13,12 @@ order_lines as (
         cast(quantity as integer) as quantity,
         cast(unit_price as double) as unit_price,
         cast(discount_amount as double) as discount_amount
-    from {{ source('silver', 'order_lines') }}
+    from {{ source('sales', 'order_lines') }}
 ),
 
 accounts as (
     select account_id, segment, region as account_region
-    from {{ source('silver', 'accounts') }}
+    from {{ source('sales', 'accounts') }}
 )
 
 select

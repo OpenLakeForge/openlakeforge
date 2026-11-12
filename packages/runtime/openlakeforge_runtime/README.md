@@ -25,13 +25,14 @@ The dbt profile template lives under `openlakeforge_runtime/dbt/profiles/`, one 
 engine (`trino.yml` today). `openlakeforge_runtime.dbt.render_profiles` renders it into
 `generated/dbt-profiles/` at image build. Every stage value in it is an
 `env_var()` reference, never a default. `olf check project-code` renders the
-checked project's own profiles into its cache and points the code location at
-them with `OPENLAKEFORGE_DBT_PROFILES_DIR`. Product dbt projects keep
-product-local model code and schema defaults.
+checked project's own profile into its cache and points the code location at
+it with `OPENLAKEFORGE_DBT_PROFILES_DIR`. The Gold dbt project holds a folder
+of models per product; `openlakeforge_dbt`'s `generate_schema_name` names each
+model's schema after its folder (ADR 0004).
 
-Each product's `packages.yml` reaches the shared `openlakeforge_dbt` package
+The Gold project's `packages.yml` reaches the shared `openlakeforge_dbt` package
 as `{{ env_var('OPENLAKEFORGE_DBT_PACKAGES_DIR') }}/openlakeforge_dbt`. A
-path relative to the product would resolve only where `openlakeforge_runtime/` sits beside
+path relative to the project would resolve only where `openlakeforge_runtime/` sits beside
 `lakehouse_code/`, which a customer repository does not have. The installed
 runtime sets the variable to its own `dbt/` directory (`render_profiles.dbt_environment()`,
 applied when `product_dagster` is imported); `olf check dbt`,

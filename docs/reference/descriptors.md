@@ -265,10 +265,10 @@ jobs, buckets and catalog entries derive from the same domain and product
 names (see [ADR 0012](../adr/0012-project-revisions-and-promotion.md)).
 
 `olf check contracts` also requires one `silver/<domain>/` directory per
-domain and one `gold/<product>/` directory per product, and rejects a dbt
-model that dbt resolved into any schema but `<product>_gold` (when the
-product's `target/manifest.json` exists), since its tables would belong to no
-product.
+domain and one `gold/models/<product>/` directory per product, and rejects
+a dbt model that dbt resolved into any schema but its folder's
+`<product>_gold` (when the Gold project's `target/manifest.json` exists),
+since its tables would belong to no product.
 
 ## Implementation files
 
@@ -316,9 +316,9 @@ olf check contracts
 | Invalid identifier | A name such as `campaign-performance`; use `campaign_performance`. |
 | Duplicate product id | Two products declare the same `id`. |
 | Product names an unknown domain | A product's `domain` is not in `domains`. |
-| Domain or product has no directory | `silver/<domain>/` or `gold/<product>/` is missing, or exists without an entry in `governance.yml`. |
+| Domain or product has no directory | `silver/<domain>/` or `gold/models/<product>/` is missing, or exists without an entry in `governance.yml`. |
 | Silver entity reads an unknown Bronze resource (`olf check project-code`) | A Floe entity's `source.ref`/`resource` is not a resource of a `source.yaml`. |
-| Model outside `<product>_gold` | A dbt model or project sets its own schema and a manifest shows it. |
+| Model outside `<product>_gold` | A dbt model sets its own schema and a manifest shows it. |
 
 `olf check contracts` reads each descriptor on its own. `olf check
 project-code` loads the whole inventory, and catches a reference between
