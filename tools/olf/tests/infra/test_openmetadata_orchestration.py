@@ -434,3 +434,56 @@ def test_deploy_refuses_another_stages_schemas_before_any_write(
     assert "polaris.lakehouse_dev.sales_silver" in str(excinfo.value)
     assert "polaris.lakehouse_prod" in str(excinfo.value)
     assert requests == []
+
+
+def test_missing_assets_guidance_is_stage_neutral_in_error_and_warning_modes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guidance names the empty Gold schema and tells the operator to rerun
+    with their original options, without prescribing local-only flags."""
+    deployer = _single_product_deployer(tmp_path)
+    ((spec_path, domain),) = deployer._domain_specs()
+    [product] = domain["data_products"]
+    # Unsorted, with a repeated product: the message must list each missing
+    # table FQN once, in sorted order.
+    domain = {**domain, "data_products": [product, {**product, "name": "churn", "asset_prefix": "churn"}, product]}
+    monkeypatch.setattr(deployer, "_domain_specs", lambda: [(spec_path, domain)])
+    monkeypatch.setattr(
+        deployer.config,
+        "catalog_gold_schema_fqns",
+        {**deployer.config.catalog_gold_schema_fqns, "churn": "polaris.lakehouse_dev.churn_gold"},
+    )
+    expected_lines = ["- polaris.lakehouse_dev.churn_gold", "- polaris.lakehouse_dev.order_revenue_gold"]
+    warnings: list[str] = []
+
+    class Progress:
+        def info(self, message: str) -> None:
+            pass
+
+        def warn(self, message: str) -> None:
+            warnings.append(message)
+
+    monkeypatch.setattr(deployer, "progress", Progress())
+    monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
+    monkeypatch.setattr(deployer, "login", lambda: None)
+    monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
+    monkeypatch.setattr(deployer, "ensure_container", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        deployer.client,
+        "request",
+        lambda method, path, **_kwargs: {"data": []} if method == "GET" else {},
+    )
+
+    with pytest.raises(om.OpenMetadataError) as excinfo:
+        deployer.deploy()
+    message = str(excinfo.value)
+    assert "--cluster-name" not in message
+    assert "--kubeconfig-path" not in message
+    assert [line.strip() for line in message.splitlines() if line.strip().startswith("- ")] == expected_lines
+    assert "same deployment and provider options as the original run" in message
+
+    monkeypatch.setattr(deployer.config, "allow_missing_assets", True)
+    deployer.deploy()
+    assert len(warnings) == 1
+    assert [line.strip() for line in warnings[0].splitlines() if line.strip().startswith("- ")] == expected_lines
+    assert "--cluster-name" not in warnings[0]
