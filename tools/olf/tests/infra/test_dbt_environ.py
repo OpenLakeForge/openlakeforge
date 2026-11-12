@@ -92,4 +92,5 @@ def test_dbt_parse_runs_in_the_contract_project_with_the_contract_environment(
         assert Path(call["cwd"]).resolve() == project_root.resolve()
         assert call["stage_marker"] == "from-contract"
         assert call["packages_dir"]
-    assert "sales:" in calls[1]["profiles"]
+    assert calls[1]["profiles"].startswith("gold:
+")
