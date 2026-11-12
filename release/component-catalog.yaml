@@ -3,7 +3,7 @@ kind: ComponentCatalog
 metadata:
   name: openlakeforge
 distribution:
-  version: 0.6.0-alpha.1
+  version: 0.6.0-alpha.2
   release_tag_policy: immutable-semver
   development_tags: mutable
   # What a ProjectRevision depends on (docs/adr/0012). `version` is bumped only
