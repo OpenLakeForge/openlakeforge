@@ -33,6 +33,31 @@ def test_collect_keeps_kubernetes_diagnostics_when_docker_is_missing(monkeypatch
     assert any(call[0] == "kubectl" for call in calls)
 
 
+def test_collect_keeps_partial_diagnostics_when_kubectl_is_missing(monkeypatch, tmp_path: Path) -> None:  # noqa: ANN001
+    class Resolver:
+        def resolve(self, name: str) -> Path:
+            if name == "kubectl":
+                raise ExecutableNotFoundError(name)
+            assert name == "docker"
+            return Path("docker")
+
+    class Runner:
+        def run(self, argv, **kwargs):  # noqa: ANN001, ANN003
+            return SimpleNamespace(stdout="", stderr="")
+
+    monkeypatch.setattr(diagnostics.Toolkit, "default", lambda: SimpleNamespace(resolver=Resolver(), runner=Runner()))
+    monkeypatch.setattr(diagnostics, "_host_memory_snapshot", lambda: "total=123\navailable=45\n")
+
+    diagnostics.collect(tmp_path, namespace="lakehouse")
+
+    assert (tmp_path / "host-disk.txt").is_file()
+    assert (tmp_path / "host-memory.txt").read_text() == "total=123\navailable=45\n"
+    for name in ("nodes.txt", "all-pods.txt", "all-events.txt", "workloads.txt", "pod-names.txt"):
+        text = (tmp_path / name).read_text()
+        assert "ExecutableNotFoundError" in text
+        assert "kubectl" in text
+
+
 def test_collect_dumps_the_trino_coordinator_configuration(monkeypatch, tmp_path: Path) -> None:  # noqa: ANN001
     calls: list[list[str]] = []
 
