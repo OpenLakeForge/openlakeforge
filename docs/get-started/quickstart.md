@@ -15,7 +15,7 @@ Docker engine. It does not touch your own `~/.kube/config`.
 | [uv](https://docs.astral.sh/uv/) | `uv --version` |
 | Ports 80 and 443 free on `127.0.0.1` | Nothing else serves `http://localhost` |
 | 4 CPUs and 16 GB of memory available to Docker | `docker info` shows `CPUs` and `Total Memory` |
-| Free disk for Docker's images and volumes | 100 GB covers the Full preset with two stages ([details](../guides/local-installation.md#hardware)) |
+| Free disk for Docker's images and volumes | About 35 GB for this Slim, one-stage deployment; the Full preset with two stages needs 100 GB ([details](../guides/local-installation.md#hardware)) |
 | On WSL2 only: one time source | `systemctl is-active systemd-timesyncd` is not `active` ([why and how](../guides/local-installation.md#on-wsl2)) |
 
 Terraform, Helm, kubectl and kind are not prerequisites: `olf` provisions

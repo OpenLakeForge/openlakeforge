@@ -449,6 +449,15 @@ jobs:
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: olf infra e2e run --env local -f openlakeforge.yaml --stage prod --suite full --checks core
 
+      - name: Report disk used by the Full DEV+PROD deployment
+        # The figure docs/guides/local-installation.md#hardware publishes for
+        # Full with two stages; compare with the first step's df. Taken before
+        # the drills, which destroy and rebuild the platform.
+        if: always() && (inputs.suite || 'full') != 'smoke'
+        run: |
+          df -h /
+          docker system df
+
       - name: Prove the stages pull the project image through a pull Secret (#537)
         # KNOWN GAP: the check proves the mechanism, not that a private image is pullable. `project-code-nightly`
         # answers anonymous pulls (measured 2026-11-07), so `--allow-public` is required, and the Secret is built
