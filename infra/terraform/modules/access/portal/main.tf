@@ -60,6 +60,15 @@ resource "kubernetes_deployment_v1" "portal" {
             container_port = local.port
           }
 
+          # Node's 16 KiB header limit answers 431 with an empty page once the
+          # perimeter's chunked session cookies and per-request CSRF cookies on
+          # .<base_domain> add up, which a browser reaches after a few sign-ins
+          # (#1103); only clearing the cookies brought the portal back.
+          env {
+            name  = "NODE_OPTIONS"
+            value = "--max-http-header-size=65536"
+          }
+
           volume_mount {
             name       = "routes"
             mount_path = "/config"
