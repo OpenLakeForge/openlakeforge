@@ -310,8 +310,8 @@ def render_domain_readme(*, domain: str, display_name: str) -> str:
 Scaffolded by `olf domain new {domain}`.
 
 This domain owns the `{domain}_silver` Iceberg namespace and its Floe
-Bronze-to-Silver contracts under `contracts/`: `domain.yml` holds the
-sink defaults and each sibling `.yml` file is one entity. Every product
+Bronze-to-Silver contracts: `domain.yml` holds the sink defaults and each
+`.yml` file under `contracts/` is one entity. Every product
 built on `{domain}` shares this one Silver namespace -- see
 [ADR 0004](../../../docs/adr/0004-medallion-layout-and-catalog-namespaces.md).
 """
@@ -333,7 +333,7 @@ def _floe_column_lines(columns: tuple[InferredColumn, ...], primary_key: tuple[s
 
 
 def render_floe_entity(spec: FloeEntitySpec) -> str:
-    """One entity file beside its domain's `domain.yml`, which supplies every sink default."""
+    """One entity file in its domain's `contracts/`; the domain's `domain.yml` supplies every sink default."""
     # An incremental resource lands only new rows: read the new files, merge on the key.
     mode = 'incremental_mode: "file"\nsink: { write_mode: "merge_scd1" }\n' if spec.incremental else ""
     return f'''name: "{spec.table}"
@@ -344,6 +344,7 @@ source: {{ ref: "{spec.source}", resource: "{spec.resource}" }}
 
 def render_floe_domain(*, domain: str) -> str:
     return f'''name: "{domain}"
+entities: "contracts/*.yml"
 defaults:
   incremental_mode: "none"
   sink:

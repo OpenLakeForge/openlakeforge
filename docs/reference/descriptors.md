@@ -277,7 +277,7 @@ Each identity selects the files that implement it:
 | Identity | Files |
 | --- | --- |
 | Source `name` | `lakehouse_code/bronze/<source>/` |
-| Domain `name` | `lakehouse_code/silver/<domain>/`, whose `contracts/domain.yml` holds the domain's Floe defaults beside one file per entity |
+| Domain `name` | `lakehouse_code/silver/<domain>/`, whose `domain.yml` holds the domain's Floe defaults and whose `contracts/` holds one file per entity |
 | Product `id` | `lakehouse_code/gold/<id>/dbt/` and `lakehouse_code/pipelines/dagster/<id>.py` |
 | Dashboard | `lakehouse_code/dashboards/superset/<name>/`, once it holds a `metadata.yaml` |
 

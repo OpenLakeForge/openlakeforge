@@ -370,14 +370,13 @@ def test_hcl_phase_two_invariants_rejects_forbidden_resolved_field(tmp_path: Pat
 
 
 def _floe_project(repo_root: Path) -> Path:
-    """A copy of the real Floe project to break one rule in."""
+    """A copy of the real Floe project to break one rule in; returns the sales domain folder."""
     shutil.copytree(ROOT / "lakehouse_code" / "silver", repo_root / "lakehouse_code" / "silver")
-    return repo_root / "lakehouse_code" / "silver" / "sales" / "contracts"
+    return repo_root / "lakehouse_code" / "silver" / "sales"
 
 
 def test_floe_contract_structure_rejects_an_entity_writing_a_shared_silver_namespace(tmp_path: Path) -> None:
-    floe = _floe_project(tmp_path)
-    entity = floe / "orders.yml"
+    entity = _floe_project(tmp_path) / "contracts" / "orders.yml"
     entity.write_text(
         entity.read_text(encoding="utf-8")
         + 'sink: { accepted: { iceberg: { catalog: "iceberg_catalog", namespace: "silver" } } }\n',
@@ -401,17 +400,40 @@ def test_floe_contract_structure_rejects_a_provider_named_catalog(tmp_path: Path
 
 
 def test_floe_contract_structure_names_the_move_for_a_project_on_contracts_floe(tmp_path: Path) -> None:
-    contracts = _floe_project(tmp_path)
-    legacy = contracts / "floe"
+    domain = _floe_project(tmp_path)
+    legacy = domain / "contracts" / "floe"
     legacy.mkdir()
-    for path in contracts.glob("*.yml"):
-        path.rename(legacy / ("_domain.yml" if path.name == "domain.yml" else path.name))
+    for path in (domain / "contracts").glob("*.yml"):
+        path.rename(legacy / path.name)
+    (domain / "domain.yml").rename(legacy / "_domain.yml")
 
     result = contracts_check._check_floe_contract_structure(tmp_path)
 
     assert not result.ok
     assert "lakehouse_code/silver/sales/contracts/floe" in result.detail.replace("\\", "/")
-    assert "rename `_domain.yml` to `domain.yml`" in result.detail
+    assert "`_domain.yml` to `silver/<domain>/domain.yml`" in result.detail
+    assert 'set `entities: "contracts/*.yml"`' in result.detail
+
+
+def test_floe_contract_structure_names_the_move_for_a_domain_file_in_contracts(tmp_path: Path) -> None:
+    domain = _floe_project(tmp_path)
+    (domain / "domain.yml").rename(domain / "contracts" / "domain.yml")
+
+    result = contracts_check._check_floe_contract_structure(tmp_path)
+
+    assert not result.ok
+    assert "lakehouse_code/silver/sales/contracts/domain.yml" in result.detail.replace("\\", "/")
+    assert 'set `entities: "contracts/*.yml"`' in result.detail and "include `*/domain.yml`" in result.detail
+
+
+def test_floe_contract_structure_requires_the_contracts_entities_glob(tmp_path: Path) -> None:
+    domain = _floe_project(tmp_path) / "domain.yml"
+    domain.write_text(domain.read_text(encoding="utf-8").replace('entities: "contracts/*.yml"\n', ""), encoding="utf-8")
+
+    result = contracts_check._check_floe_contract_structure(tmp_path)
+
+    assert not result.ok
+    assert 'entities must be "contracts/*.yml", got None' in result.detail
 
 
 def test_floe_contract_structure_rejects_a_domain_named_unlike_its_folder(tmp_path: Path) -> None:

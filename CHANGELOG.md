@@ -14,6 +14,27 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Changed
+
+- A domain's Floe domain file is `lakehouse_code/silver/<domain>/domain.yml`,
+  at the domain root, and its entity files stay in `contracts/`. The domain
+  file names them with Floe 0.10.1's `entities: "contracts/*.yml"` glob, and
+  `silver/floe.yml` includes `"*/domain.yml"`. `olf check contracts` refuses a
+  domain file still in `contracts/` or a domain file without that glob, and
+  names the move. `olf domain new` and `olf product new` write the new layout,
+  and no longer refuse a resource named `domain`.
+
+### Migration
+
+Silver, for a project on the 0.6.0-alpha.2 layout:
+
+1. For each domain, move `silver/<domain>/contracts/domain.yml` up to
+   `silver/<domain>/domain.yml` and add `entities: "contracts/*.yml"` to it.
+2. In `lakehouse_code/silver/floe.yml`, change the `include.domains` pattern
+   to `"*/domain.yml"`.
+3. Run `olf check contracts`. Table and asset names do not change; the project
+   revision digest does.
+
 ## [0.6.0-alpha.2] - 2026-11-12
 
 This release reorganises the user code under `lakehouse_code/`: Gold becomes

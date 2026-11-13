@@ -305,12 +305,17 @@ def test_domain_new_rejects_a_pre_existing_but_undeclared_domain_directory(tmp_p
     assert _tree(repo_root) == before
 
 
-def test_domain_new_refuses_an_entity_named_like_the_domain_file(tmp_path: Path) -> None:
+def test_domain_new_writes_the_domain_file_at_the_domain_root_and_entities_in_contracts(tmp_path: Path) -> None:
     repo_root = _seed_repo(tmp_path)
     commit_plan(repo_root, plan_source_new(repo_root, source="workday", display_name=None, resources=("domain",)))
 
-    with pytest.raises(ScaffoldError, match=r"a Silver entity cannot be named 'domain'"):
-        plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "domain"),))
+    commit_plan(repo_root, plan_domain_new(repo_root, domain="hr", display_name="HR", inputs=(("workday", "domain"),)))
+
+    hr = repo_root / "lakehouse_code" / "silver" / "hr"
+    assert yaml.safe_load((hr / "domain.yml").read_text())["entities"] == "contracts/*.yml"
+    # An entity may now be named `domain`: its file no longer collides with the domain file.
+    assert yaml.safe_load((hr / "contracts" / "domain.yml").read_text())["name"] == "domain"
+    assert contracts_check._check_floe_contract_structure(repo_root).ok
 
 
 def test_domain_new_rejects_unresolved_source_resource_and_writes_nothing(tmp_path: Path) -> None:
@@ -391,9 +396,9 @@ def test_product_new_creates_first_product_and_domain_implicitly(tmp_path: Path)
     # The products already there keep their blocks.
     assert project["order_revenue"] == {"+group": "order_revenue"}
     assert (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").is_file()
-    floe = repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts"
-    assert (floe / "domain.yml").is_file()
-    assert (floe / "campaigns.yml").is_file()
+    silver = repo_root / "lakehouse_code" / "silver" / "marketing"
+    assert (silver / "domain.yml").is_file()
+    assert (silver / "contracts" / "campaigns.yml").is_file()
 
     inventory = load_lakehouse_inventory(repo_root)
     product = next(p for p in inventory.products if p.id == "campaign_performance")
@@ -524,7 +529,7 @@ def test_product_new_extends_existing_domain_with_new_input(tmp_path: Path) -> N
     floe = repo_root / "lakehouse_code" / "silver" / "hr" / "contracts"
     entity = yaml.safe_load((floe / "absences.yml").read_text(encoding="utf-8"))
     assert entity["source"] == {"ref": "workday", "resource": "absences"}
-    assert sorted(path.name for path in floe.glob("*.yml")) == ["absences.yml", "domain.yml", "employees.yml"]
+    assert sorted(path.name for path in floe.glob("*.yml")) == ["absences.yml", "employees.yml"]
 
     inventory = load_lakehouse_inventory(repo_root)
     hr = next(d for d in inventory.domains if d.name == "hr")
@@ -836,9 +841,7 @@ def test_generated_product_artifacts_are_internally_consistent(tmp_path: Path) -
     assert "database: \"{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}\"" in sources_yml
     assert "schema: \"{{ env_var('OPENLAKEFORGE_CATALOG_SCHEMA_PREFIX', '') }}marketing_silver\"" in sources_yml
 
-    floe_domain = (
-        repo_root / "lakehouse_code" / "silver" / "marketing" / "contracts" / "domain.yml"
-    ).read_text()
+    floe_domain = (repo_root / "lakehouse_code" / "silver" / "marketing" / "domain.yml").read_text()
     assert 'namespace: "marketing_silver"' in floe_domain
 
     dagster_module = (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").read_text()

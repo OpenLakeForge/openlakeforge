@@ -64,9 +64,9 @@ olf domain new marketing --input marketing_platform/campaigns
 
 A domain owns a set of Silver tables. Each `--input <source>/<resource>`
 becomes a Silver table of the same name, validated by its own entity file,
-`silver/marketing/contracts/<resource>.yml`, beside the domain's
-`domain.yml`, which sets the Iceberg namespace, the rejected-rows path and the
-policy for all of them. An entity declares column types and a primary key;
+`silver/marketing/contracts/<resource>.yml`. The domain's
+`silver/marketing/domain.yml` sets the Iceberg namespace, the rejected-rows
+path and the policy for all of them. An entity declares column types and a primary key;
 every column starts as `nullable: false`, so loosen a column by hand when a
 value may be empty. [Floe validation](../architecture/floe-validation.md)
 describes the layout.
