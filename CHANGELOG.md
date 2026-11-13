@@ -14,6 +14,14 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+## [0.6.0-alpha.3] - 2026-11-13
+
+This release moves each Silver domain's `domain.yml` back to the domain root,
+beside a `contracts/` folder that holds its entity files. That is a breaking
+layout change for a project on 0.6.0-alpha.2; Migration below lists the moves.
+It also fixes a portal that answered HTTP 431 after a redeploy, and ships portal
+0.6.0.
+
 ### Changed
 
 - A domain's Floe domain file is `lakehouse_code/silver/<domain>/domain.yml`,
@@ -23,6 +31,18 @@ for how a release is cut and verified.
   domain file still in `contracts/` or a domain file without that glob, and
   names the move. `olf domain new` and `olf product new` write the new layout,
   and no longer refuse a resource named `domain`.
+- The project-code image pins `floe-python` 0.10.1 (#1106), which adds the
+  domain file's `entities` glob; `dagster-floe` stays at 0.6.0.
+- The portal is 0.6.0 (#1107): one flat dark-blue page without the depth
+  markers and ruler, and Trino listed as a Query service in each stage.
+
+### Fixed
+
+- The portal no longer answers HTTP 431 with an empty page once the
+  perimeter's session and per-request CSRF cookies on `.<base_domain>` pass
+  Node's 16 KiB header limit, which a browser reached after a destroy and
+  redeploy until its cookies were cleared (#1103). It now accepts 64 KiB, as
+  OpenMetadata does.
 
 ### Migration
 
