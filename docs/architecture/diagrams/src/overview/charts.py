@@ -31,7 +31,7 @@ def _data_path(
     text(420, 96, "webserver · daemon · code server · one isolated run pod per pipeline run")
 
     y, nh, nw = 214, 116, 160
-    node(24, y, 120, nh, None, "INPUT", "Sources", ["CSV examples", "per data product"])
+    node(24, y, 120, nh, None, "INPUT", "Sources", ["files, APIs and", "databases"])
     node(214, y, nw, nh, "dlt", "EXTRACT", "dlt", ["loads raw files", "into Bronze"])
     node(444, y, nw, nh, "floe", "VALIDATE", "Floe", ["technical contracts", "Bronze → Silver"])
     node(674, y, nw, nh, "dbt", "TRANSFORM", "dbt-trino", ["business marts", "Silver → Gold"])
@@ -102,7 +102,7 @@ def local() -> list[Path]:
     defs()
     _data_path(
         "seaweedfs", "SeaweedFS",
-        (("lakehouse-dev-bronze", "raw CSV"), ("lakehouse-dev-silver", "Iceberg tables"),
+        (("lakehouse-dev-bronze", "raw files"), ("lakehouse-dev-silver", "Iceberg tables"),
          ("lakehouse-dev-gold", "Iceberg tables")),
         ("openlakeforge-ops", "revisions · reports"),
         ("polaris", "ICEBERG REST CATALOG", "Apache Polaris", ["Floe commits and Trino", "resolves tables here"]),
@@ -136,7 +136,7 @@ def local() -> list[Path]:
     legend(956, ("data", "ctl", "lin", "opt"))
     return export(
         "architecture-local", W, h, "OpenLakeForge architecture",
-        "Dagster launches dlt, Floe and dbt-trino. dlt lands raw CSV in the Bronze bucket, Floe validates "
+        "Dagster launches dlt, Floe and dbt-trino. dlt lands raw files in the Bronze bucket, Floe validates "
         "it into Silver Iceberg tables through Polaris, and dbt-trino builds Gold marts by running SQL in "
         "Trino. Superset queries Gold through Trino. Floe and dbt-trino send OpenLineage to OpenMetadata, "
         "which crawls the catalog through Trino every hour. olf applies Terraform, which installs Helm "
@@ -149,7 +149,7 @@ def aws() -> list[Path]:
     defs()
     _data_path(
         "s3", "Amazon S3",
-        (("bronze bucket", "raw CSV, per stage"), ("silver bucket", "Iceberg, per stage"),
+        (("bronze bucket", "raw files, per stage"), ("silver bucket", "Iceberg, per stage"),
          ("gold bucket", "Iceberg, per stage")),
         ("ops bucket", "revisions · reports"),
         ("glue", "ICEBERG CATALOG", "AWS Glue Data Catalog",
@@ -217,7 +217,7 @@ def _stage_box(x: int, name: str, label: str) -> None:
     text(x + 498, 384, "run sha256:<rev>", "tsub")
     for i, tier in enumerate(("bronze", "silver", "gold")):
         bucket(x + 120 + i * 195, 430, 176, f"lakehouse-{name}-{tier}",
-               "raw CSV" if tier == "bronze" else "Iceberg tables", tier, tier != "bronze")
+               "raw files" if tier == "bronze" else "Iceberg tables", tier, tier != "bronze")
     text(x + 315, 568, f"catalog lakehouse_{name}", "bname", "middle")
     text(x + 315, 588, "its own buckets, catalog and database", "tsub", "middle")
 
