@@ -22,12 +22,12 @@ it is not a dbt model or a Dagster job.
 | --- | --- |
 | [`floe.yml`](../../lakehouse_code/silver/floe.yml) | The project: report location and the includes below. |
 | [`sources.yml`](../../lakehouse_code/silver/sources.yml) | One named source per Bronze source: CSV options, cast mode, and the `<source>/{{resource}}` path dlt lands it under. |
-| `<domain>/contracts/domain.yml` | The domain, and the defaults every entity inherits: the Iceberg sink in the `<domain>_silver` namespace, the CSV quarantine sink, the `reject` policy, and column normalization. |
+| `<domain>/domain.yml` | The domain, and the defaults every entity inherits: the Iceberg sink in the `<domain>_silver` namespace, the CSV quarantine sink, the `reject` policy, and column normalization. Its `entities: "contracts/*.yml"` glob names the domain's entity files. |
 | `<domain>/contracts/<entity>.yml` | One entity per file: its `source: { ref, resource }`, primary key, and columns. |
 
 Start with the domains the seed products use:
-[sales](../../lakehouse_code/silver/sales/contracts/domain.yml) and
-[supply chain](../../lakehouse_code/silver/supply_chain/contracts/domain.yml).
+[sales](../../lakehouse_code/silver/sales/domain.yml) and
+[supply chain](../../lakehouse_code/silver/supply_chain/domain.yml).
 An entity such as
 [`orders.yml`](../../lakehouse_code/silver/sales/contracts/orders.yml)
 names only what is specific to it; its `severity: reject` policy, inherited

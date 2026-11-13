@@ -104,7 +104,7 @@ components:
     project_code_lock: images/project-code/requirements.lock
     tooling_lock: tools/olf/uv.lock
   floe:
-    floe-python: 0.10.0
+    floe-python: 0.10.1
     dagster-floe: 0.6.0
   images:
     k8s_bootstrap: alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e

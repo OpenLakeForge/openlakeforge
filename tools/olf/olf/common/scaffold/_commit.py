@@ -48,14 +48,16 @@ _YAML_SUFFIXES = (".yaml", ".yml")
 # no such root and is not checked here -- only genuinely new ownership
 # subtrees are.
 _OWNERSHIP_ROOT = re.compile(r"^lakehouse_code/(?:bronze|silver|gold/models|dashboards/superset)/[a-z][a-z0-9_]*")
-# One entity per file: extending an existing domain adds a file beside its
-# `domain.yml`, inside an ownership root that already has content.
+# One entity per file: extending an existing domain adds a file to the
+# `contracts/` beside its `domain.yml`, inside an ownership root that already
+# has content.
 _FLOE_GLOB = "silver/*/contracts/*.yml"
 _FLOE_ENTITY = re.compile(r"^lakehouse_code/silver/[a-z][a-z0-9_]*/contracts/[^/]+\.yml$")
 
 
 def _extends_existing_domain(repo_root: Path, relative_path: str) -> bool:
-    return bool(_FLOE_ENTITY.match(relative_path)) and ((repo_root / relative_path).parent / "domain.yml").is_file()
+    domain_file = (repo_root / relative_path).parents[1] / "domain.yml"
+    return bool(_FLOE_ENTITY.match(relative_path)) and domain_file.is_file()
 
 
 def check_no_existing_targets(repo_root: Path, files: tuple[ScaffoldFile, ...]) -> None:

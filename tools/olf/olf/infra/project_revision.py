@@ -440,8 +440,15 @@ def _descriptors_component(project: ProjectSpec, inventory: Any) -> ComponentEnt
 
 def _floe_component(project: ProjectSpec) -> ComponentEntries:
     # Every file Floe can read: the project file includes `sources.yml` and
-    # each domain's `domain.yml`, whose sibling `.yml` files are entities.
-    configs = sorted({*project.silver_root.glob("*.yml"), *project.silver_root.glob("*/contracts/*.yml")})
+    # each domain's `domain.yml`, whose `entities` glob names the entity files
+    # under its `contracts/`.
+    configs = sorted(
+        {
+            *project.silver_root.glob("*.yml"),
+            *project.silver_root.glob("*/domain.yml"),
+            *project.silver_root.glob("*/contracts/*.yml"),
+        }
+    )
     entries = {
         (key := _relative_key(project, path)): _hash_and_scan(key, path, project_root=project.root) for path in configs
     }

@@ -108,7 +108,7 @@ def test_structure_registry_preserves_the_full_non_script_skeleton() -> None:
         "docs/schema/provider-contracts.schema.json",
         "docs/adr/0008-olf-owns-orchestration-and-toolchain.md",
         "infra/terraform/foundations/aws-eks/outputs.tf",
-        "lakehouse_code/silver/sales/contracts/domain.yml",
+        "lakehouse_code/silver/sales/domain.yml",
         "tools/olf/uv.lock",
         "packages/core/openlakeforge_core/inventory.py",
     }

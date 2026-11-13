@@ -183,7 +183,7 @@ def test_a_floe_entity_reading_an_undeclared_bronze_resource_is_rejected(tmp_pat
     _write_lakehouse(tmp_path)
     entity_dir = tmp_path / "lakehouse_code" / "silver" / "sales" / "contracts"
     entity_dir.mkdir(parents=True)
-    (entity_dir / "domain.yml").write_text('name: "sales"\n', encoding="utf-8")
+    (entity_dir.parent / "domain.yml").write_text('name: "sales"\nentities: "contracts/*.yml"\n', encoding="utf-8")
     (entity_dir / "orders.yml").write_text('name: "orders"\nsource: { ref: "crm", resource: "orders" }\n')
     (entity_dir / "refunds.yml").write_text('name: "refunds"\nsource: { ref: "crm", resource: "refunds" }\n')
 

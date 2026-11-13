@@ -31,8 +31,8 @@ entity for the Silver table `campaigns`, read from `marketing_platform/campaigns
 lakehouse_code/silver/marketing/
 ├── __init__.py
 ├── README.md
+├── domain.yml
 └── contracts/
-    ├── domain.yml
     └── campaigns.yml
 ```
 
@@ -46,6 +46,7 @@ entity of the domain shares:
 
 ```yaml
 name: "marketing"
+entities: "contracts/*.yml"
 defaults:
   incremental_mode: "none"
   sink:
@@ -61,7 +62,7 @@ defaults:
     normalize_columns: { enabled: true, strategy: "snake_case" }
 ```
 
-Each other file in the folder is one entity. `campaigns.yml` names its Bronze
+Each file in `contracts/` is one entity. `campaigns.yml` names its Bronze
 input and the columns inferred from the CSV you wrote in lesson 2:
 
 ```yaml

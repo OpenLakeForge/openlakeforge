@@ -8,6 +8,8 @@ import yaml
 
 from olf.common.contracts_check._report import CheckResult
 
+ENTITIES_GLOB = "contracts/*.yml"
+
 
 def _iceberg_target(document: dict) -> dict:
     return ((document.get("sink") or {}).get("accepted") or {}).get("iceberg") or {}
@@ -19,38 +21,56 @@ def _check_floe_contract_structure(repo_root: Path) -> CheckResult:
     alias (never a shared namespace, per ADR 0004, nor a provider name).
 
     A domain sets both in its `domain.yml` defaults; an entity file may
-    repeat them but not point elsewhere.
+    repeat them but not point elsewhere. The domain file sits at the domain
+    root and loads its entities from `contracts/` through Floe's `entities`
+    glob, the one place olf's inventory and scaffold read them from.
     """
     name = "floe_contract_structure"
     errors: list[str] = []
     project = repo_root / "lakehouse_code" / "silver" / "floe.yml"
     if not project.is_file():
         return CheckResult(name, ok=False, detail="lakehouse_code/silver/floe.yml not found")
-    legacy = sorted(repo_root.glob("lakehouse_code/silver/*/contracts/floe/_domain.yml"))
-    if legacy:
-        moved = ", ".join(str(path.parent.relative_to(repo_root)) for path in legacy)
+    then = f'; set `entities: "{ENTITIES_GLOB}"` in each domain.yml and include `*/domain.yml` in silver/floe.yml'
+    before_contracts = sorted(repo_root.glob("lakehouse_code/silver/*/contracts/floe/_domain.yml"))
+    if before_contracts:
+        moved = ", ".join(str(path.parent.relative_to(repo_root)) for path in before_contracts)
         return CheckResult(
             name,
             ok=False,
             detail=(
-                f"Floe contracts sit in {moved}; move each domain's files up to `contracts/`, rename "
-                "`_domain.yml` to `domain.yml`, and include `*/contracts/domain.yml` in silver/floe.yml"
+                f"Floe contracts sit in {moved}; move each domain's entity files up to `contracts/` and its "
+                "`_domain.yml` to `silver/<domain>/domain.yml`" + then
             ),
         )
-    domain_files = sorted(repo_root.glob("lakehouse_code/silver/*/contracts/domain.yml"))
+    # An entity named `domain` lives at contracts/domain.yml too, but beside a domain file at the root.
+    in_contracts = sorted(
+        path
+        for path in repo_root.glob("lakehouse_code/silver/*/contracts/domain.yml")
+        if not (path.parents[1] / "domain.yml").is_file()
+    )
+    if in_contracts:
+        moved = ", ".join(str(path.relative_to(repo_root)) for path in in_contracts)
+        return CheckResult(
+            name,
+            ok=False,
+            detail=f"the domain file sits in contracts/ at {moved}; move it to `silver/<domain>/domain.yml`" + then,
+        )
+    domain_files = sorted(repo_root.glob("lakehouse_code/silver/*/domain.yml"))
     if not domain_files:
-        return CheckResult(name, ok=False, detail="no lakehouse_code/silver/*/contracts/domain.yml files found")
+        return CheckResult(name, ok=False, detail="no lakehouse_code/silver/*/domain.yml files found")
 
     checked = 0
     for domain_file in domain_files:
-        folder = domain_file.parents[1].name
+        folder = domain_file.parent.name
         expected_namespace = f"{folder}_silver"
         domain = yaml.safe_load(domain_file.read_text(encoding="utf-8")) or {}
         rel_domain = domain_file.relative_to(repo_root)
         if domain.get("name") != folder:
             errors.append(f"{rel_domain}: name must be the domain folder {folder!r}, got {domain.get('name')!r}")
+        if domain.get("entities") != ENTITIES_GLOB:
+            errors.append(f'{rel_domain}: entities must be "{ENTITIES_GLOB}", got {domain.get("entities")!r}')
         defaults = _iceberg_target(domain.get("defaults") or {})
-        for path in sorted(domain_file.parent.glob("*.yml")):
+        for path in [domain_file, *sorted((domain_file.parent / "contracts").glob("*.yml"))]:
             document = domain if path == domain_file else yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             target = {**defaults, **_iceberg_target(document)} if path != domain_file else defaults
             rel_path = path.relative_to(repo_root)
@@ -95,11 +115,9 @@ def _check_silver_load_modes(repo_root: Path) -> CheckResult:
     loads = {(source.name, table.name): table.load for source in inventory.sources for table in source.resources}
     errors: list[str] = []
     checked = 0
-    for domain_file in sorted(repo_root.glob("lakehouse_code/silver/*/contracts/domain.yml")):
+    for domain_file in sorted(repo_root.glob("lakehouse_code/silver/*/domain.yml")):
         defaults = (yaml.safe_load(domain_file.read_text(encoding="utf-8")) or {}).get("defaults") or {}
-        for path in sorted(domain_file.parent.glob("*.yml")):
-            if path == domain_file:
-                continue
+        for path in sorted((domain_file.parent / "contracts").glob("*.yml")):
             entity = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             source = entity.get("source") or {}
             load = loads.get((str(source.get("ref")), str(source.get("resource"))))

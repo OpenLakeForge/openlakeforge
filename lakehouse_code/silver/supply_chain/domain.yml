@@ -1,4 +1,5 @@
 name: "supply_chain"
+entities: "contracts/*.yml"
 defaults:
   incremental_mode: "none"
   sink:
