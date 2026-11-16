@@ -28,6 +28,12 @@ locals {
     # Written with the key in audit_writer_secret_name; without it, every
     # operation that changes state answers 503.
     audit_base_uri = var.audit_base_uri
+    # The files explorer, with the key in files_secret_name: the buckets it may
+    # list per stage, the ops bucket (platform-admin only, enforced by the API),
+    # and the upload size cap.
+    file_buckets           = var.file_buckets
+    ops_bucket             = var.ops_bucket
+    files_max_upload_bytes = var.files_max_upload_bytes
     # Each stage's Superset, reached in-cluster over F35 as the service user
     # whose password is mounted below; the username is the same on every stage.
     superset_urls     = var.superset_urls
@@ -121,6 +127,24 @@ resource "kubernetes_deployment_v1" "platform_api" {
               value_from {
                 secret_key_ref {
                   name = var.audit_writer_secret_name
+                  key  = env.value
+                }
+              }
+            }
+          }
+
+          # The files explorer's key, under names boto3 does not read on its own,
+          # for the same reason as the audit key above.
+          dynamic "env" {
+            for_each = var.files_secret_name == null ? {} : {
+              OPENLAKEFORGE_FILES_ACCESS_KEY_ID     = "AWS_ACCESS_KEY_ID"
+              OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY = "AWS_SECRET_ACCESS_KEY"
+            }
+            content {
+              name = env.key
+              value_from {
+                secret_key_ref {
+                  name = var.files_secret_name
                   key  = env.value
                 }
               }

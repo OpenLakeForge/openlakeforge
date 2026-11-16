@@ -46,11 +46,6 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
-
-[tool.ruff.lint.per-file-ignores]
-# Fixtures imported from test_files, then named as test arguments.
-"tests/test_files_writes.py" = ["F811"]
-
 [tool.mypy]
 python_version = "3.12"
 files = ["openlakeforge_platform_api", "tests"]

@@ -60,17 +60,27 @@ class FileStore(Protocol):
 
     def get_object(self, *, Bucket: str, Key: str) -> Any: ...  # noqa: N803
 
-    # The write routes' calls.
+    # The upload route's calls.
     def head_object(self, *, Bucket: str, Key: str) -> Any: ...  # noqa: N803
-    def put_object(self, *, Bucket: str, Key: str, Body: bytes) -> Any: ...  # noqa: N803
+    def put_object(  # noqa: N803
+        self, *, Bucket: str, Key: str, Body: bytes, IfNoneMatch: str = ...
+    ) -> Any: ...
     def create_multipart_upload(self, *, Bucket: str, Key: str) -> Any: ...  # noqa: N803
     def upload_part(  # noqa: N803
         self, *, Bucket: str, Key: str, UploadId: str, PartNumber: int, Body: bytes
     ) -> Any: ...
     def complete_multipart_upload(  # noqa: N803
-        self, *, Bucket: str, Key: str, UploadId: str, MultipartUpload: dict[str, Any]
+        self,
+        *,
+        Bucket: str,
+        Key: str,
+        UploadId: str,
+        MultipartUpload: dict[str, Any],
+        IfNoneMatch: str = ...,
     ) -> Any: ...
     def abort_multipart_upload(self, *, Bucket: str, Key: str, UploadId: str) -> Any: ...  # noqa: N803
+
+    # The folder, rename and delete routes' calls.
     def copy_object(self, *, Bucket: str, Key: str, CopySource: dict[str, str]) -> Any: ...  # noqa: N803
     def delete_object(self, *, Bucket: str, Key: str) -> Any: ...  # noqa: N803
     def delete_objects(self, *, Bucket: str, Delete: dict[str, Any]) -> Any: ...  # noqa: N803
@@ -100,13 +110,23 @@ def require_bucket(request: Request, stage: str, bucket: str) -> None:
 
 
 def check_key(key: str) -> str:
-    """`key` when it is a usable object key; otherwise 422. A trailing `/` (a folder) is allowed."""
+    """`key` when it is a usable, canonical object key; otherwise 422. A single trailing `/` (a folder) is allowed.
+
+    The object store normalises a key with a backslash, an empty segment or a `.`/`..` segment into a different key
+    (SeaweedFS turns `audit//x` into `audit/x`), so such a key is refused rather than checked as written: every
+    check here and in `touches_audit_prefix` then speaks about the key the store will act on.
+    """
     if not key:
         raise HTTPException(status_code=422, detail="the key is empty")
     if key.startswith("/"):
         raise HTTPException(status_code=422, detail="the key must not start with '/'")
-    if ".." in key.split("/"):
-        raise HTTPException(status_code=422, detail="the key must not contain a '..' segment")
+    if "\\" in key:
+        raise HTTPException(status_code=422, detail="the key must not contain a backslash")
+    segments = (key[:-1] if key.endswith("/") else key).split("/")
+    if "" in segments:
+        raise HTTPException(status_code=422, detail="the key must not contain an empty segment ('//')")
+    if "." in segments or ".." in segments:
+        raise HTTPException(status_code=422, detail="the key must not contain a '.' or '..' segment")
     if _CONTROL.search(key):
         raise HTTPException(status_code=422, detail="the key must not contain control characters")
     try:
@@ -136,10 +156,28 @@ def touches_audit_prefix(settings: Settings, bucket: str, key: str) -> bool:
     if not settings.audit_base_uri:
         return False
     parts = urlsplit(settings.audit_base_uri)
-    audit_bucket, audit_prefix = parts.netloc, parts.path.lstrip("/")
+    audit_bucket, audit_prefix = parts.netloc, _canonical(parts.path, folder=True)[0]
     if bucket != audit_bucket:
         return False
-    return key.startswith(audit_prefix) or (key.endswith("/") and audit_prefix.startswith(key))
+    path, folder = _canonical(key)
+    return path.startswith(audit_prefix) or (folder and audit_prefix.startswith(path))
+
+
+def _canonical(key: str, *, folder: bool = False) -> tuple[str, bool]:
+    """The key as the store resolves it, and whether it names a folder: `\\` is `/`, empty and `.` segments vanish."""
+    segments = key.replace("\\", "/").split("/")
+    folder = folder or key.endswith(("/", "\\")) or segments[-1] in (".", "..")
+    resolved: list[str] = []
+    for segment in segments:
+        if segment in ("", "."):
+            continue
+        if segment == "..":
+            if resolved:
+                resolved.pop()
+            continue
+        resolved.append(segment)
+    path = "/".join(resolved)
+    return (path + "/" if path and folder else path), folder
 
 
 @contextmanager

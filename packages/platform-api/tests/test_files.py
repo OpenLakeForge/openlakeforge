@@ -2,288 +2,18 @@
 
 from __future__ import annotations
 
-import io
-import json
-from collections.abc import Callable, Iterator
-from datetime import UTC, datetime
+from collections.abc import Callable
 from typing import Any
 
 import pytest
-from botocore.exceptions import ClientError, EndpointConnectionError
-from conftest import ROLE_MAPPING, Mint, bearer
+from _files_fakes import BUCKETS, OPS, WHEN, FakeS3, _as, _base, _client_error, _settings
+from botocore.exceptions import EndpointConnectionError
+from conftest import Mint
 from fastapi.testclient import TestClient
 
 from openlakeforge_platform_api.app import create_app
-from openlakeforge_platform_api.audit import AuditLog
 from openlakeforge_platform_api.files import FILE_OPERATIONS, touches_audit_prefix
-from openlakeforge_platform_api.settings import Settings, SettingsError
-
-WHEN = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
-BUCKETS = {"dev": ["olf-dev-bronze", "olf-dev-silver"], "uat": ["olf-uat-bronze"], "prod": ["olf-prod-bronze"]}
-OPS = "olf-ops"
-
-
-class Body:
-    def __init__(self, data: bytes) -> None:
-        self._io = io.BytesIO(data)
-        self.closed = False
-        self.chunk_sizes: list[int] = []
-
-    def iter_chunks(self, size: int) -> Iterator[bytes]:
-        self.chunk_sizes.append(size)
-        while chunk := self._io.read(size):
-            yield chunk
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class FakeS3:
-    """list_buckets, list_objects_v2 (delimiter and continuation tokens) and get_object over a dict."""
-
-    def __init__(self) -> None:
-        self.objects: dict[tuple[str, str], tuple[bytes, str | None]] = {}
-        self.fail: Callable[[], Exception] | None = None
-        self.deny_list_buckets = False
-        self.bodies: list[Body] = []
-        # The write routes: every call by name, an error to raise per method, and multipart state.
-        self.calls: list[str] = []
-        self.fail_ops: dict[str, Callable[[], Exception]] = {}
-        self.copies_allowed: int | None = None
-        self.uploads: dict[str, list[bytes]] = {}
-        self.part_sizes: list[int] = []
-        self.aborted: list[str] = []
-        self.delete_errors: dict[str, str] = {}
-
-    def _call(self, name: str) -> None:
-        self.calls.append(name)
-        if name in self.fail_ops:
-            raise self.fail_ops[name]()
-
-    def head_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
-        self._call("head_object")
-        if (Bucket, Key) not in self.objects:
-            raise _client_error("404")
-        return {"ContentLength": len(self.objects[(Bucket, Key)][0])}
-
-    def put_object(self, *, Bucket: str, Key: str, Body: bytes) -> dict[str, Any]:  # noqa: N803
-        self._call("put_object")
-        self.objects[(Bucket, Key)] = (Body, None)
-        return {}
-
-    def create_multipart_upload(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
-        self._call("create_multipart_upload")
-        upload_id = f"upload-{len(self.uploads) + 1}"
-        self.uploads[upload_id] = []
-        return {"UploadId": upload_id}
-
-    def upload_part(  # noqa: N803
-        self, *, Bucket: str, Key: str, UploadId: str, PartNumber: int, Body: bytes
-    ) -> dict[str, Any]:
-        self._call("upload_part")
-        assert PartNumber == len(self.uploads[UploadId]) + 1
-        self.uploads[UploadId].append(Body)
-        self.part_sizes.append(len(Body))
-        return {"ETag": f"etag-{PartNumber}"}
-
-    def complete_multipart_upload(  # noqa: N803
-        self, *, Bucket: str, Key: str, UploadId: str, MultipartUpload: dict[str, Any]
-    ) -> dict[str, Any]:
-        self._call("complete_multipart_upload")
-        assert [part["PartNumber"] for part in MultipartUpload["Parts"]] == list(
-            range(1, len(self.uploads[UploadId]) + 1)
-        )
-        self.objects[(Bucket, Key)] = (b"".join(self.uploads.pop(UploadId)), None)
-        return {}
-
-    def abort_multipart_upload(self, *, Bucket: str, Key: str, UploadId: str) -> dict[str, Any]:  # noqa: N803
-        self._call("abort_multipart_upload")
-        self.uploads.pop(UploadId, None)
-        self.aborted.append(UploadId)
-        return {}
-
-    def copy_object(self, *, Bucket: str, Key: str, CopySource: dict[str, str]) -> dict[str, Any]:  # noqa: N803
-        self._call("copy_object")
-        if self.copies_allowed is not None:
-            if self.copies_allowed <= 0:
-                raise _client_error("InternalError")
-            self.copies_allowed -= 1
-        self.objects[(Bucket, Key)] = self.objects[(CopySource["Bucket"], CopySource["Key"])]
-        return {}
-
-    def delete_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
-        self._call("delete_object")
-        self.objects.pop((Bucket, Key), None)
-        return {}
-
-    def delete_objects(self, *, Bucket: str, Delete: dict[str, Any]) -> dict[str, Any]:  # noqa: N803
-        self._call("delete_objects")
-        assert len(Delete["Objects"]) <= 1000
-        errors = []
-        for entry in Delete["Objects"]:
-            if entry["Key"] in self.delete_errors:
-                errors.append({"Key": entry["Key"], "Code": self.delete_errors[entry["Key"]], "Message": "secret"})
-            else:
-                self.objects.pop((Bucket, entry["Key"]), None)
-        return {"Errors": errors}
-
-    def keys(self, bucket: str = "olf-dev-bronze") -> list[str]:
-        return sorted(key for name, key in self.objects if name == bucket)
-
-    def put(self, bucket: str, key: str, data: bytes = b"", content_type: str | None = None) -> None:
-        self.objects[(bucket, key)] = (data, content_type)
-
-    def list_buckets(self) -> dict[str, Any]:
-        if self.deny_list_buckets:
-            raise _client_error("AccessDenied")
-        return {"Buckets": [{"Name": name, "CreationDate": WHEN} for name in ("olf-dev-bronze", OPS)]}
-
-    def list_objects_v2(  # noqa: N803 - boto3's names
-        self, *, Bucket: str, Prefix: str = "", Delimiter: str = "", MaxKeys: int = 1000, ContinuationToken: str = ""
-    ) -> dict[str, Any]:
-        if self.fail:
-            raise self.fail()
-        keys = sorted(key for bucket, key in self.objects if bucket == Bucket and key.startswith(Prefix))
-        entries: list[tuple[str, str]] = []  # ("p", prefix) or ("k", key), in listing order
-        for key in keys:
-            rest = key[len(Prefix) :]
-            if Delimiter and Delimiter in rest:
-                entry = ("p", Prefix + rest.split(Delimiter)[0] + Delimiter)
-                if entry not in entries:
-                    entries.append(entry)
-            else:
-                entries.append(("k", key))
-        start = int(ContinuationToken or 0)
-        page = entries[start : start + MaxKeys]
-        truncated = start + MaxKeys < len(entries)
-        result: dict[str, Any] = {
-            "CommonPrefixes": [{"Prefix": value} for kind, value in page if kind == "p"],
-            "Contents": [
-                {"Key": value, "Size": len(self.objects[(Bucket, value)][0]), "LastModified": WHEN}
-                for kind, value in page
-                if kind == "k"
-            ],
-            "IsTruncated": truncated,
-        }
-        if truncated:
-            result["NextContinuationToken"] = str(start + MaxKeys)
-        return result
-
-    def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
-        if self.fail:
-            raise self.fail()
-        if (Bucket, Key) not in self.objects:
-            raise _client_error("NoSuchKey")
-        data, content_type = self.objects[(Bucket, Key)]
-        body = Body(data)
-        self.bodies.append(body)
-        result: dict[str, Any] = {"Body": body, "ContentLength": len(data)}
-        if content_type:
-            result["ContentType"] = content_type
-        return result
-
-
-def _client_error(code: str) -> ClientError:
-    return ClientError({"Error": {"Code": code, "Message": "x"}}, "Op")
-
-
-@pytest.fixture
-def s3() -> FakeS3:
-    fake = FakeS3()
-    fake.put("olf-dev-bronze", "orders/2026/a.csv", b"id\n1\n", "text/csv")
-    fake.put("olf-dev-bronze", "orders/2026/b.csv", b"id\n2\n")
-    fake.put("olf-dev-bronze", "orders/", b"")
-    fake.put("olf-dev-bronze", "readme.txt", b"hello")
-    fake.put("olf-dev-bronze", 'café "1".txt', b"x")
-    fake.put("olf-uat-bronze", "u.txt", b"u")
-    fake.put("olf-prod-bronze", "p.txt", b"p")
-    fake.put(OPS, "activations/dev/logs/x.gz", b"log")
-    fake.put(OPS, "audit/date=2026-11-01/r.json", b"{}")
-    return fake
-
-
-def _settings(settings: Settings, **extra: Any) -> Settings:
-    raw = {
-        "issuer_url": settings.issuer_url,
-        "audiences": list(settings.audiences),
-        "role_claim": settings.role_claim,
-        "role_mapping": {role: list(values) for role, values in settings.role_mapping.items()},
-        "precedence": list(settings.precedence),
-        "stages": ["dev", "uat", "prod"],
-        "file_buckets": BUCKETS,
-        "ops_bucket": OPS,
-    }
-    return Settings.from_mapping({**raw, **extra})
-
-
-class AuditStore:
-    """put_object into a dict, as the audit writer's boto3 client answers it; `down` refuses every write."""
-
-    def __init__(self) -> None:
-        self.records: dict[str, dict[str, Any]] = {}
-        self.down = False
-
-    def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> dict[str, Any]:  # noqa: N803
-        if self.down:
-            raise ConnectionError("seaweedfs refused the connection")
-        self.records[Key] = json.loads(Body)
-        return {}
-
-    def phases(self) -> list[str]:
-        return [record["phase"] for _key, record in sorted(self.records.items())]
-
-
-@pytest.fixture
-def audit_store() -> AuditStore:
-    return AuditStore()
-
-
-@pytest.fixture
-def api(settings: Settings, s3: FakeS3, audit_store: AuditStore) -> TestClient:
-    configured = _settings(settings, audit_base_uri=f"s3://{OPS}/audit/")
-    audit = AuditLog(audit_store, configured.audit_base_uri, emit=lambda line: None)
-    return TestClient(create_app(configured, files_store=s3, audit=audit))
-
-
-def _as(mint: Mint, role: str) -> dict[str, str]:
-    return bearer(mint(groups=list(ROLE_MAPPING[role])))
-
-
-def _base(stage: str = "dev", bucket: str = "olf-dev-bronze") -> str:
-    return f"/api/v1/stages/{stage}/buckets/{bucket}/objects"
-
-
-# settings
-
-
-def test_settings_parse_the_files_fields(settings: Settings) -> None:
-    parsed = _settings(settings, files_max_upload_bytes=5)
-
-    assert parsed.file_buckets == {
-        "dev": ("olf-dev-bronze", "olf-dev-silver"),
-        "uat": ("olf-uat-bronze",),
-        "prod": ("olf-prod-bronze",),
-    }
-    assert parsed.ops_bucket == OPS
-    assert parsed.files_max_upload_bytes == 5
-
-
-def test_settings_default_to_no_files_and_a_gibibyte_cap(settings: Settings) -> None:
-    assert settings.file_buckets == {}
-    assert settings.ops_bucket is None
-    assert settings.files_max_upload_bytes == 1_073_741_824
-
-
-def test_file_buckets_for_a_stage_that_is_not_enabled_are_refused(settings: Settings) -> None:
-    with pytest.raises(SettingsError, match="file_buckets names stages that are not enabled: qa"):
-        _settings(settings, file_buckets={"qa": ["b"]})
-
-
-@pytest.mark.parametrize("value", [0, -1])
-def test_a_non_positive_upload_cap_is_refused(settings: Settings, value: int) -> None:
-    with pytest.raises(SettingsError, match="files_max_upload_bytes must be positive"):
-        _settings(settings, files_max_upload_bytes=value)
-
+from openlakeforge_platform_api.settings import Settings
 
 # the role matrix
 
@@ -432,29 +162,33 @@ def test_the_limit_bounds_are_accepted(api: TestClient, mint: Mint) -> None:
         assert api.get(_base() + f"?limit={limit}", headers=_as(mint, "data-engineer")).status_code == 200
 
 
-@pytest.mark.parametrize("prefix", ["orders", "/orders/", "a/../b/", "a/../", "bad\x01/"])
+@pytest.mark.parametrize("prefix", ["orders", "/orders/", "a/../b/", "a/../", "bad\x01/", "a//b/", "a\\b/", "./a/"])
 def test_an_invalid_prefix_is_refused(api: TestClient, mint: Mint, prefix: str) -> None:
     response = api.get(_base(), params={"prefix": prefix}, headers=_as(mint, "data-engineer"))
 
     assert response.status_code == 422
 
 
-def test_listing_passes_the_delimiter_limit_and_cursor_to_s3(settings: Settings, s3: FakeS3, mint: Mint) -> None:
-    calls: list[dict[str, Any]] = []
-    original = s3.list_objects_v2
+def test_a_listing_honours_the_page_size_and_continues_after_it(api: TestClient, s3: FakeS3, mint: Mint) -> None:
+    for number in range(5):
+        s3.put("olf-dev-bronze", f"logs/f{number}.txt", b"x")
+    s3.put("olf-dev-bronze", "logs/", b"")
+    s3.put("olf-dev-bronze", "logs/sub/deep.txt", b"x")
+    s3.put("olf-dev-bronze", "logs-other/y.txt", b"x")
+    headers = _as(mint, "data-engineer")
+    pages: list[dict[str, Any]] = []
+    cursor = ""
+    while True:
+        body = api.get(_base(), params={"prefix": "logs/", "limit": 2, "cursor": cursor}, headers=headers).json()
+        pages.append(body)
+        if body["next_cursor"] is None:
+            break
+        cursor = body["next_cursor"]
 
-    def spy(**kwargs: Any) -> dict[str, Any]:
-        calls.append(kwargs)
-        return original(**kwargs)
-
-    s3.list_objects_v2 = spy  # type: ignore[method-assign]
-    api = TestClient(create_app(_settings(settings), files_store=s3))
-
-    api.get(_base() + "?prefix=orders/&limit=7&cursor=0", headers=_as(mint, "data-engineer"))
-
-    assert calls == [
-        {"Bucket": "olf-dev-bronze", "Prefix": "orders/", "Delimiter": "/", "MaxKeys": 7, "ContinuationToken": "0"}
-    ]
+    assert len(pages) > 1
+    assert all(len(page["files"]) + len(page["folders"]) <= 2 for page in pages)
+    assert [file["key"] for page in pages for file in page["files"]] == [f"logs/f{number}.txt" for number in range(5)]
+    assert [folder["prefix"] for page in pages for folder in page["folders"]] == ["logs/sub/"]
 
 
 # download
@@ -499,7 +233,26 @@ def test_the_ops_bucket_audit_prefix_can_be_read_by_platform_admin(api: TestClie
 # keys
 
 
-@pytest.mark.parametrize("key", ["", "/abs", "a/../b", "..", "a/..", "a\x00b", "a\nb", "k" * 1025, "é" * 513])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "",
+        "/abs",
+        "a/../b",
+        "..",
+        "a/..",
+        "a\x00b",
+        "a\nb",
+        "k" * 1025,
+        "é" * 513,
+        "audit//platform-api/x",
+        "a//",
+        "audit\\platform-api\\x",
+        "./audit/x",
+        "a/./b",
+        "a/.",
+    ],
+)
 def test_an_invalid_key_is_refused(api: TestClient, mint: Mint, key: str) -> None:
     response = api.get(_base() + "/content", params={"key": key}, headers=_as(mint, "data-engineer"))
 
@@ -535,21 +288,6 @@ def test_a_missing_store_answers_503(settings: Settings, mint: Mint, monkeypatch
         response = api.get(path, headers=headers)
         assert response.status_code == 503
         assert response.json()["detail"] == "the files store is not configured"
-
-
-def test_the_store_is_built_only_from_the_files_key(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "log-reader")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "log-secret")
-    monkeypatch.delenv("OPENLAKEFORGE_FILES_ACCESS_KEY_ID", raising=False)
-    monkeypatch.delenv("OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY", raising=False)
-
-    assert create_app(_settings(settings)).state.files_store is None
-
-    monkeypatch.setenv("OPENLAKEFORGE_FILES_ACCESS_KEY_ID", "files")
-    monkeypatch.setenv("OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY", "files-secret")
-
-    assert create_app(_settings(settings)).state.files_store is not None
-    assert create_app(settings).state.files_store is None  # no file_buckets configured
 
 
 @pytest.mark.parametrize(
@@ -601,6 +339,13 @@ def test_listing_buckets_with_the_store_unreachable_answers_503(api: TestClient,
         (OPS, "activations/dev/x", False),
         (OPS, "auditing/x", False),
         ("olf-dev-bronze", "audit/x", False),
+        (OPS, "audit//platform-api/x", True),
+        (OPS, "audit\\platform-api\\x", True),
+        (OPS, "./audit/x", True),
+        (OPS, "activations/../audit/x", True),
+        (OPS, "audit/..", True),
+        (OPS, "a//", False),
+        (OPS, "activations//x", False),
     ],
 )
 def test_touches_audit_prefix(settings: Settings, bucket: str, key: str, touches: bool) -> None:

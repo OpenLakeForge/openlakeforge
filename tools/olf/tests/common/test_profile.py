@@ -1116,3 +1116,99 @@ def test_stage_query_size_is_rejected_like_the_spec_level_one(size: str) -> None
         validate_deployment_profile(_with_stage_query(dev=size))
 
     assert str(stage_exc.value).replace("spec.stages.dev.query", "spec.query") == str(spec_exc.value)
+
+
+def _observability_document(preset: str = "slim", **observability: object) -> dict:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["spec"]["preset"] = preset
+    if observability:
+        document["spec"]["observability"] = observability
+    return document
+
+
+def _resolved_observability(document: dict) -> dict:
+    return resolve_topology(validate_deployment_profile(document)).observability.as_dict()
+
+
+_SLIM_OBSERVABILITY = {
+    "logs": {"archive": {"enabled": True, "retention_days": 30}, "search": {"enabled": False}},
+    "metrics": {"enabled": False, "retention_days": 7},
+    "grafana": {"enabled": False},
+    "alerts": {"receivers": []},
+}
+
+
+def test_observability_defaults_differ_between_slim_and_full_only_in_metrics() -> None:
+    slim = _resolved_observability(_observability_document("slim"))
+    full = _resolved_observability(_observability_document("full"))
+
+    assert slim == _SLIM_OBSERVABILITY
+    assert full == _SLIM_OBSERVABILITY | {"metrics": {"enabled": True, "retention_days": 7}}
+
+
+def test_an_empty_observability_block_resolves_like_an_omitted_one() -> None:
+    empty = _observability_document()
+    empty["spec"]["observability"] = {}
+
+    assert _resolved_observability(empty) == _resolved_observability(_observability_document())
+
+
+def test_observability_explicit_values_win_over_the_preset() -> None:
+    assert _resolved_observability(_load_fixture("valid_full_metrics_off.yaml"))["metrics"]["enabled"] is False
+
+    assert _resolved_observability(_load_fixture("valid_observability_overrides.yaml")) == {
+        "logs": {"archive": {"enabled": True, "retention_days": 90}, "search": {"enabled": True}},
+        "metrics": {"enabled": True, "retention_days": 15},
+        "grafana": {"enabled": True},
+        "alerts": {
+            "receivers": [
+                {"name": "on-call", "type": "slack", "secret_ref": {"name": "alert-webhooks", "key": "slack-url"}}
+            ]
+        },
+    }
+
+
+def test_the_archive_cannot_be_disabled() -> None:
+    with pytest.raises(DeploymentProfileError) as exc:
+        validate_deployment_profile(_load_fixture("invalid_observability_archive_disabled.yaml"))
+
+    assert "spec.observability.logs.archive.enabled" in str(exc.value)
+    assert "always on" in str(exc.value)
+
+
+_RECEIVER = {"name": "ops", "type": "webhook", "secret_ref": {"name": "alerts", "key": "url"}}
+
+
+@pytest.mark.parametrize(
+    ("observability", "path"),
+    [
+        ({"logs": {"archive": {"retention_days": 0}}}, "spec.observability.logs.archive.retention_days"),
+        ({"logs": {"archive": {"retention_days": True}}}, "spec.observability.logs.archive.retention_days"),
+        ({"metrics": {"retention_days": 3651}}, "spec.observability.metrics.retention_days"),
+        ({"metrics": {"retention_days": "7"}}, "spec.observability.metrics.retention_days"),
+        ({"metrics": {"enabled": "yes"}}, "spec.observability.metrics.enabled"),
+        ({"grafana": {"enabled": 1}}, "spec.observability.grafana.enabled"),
+        ({"logs": {"search": {"enabled": "no"}}}, "spec.observability.logs.search.enabled"),
+        ({"logs": {"search": {"backend": "loki"}}}, "spec.observability.logs.search"),
+        ({"prometheus": {}}, "spec.observability"),
+        ({"alerts": {"receivers": "ops"}}, "spec.observability.alerts.receivers"),
+        ({"alerts": {"receivers": [{**_RECEIVER, "type": "pagerduty"}]}}, "alerts.receivers[0].type"),
+        ({"alerts": {"receivers": [{**_RECEIVER, "name": "Ops"}]}}, "alerts.receivers[0].name"),
+        ({"alerts": {"receivers": [{**_RECEIVER, "url": "https://hooks.example/x"}]}}, "alerts.receivers[0]"),
+        ({"alerts": {"receivers": [{"name": "ops", "type": "webhook"}]}}, "alerts.receivers[0]"),
+        (
+            {"alerts": {"receivers": [{**_RECEIVER, "secret_ref": {"name": "alerts"}}]}},
+            "alerts.receivers[0].secret_ref",
+        ),
+        (
+            {"alerts": {"receivers": [{**_RECEIVER, "secret_ref": {"name": "Alerts", "key": "url"}}]}},
+            "alerts.receivers[0].secret_ref.name",
+        ),
+        ({"alerts": {"receivers": [_RECEIVER, _RECEIVER]}}, "alerts.receivers"),
+    ],
+)
+def test_invalid_observability_fails_with_the_offending_path(observability: dict, path: str) -> None:
+    with pytest.raises(DeploymentProfileError) as exc:
+        validate_deployment_profile(_observability_document(**observability))
+
+    assert path in str(exc.value)

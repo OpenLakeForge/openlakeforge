@@ -118,12 +118,16 @@ def test_malformed_refresh_tags_fail_before_anything_loads() -> None:
 class _Log:
     def __init__(self) -> None:
         self.warnings: list[str] = []
+        self.errors: list[str] = []
 
     def warning(self, message: str) -> None:
         self.warnings.append(message)
 
     def info(self, message: str) -> None:
         pass
+
+    def error(self, message: str) -> None:
+        self.errors.append(message)
 
 
 def test_dbt_artifacts_upload_only_the_files_the_run_produced(
@@ -158,6 +162,113 @@ def test_dbt_artifacts_are_skipped_with_a_warning_when_no_destination_is_set(
     product_dagster._upload_dbt_artifacts(context, _SPEC, tmp_path)
 
     assert "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI is not set" in context.log.warnings[0]
+
+
+class _DbtBuildFailed(Exception):
+    pass
+
+
+def _failing_build():
+    yield "materialized"
+    raise _DbtBuildFailed("model orders failed")
+
+
+def _ops_store(monkeypatch: pytest.MonkeyPatch, *, fail: bool = False) -> dict[str, str]:
+    store: dict[str, str] = {}
+
+    def upload(path: Path, *, base_uri: str, relative_key: str) -> str:
+        if fail:
+            raise OSError("ops store unreachable")
+        store[relative_key] = path.read_text()
+        return f"{base_uri}/{relative_key}"
+
+    monkeypatch.setenv("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI", "s3://ops/runs")
+    monkeypatch.setattr(product_dagster, "upload_file_to_base_uri", upload)
+    return store
+
+
+def _drain(target_paths: list[Path], context: SimpleNamespace) -> None:
+    for _ in product_dagster._retaining_artifacts_on_failure(context, _SPEC, target_paths, _failing_build()):
+        pass
+
+
+def test_a_failed_dbt_build_still_uploads_its_artifacts_and_raises_the_dbt_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "run_results.json").write_text('{"results": []}')
+    store = _ops_store(monkeypatch)
+
+    with pytest.raises(_DbtBuildFailed, match="model orders failed"):
+        _drain([tmp_path], SimpleNamespace(run_id="r1", log=_Log()))
+
+    assert store == {"dbt/sales/revenue/r1/target/run_results.json": '{"results": []}'}
+
+
+def test_a_failed_build_without_run_results_leaves_an_incomplete_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "dbt.log").write_text("boom")
+    store = _ops_store(monkeypatch)
+
+    with pytest.raises(_DbtBuildFailed):
+        _drain([tmp_path], SimpleNamespace(run_id="r1", log=_Log()))
+
+    marker = json.loads(store["dbt/sales/revenue/r1/artifacts_incomplete.json"])
+    assert marker["status"] == "artifacts_incomplete"
+    assert marker["dagster_run_id"] == "r1"
+    assert store["dbt/sales/revenue/r1/logs/dbt.log"] == "boom"
+
+
+def test_a_later_generation_failing_keeps_the_results_of_the_earlier_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first, second = tmp_path / "gen1", tmp_path / "gen2"
+    first.mkdir()
+    second.mkdir()
+    (first / "run_results.json").write_text('{"results": [{"unique_id": "model.a"}]}')
+    (second / "dbt.log").write_text("gen2 crashed")
+    store = _ops_store(monkeypatch)
+
+    with pytest.raises(_DbtBuildFailed):
+        _drain([first, second], SimpleNamespace(run_id="r1", log=_Log()))
+
+    assert json.loads(store["dbt/sales/revenue/r1/target/run_results.json"])["results"] == [{"unique_id": "model.a"}]
+    assert store["dbt/sales/revenue/r1/logs/dbt.log"] == "gen2 crashed"
+    marker = json.loads(store["dbt/sales/revenue/r1/artifacts_incomplete.json"])
+    assert marker["generations_without_results"] == [2]
+
+
+def test_a_build_that_failed_before_any_dbt_invocation_leaves_an_incomplete_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _ops_store(monkeypatch)
+
+    with pytest.raises(_DbtBuildFailed):
+        _drain([], SimpleNamespace(run_id="r1", log=_Log()))
+
+    assert list(store) == ["dbt/sales/revenue/r1/artifacts_incomplete.json"]
+
+
+def test_the_dbt_error_survives_a_failing_upload_and_the_upload_failure_is_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "run_results.json").write_text("{}")
+    _ops_store(monkeypatch, fail=True)
+    context = SimpleNamespace(run_id="r1", log=_Log())
+
+    with pytest.raises(_DbtBuildFailed, match="model orders failed"):
+        _drain([tmp_path], context)
+
+    assert "ops store unreachable" in context.log.errors[0]
+
+
+def test_a_successful_build_uploads_nothing_by_itself(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _ops_store(monkeypatch)
+
+    events = list(product_dagster._retaining_artifacts_on_failure(None, _SPEC, [], iter(["a", "b"])))
+
+    assert events == ["a", "b"]
+    assert store == {}
 
 
 def _fake_maintain(monkeypatch: pytest.MonkeyPatch, results: list[dict]) -> list[dict]:
