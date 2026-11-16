@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import yaml
@@ -9,6 +10,7 @@ import yaml
 pytest.importorskip("dagster")
 
 from dagster import (  # noqa: E402
+    AssetKey,
     DefaultScheduleStatus,
     Definitions,
     Failure,
@@ -18,8 +20,11 @@ from dagster import (  # noqa: E402
     materialize,
 )
 from openlakeforge_core import FULL_REFRESH_TAG, full_refresh_tags  # noqa: E402
+from openlakeforge_core.quality import PipelineOutcome, QualityManifest, QualityOutcome  # noqa: E402
 from openlakeforge_runtime import product_dagster  # noqa: E402
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult  # noqa: E402
+from openlakeforge_runtime.dbt_quality import DbtRunEvidence  # noqa: E402
+from openlakeforge_runtime.floe_quality import FloeCheckEvidence, FloeEntityEvidence  # noqa: E402
 from openlakeforge_runtime.product_dagster import (  # noqa: E402
     ProductCadence,
     ProductDefinitionSpec,
@@ -181,9 +186,7 @@ class _Log:
         self.errors.append(message)
 
 
-def test_dbt_artifacts_upload_only_the_files_the_run_produced(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_dbt_artifacts_upload_only_the_files_the_run_produced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "manifest.json").write_text("{}")
     (tmp_path / "dbt.log").write_text("log")
     uploaded: list[tuple[str, str, str]] = []
@@ -879,3 +882,149 @@ def test_the_size_derived_run_limit_is_left_to_the_terraform_module() -> None:
 
     # The module sets it from release/query-sizes.yaml; a value here would shadow the sized one.
     assert "maxConcurrentRuns" not in queue
+
+
+_OPS = "s3://ops/activations/dev"
+
+
+def _quality_store(monkeypatch: pytest.MonkeyPatch, *, fail: bool = False) -> dict[tuple[str, str], str]:
+    store: dict[tuple[str, str], str] = {}
+
+    def upload(path: Path, *, bucket: str, key: str) -> str:
+        if fail:
+            raise OSError("ops store unreachable")
+        store[(bucket, key)] = path.read_text()
+        return f"s3://{bucket}/{key}"
+
+    monkeypatch.setenv("OPENLAKEFORGE_STAGE", "dev")
+    monkeypatch.setenv("OPENLAKEFORGE_ARTIFACT_BASE_URI", _OPS)
+    monkeypatch.setenv("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI", f"{_OPS}/run-artifacts")
+    monkeypatch.setattr(product_dagster, "upload_file", upload)
+    monkeypatch.setattr(product_dagster, "read_dbt_evidence", lambda *a, **k: None)
+    monkeypatch.setattr(product_dagster, "read_entity_report", lambda *a, **k: None)
+    return store
+
+
+def _floe_events(*checks: tuple[str, bool]) -> list[SimpleNamespace]:
+    """The ASSET_CHECK_EVALUATION log entries of one `orders` Silver step."""
+    return [
+        SimpleNamespace(
+            dagster_event=SimpleNamespace(
+                event_specific_data=SimpleNamespace(
+                    asset_key=AssetKey(["sales", "orders"]),
+                    check_name=name,
+                    passed=passed,
+                    severity="ERROR",
+                    metadata={"floe_run_status": "success" if passed else "aborted"},
+                )
+            )
+        )
+        for name, passed in checks
+    ]
+
+
+def _quality_context(run_id: str, events: list[SimpleNamespace]) -> SimpleNamespace:
+    instance = SimpleNamespace(all_logs=lambda run, of_type=None: events)
+    return SimpleNamespace(run_id=run_id, log=_Log(), instance=instance)
+
+
+def _manifest_of(store: dict[tuple[str, str], str], run_id: str) -> QualityManifest:
+    key = f"activations/dev/run-artifacts/quality/sales/revenue/{run_id}/manifest.json"
+    return QualityManifest.from_json(store[("ops", key)])
+
+
+def test_a_floe_abort_leaves_a_valid_quality_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _quality_store(monkeypatch)
+    context = _quality_context("r1", _floe_events(("floe_cast_error", False), ("floe_not_null", True)))
+
+    product_dagster._publish_quality_manifest(context, _SPEC, ("orders",))
+
+    manifest = _manifest_of(store, "r1")
+    assert (manifest.stage, manifest.dagster_run_id) == ("dev", "r1")
+    assert {r.check_id: r.outcome for r in manifest.results}["floe_cast_error"] is QualityOutcome.ERROR
+    assert context.log.errors == []
+
+
+def test_a_failed_dbt_build_leaves_a_quality_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _quality_store(monkeypatch)
+    node: dict[str, Any] = {
+        "resource_type": "test",
+        "package_name": "shop",
+        "unique_id": "test.shop.not_null_daily_id.abc",
+        "name": "not_null_daily_id",
+        "attached_node": None,
+        "column_name": "id",
+        "config": {"severity": "ERROR"},
+        "depends_on": {"nodes": []},
+    }
+    evidence = DbtRunEvidence(
+        manifest={"metadata": {"project_name": "shop"}, "nodes": {node["unique_id"]: node}, "sources": {}},
+        run_results={"results": [{"unique_id": node["unique_id"], "status": "fail", "failures": 2}]},
+        incomplete_marker={"status": "artifacts_incomplete"},
+    )
+    read: list[str] = []
+
+    def read_evidence(prefix: str, **_: object) -> DbtRunEvidence:
+        read.append(prefix)
+        return evidence
+
+    monkeypatch.setattr(product_dagster, "read_dbt_evidence", read_evidence)
+
+    product_dagster._publish_quality_manifest(_quality_context("r1", []), _SPEC, ("orders",))
+
+    (record,) = _manifest_of(store, "r1").results
+    assert (record.engine, record.outcome, record.pipeline_outcome) == (
+        "dbt",
+        QualityOutcome.ERROR,
+        PipelineOutcome.BLOCKED,
+    )
+    assert read == [f"{_OPS}/run-artifacts/dbt/sales/revenue/r1"]
+
+
+def test_two_runs_of_one_product_write_two_objects(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _quality_store(monkeypatch)
+    events = _floe_events(("floe_not_null", True))
+
+    for run_id in ("r1", "r2"):
+        product_dagster._publish_quality_manifest(_quality_context(run_id, events), _SPEC, ("orders",))
+
+    assert {key for _, key in store} == {
+        f"activations/dev/run-artifacts/quality/sales/revenue/{run}/manifest.json" for run in ("r1", "r2")
+    }
+
+
+def test_a_failing_quality_upload_is_logged_and_never_raised(monkeypatch: pytest.MonkeyPatch) -> None:
+    _quality_store(monkeypatch, fail=True)
+    context = _quality_context("r1", _floe_events(("floe_not_null", True)))
+
+    product_dagster._publish_quality_manifest(context, _SPEC, ("orders",))
+
+    assert "ops store unreachable" in context.log.errors[0]
+
+
+def test_a_step_with_no_quality_evidence_uploads_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _quality_store(monkeypatch)
+
+    product_dagster._publish_quality_manifest(_quality_context("r1", []), _SPEC, ("orders",))
+
+    assert store == {}
+
+
+def test_a_failing_quality_upload_changes_no_steps_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
+    _quality_store(monkeypatch, fail=True)
+    entities = [FloeEntityEvidence("orders", checks=(FloeCheckEvidence("floe_not_null", True, "ERROR", {}),))]
+    monkeypatch.setattr(product_dagster, "_floe_entities", lambda *a: entities)
+
+    @asset
+    def passing() -> None: ...
+
+    @asset(deps=[passing])
+    def failing() -> None:
+        raise Failure("floe aborted")
+
+    job = define_asset_job("quality", hooks=product_dagster._quality_manifest_hooks(_SPEC, ("orders",)))
+    defs = Definitions(assets=[passing, failing], jobs=[job])
+    result = defs.get_job_def("quality").execute_in_process(raise_on_error=False)
+
+    assert [e.step_key for e in result.get_step_success_events()] == ["passing"]
+    assert [e.step_key for e in result.get_step_failure_events()] == ["failing"]

@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from dagster import (
     AssetKey,
     AssetOut,
     AssetSelection,
+    DagsterEventType,
     DefaultScheduleStatus,
     Definitions,
     Failure,
@@ -24,16 +26,19 @@ from dagster import (
     Output,
     ScheduleDefinition,
     define_asset_job,
+    failure_hook,
     in_process_executor,
     job,
     multi_asset,
     op,
+    success_hook,
 )
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_runner_from_env
 from floe_dagster.manifest import ManifestEntity
 from openlakeforge_core import full_refresh_scope, inventory_for
+from openlakeforge_core.quality import MANIFEST_FILENAME, QualityManifest
 
 from openlakeforge_runtime import gold_maintenance
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
@@ -50,10 +55,18 @@ from openlakeforge_runtime.dbt_build import (
     model_sources,
     without_deselected_checks,
 )
+from openlakeforge_runtime.dbt_quality import dbt_quality_manifest, read_dbt_evidence
 from openlakeforge_runtime.floe_profile import write_profile
+from openlakeforge_runtime.floe_quality import (
+    FLOE_CHECK_IDS,
+    FloeCheckEvidence,
+    FloeEntityEvidence,
+    floe_quality_manifest,
+    read_entity_report,
+)
 from openlakeforge_runtime.openlakeforge_logging import log_event
 from openlakeforge_runtime.polaris_token import GENERATION_PAUSE_TAG, TOKEN_MINTED_MESSAGE, polaris_token_env
-from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri
+from openlakeforge_runtime.s3_artifacts import split_s3_uri, upload_file, upload_file_to_base_uri
 from openlakeforge_runtime.source_bindings import source_binding_tags
 
 __all__ = [
@@ -602,6 +615,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         ),
         executor_def=in_process_executor,
         tags={**_bronze_source_binding_tags(inputs), SILVER_DOMAIN_TAG: spec.domain},
+        hooks=_quality_manifest_hooks(spec, inputs.silver_inputs),
     )
 
     return Definitions(
@@ -649,6 +663,91 @@ def _product_schedule(name: str, spec: ProductDefinitionSpec, cadence: ProductCa
         execution_timezone=cadence.timezone,
         default_status=DefaultScheduleStatus.RUNNING if cadence.enabled_in_prod else DefaultScheduleStatus.STOPPED,
     )
+
+
+def _quality_manifest_hooks(spec: ProductDefinitionSpec, silver_inputs: tuple[str, ...]) -> set:
+    """Hooks that publish the run's quality manifest after each step, failed or not (#1162).
+
+    A Floe abort fails its step before the dbt step starts, so no single step sees both engines: each hook
+    rebuilds the whole manifest from what the run holds so far and the last one wins. The key carries the
+    Dagster run id, so a rewrite only replaces the same run's earlier, smaller manifest.
+    """
+
+    @success_hook
+    def publish_quality_manifest_on_success(context) -> None:
+        _publish_quality_manifest(context, spec, silver_inputs)
+
+    @failure_hook
+    def publish_quality_manifest_on_failure(context) -> None:
+        _publish_quality_manifest(context, spec, silver_inputs)
+
+    return {publish_quality_manifest_on_success, publish_quality_manifest_on_failure}
+
+
+def _publish_quality_manifest(context, spec: ProductDefinitionSpec, silver_inputs: tuple[str, ...]) -> None:
+    """Upload what the run's Floe checks and dbt artifacts say. Never raises: losing this evidence must not
+    turn a passing step red or replace the error of a failing one."""
+    try:
+        artifact_base = os.environ.get("OPENLAKEFORGE_ARTIFACT_BASE_URI")
+        run_artifact_base = os.environ.get("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI")
+        stage = os.environ.get(_STAGE_ENV)
+        if not (artifact_base and stage):
+            return
+        common = {
+            "stage": stage,
+            "domain": spec.domain,
+            "product": spec.product,
+            "dagster_run_id": context.run_id,
+            "observed_at": datetime.now(UTC),
+        }
+        results = list(
+            floe_quality_manifest(**common, entities=_floe_entities(context, spec.domain, silver_inputs)).results
+        )
+        dbt = run_artifact_base and read_dbt_evidence(
+            f"{run_artifact_base.rstrip('/')}/dbt/{spec.domain}/{spec.product}/{context.run_id}"
+        )
+        if dbt:
+            results.extend(dbt_quality_manifest(**common, evidence=dbt).results)
+        if not results:
+            return
+        manifest = QualityManifest(
+            stage=stage,
+            domain=spec.domain,
+            product=spec.product,
+            dagster_run_id=context.run_id,
+            results=tuple(results),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / MANIFEST_FILENAME
+            path.write_text(manifest.to_json())
+            # `ops_key` already carries the stage's `activations/<stage>/` prefix; only the bucket comes from the URI.
+            upload_file(path, bucket=split_s3_uri(artifact_base)[0], key=manifest.ops_key)
+    except Exception as error:
+        context.log.error(
+            f"Could not publish the quality manifest of run {getattr(context, 'run_id', None)}: {error!r}"
+        )
+
+
+def _floe_entities(context, domain: str, silver_inputs: tuple[str, ...]) -> list[FloeEntityEvidence]:
+    """The Floe check results this run's event log holds, per Silver table. A table whose step has not run
+    has none and is left out, rather than reported unknown."""
+    checks: dict[str, list[FloeCheckEvidence]] = {}
+    for entry in context.instance.all_logs(context.run_id, of_type=DagsterEventType.ASSET_CHECK_EVALUATION):
+        evaluation = entry.dagster_event.event_specific_data
+        path = evaluation.asset_key.path
+        if (
+            len(path) == 2
+            and path[0] == domain
+            and path[1] in silver_inputs
+            and evaluation.check_name in FLOE_CHECK_IDS
+        ):
+            checks.setdefault(path[1], []).append(FloeCheckEvidence.from_asset_check(evaluation))
+    entities = []
+    for name, evidence in checks.items():
+        raw = (c.metadata.get("entity_report_uri") for c in evidence)
+        uri = next((u for r in raw if isinstance(u := getattr(r, "value", r), str)), None)
+        entities.append(FloeEntityEvidence(entity=name, checks=tuple(evidence), report=read_entity_report(uri)))
+    return entities
 
 
 def _retaining_artifacts_on_failure(context, spec: ProductDefinitionSpec, target_paths: list[Path], stream):

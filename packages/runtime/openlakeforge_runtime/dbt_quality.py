@@ -1,8 +1,8 @@
 """Maps the dbt test results of a run to `quality_result` records (#1125).
 
 A run's `run_results.json` names each test only by `unique_id`; the table, column and severity live in the
-`manifest.json` of the same run, so the two are joined here and never against another run's. Nothing calls
-this yet: the writer that puts the quality manifest in the ops bucket comes later.
+`manifest.json` of the same run, so the two are joined here and never against another run's.
+The product job writes the quality manifest to the ops bucket (`product_dagster._publish_quality_manifest`).
 
 The artifacts are the ones `product_dagster` uploads to `run-artifacts/dbt/<domain>/<product>/<run>/`, built for
 dbt-core 1.11.12 (run-results schema v6, manifest schema v12) with dagster-dbt 0.29.7. `merge_run_results` has
