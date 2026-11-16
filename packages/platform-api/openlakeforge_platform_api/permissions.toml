@@ -8,6 +8,11 @@
 # stages: the stages the operation applies to, for an operation that names
 #         one in its path; "*" is every enabled stage. Empty: the operation
 #         names no stage, and a stage in its path is refused.
+# changes_state: optional; the operation is audited (ADR 0021, decision 3).
+# role_stages: optional inline table, role -> stage list, for a row with
+#         stages. A listed role (at or above the floor) is limited to those
+#         stages; a role not listed keeps `stages`. For example
+#         `role_stages = { data-engineer = ["dev"] }`.
 
 [operations.healthz]
 role = "anonymous"

@@ -20,7 +20,7 @@ from openlakeforge_platform_api import csrf, discovery, queries, reads, report_r
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.models import Health, WhoAmI
-from openlakeforge_platform_api.permissions import ANONYMOUS, Permission, PermissionMatrix
+from openlakeforge_platform_api.permissions import ANONYMOUS, EVERY_STAGE, Permission, PermissionMatrix
 from openlakeforge_platform_api.settings import QUERY_SIGNING_KEY_ENV, Settings
 from openlakeforge_platform_api.tokens import InvalidToken, IssuerUnavailable, Principal, TokenValidator
 
@@ -108,7 +108,10 @@ def _enforce(request: Request) -> None:
         _refuse(request, permission, 403, "no OpenLakeForge role assigned; ask a platform-admin")
     if not matrix.allows(operation, principal.role, stage):
         # The refusal names what would pass, so a client can tell the person which role to ask for.
-        if matrix.allows(operation, matrix.precedence[0], stage):
+        limit = permission.role_stages.get(principal.role)
+        if limit is not None and stage is not None and (EVERY_STAGE in permission.stages or stage in permission.stages):
+            detail = f"role {principal.role!r} may perform {operation!r} only on stages: {', '.join(limit)}"
+        elif matrix.allows(operation, matrix.precedence[0], stage):
             detail = f"role {principal.role!r} may not perform {operation!r}; it needs {permission.role!r} or above"
         else:
             detail = f"{operation!r} does not apply to stage {stage!r}" if stage else f"{operation!r} needs a stage"
