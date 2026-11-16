@@ -280,6 +280,53 @@ def test_the_object_store_calls_of_an_upload_do_not_run_on_the_event_loop(
     assert callers and loop_thread[0] not in callers
 
 
+# cancellation
+
+
+def _cancel_while_blocked_in(api: TestClient, s3: FakeS3, mint: Mint, call: str) -> None:
+    """Start an upload, hold `call` on the object store, cancel the request, then let `call` finish."""
+    gate, entered = threading.Event(), threading.Event()
+
+    def block() -> None:
+        entered.set()
+        gate.wait(10)
+
+    s3.hooks[call] = block
+    headers = {**_as(mint, "data-engineer"), **OCTET}
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api.app), base_url="http://api") as client:
+            sending = asyncio.create_task(client.put(f"{_base()}/content?key=cut.bin", content=b"x", headers=headers))
+            while not entered.is_set():
+                await asyncio.sleep(0.01)
+            sending.cancel()
+            gate.set()
+            with pytest.raises(asyncio.CancelledError):
+                await sending
+
+    asyncio.run(scenario())
+
+
+def test_a_request_cancelled_after_the_object_landed_records_success(
+    api: TestClient, s3: FakeS3, mint: Mint, audit_store: AuditStore
+) -> None:
+    _cancel_while_blocked_in(api, s3, mint, "put_object")
+
+    assert (DEV, "cut.bin") in s3.objects
+    assert audit_store.phases() == ["attempted", "succeeded"]
+    assert list(audit_store.records.values())[-1]["result"] == {"size": "1"}
+
+
+def test_a_request_cancelled_before_anything_was_written_records_a_failure(
+    api: TestClient, s3: FakeS3, mint: Mint, audit_store: AuditStore
+) -> None:
+    _cancel_while_blocked_in(api, s3, mint, "head_object")
+
+    assert (DEV, "cut.bin") not in s3.objects
+    assert audit_store.phases() == ["attempted", "failed"]
+    assert "cancelled" in list(audit_store.records.values())[-1]["detail"]
+
+
 # the audit prefix
 
 
