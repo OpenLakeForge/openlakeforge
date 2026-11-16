@@ -118,8 +118,9 @@ variable "observability" {
     metrics_retention_days = optional(number, 7)
     grafana_enabled        = optional(bool, false)
     alert_receivers = optional(list(object({
-      name = string
-      type = string
+      name   = string
+      type   = string
+      stages = optional(list(string), [])
     })), [])
   })
   default = {}
