@@ -72,7 +72,13 @@ code location's schedules for each stage and fails on any in DEV, UAT or an
 unset stage, and on any in PROD other than the product's cadence schedule (job,
 cron and default status as the cadence declares) and the maintenance
 schedules. A `RUNNING` default is accepted only when `enabled_in_prod` is
-`True`.
+`True`, and a schedule the cadence declares `RUNNING` must be among those PROD
+loads. It also fails on any sensor the code location defines, in any stage,
+whatever its default status: the cadence is the only declared way to start
+runs. Dagster's implicit `default_automation_condition_sensor` is added when
+the repository is built, not defined in the code, so assets with automation
+conditions do not trip it; an `AutomationConditionSensorDefinition` you define
+yourself does.
 
 ```python
 spec = ProductDefinitionSpec(

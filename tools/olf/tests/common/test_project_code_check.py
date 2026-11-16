@@ -187,6 +187,9 @@ def _inventory() -> SimpleNamespace:
     return SimpleNamespace(products=(product,))
 
 
+_MAINTENANCE = frozenset({"silver_maintenance_weekly", "gold_maintenance_weekly"})
+
+
 def _loaded(prod: list | None = None, **other_stages: list) -> dict[str, list]:
     stages: dict[str, list] = {"dev": [], "uat": [], "": [], "prod": prod or []}
     stages.update(other_stages)
@@ -197,8 +200,8 @@ def test_stage_schedules_accept_the_declared_schedule_in_prod_and_none_elsewhere
     maintenance = _schedule("silver_maintenance_weekly", job="silver_maintenance")
     loaded = _loaded([_schedule("order_revenue_daily"), maintenance])
 
-    project_code_check._verify_stage_schedules(_inventory(), _schedule_library(), loaded, {})
-    project_code_check._verify_stage_schedules(_inventory(), _schedule_library(), _loaded(), {})
+    project_code_check._verify_stage_schedules(_inventory(), _schedule_library(), loaded, {}, _MAINTENANCE)
+    project_code_check._verify_stage_schedules(_inventory(), _schedule_library(), _loaded(), {}, _MAINTENANCE)
 
 
 @pytest.mark.parametrize(
@@ -239,13 +242,18 @@ def test_stage_schedules_accept_the_declared_schedule_in_prod_and_none_elsewhere
             _loaded([_schedule("order_revenue_daily")]),
             "contradicts|cadence declares .*RUNNING",
         ),
+        (
+            _schedule_library(status="RUNNING"),
+            _loaded([_schedule("silver_maintenance_weekly", job="silver_maintenance")]),
+            "declares order_revenue_daily RUNNING in prod, but the code location does not load it",
+        ),
     ],
 )
 def test_stage_schedules_reject_what_the_code_location_loads_against_the_cadence(
     library: SimpleNamespace, loaded: dict[str, list], message: str
 ) -> None:
     with pytest.raises(RuntimeError, match=message):
-        project_code_check._verify_stage_schedules(_inventory(), library, loaded, {})
+        project_code_check._verify_stage_schedules(_inventory(), library, loaded, {}, _MAINTENANCE)
 
 
 def test_stage_schedules_accept_a_running_prod_schedule_the_cadence_declares() -> None:
@@ -254,6 +262,7 @@ def test_stage_schedules_accept_a_running_prod_schedule_the_cadence_declares() -
         _schedule_library(status="RUNNING"),
         _loaded([_schedule("order_revenue_daily", status="RUNNING")]),
         {},
+        _MAINTENANCE,
     )
 
 
@@ -324,6 +333,30 @@ defs = Definitions.merge(build_product_definitions(spec), Definitions(schedules=
 """
 
 
+_PRODUCT_RUNNING_SENSOR = """
+from dagster import DefaultSensorStatus, Definitions, RunRequest, sensor
+from fake_runtime import ProductDefinitionSpec, build_product_definitions
+
+spec = ProductDefinitionSpec("sales", "order_revenue")
+
+
+@sensor(job_name=spec.job_name, default_status=DefaultSensorStatus.RUNNING)
+def every_minute():
+    yield RunRequest()
+
+
+defs = Definitions.merge(build_product_definitions(spec), Definitions(sensors=[every_minute]))
+"""
+
+_PRODUCT_DECLARED_SCHEDULE_NOT_SHIPPED = """
+from dagster import Definitions
+from fake_runtime import ProductCadence, ProductDefinitionSpec, build_product_definitions
+
+spec = ProductDefinitionSpec("sales", "order_revenue", cadence=ProductCadence("0 * * * *", enabled_in_prod=True))
+defs = Definitions(jobs=build_product_definitions(spec).jobs)
+"""
+
+
 def _fixture_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, product_module: str) -> SimpleNamespace:
     pytest.importorskip("dagster")
     code = tmp_path / "lakehouse_code"
@@ -348,9 +381,14 @@ def _fixture_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, product_mo
 
 def _check_fixture_project(project: SimpleNamespace) -> None:
     specs = project_code_check._product_specs(project.products)
-    loaded = {stage: project_code_check._load_stage_schedules(stage) for stage in project_code_check._SCHEDULE_STAGES}
+    stages = {stage: project_code_check._load_stage_definitions(stage) for stage in project_code_check._SCHEDULE_STAGES}
+    project_code_check._verify_stage_sensors(stages)
     project_code_check._verify_stage_schedules(
-        SimpleNamespace(products=project.products), project.library, loaded, specs
+        SimpleNamespace(products=project.products),
+        project.library,
+        {stage: loaded.schedules for stage, loaded in stages.items()},
+        specs,
+        _MAINTENANCE,
     )
 
 
@@ -368,14 +406,33 @@ def test_a_schedule_the_module_merges_in_is_refused_in_dev_and_in_prod(
 ) -> None:
     project = _fixture_project(tmp_path, monkeypatch, _PRODUCT_OWN_SCHEDULE)
     specs = project_code_check._product_specs(project.products)
-    loaded = {stage: project_code_check._load_stage_schedules(stage) for stage in project_code_check._SCHEDULE_STAGES}
+    loaded = {
+        stage: project_code_check._load_stage_definitions(stage).schedules
+        for stage in project_code_check._SCHEDULE_STAGES
+    }
     inventory = SimpleNamespace(products=project.products)
 
     with pytest.raises(RuntimeError, match="stage 'dev' must load no schedule"):
-        project_code_check._verify_stage_schedules(inventory, project.library, loaded, specs)
+        project_code_check._verify_stage_schedules(inventory, project.library, loaded, specs, _MAINTENANCE)
     prod_only = {**loaded, "dev": [], "uat": [], "": []}
     with pytest.raises(RuntimeError, match="order_revenue_manual_on, which no product cadence declares"):
-        project_code_check._verify_stage_schedules(inventory, project.library, prod_only, specs)
+        project_code_check._verify_stage_schedules(inventory, project.library, prod_only, specs, _MAINTENANCE)
+
+
+def test_a_running_sensor_the_module_merges_in_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = _fixture_project(tmp_path, monkeypatch, _PRODUCT_RUNNING_SENSOR)
+
+    with pytest.raises(RuntimeError, match="stage 'dev' loads the sensor every_minute \\(default status RUNNING\\)"):
+        _check_fixture_project(project)
+
+
+def test_a_running_schedule_the_cadence_declares_but_the_module_does_not_ship_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _fixture_project(tmp_path, monkeypatch, _PRODUCT_DECLARED_SCHEDULE_NOT_SHIPPED)
+
+    with pytest.raises(RuntimeError, match="declares order_revenue_schedule RUNNING in prod, but the code location"):
+        _check_fixture_project(project)
 
 
 def test_the_declared_schedule_the_module_ships_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
