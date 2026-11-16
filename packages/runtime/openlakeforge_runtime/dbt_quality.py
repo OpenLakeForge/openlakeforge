@@ -1,8 +1,8 @@
 """Maps the dbt test results of a run to `quality_result` records (#1125).
 
 A run's `run_results.json` names each test only by `unique_id`; the table, column and severity live in the
-`manifest.json` of the same run, so the two are joined here and never against another run's. Nothing calls
-this yet: the writer that puts the quality manifest in the ops bucket comes later.
+`manifest.json` of the same run, so the two are joined here and never against another run's.
+The product job writes the quality manifest to the ops bucket (`product_dagster._publish_quality_manifest`).
 
 The artifacts are the ones `product_dagster` uploads to `run-artifacts/dbt/<domain>/<product>/<run>/`, built for
 dbt-core 1.11.12 (run-results schema v6, manifest schema v12) with dagster-dbt 0.29.7. `merge_run_results` has
@@ -11,7 +11,9 @@ the whole project. Data tests (generic and singular) are mapped; unit tests are 
 
 Selected but not run: the manifest lists every test of the project, so it cannot say which ones this run
 selected. The caller passes `selected_tests`, the unique ids `dbt_build.dbt_tests` marks `explicit` less those
-`without_deselected_checks` drops, because that is the set `generation_args` hands to dbt. A selected test with
+`without_deselected_checks` drops, because that is the set `generation_args` hands to dbt. The product job writes
+that set to `selected_tests.json` before the build starts, so a build that fails early still leaves it, and
+`read_dbt_evidence` reads it when the caller passes none. A selected test with
 no result is `not_run` when other tests have results, and `unknown` when none has or the build failed: then we
 cannot tell whether it ran. Without `selected_tests`, a test with no result produces no record rather than a guess.
 
@@ -44,6 +46,7 @@ ENGINE = "dbt"
 MANIFEST_PATH = "target/manifest.json"
 RUN_RESULTS_PATH = "target/run_results.json"
 INCOMPLETE_MARKER_PATH = "artifacts_incomplete.json"
+SELECTED_TESTS_PATH = "selected_tests.json"
 
 _UNKNOWN_SEVERITY = "unknown"
 
@@ -60,6 +63,9 @@ class DbtRunEvidence:
     selected_tests: frozenset[str] | None = None
     # Where run_results.json is, as the record's pointer to its evidence.
     artifact_uri: str | None = None
+    # False when the manifest is the image's stage-neutral one: its schemas lack the run's catalog prefix, so
+    # it names tests but not the run's tables.
+    table_identity_known: bool = True
 
 
 def read_dbt_evidence(
@@ -81,12 +87,15 @@ def read_dbt_evidence(
     marker = _read(read, f"{base}/{INCOMPLETE_MARKER_PATH}")
     if manifest is None or (run_results is None and marker is None):
         return None
+    if selected_tests is None:
+        selected_tests = _selected_ids(_read(read, f"{base}/{SELECTED_TESTS_PATH}"))
     return DbtRunEvidence(
         manifest=manifest,
         run_results=run_results,
         incomplete_marker=marker,
         selected_tests=None if selected_tests is None else frozenset(selected_tests),
         artifact_uri=_safe_uri(f"{base}/{RUN_RESULTS_PATH}") if run_results is not None else None,
+        table_identity_known=not (marker or {}).get("baked_manifest"),
     )
 
 
@@ -117,7 +126,7 @@ def dbt_quality_manifest(
             outcome, pipeline = _missing(has_results=bool(results_by_id), build_failed=build_failed)
         else:
             outcome, pipeline = _classify(result.get("status"), test)
-        table = _table(evidence.manifest, test)
+        table = _table(evidence.manifest, test) if evidence.table_identity_known else None
         records.append(
             QualityResult(
                 engine=ENGINE,
@@ -219,6 +228,11 @@ def _read(read: Callable[[str], Mapping[str, Any]], uri: str) -> Mapping[str, An
         return read(uri)
     except Exception:
         return None
+
+
+def _selected_ids(document: Mapping[str, Any] | None) -> list[str] | None:
+    ids = (document or {}).get("selected_tests")
+    return ids if isinstance(ids, list) and all(isinstance(i, str) for i in ids) else None
 
 
 def _text(value: Any) -> str | None:

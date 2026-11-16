@@ -203,6 +203,47 @@ def evaluate_expected_run(
     return _signal(SignalKind.EXPECTED_RUN, scope, state, reason, schedule, max_age)
 
 
+def evaluate_freshness(
+    scope: Scope,
+    last_success: RunObservation | None,
+    previous_due: datetime | None,
+    *,
+    now: datetime,
+    grace: timedelta,
+    schedule: ScheduleState,
+) -> Signal:
+    """Whether the pipeline kept its cadence: a success since `previous_due`, or `previous_due` is still in grace.
+
+    `previous_due` is the latest due time whose grace the caller considers elapsed, so a due time that is still
+    inside its grace must not be passed or an earlier missed run would be hidden. No bound is invented here: a
+    pipeline that is manual, stopped or absent has no cadence to keep and is `disabled`, never stale. A missing
+    success is `unknown` rather than stale because the caller reads a window of runs, so it cannot tell "never" from
+    "older than the window".
+    """
+    _require_aware(now)
+    if grace < timedelta(0):
+        raise ValueError("grace must not be negative")
+    if schedule is not ScheduleState.RUNNING:
+        return _signal(SignalKind.FRESHNESS, scope, HealthState.DISABLED, f"schedule is {schedule.value}", None, grace)
+    if previous_due is None:
+        return _signal(
+            SignalKind.FRESHNESS, scope, HealthState.UNKNOWN, "no due time could be derived from the cron", None, grace
+        )
+    _require_aware(previous_due)
+    if last_success is None:
+        return _signal(SignalKind.FRESHNESS, scope, HealthState.UNKNOWN, "no successful run on record", None, grace)
+    _require_aware(last_success.observed_at)
+    if last_success.status is not RunStatus.SUCCEEDED:
+        raise ValueError("freshness takes the latest successful run, not a run that did not succeed")
+    if last_success.observed_at >= previous_due:
+        state, reason = HealthState.HEALTHY, "a run succeeded since the previous due time"
+    elif now < previous_due + grace:
+        state, reason = HealthState.HEALTHY, "the previous due run is within its grace period"
+    else:
+        state, reason = HealthState.CRITICAL, "no run succeeded since the previous due time plus its grace"
+    return _signal(SignalKind.FRESHNESS, scope, state, reason, last_success, grace, run=last_success.run, expires=False)
+
+
 def evaluate_quality(scope: Scope, quality: QualityObservation | None, *, now: datetime, max_age: timedelta) -> Signal:
     _check_clock(now, max_age)
     if quality is None:
@@ -354,6 +395,7 @@ def _signal(
     max_age: timedelta,
     *,
     run: str | None = None,
+    expires: bool = True,
 ) -> Signal:
     observed_at = observation.observed_at if observation else None
     return Signal(
@@ -366,6 +408,7 @@ def _signal(
         table=scope.table,
         run=run,
         observed_at=observed_at,
-        expires_at=observed_at + max_age if observed_at else None,
+        # A freshness verdict expires at the next due time, which this module cannot know: the consumer re-evaluates.
+        expires_at=observed_at + max_age if observed_at and expires else None,
         evidence_uri=observation.evidence_uri if observation else None,
     )

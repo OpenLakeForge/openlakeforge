@@ -312,3 +312,50 @@ def test_read_dbt_evidence_reads_the_run_prefix_and_returns_none_when_it_cannot(
     files[f"{PREFIX}/artifacts_incomplete.json"] = marker
     failed = read_dbt_evidence(PREFIX, read=read)
     assert failed is not None and failed.run_results is None and failed.incomplete_marker == marker
+
+
+def test_read_dbt_evidence_takes_the_selection_the_build_recorded_when_the_caller_passes_none() -> None:
+    files = {
+        f"{PREFIX}/target/manifest.json": manifest(NOT_NULL, UNIQUE),
+        f"{PREFIX}/target/run_results.json": run_results(result(NOT_NULL, "fail")),
+        f"{PREFIX}/selected_tests.json": {"selected_tests": [NOT_NULL["unique_id"], UNIQUE["unique_id"]]},
+    }
+
+    found = read_dbt_evidence(PREFIX, read=lambda uri: files[uri])
+
+    assert found is not None
+    assert found.selected_tests == frozenset({NOT_NULL["unique_id"], UNIQUE["unique_id"]})
+    records = by_check(build(found))
+    # Generation 1 failed, so generation 2's test never started: it has no result but was selected.
+    assert records[UNIQUE["name"]].outcome is QualityOutcome.NOT_RUN
+    assert records[NOT_NULL["name"]].pipeline_outcome is PipelineOutcome.BLOCKED
+
+
+def test_a_build_that_died_before_run_results_leaves_every_recorded_test_unknown() -> None:
+    files = {
+        f"{PREFIX}/target/manifest.json": manifest(NOT_NULL, UNIQUE),
+        f"{PREFIX}/artifacts_incomplete.json": {"status": "artifacts_incomplete"},
+        f"{PREFIX}/selected_tests.json": {"selected_tests": [NOT_NULL["unique_id"], UNIQUE["unique_id"]]},
+    }
+
+    found = read_dbt_evidence(PREFIX, read=lambda uri: files[uri])
+
+    assert found is not None
+    records = by_check(build(found))
+    assert set(records) == {NOT_NULL["name"], UNIQUE["name"]}
+    assert {(r.outcome, r.pipeline_outcome) for r in records.values()} == {
+        (QualityOutcome.UNKNOWN, PipelineOutcome.UNKNOWN)
+    }
+
+
+def test_an_unreadable_selection_leaves_unselected_tests_without_a_record() -> None:
+    files = {
+        f"{PREFIX}/target/manifest.json": manifest(NOT_NULL, UNIQUE),
+        f"{PREFIX}/target/run_results.json": run_results(result(NOT_NULL, "pass")),
+        f"{PREFIX}/selected_tests.json": {"selected_tests": "everything"},
+    }
+
+    found = read_dbt_evidence(PREFIX, read=lambda uri: files[uri])
+
+    assert found is not None and found.selected_tests is None
+    assert set(by_check(build(found))) == {NOT_NULL["name"]}

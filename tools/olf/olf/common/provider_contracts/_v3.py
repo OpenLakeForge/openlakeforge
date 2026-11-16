@@ -513,10 +513,17 @@ def _check_observability(binding: Mapping[str, Any]) -> None:
     if not isinstance(alerts["supported"], bool) or not isinstance(alerts["receivers"], list | tuple):
         raise ProviderContractError(f"{where}.alerts must carry a boolean supported and a receivers list")
     for index, receiver in enumerate(alerts["receivers"]):
-        fields = _fields(receiver, where=f"{where}.alerts.receivers[{index}]", required={"name", "type"})
+        receiver_where = f"{where}.alerts.receivers[{index}]"
+        # `stages` is optional: Terraform defaults it to [] and olf emits the
+        # effective list, but a contract already in state predates the field.
+        # Absent or [] means every stage, exactly as in the profile.
+        fields = _fields(receiver, where=receiver_where, required={"name", "type"}, optional={"stages"})
         for key in ("name", "type"):
             if not isinstance(fields[key], str) or not fields[key]:
-                raise ProviderContractError(f"{where}.alerts.receivers[{index}].{key} must be a non-empty string")
+                raise ProviderContractError(f"{receiver_where}.{key} must be a non-empty string")
+        stages = fields.get("stages", [])
+        if not isinstance(stages, list | tuple) or not all(isinstance(item, str) and item for item in stages):
+            raise ProviderContractError(f"{receiver_where}.stages must be a list of non-empty strings")
     if logs["archive"]["enabled"] is not True:
         raise ProviderContractError(f"{where}.logs.archive is always enabled (ADR 0011)")
 

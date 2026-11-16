@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from dagster import (
     AssetKey,
     AssetOut,
     AssetSelection,
+    DagsterEventType,
     DefaultScheduleStatus,
     Definitions,
     Failure,
@@ -24,16 +26,19 @@ from dagster import (
     Output,
     ScheduleDefinition,
     define_asset_job,
+    failure_hook,
     in_process_executor,
     job,
     multi_asset,
     op,
+    success_hook,
 )
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from floe_dagster.assets import load_floe_assets
 from floe_dagster.definitions import build_runner_from_env
 from floe_dagster.manifest import ManifestEntity
 from openlakeforge_core import full_refresh_scope, inventory_for
+from openlakeforge_core.quality import MANIFEST_FILENAME, QualityManifest, QualityOutcome
 
 from openlakeforge_runtime import gold_maintenance
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
@@ -50,10 +55,18 @@ from openlakeforge_runtime.dbt_build import (
     model_sources,
     without_deselected_checks,
 )
+from openlakeforge_runtime.dbt_quality import dbt_quality_manifest, read_dbt_evidence
 from openlakeforge_runtime.floe_profile import write_profile
+from openlakeforge_runtime.floe_quality import (
+    FLOE_CHECK_IDS,
+    FloeCheckEvidence,
+    FloeEntityEvidence,
+    floe_quality_manifest,
+    read_entity_report,
+)
 from openlakeforge_runtime.openlakeforge_logging import log_event
 from openlakeforge_runtime.polaris_token import GENERATION_PAUSE_TAG, TOKEN_MINTED_MESSAGE, polaris_token_env
-from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri
+from openlakeforge_runtime.s3_artifacts import read_json_uri, split_s3_uri, upload_file, upload_file_to_base_uri
 from openlakeforge_runtime.source_bindings import source_binding_tags
 
 __all__ = [
@@ -529,6 +542,8 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             known={key.name for key in context.assets_def.check_keys},
             selected={key.name for key in context.selected_asset_check_keys},
         )
+        # Before the build, so a run that dies early still says which tests it meant to run (dbt_quality).
+        _upload_selected_tests(context, spec, sorted(t.unique_id for t in all_tests.values() if t.explicit))
 
         def build_generation(models: list[str], tests: list[DbtTest]):
             args = [
@@ -568,6 +583,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
                     sources=model_sources(manifest, selected),
                     between=None if pause is None else between_generations,
                 ),
+                baked_manifest=manifest_path,
             )
         finally:
             if previous_job_name is None:
@@ -602,6 +618,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         ),
         executor_def=in_process_executor,
         tags={**_bronze_source_binding_tags(inputs), SILVER_DOMAIN_TAG: spec.domain},
+        hooks=_quality_manifest_hooks(spec, inputs.silver_inputs),
     )
 
     return Definitions(
@@ -651,7 +668,123 @@ def _product_schedule(name: str, spec: ProductDefinitionSpec, cadence: ProductCa
     )
 
 
-def _retaining_artifacts_on_failure(context, spec: ProductDefinitionSpec, target_paths: list[Path], stream):
+def _quality_manifest_hooks(spec: ProductDefinitionSpec, silver_inputs: tuple[str, ...]) -> set:
+    """Hooks that publish the run's quality manifest after each step, failed or not (#1162).
+
+    A Floe abort fails its step before the dbt step starts, so no single step sees both engines: each hook
+    rebuilds the whole manifest from what the run holds so far and the last one wins, except that a record the
+    run already published with a known outcome is never replaced by an unknown one (a report read that failed
+    this time). The key carries the Dagster run id, so a rewrite only touches the same run's manifest.
+    """
+
+    @success_hook
+    def publish_quality_manifest_on_success(context) -> None:
+        _publish_quality_manifest(context, spec, silver_inputs)
+
+    @failure_hook
+    def publish_quality_manifest_on_failure(context) -> None:
+        _publish_quality_manifest(context, spec, silver_inputs)
+
+    return {publish_quality_manifest_on_success, publish_quality_manifest_on_failure}
+
+
+def _publish_quality_manifest(context, spec: ProductDefinitionSpec, silver_inputs: tuple[str, ...]) -> None:
+    """Upload what the run's Floe checks and dbt artifacts say. Never raises: losing this evidence must not
+    turn a passing step red or replace the error of a failing one."""
+    try:
+        artifact_base = os.environ.get("OPENLAKEFORGE_ARTIFACT_BASE_URI")
+        run_artifact_base = os.environ.get("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI")
+        stage = os.environ.get(_STAGE_ENV)
+        if not (artifact_base and stage):
+            return
+        common = {
+            "stage": stage,
+            "domain": spec.domain,
+            "product": spec.product,
+            "dagster_run_id": context.run_id,
+            "observed_at": datetime.now(UTC),
+        }
+        results = list(
+            floe_quality_manifest(**common, entities=_floe_entities(context, spec.domain, silver_inputs)).results
+        )
+        dbt = run_artifact_base and read_dbt_evidence(
+            f"{run_artifact_base.rstrip('/')}/dbt/{spec.domain}/{spec.product}/{context.run_id}"
+        )
+        if dbt:
+            results.extend(dbt_quality_manifest(**common, evidence=dbt).results)
+        if not results:
+            return
+        manifest = QualityManifest(
+            stage=stage,
+            domain=spec.domain,
+            product=spec.product,
+            dagster_run_id=context.run_id,
+            results=tuple(results),
+        )
+        bucket = split_s3_uri(artifact_base)[0]
+        manifest = _without_regressions(manifest, _published_manifest(bucket, manifest))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / MANIFEST_FILENAME
+            path.write_text(manifest.to_json())
+            # `ops_key` already carries the stage's `activations/<stage>/` prefix; only the bucket comes from the URI.
+            upload_file(path, bucket=bucket, key=manifest.ops_key)
+    except Exception as error:
+        context.log.error(
+            f"Could not publish the quality manifest of run {getattr(context, 'run_id', None)}: {error!r}"
+        )
+
+
+def _published_manifest(bucket: str, manifest: QualityManifest) -> QualityManifest | None:
+    """What an earlier step of this run published, or None when there is none or it cannot be read."""
+    try:
+        return QualityManifest.from_json(json.dumps(read_json_uri(f"s3://{bucket}/{manifest.ops_key}")))
+    except Exception:
+        return None
+
+
+def _without_regressions(fresh: QualityManifest, published: QualityManifest | None) -> QualityManifest:
+    """`fresh`, keeping the published record wherever `fresh` knows less, and any record `fresh` lacks."""
+    if published is None:
+        return fresh
+    merged = {r.identity: r for r in published.results}
+    for result in fresh.results:
+        earlier = merged.get(result.identity)
+        if not (earlier and result.outcome is QualityOutcome.UNKNOWN and earlier.outcome is not QualityOutcome.UNKNOWN):
+            merged[result.identity] = result
+    return QualityManifest(
+        stage=fresh.stage,
+        domain=fresh.domain,
+        product=fresh.product,
+        dagster_run_id=fresh.dagster_run_id,
+        results=tuple(merged.values()),
+    )
+
+
+def _floe_entities(context, domain: str, silver_inputs: tuple[str, ...]) -> list[FloeEntityEvidence]:
+    """The Floe check results this run's event log holds, per Silver table. A table whose step has not run
+    has none and is left out, rather than reported unknown."""
+    checks: dict[str, list[FloeCheckEvidence]] = {}
+    for entry in context.instance.all_logs(context.run_id, of_type=DagsterEventType.ASSET_CHECK_EVALUATION):
+        evaluation = entry.dagster_event.event_specific_data
+        path = evaluation.asset_key.path
+        if (
+            len(path) == 2
+            and path[0] == domain
+            and path[1] in silver_inputs
+            and evaluation.check_name in FLOE_CHECK_IDS
+        ):
+            checks.setdefault(path[1], []).append(FloeCheckEvidence.from_asset_check(evaluation))
+    entities = []
+    for name, evidence in checks.items():
+        raw = (c.metadata.get("entity_report_uri") for c in evidence)
+        uri = next((u for r in raw if isinstance(u := getattr(r, "value", r), str)), None)
+        entities.append(FloeEntityEvidence(entity=name, checks=tuple(evidence), report=read_entity_report(uri)))
+    return entities
+
+
+def _retaining_artifacts_on_failure(
+    context, spec: ProductDefinitionSpec, target_paths: list[Path], stream, *, baked_manifest: Path | None = None
+):
     """Yield `stream`, uploading what dbt left behind if it raises.
 
     A failed build is the run whose manifest and run_results.json are needed most, and the pod is cleaned up
@@ -668,20 +801,28 @@ def _retaining_artifacts_on_failure(context, spec: ProductDefinitionSpec, target
             if target_paths and target_paths[-1] not in with_results:
                 _upload_dbt_artifacts(context, spec, target_paths[-1])
             without_results = [i for i, path in enumerate(target_paths, 1) if path not in with_results]
+            uploaded_baked = False
+            if baked_manifest is not None and not any((path / "manifest.json").exists() for path in target_paths):
+                uploaded_baked = True
+                # No invocation left a manifest (dbt never started, or died while parsing before writing one); the
+                # quality reader needs one to name tests.
+                _upload_run_file(context, spec, baked_manifest, "target/manifest.json")
             if not target_paths or without_results:
-                _upload_incomplete_marker(context, spec, len(target_paths), without_results)
+                _upload_incomplete_marker(
+                    context, spec, len(target_paths), without_results, baked_manifest=uploaded_baked
+                )
         except Exception as upload_error:
             context.log.error(f"Could not retain dbt artifacts of the failed build: {upload_error!r}")
         raise
 
 
 def _upload_incomplete_marker(
-    context, spec: ProductDefinitionSpec, invocations: int, without_results: list[int]
+    context, spec: ProductDefinitionSpec, invocations: int, without_results: list[int], *, baked_manifest: bool = False
 ) -> None:
-    """Tell a reader of the prefix that the absence of run_results.json is a failure, not a missing upload."""
-    base_uri = os.environ.get("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI")
-    if not base_uri:
-        return
+    """Tell a reader of the prefix that the absence of run_results.json is a failure, not a missing upload.
+
+    `baked_manifest` says the uploaded manifest is the image's stage-neutral one: it is baked with an empty schema
+    prefix while Glue adds one at run time, so the tables it names are not the run's."""
     run_id = getattr(context, "run_id", None) or "unknown"
     marker = {
         "status": "artifacts_incomplete",
@@ -690,14 +831,33 @@ def _upload_incomplete_marker(
         "dbt_invocations": invocations,
         "generations_without_results": without_results,
     }
+    if baked_manifest:
+        marker["baked_manifest"] = True
+    _upload_run_json(context, spec, "artifacts_incomplete.json", marker)
+
+
+def _upload_selected_tests(context, spec: ProductDefinitionSpec, unique_ids: list[str]) -> None:
+    """Record the tests this build was asked to run. Losing it only makes the quality manifest less complete,
+    so a failing upload is logged and never stops the build."""
+    try:
+        _upload_run_json(context, spec, "selected_tests.json", {"selected_tests": unique_ids})
+    except Exception as error:
+        context.log.error(f"Could not record the selected dbt tests: {error!r}")
+
+
+def _upload_run_json(context, spec: ProductDefinitionSpec, name: str, document: dict) -> None:
     with tempfile.TemporaryDirectory() as directory:
-        path = Path(directory) / "artifacts_incomplete.json"
-        path.write_text(json.dumps(marker))
-        upload_file_to_base_uri(
-            path,
-            base_uri=base_uri,
-            relative_key=f"dbt/{spec.domain}/{spec.product}/{run_id}/artifacts_incomplete.json",
-        )
+        path = Path(directory) / name
+        path.write_text(json.dumps(document))
+        _upload_run_file(context, spec, path, name)
+
+
+def _upload_run_file(context, spec: ProductDefinitionSpec, path: Path, name: str) -> None:
+    base_uri = os.environ.get("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI")
+    if not base_uri:
+        return
+    run_id = getattr(context, "run_id", None) or "unknown"
+    upload_file_to_base_uri(path, base_uri=base_uri, relative_key=f"dbt/{spec.domain}/{spec.product}/{run_id}/{name}")
 
 
 def _upload_dbt_artifacts(context, spec: ProductDefinitionSpec, target_path: Path) -> None:

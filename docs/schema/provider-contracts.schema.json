@@ -219,7 +219,11 @@
                 "type": "object",
                 "additionalProperties": false,
                 "required": ["name", "type"],
-                "properties": {"name": {"$ref": "#/definitions/nonEmptyString"}, "type": {"$ref": "#/definitions/nonEmptyString"}}
+                "properties": {
+                  "name": {"$ref": "#/definitions/nonEmptyString"},
+                  "type": {"$ref": "#/definitions/nonEmptyString"},
+                  "stages": {"type": "array", "items": {"$ref": "#/definitions/nonEmptyString"}}
+                }
               }
             }
           }

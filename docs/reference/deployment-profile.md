@@ -385,6 +385,11 @@ required. `secret_ref` takes `name` and `key`, both required: the Kubernetes
 Secret (created out-of-band) and the data key that hold the receiver's
 credential. A credential written inline is rejected as an unknown field.
 
+A receiver may also take `stages`, a non-empty list of stage names without
+repeats (`dev`, `uat`, `prod`), each of which must be enabled in `spec.stages`.
+It limits the receiver to alerts from those stages. Leaving it out means every
+enabled stage, and `olf profile resolve --json` always shows the effective list.
+
 ```yaml
 observability:
   logs:
@@ -396,6 +401,7 @@ observability:
     receivers:
       - name: on-call
         type: webhook
+        stages: [prod]
         secret_ref:
           name: alert-webhooks
           key: webhook-url

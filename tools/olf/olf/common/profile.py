@@ -15,7 +15,7 @@ import ipaddress
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, is_dataclass
+from dataclasses import dataclass, is_dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
@@ -103,7 +103,8 @@ _ARCHIVE_FIELDS = {"retention_days"}
 _ENABLED_FIELDS = {"enabled"}
 _METRICS_FIELDS = {"enabled", "retention_days"}
 _ALERTS_FIELDS = {"receivers"}
-_RECEIVER_FIELDS = {"name", "type", "secret_ref"}
+_RECEIVER_FIELDS = {"name", "type", "secret_ref", "stages"}
+_RECEIVER_REQUIRED_FIELDS = {"name", "type", "secret_ref"}
 _RECEIVER_TYPES = ("webhook",)
 _SECRET_REF_FIELDS = {"name", "key"}
 DEFAULT_ARCHIVE_RETENTION_DAYS = 30
@@ -338,6 +339,8 @@ class AlertReceiver:
     name: str
     type: str
     secret_ref: SecretRef
+    # None as written means every enabled stage; resolution replaces it with the effective list.
+    stages: tuple[StageName, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -374,7 +377,13 @@ class ResolvedObservability:
             "grafana": {"enabled": self.grafana_enabled},
             "alerts": {
                 "receivers": [
-                    {"name": r.name, "type": r.type, "secret_ref": vars(r.secret_ref)} for r in self.alert_receivers
+                    {
+                        "name": r.name,
+                        "type": r.type,
+                        "secret_ref": vars(r.secret_ref),
+                        "stages": [stage.value for stage in r.stages or ()],
+                    }
+                    for r in self.alert_receivers
                 ]
             },
         }
@@ -927,9 +936,9 @@ def _retention_days(document: Mapping[str, Any], *, where: str) -> int | None:
     return value
 
 
-def _validate_alert_receiver(document: object, *, where: str) -> AlertReceiver:
+def _validate_alert_receiver(document: object, *, where: str, enabled_stages: tuple[StageName, ...]) -> AlertReceiver:
     receiver = _object(document, _RECEIVER_FIELDS, where=where)
-    _require(receiver, _RECEIVER_FIELDS, where=where)
+    _require(receiver, _RECEIVER_REQUIRED_FIELDS, where=where)
     name = receiver["name"]
     if not isinstance(name, str) or not _IDENTIFIER_PATTERN.fullmatch(name):
         raise DeploymentProfileError(f"{where}.name must match '{_IDENTIFIER_PATTERN_SOURCE}'")
@@ -941,10 +950,31 @@ def _validate_alert_receiver(document: object, *, where: str) -> AlertReceiver:
         raise DeploymentProfileError(f"{where}.secret_ref.name must be a Kubernetes Secret name")
     if not is_secret_key(ref["key"]):
         raise DeploymentProfileError(f"{where}.secret_ref.key must be a Kubernetes Secret data key")
-    return AlertReceiver(name=name, type=receiver["type"], secret_ref=SecretRef(name=ref["name"], key=ref["key"]))
+    return AlertReceiver(
+        name=name,
+        type=receiver["type"],
+        secret_ref=SecretRef(name=ref["name"], key=ref["key"]),
+        stages=_receiver_stages(receiver["stages"], where=f"{where}.stages", enabled_stages=enabled_stages)
+        if "stages" in receiver
+        else None,
+    )
 
 
-def _validate_observability(document: object, *, source: str) -> ObservabilitySpec:
+def _receiver_stages(document: object, *, where: str, enabled_stages: tuple[StageName, ...]) -> tuple[StageName, ...]:
+    enabled = [stage.value for stage in enabled_stages]
+    if not isinstance(document, list) or not document:
+        raise DeploymentProfileError(f"{where} must be a non-empty list of enabled stages {enabled!r}")
+    for index, name in enumerate(document):
+        if name not in enabled:
+            raise DeploymentProfileError(f"{where}[{index}] must be an enabled stage, one of {enabled!r}")
+    if len(set(document)) != len(document):
+        raise DeploymentProfileError(f"{where} must not repeat a stage")
+    return tuple(StageName(name) for name in document)
+
+
+def _validate_observability(
+    document: object, *, source: str, enabled_stages: tuple[StageName, ...]
+) -> ObservabilitySpec:
     where = f"{source}: spec.observability"
     block = _object(document, _OBSERVABILITY_FIELDS, where=where)
 
@@ -966,7 +996,7 @@ def _validate_observability(document: object, *, source: str) -> ObservabilitySp
     if not isinstance(receivers, list):
         raise DeploymentProfileError(f"{where}.alerts.receivers must be a list")
     parsed = tuple(
-        _validate_alert_receiver(receiver, where=f"{where}.alerts.receivers[{index}]")
+        _validate_alert_receiver(receiver, where=f"{where}.alerts.receivers[{index}]", enabled_stages=enabled_stages)
         for index, receiver in enumerate(receivers)
     )
     names = [receiver.name for receiver in parsed]
@@ -1080,7 +1110,15 @@ def validate_deployment_profile(
             f"{source}: a profile without spec.identity (authentication off) publishes nothing beyond this machine: "
             "use no spec.access, or on provider 'local' a base_domain ending in '.localhost'"
         )
-    observability = _validate_observability(spec["observability"], source=source) if "observability" in spec else None
+    observability = (
+        _validate_observability(
+            spec["observability"],
+            source=source,
+            enabled_stages=tuple(stage.name for stage in stages if stage.enabled),
+        )
+        if "observability" in spec
+        else None
+    )
     if provider.type == Provider.AWS and "storage" in spec and "size" in spec["storage"]:
         raise DeploymentProfileError(
             f"{source}: spec.storage is not available on provider 'aws': object storage is managed S3 there, "
@@ -1117,6 +1155,7 @@ def _preset_defaults(preset: Preset) -> StageCapabilities:
 
 def _resolve_observability(profile: DeploymentProfile) -> ResolvedObservability:
     written = profile.observability or ObservabilitySpec()
+    every_enabled_stage = tuple(name for name in StageName if (stage := profile.stage(name)) and stage.enabled)
     return ResolvedObservability(
         archive_retention_days=written.archive_retention_days or DEFAULT_ARCHIVE_RETENTION_DAYS,
         search_enabled=written.search_enabled,
@@ -1124,7 +1163,9 @@ def _resolve_observability(profile: DeploymentProfile) -> ResolvedObservability:
         metrics_enabled=profile.preset == Preset.FULL if written.metrics_enabled is None else written.metrics_enabled,
         metrics_retention_days=written.metrics_retention_days or DEFAULT_METRICS_RETENTION_DAYS,
         grafana_enabled=written.grafana_enabled,
-        alert_receivers=written.alert_receivers,
+        alert_receivers=tuple(
+            replace(receiver, stages=receiver.stages or every_enabled_stage) for receiver in written.alert_receivers
+        ),
     )
 
 
