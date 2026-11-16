@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -63,19 +64,68 @@ CRONJOB = {
 
 
 def test_the_evaluation_job_keeps_the_pod_template_and_adds_only_the_e2e_flags() -> None:
-    job = _alerts.evaluation_job(CRONJOB, "eval-1", now=NOW, state_prefix="alerts-e2e/")
+    job = _alerts.evaluation_job(CRONJOB, "eval-1", now=NOW, state_prefix="alerts/e2e/")
 
     container = job["spec"]["template"]["spec"]["containers"][0]
     assert container["command"] == ["python", "-m", "x"]
-    assert container["args"] == ["--state-prefix", "alerts-e2e/", "--now", "2026-11-16T12:00:00+00:00"]
+    assert container["args"] == ["--state-prefix", "alerts/e2e/", "--now", "2026-11-16T12:00:00+00:00"]
     assert job["metadata"]["labels"] == {"openlakeforge.io/job": "alert-evaluator"}
     assert "ttlSecondsAfterFinished" not in job["spec"]
     assert "args" not in CRONJOB["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]
 
 
 def test_the_evaluation_job_without_a_clock_leaves_the_clock_alone() -> None:
-    job = _alerts.evaluation_job(CRONJOB, "eval-1", now=None, state_prefix="alerts-e2e/")
-    assert job["spec"]["template"]["spec"]["containers"][0]["args"] == ["--state-prefix", "alerts-e2e/"]
+    job = _alerts.evaluation_job(CRONJOB, "eval-1", now=None, state_prefix="alerts/e2e/")
+    assert job["spec"]["template"]["spec"]["containers"][0]["args"] == ["--state-prefix", "alerts/e2e/"]
+
+
+def test_the_evaluation_job_can_read_its_own_settings_and_ca() -> None:
+    job = _alerts.evaluation_job(CRONJOB, "eval-1", now=None, state_prefix="p/", settings_configmap="cm")
+
+    pod = job["spec"]["template"]["spec"]
+    assert pod["containers"][0]["args"] == ["--state-prefix", "p/", "--settings", "/e2e/alerts.json"]
+    assert pod["containers"][0]["volumeMounts"] == [{"name": "e2e", "mountPath": "/e2e", "readOnly": True}]
+    assert pod["volumes"] == [{"name": "e2e", "configMap": {"name": "cm"}}]
+    assert "volumes" not in CRONJOB["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+
+
+def test_the_e2e_settings_trust_the_stubs_ca_and_change_nothing_else() -> None:
+    original = {"ca_file": None, "receivers": [{"name": "e2e-receiver"}], "s3_region": "r"}
+    assert json.loads(_alerts.e2e_settings(json.dumps(original))) == {**original, "ca_file": "/e2e/ca.crt"}
+    assert (
+        json.loads(_alerts.e2e_settings(json.dumps({**original, "ca_file": "/ca/ca.crt"})))["ca_file"] == "/e2e/ca.crt"
+    )
+
+
+def test_the_state_prefix_is_inside_the_evaluators_grant_and_off_its_real_paths() -> None:
+    main_tf = (ROOT / "infra/terraform/environments/local/main.tf").read_text()
+    (granted,) = re.findall(r'alerts_prefix\s*=\s*"([^"]+)"', main_tf)
+    assert _alerts.STATE_PREFIX.startswith(granted)
+    assert _alerts.STATE_PREFIX != granted
+    # The evaluator's own layout under the base prefix is `state/` and `history/` (alerting/store.py).
+    assert not any(_alerts.STATE_PREFIX.removeprefix(granted).startswith(real) for real in ("state/", "history/"))
+
+
+def _receiver_cronjob(*receivers: tuple[str, str]) -> dict:
+    env = [
+        {"name": f"OPENLAKEFORGE_ALERT_RECEIVER_{i}", "valueFrom": {"secretKeyRef": {"name": n, "key": k}}}
+        for i, (n, k) in enumerate(receivers)
+    ] + [{"name": "TMPDIR", "value": "/tmp"}]
+    return {"spec": {"jobTemplate": {"spec": {"template": {"spec": {"containers": [{"name": "e", "env": env}]}}}}}}
+
+
+@pytest.mark.parametrize(
+    ("receivers", "runs"),
+    [
+        ([(_alerts.RECEIVER_SECRET, _alerts.RECEIVER_KEY)], True),
+        ([("slack-hook", "url")], False),
+        ([(_alerts.RECEIVER_SECRET, "other-key")], False),
+        ([(_alerts.RECEIVER_SECRET, _alerts.RECEIVER_KEY), ("slack-hook", "url")], False),
+        ([], False),
+    ],
+)
+def test_the_scenario_runs_only_when_the_stub_is_the_sole_receiver(receivers: list, runs: bool) -> None:
+    assert _alerts.sole_receiver_is_the_stub(_receiver_cronjob(*receivers)) is runs
 
 
 @pytest.mark.parametrize(

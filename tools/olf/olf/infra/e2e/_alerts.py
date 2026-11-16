@@ -2,11 +2,14 @@
 
 Every incident is made on the `gold_maintenance` job, which every stage has and whose runs are cheap: a retention
 below Trino's minimum fails the run at once, a dry run succeeds, and PROD carries its weekly schedule (stopped by
-default). The evaluator runs as a Job made from the CronJob with `--state-prefix alerts-e2e/`, so the real `alerts/`
-state is untouched, and `--now` moves its clock past a schedule's due time instead of waiting for one.
+default). The evaluator runs as a Job made from the CronJob with `--state-prefix alerts/e2e/`, so the real state under
+`alerts/` is untouched, and `--now` moves its clock past a schedule's due time instead of waiting for one. The prefix
+stays inside the `alerts/` grant of the evaluator's S3 key, which `--state-prefix` would otherwise leave. The Job also
+trusts the stub's CA through its own settings file, whatever the route TLS mode is.
 
 The real CronJob is suspended meanwhile: it would send the same incidents to the same receiver from its own state.
-Local only; the receiver is a pod in the shared namespace that the evaluator reaches over flow F41 (ADR 0017).
+Local only, and only when the stub is the evaluator's sole receiver, so a test incident never reaches a real webhook;
+the receiver is a pod in the shared namespace that the evaluator reaches over flow F41 (ADR 0017).
 """
 
 from __future__ import annotations
@@ -50,7 +53,11 @@ LOCAL_CA_ISSUER = "local-ca"  # modules/access/cert-manager
 # The Secret the profile's e2e receiver reads (openlakeforge.conformance.yaml); the nightly creates it before deploy.
 RECEIVER_SECRET, RECEIVER_KEY = "olf-e2e-alert-receiver", "webhook-url"
 EVALUATOR = "alert-evaluator"  # the CronJob's name (modules/observability/alerts)
-STATE_PREFIX = "alerts-e2e/"
+# Inside the evaluator key's `alerts/*` grant; the real evaluator writes only `state/` and `history/` there.
+STATE_PREFIX = "alerts/e2e/"
+RECEIVER_ENV_PREFIX = "OPENLAKEFORGE_ALERT_RECEIVER_"  # modules/observability/alerts: one variable per receiver
+E2E_MOUNT = "/e2e"  # where the Job's own settings and CA are mounted
+SETTINGS_CONFIGMAP = f"{STUB_NAME}-settings"
 JOB, JOB_OP = "gold_maintenance", "maintain_gold"
 TAG = "olf-e2e/alert-tag"
 # The evaluator's expected-run grace is 15 minutes (`SCHEDULE_GRACE`, platform API); one more minute clears it.
@@ -72,11 +79,47 @@ def stub_host(cfg: E2EConfig) -> str:
     return f"{STUB_NAME}.{cfg.platform_namespace}.svc"
 
 
-def evaluation_job(cronjob: Mapping[str, Any], name: str, *, now: datetime | None, state_prefix: str) -> dict[str, Any]:
-    """A Job running the CronJob's pod template with the e2e-only flags appended to the evaluator's command."""
+def sole_receiver_is_the_stub(cronjob: Mapping[str, Any]) -> bool:
+    """Whether the stub's Secret is the one receiver the evaluator was deployed with.
+
+    The evaluator reads each receiver's URL from a `secretKeyRef` env var, so these are the receivers it would send to.
+    """
+    spec = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    env = [e for c in spec["containers"] for e in c.get("env", []) if e["name"].startswith(RECEIVER_ENV_PREFIX)]
+    refs = [e.get("valueFrom", {}).get("secretKeyRef", {}) for e in env]
+    return [(r.get("name"), r.get("key")) for r in refs] == [(RECEIVER_SECRET, RECEIVER_KEY)]
+
+
+def e2e_settings(settings_json: str) -> str:
+    """The evaluator's settings with the CA file pointed at the stub's CA; the CronJob's own settings are untouched."""
+    settings = json.loads(settings_json)
+    settings["ca_file"] = f"{E2E_MOUNT}/ca.crt"
+    return json.dumps(settings)
+
+
+def evaluation_job(
+    cronjob: Mapping[str, Any],
+    name: str,
+    *,
+    now: datetime | None,
+    state_prefix: str,
+    settings_configmap: str | None = None,
+) -> dict[str, Any]:
+    """A Job running the CronJob's pod template with the e2e-only flags appended to the evaluator's command.
+
+    With `settings_configmap` (keys `alerts.json` and `ca.crt`) the Job reads those settings, which trust the stub's CA.
+    """
     template = copy.deepcopy(cronjob["spec"]["jobTemplate"])
-    container = template["spec"]["template"]["spec"]["containers"][0]
+    pod = template["spec"]["template"]["spec"]
+    container = pod["containers"][0]
     flags = ["--state-prefix", state_prefix] + (["--now", now.astimezone(UTC).isoformat()] if now else [])
+    if settings_configmap:
+        flags += ["--settings", f"{E2E_MOUNT}/alerts.json"]
+        pod["volumes"] = [*pod.get("volumes", []), {"name": "e2e", "configMap": {"name": settings_configmap}}]
+        container["volumeMounts"] = [
+            *container.get("volumeMounts", []),
+            {"name": "e2e", "mountPath": E2E_MOUNT, "readOnly": True},
+        ]
     container["args"] = [*container.get("args", []), *flags]
     template["spec"].pop("ttlSecondsAfterFinished", None)
     return {
@@ -233,7 +276,9 @@ class Harness:
         """One evaluator run to completion; the notifications it sent are what `received` returns."""
         self.jobs += 1
         name = f"olf-e2e-alert-eval-{self.jobs}-{uuid.uuid4().hex[:6]}"
-        manifest = evaluation_job(self.cronjob, name, now=now, state_prefix=STATE_PREFIX)
+        manifest = evaluation_job(
+            self.cronjob, name, now=now, state_prefix=STATE_PREFIX, settings_configmap=SETTINGS_CONFIGMAP
+        )
         namespace = self.cfg.platform_namespace
         kubectl(self.cfg, ["apply", "-f", "-"], input_text=json.dumps(manifest))
         try:
@@ -464,7 +509,7 @@ def alert_receiver(cfg: E2EConfig) -> Iterator[str]:
         kubectl(
             cfg,
             ["delete", f"pod/{STUB_NAME}", f"service/{STUB_NAME}", f"certificate/{STUB_NAME}"]
-            + [f"secret/{STUB_NAME}-tls", "-n", namespace, "--ignore-not-found"],
+            + [f"secret/{STUB_NAME}-tls", f"configmap/{SETTINGS_CONFIGMAP}", "-n", namespace, "--ignore-not-found"],
         )
 
     remove()
@@ -475,6 +520,20 @@ def alert_receiver(cfg: E2EConfig) -> Iterator[str]:
         kubectl(cfg, [*run, f"--overrides={json.dumps({'spec': spec})}"])
         kubectl(cfg, ["expose", "pod", STUB_NAME, "-n", namespace, "--port=443", "--target-port=8443"])
         kubectl(cfg, ["wait", "--for=condition=Ready", f"pod/{STUB_NAME}", "-n", namespace, "--timeout=180s"])
+        # The evaluator trusts the public roots plus this CA (its `ca_file`), but only the route-TLS deployment mounts
+        # the local CA. The CA that signed the stub's certificate is in that certificate's Secret in every mode.
+        ca = k8s.secret_value(
+            f"{STUB_NAME}-tls", r"ca\.crt", namespace, kube_context=cfg.kube_context, environ=cfg.environ
+        )
+        live = kubectl(cfg, ["get", "configmap", EVALUATOR, "-n", namespace, "-o", "json"], capture=True)
+        settings = {"alerts.json": e2e_settings(json.loads(live)["data"]["alerts.json"]), "ca.crt": ca}
+        configmap = {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {"name": SETTINGS_CONFIGMAP, "namespace": namespace},
+            "data": settings,
+        }
+        kubectl(cfg, ["apply", "-f", "-"], input_text=json.dumps(configmap))
         yield STUB_NAME
     finally:
         remove()
@@ -549,8 +608,14 @@ def check_alert_delivery(cfg: E2EConfig) -> None:
     if not listing.strip():
         log.info("Skipping the alert checks: the profile declares no receiver, so there is no evaluator.")
         return
-    log.step("Checking alert notifications reach a receiver once per incident...")
     cronjob = json.loads(listing)
+    if not sole_receiver_is_the_stub(cronjob):
+        log.info(
+            f"Skipping the alert checks: the evaluator's only receiver is not {RECEIVER_SECRET} "
+            "(the conformance profile's), and the checks must not send test incidents to a real one."
+        )
+        return
+    log.step("Checking alert notifications reach a receiver once per incident...")
     stage = cfg.namespace.removeprefix("olf-")
     token = uuid.uuid4().hex
     url = k8s.secret_value(RECEIVER_SECRET, RECEIVER_KEY, namespace, kube_context=cfg.kube_context, environ=cfg.environ)

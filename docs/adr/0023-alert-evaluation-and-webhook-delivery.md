@@ -447,6 +447,6 @@ carry `quality_manifests` and it builds one reader per stage on its own
 grant or network row was added. No deviation from the decisions above.
 
 2026-11-16: the e2e (`olf/infra/e2e/_alerts.py`, #1173, slice 23-f) runs the evaluator as Jobs made from the CronJob with
-`--state-prefix alerts-e2e/` against a stub receiver, flow F41. Its delivery records are the `-delivery-` objects under
+`--state-prefix alerts/e2e/` against a stub receiver, flow F41; the prefix sits inside the evaluator key's `alerts/*` grant, because `--state-prefix` replaces the configured prefix. The Job reads its own settings, with `ca_file` set to the CA that signed the stub's certificate, so the delivery does not depend on the route TLS mode, and the e2e runs only when the stub is the evaluator's sole receiver. Its delivery records are the `-delivery-` objects under
 that prefix's `history/v1/`, not a separate `alerts/deliveries/` prefix. The e2e writes the Floe WARN and ERROR cases as
 manifests for a real run, as the evaluator reads only the manifest. No deviation from the decisions above.
