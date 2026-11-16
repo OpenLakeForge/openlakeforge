@@ -4,9 +4,11 @@ import json
 import os
 import threading
 import urllib.request
+from collections.abc import Iterator
 from datetime import timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -127,7 +129,7 @@ def test_a_spool_that_cannot_be_read_is_reported_unreadable_not_empty(
     _file(tmp_path / "spool-prod" / "b", 5, 30)
     real = Path.iterdir
 
-    def deny_nested(self: Path):  # type: ignore[no-untyped-def]
+    def deny_nested(self: Path) -> Iterator[Path]:
         if self.name == "nested":
             raise PermissionError(13, "denied")
         return real(self)
@@ -148,7 +150,7 @@ def test_a_file_that_vanishes_mid_scan_does_not_hide_the_rest(tmp_path: Path, mo
     _file(tmp_path / "spool-dev" / "gone", 99, 9000)
     real = Path.stat
 
-    def vanish(self: Path, **kwargs):  # type: ignore[no-untyped-def]
+    def vanish(self: Path, **kwargs: Any) -> os.stat_result:
         if self.name == "gone":
             raise FileNotFoundError(2, "uploaded and removed")
         return real(self, **kwargs)
