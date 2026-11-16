@@ -40,3 +40,13 @@ spec:
       enabled: true
     prod:
       enabled: true
+  # The alert evaluator's e2e receiver (#1173): a stub pod olf starts in olf-system. The nightly creates the Secret
+  # before the platform applies, because the deploy fails when a receiver's Secret is missing (ADR 0023).
+  observability:
+    alerts:
+      receivers:
+        - name: e2e-receiver
+          type: webhook
+          secret_ref:
+            name: olf-e2e-alert-receiver
+            key: webhook-url

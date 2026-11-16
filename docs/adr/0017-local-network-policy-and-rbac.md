@@ -211,6 +211,7 @@ port [D]).
 | F38 | the alert evaluator (`openlakeforge.io/job=alert-evaluator`) | Dagster webserver 80 (stage) | 80 | its read-only GraphQL reads of each stage ([ADR 0023](0023-alert-evaluation-and-webhook-delivery.md), decision 7), as F32 does for the platform API; the stage rule is namespace-wide | T |
 | F39 | the alert evaluator | SeaweedFS S3 8333 | 8333 | its state and history under `alerts/` and the stages' quality manifests, with its own key `openlakeforge-alerts`: `Read`, `Write` and `List` on `alerts/*`, `Read` and `List` on each stage's `activations/<stage>/run-artifacts/quality/*` and nothing else | T |
 | F40 | the alert evaluator | any address outside the pod and Service ranges | 443 | the webhook receivers, which are HTTPS only; no FQDN selector, so the port on any address, on that Job's pods only, as F28 and F30 | T |
+| F41 | the alert evaluator | the alert e2e's stub receiver (`olf-system`, label `openlakeforge.io/e2e=alert-receiver`, #1173) | 8443 | the receiver's URL is `olf-e2e-alert-receiver.olf-system.svc`; F40 excludes pod and Service ranges, so the stub needs its own row (post-DNAT port), as F29 does for Dex | T; a flow-file row keyed on the label the e2e sets |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
@@ -641,3 +642,7 @@ stage, `Read` and `List` on that stage's `activations/<stage>/run-artifacts/qual
 platform API for its health routes. It reuses the platform API's existing S3 flow, so no network row changed. The alert
 evaluator reads the same manifests with its own `openlakeforge-alerts` key (F39), which already holds `Read` and `List` on
 each quality prefix: no Secret, grant or flow was added for it.
+
+F41 added (#1173, ADR 0023): the alert e2e runs a stub webhook receiver as a pod in `olf-system` for the length of the
+check, labelled `openlakeforge.io/e2e=alert-receiver`, and F41 lets the evaluator's pods reach it on 8443. Like F29, the
+row exists only for the e2e. The stub is not a workload with a policy of its own, and `olf-system` has no default deny, so the e2e creates a temporary NetworkPolicy beside it that admits only the evaluator's pods on 8443 (the harness reads the stub's routes by `kubectl exec` over loopback, which needs no rule) and deletes it with the stub.

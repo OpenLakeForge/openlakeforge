@@ -313,6 +313,10 @@ jobs:
           kubectl --kubeconfig "${OLF_KUBECONFIG}" -n olf-system create secret generic github-oauth-app \
             --from-literal=client-id=olf-e2e --from-literal=client-secret=olf-e2e \
             --dry-run=client -o yaml | kubectl --kubeconfig "${OLF_KUBECONFIG}" -n olf-system apply -f -
+          # The alert receiver's webhook URL (conformance profile): the e2e's stub pod serves it.
+          kubectl --kubeconfig "${OLF_KUBECONFIG}" -n olf-system create secret generic olf-e2e-alert-receiver \
+            --from-literal=webhook-url=https://olf-e2e-alert-receiver.olf-system.svc/hook \
+            --dry-run=client -o yaml | kubectl --kubeconfig "${OLF_KUBECONFIG}" -n olf-system apply -f -
           olf infra platform apply -f openlakeforge.yaml
 
       - name: Export the provider contract and check it against the conformance fixture

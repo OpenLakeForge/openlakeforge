@@ -19,6 +19,7 @@ from openlakeforge_core import inventory_for
 from olf.common import log
 from olf.common.project import ProjectSpec
 from olf.infra.deployment.cloud.cluster_name import aws_cluster_name
+from olf.infra.e2e._alerts import check_alert_delivery
 from olf.infra.e2e._artifacts import check_ops_artifacts
 from olf.infra.e2e._assertions import check_openmetadata_assets, check_superset_dashboards
 from olf.infra.e2e._break_glass import check_break_glass
@@ -396,6 +397,8 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
             FullAssertion("short-lived pod output in the log archive", check_short_lived_pod_output, tier="drill")
         )
         assertions.append(FullAssertion("log collector restart mid-stream", check_collector_restart, tier="drill"))
+    if cfg.env == "local":
+        assertions.append(FullAssertion("alert notifications reach a receiver", check_alert_delivery))
     assertions.append(FullAssertion("cross-stage isolation", check_stage_isolation))
     if cfg.env == "local":
         # The scan sees only current values, so it runs before the rotation replaces the credential the whole run used.
