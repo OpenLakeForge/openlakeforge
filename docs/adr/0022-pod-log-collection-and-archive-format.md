@@ -46,7 +46,7 @@ reference docs, with `grafana/alloy:v1.22.0` as the newest image.
 | Record format | The record is what the pipeline builds, one JSON object per line [T] | Marshalers are `otlp_json` (OTLP batches, not a line per record), `otlp_proto`, `sumo_ic`, `body` (body only, drops the fields); the page names no NDJSON ([component](https://grafana.com/docs/alloy/v1.21/reference/components/otelcol/otelcol.exporter.awss3/)) |
 | Durable buffering | `storage.type filesystem` per input with global `storage.path`; chunks are on disk before delivery ([buffering](https://docs.fluentbit.io/manual/administration/buffering-and-storage)); `out_s3` also spools files in `store_dir` and re-sends leftovers on restart ([S3 output](https://docs.fluentbit.io/manual/pipeline/outputs/s3)) | `sending_queue.storage` takes an `otelcol.storage` component for a persistent queue; the queue holds 1000 requests by default ([component](https://grafana.com/docs/alloy/v1.21/reference/components/otelcol/otelcol.exporter.awss3/)) |
 | Bounded memory | `mem_buf_limit` pauses a memory-only input; `storage.max_chunks_up` (128) and `storage.backlog.mem_limit` (5M) bound chunks in memory ([buffering](https://docs.fluentbit.io/manual/administration/buffering-and-storage), [service](https://docs.fluentbit.io/manual/administration/configuring-fluent-bit/yaml/service-section)) | Queue bounded by `queue_size`; no per-input memory ceiling documented on the component page |
-| Bounded disk | `storage.total_limit_size` per output: at the limit the oldest queued chunk is discarded ([buffering](https://docs.fluentbit.io/manual/administration/buffering-and-storage)); `store_dir_limit_size` (0, unlimited) discards when reached ([S3 output](https://docs.fluentbit.io/manual/pipeline/outputs/s3)) | Persistent-queue size limits are not on the component page [T] |
+| Bounded disk | `storage.total_limit_size` per output: at the limit the oldest queued chunk is discarded ([buffering](https://docs.fluentbit.io/manual/administration/buffering-and-storage)), but it "isn't meaningful for S3 since it has its own buffering system"; the S3 spool is bounded only by `store_dir_limit_size`, default `0` (unlimited), which discards when reached ([S3 output](https://docs.fluentbit.io/manual/data-pipeline/outputs/s3)) | Persistent-queue size limits are not on the component page [T] |
 | Retry | Per output `Retry_Limit` (default 1; `no_limits` retries forever); exponential backoff with jitter, `scheduler.base` 5 s, `scheduler.cap` 2000 s; exhausted chunks are discarded unless `storage.keep.rejected` ([retries](https://docs.fluentbit.io/manual/administration/scheduling-and-retries)) | `retry_on_failure`, `max_elapsed_time` 5m by default, `0s` retries forever ([component](https://grafana.com/docs/alloy/v1.21/reference/components/otelcol/otelcol.exporter.awss3/)) |
 | Backpressure | Memory-only input pauses at `mem_buf_limit`; `storage.pause_on_chunks_overlimit` chooses between pausing and spilling to disk ([buffering](https://docs.fluentbit.io/manual/administration/buffering-and-storage)); the tail input reads from files, so a pause leaves the data in the kubelet's log file ([tail](https://docs.fluentbit.io/manual/pipeline/inputs/tail)) | `block_on_overflow` (default false) otherwise returns a retryable error at once ([component](https://grafana.com/docs/alloy/v1.21/reference/components/otelcol/otelcol.exporter.awss3/)) |
 | Loss indicators | `fluentbit_output_dropped_records_total`, `_retries_total`, `_retries_failed_total`, `_errors_total`; `fluentbit_storage_fs_chunks_down`; `fluentbit_input_storage_overlimit`, `fluentbit_input_ingestion_paused`; `/api/v2/health` with `Health_Check` ([monitoring](https://docs.fluentbit.io/manual/administration/monitoring)). The pages name no metric for a chunk discarded at `storage.total_limit_size` | `otelcol_exporter_queue_size` among the debug metrics (search result for the `next` docs, not read in full) |
@@ -67,16 +67,18 @@ Configuration shape, so slice b does not reopen the choice:
 | --- | --- | --- |
 | Input | one `tail` per routed namespace, `Path /var/log/containers/*_<namespace>_*.log`, `multiline.parser cri`, its own `DB` file, `Read_from_Head On`, `Refresh_Interval` 5, `Skip_Long_Lines On` | No `kubernetes` filter decision picks the route (Decision 3); a pod started while the collector was down is read from its first line |
 | Buffering | `storage.type filesystem` on every input, `storage.path` on a `hostPath` or `emptyDir` sized by the profile | A collector restart or an S3 outage keeps the chunks |
-| Output | `out_s3` per stage, `use_put_object On`, `compression gzip`, `total_file_size` 8M, `upload_timeout` 5m, `Retry_Limit no_limits`, `storage.total_limit_size` set | `PutObject` leaves no unfinished multipart uploads to clean; unlimited retries bound the loss to the disk limit, not to a retry count |
+| Output | `out_s3` per stage, `use_put_object On`, `compression gzip`, `total_file_size` 8M, `upload_timeout` 5m, **`store_dir_limit_size` set explicitly** (never the default `0`), `store_dir` on the collector volume | `PutObject` leaves no unfinished multipart uploads to clean. The S3 plugin buffers every chunk into `store_dir` and returns `FLB_OK`, so the engine's `Retry_Limit` and `storage.total_limit_size` never see an upload failure: the spool and its limit are the plugin's own ([S3 output](https://docs.fluentbit.io/manual/data-pipeline/outputs/s3), "Differences between S3 and other Fluent Bit outputs") |
+| Spool bound | `store_dir_limit_size` = the stated outage budget (hours) times the stage's measured peak ingest rate (slice b measures it); the volume holds `store_dir_limit_size` plus the `storage.path` chunk budget plus headroom slice b sets | An unbounded spool fills the node disk; a bound makes the loss point a number an operator can size and alert on. Whether the spool counts uncompressed bytes, and which data is discarded at the limit (the page says only that data is discarded), is [T] |
+| Upload retries | The plugin's own `retry_limit` (default 5), `file_delivery_attempt_limit` and `retry_exhausted_action` (default `quarantine`, alternative `delete`) | The page documents the defaults; whether a quarantined file still counts against `store_dir_limit_size`, and whether it is retried after the outage, is [T] and decides the value slice b sets |
 | Metadata | `kubernetes` filter with `Merge_Log Off`, `Annotations Off`, `Use_Kubelet Off` | App JSON stays a string in `message`; annotations can carry customer text; `nodes/proxy` is not requested |
-| Telemetry | `http_server On`, `Health_Check On`, Prometheus endpoint | The indicators in the table below |
+| Telemetry | `http_server On`, `Health_Check On`, Prometheus endpoint, plus the spool and delivery signals of Decision 2 | The engine's output metrics are "meaningless for S3" (same page), so delivery health is read from the spool and the bucket, not from them |
 
 ## Decision 2: failure modes and how each is detected
 
 | Failure | Effect | Detected by | Bound |
 | --- | --- | --- | --- |
-| Object store unreachable or refusing credentials | Chunks queue on disk and retry | `fluentbit_output_retries_total`, `_retries_failed_total`, `_errors_total`, `fluentbit_storage_fs_chunks_down` rising; `/api/v2/health` 500 | None until the disk limit |
-| Outage longer than the disk limit | **Oldest chunks discarded** | Upstream documents the discard but no metric for it; the collector's own stderr is archived with the platform logs and carries the engine's messages [T]; `fluentbit_output_dropped_records_total` [T] | `storage.total_limit_size`, sized per profile for a stated outage in hours |
+| Object store unreachable or refusing credentials | The S3 flush buffers to `store_dir` and returns OK, so the engine sees success while files pile up and the plugin retries | **Not** the engine's output retry, error or health metrics: the page calls them "meaningless for S3". The delivery signals below | `store_dir_limit_size` |
+| Outage longer than the spool limit | Data discarded at `store_dir_limit_size` (which data is [T]) | The delivery signals below; the collector's stderr carries the plugin's messages [T]; upstream documents the discard but no metric for it | `store_dir_limit_size`, sized per profile for a stated outage in hours |
 | Collector restart or node reboot | Offsets in `DB`, chunks on disk and `store_dir` leftovers resume | `fluentbit_input_ingestion_paused`, restart count | A replay may repeat lines: the dedup key (Decision 4) drops them on read |
 | Node replaced or collector volume lost | Unsent chunks and offsets lost | Pod restart on a new node with an empty `DB` | The node's volume; no claim stronger than that |
 | Pod deleted while the collector was down | Unread lines gone with the kubelet's files | Gap between a pod's last archived line and its exit [T] | The collector's downtime |
@@ -84,9 +86,26 @@ Configuration shape, so slice b does not reopen the choice:
 | Line longer than `Buffer_Max_Size` | Skipped (`Skip_Long_Lines On`) | None from upstream [T] | Set `Buffer_Max_Size` to 1M |
 | Pod gone before metadata lookup | Labels absent | `missing` lists them in the record | Fields are best effort, never routing |
 
-Retries are unbounded and the loss point is the disk limit; that is deliberate,
-because a retry count discards data on the first long outage while a disk limit
-is a number an operator can size and alert on before it is reached.
+The loss point is the spool limit, not a retry count: a retry count discards
+data on the first long outage, while a size limit is a number an operator can
+size and alert on before it is reached.
+
+Delivery signals for the S3 output. None is an engine metric; each is
+independent of the plugin's `FLB_OK`:
+
+| Signal | Source | Reads as an outage when |
+| --- | --- | --- |
+| Age of the oldest file in `store_dir` | A file-age gauge over the volume, from a probe in the collector pod or a node-level exporter [T: which `olf-system`'s pod security level admits] | Older than `upload_timeout` plus one retry cycle: a healthy spool is emptied within minutes |
+| Spool size against `store_dir_limit_size` | Same source (`du` of `store_dir`) | Above a fraction of the limit that leaves the stated outage budget half spent; at the limit data is already being lost |
+| Newest object key per stage prefix | A `ListObjectsV2` by the #798 self-health probe, with a read identity (the collector's key is write-only, Decision 3) | Older than `upload_timeout` plus slack while the stage's pods are running and logging: the only signal that also covers a collector that is down |
+
+Slice d (#1123) verifies them by failure injection: block the ops-bucket
+endpoint with a NetworkPolicy, write known lines, and assert that the oldest-file
+age and the spool size rise, that the engine's output error counters stay at zero
+(which documents why they are not used), and that the newest-key age passes its
+threshold; then restore the endpoint and assert the spool drains and the lines
+appear in the archive. Another run fills the spool to `store_dir_limit_size` and
+records which data is discarded and what the plugin logs.
 
 ## Decision 3: the trust boundary
 
@@ -124,14 +143,25 @@ readable with `zcat`.
 
 Partitioning: `<base>/v2/namespace=<ns>/date=<YYYY-MM-DD>/<name>.ndjson.gz`,
 where `<base>` is the stage's existing `s3://<ops>/activations/<stage>/logs`, so
-the stage is the leading path segment, as it is for v1. The date is that of the
-first record in the object (`s3_key_format` uses the first record's time
-([S3 output](https://docs.fluentbit.io/manual/pipeline/outputs/s3))). There is no
-hour partition: after an outage one object can hold records from earlier than
-its date, so an hour would promise more than the layout guarantees. A reader of
-day D lists `date=D` and `date=D-1` and filters by each record's `time` [T:
-an object spanning more than a day, after a multi-day outage, is found only by a
-wider read].
+the stage is the leading path segment, as it is for v1. The date is the **UTC date
+of every record in the object**, not the time of the flush or of the first
+record. `s3_key_format` offers `$UUID`, `$INDEX`, `$TAG`, `$TAG[n]` and strftime
+time, with the time being the first record's ([S3 output](https://docs.fluentbit.io/manual/data-pipeline/outputs/s3)); the page names no specifier that reads a record field,
+and after an outage the spool uploads old files after new ones, so a first-record
+date alone can put day D's records under D+1. The date therefore goes into the
+tag: a `rewrite_tag` filter re-tags each record `<namespace>.<YYYY-MM-DD of its
+own time>`, and the key is
+`v2/namespace=$TAG[0]/date=$TAG[1]/<stage>-$UUID.ndjson.gz`. The plugin keeps one
+buffer per tag, so an object holds one date by construction, and a reader of day
+D lists `date=D` only and still filters by each record's `time`. Namespace names
+contain no dot, so `$TAG[0]` is the namespace. Whether `rewrite_tag` can build a
+tag from the `time` field (a record accessor, run after the record carries the
+CRI time) and how many open per-tag buffers it costs on a busy day boundary is
+[T], slice b's first test. If it cannot, the fallback is a bounded read: day D is
+listed in `date=D` through `date=D+k`, with `k = ceil((outage budget +
+upload_timeout) / 24h)`, which holds only if the spool discards its oldest data first [T]; the reader never lists fewer days than that. There
+is no hour partition: an hour would promise a precision the fallback does not
+keep.
 
 ```text
 s3://openlakeforge-ops/activations/dev/logs/v2/namespace=olf-dev/date=2026-11-16/dev-4f1b6c2e-9a3d.ndjson.gz
@@ -172,8 +202,8 @@ second layout.
 | --- | --- |
 | v1 stays | `<base>/k8s/...` is read exactly as today. v1 objects are never rewritten; the reader keeps the v1 path as long as any can exist, which is at least `retention_days` after the CronJob is removed |
 | v2 added | `<base>/v2/...` is listed in the same call. The v1 reader never lists `v2/`, so an old API or CLI keeps working while v2 objects accumulate |
-| Same response | `ArchivedLogLine` keeps `archived_at`, `namespace`, `pod`, `container`, `line`, `error`; for v2, `line` is `message` and `archived_at` is `time`. New fields (`stage`, `component`, `domain`, `product`, `run_id`, `stream`, `missing`) are additive and optional, so `olf logs` output and the API's OpenAPI document change only by additions |
-| Overlap | While the CronJob and the collector both run, a pod's v1 lines are skipped when v2 records exist for that namespace, pod and container; otherwise v1 is shown. The CronJob is removed by its own change once the failed-Floe-pod acceptance of #22 passes on v2 |
+| Same response | `ArchivedLogLine` keeps `archived_at`, `namespace`, `pod`, `container`, `line`, `error`; for v2, `line` is `message` and `archived_at` is `time`. New fields (`stage`, `component`, `domain`, `product`, `run_id`, `stream`, `missing`, `source`) are additive and optional, so `olf logs` output and the API's OpenAPI document change only by additions |
+| Overlap | While the CronJob and the collector both run, a v1 line is dropped only when v2 holds a record with the same namespace, pod, container, timestamp and text; every unmatched v1 line is kept, including a container's history from before the collector's first record. The v1 `line` begins with the kubelet timestamp (`timestamps=True` in `k8s_log_archive.py` [V]); that it equals the CRI `time` byte for byte is [T], and where it does not the line is shown from both sources, with `source` (`v1` or `v2`) set on each so a duplicate is visible, never a loss. The CronJob is removed by its own change once the failed-Floe-pod acceptance of #22 passes on v2 |
 | Duplicates | Within v2, a record whose `dedup_key` was already returned is dropped |
 | Authorization | Unchanged: `stage` stays the path segment the permission matrix checks. The read key widens from `logs/k8s/` to `logs/` of each stage, which changes ADR 0017 F33 and ADR 0021 build step 3 in the same slice |
 
