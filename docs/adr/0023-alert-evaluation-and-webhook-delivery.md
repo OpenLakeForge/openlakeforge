@@ -141,9 +141,11 @@ version, stage, condition, domain, product, table and component
 repeated failures of one product are one incident, and it includes the domain and
 table, so two products with the same name in different domains never collide. A
 recurrence after a resolve is a new incident with the same fingerprint, told apart
-by an **id**: `<fingerprint>-<seq>`, where `seq` is a per-fingerprint counter kept
-in state. Ids never repeat, even when a resolve and a re-open fall in the same
-second (as under the e2e's fixed `--now`).
+by an **id**: `<fingerprint>-<opened_at>-<seq>`, where `opened_at` is the UTC
+epoch second the incident opened and `seq` is a per-fingerprint counter kept in
+state. The counter keeps ids apart when a resolve and a re-open fall in the same
+second (as under the e2e's fixed `--now`); the time keeps them apart when state
+is lost and the counter restarts (see Missing or corrupt state).
 Repeated evaluations of an open key update `last_seen` and the latest run id and
 send nothing. A second failed run while `run_failed` is open is the same
 incident: one notification per incident, not per run.
@@ -219,7 +221,10 @@ A missing `state.json` is an empty state: the first run after a deploy opens an
 incident for every condition that is firing and notifies each. A `state.json`
 that does not parse is copied to `alerts/state/v1/corrupt/` first, never
 overwritten, and treated the same. Either way **incidents currently firing are
-notified again**: better a duplicate than silence. Default, revisit.
+notified again**: better a duplicate than silence. Default, revisit. Because
+an id carries its opening time, a re-opened incident gets a new id and a new
+`Idempotency-Key`, so a receiver that deduplicates on the key still shows it,
+and later recurrences never collide with ids issued before the loss.
 
 ### Single writer
 
