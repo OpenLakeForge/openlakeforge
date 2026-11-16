@@ -341,3 +341,10 @@ not read: validation names `olf project migrate`, which rewrites the version lin
 and the key and refuses anything it cannot move safely. `query.engine` and
 `spec.expose` are not fields; DuckDB stays outside the profile until its Slim
 conformance gates pass (#547), and public exposure waits for the cloud beta.
+
+2026-11-16 (#1117): optional `spec.observability` added to v1beta1 without a
+version bump, as `spec.access`, `spec.identity`, `spec.project` and the sizing
+blocks were: an optional block that a profile may omit is additive, and the
+profiles that omit it resolve as before. It states capabilities (log archive
+retention, metrics, log search, Grafana, alert receivers by Secret reference),
+never a backend. The resolver prints it; no Terraform reads it yet (#332).

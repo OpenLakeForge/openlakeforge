@@ -1,0 +1,16 @@
+apiVersion: openlakeforge.io/v1beta1
+kind: DeploymentProfile
+
+metadata:
+  name: fixture-full
+
+spec:
+  provider:
+    type: local
+  preset: full
+  stages:
+    dev:
+      enabled: true
+  observability:
+    metrics:
+      enabled: false

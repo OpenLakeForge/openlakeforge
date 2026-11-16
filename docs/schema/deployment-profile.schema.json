@@ -104,6 +104,77 @@
             "size": {"enum": ["small", "medium", "large"], "default": "small"}
           }
         },
+        "observability": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Observability capabilities, never a backend product. Platform-wide, not per stage. The log archive is always on; metrics default to off on `slim` and on for `full`; log search and Grafana default to off. Retention is in days.",
+          "properties": {
+            "logs": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "archive": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Durable log archive. Always on in Slim and Full, so `enabled: false` is rejected.",
+                  "properties": {
+                    "enabled": {"const": true},
+                    "retention_days": {"type": "integer", "minimum": 1, "maximum": 3650, "default": 30}
+                  }
+                },
+                "search": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Indexed log search (#795). Archived log browsing does not need it.",
+                  "properties": {"enabled": {"type": "boolean", "default": false}}
+                }
+              }
+            },
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Metrics collection and history (#21). `enabled` defaults to false on `slim` and true on `full`.",
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "retention_days": {"type": "integer", "minimum": 1, "maximum": 3650, "default": 7}
+              }
+            },
+            "grafana": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Optional Grafana for operators (#210).",
+              "properties": {"enabled": {"type": "boolean", "default": false}}
+            },
+            "alerts": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Notification routing (#23). Credentials are references to Kubernetes Secrets created out-of-band, never values.",
+              "properties": {
+                "receivers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["name", "type", "secret_ref"],
+                    "properties": {
+                      "name": {"type": "string", "pattern": "^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$", "description": "Unique within the list."},
+                      "type": {"enum": ["webhook", "email", "slack"]},
+                      "secret_ref": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["name", "key"],
+                        "properties": {
+                          "name": {"type": "string", "maxLength": 253, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"},
+                          "key": {"type": "string", "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$", "not": {"enum": [".", ".."]}}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "project": {
           "type": "object",
           "additionalProperties": false,
