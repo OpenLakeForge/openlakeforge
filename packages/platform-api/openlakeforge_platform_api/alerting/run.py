@@ -91,6 +91,11 @@ def run_once(
             if result.status == "delivered":
                 state = record_delivery(state, notification.id, name, routed=routed)
                 delivered += 1
+            elif result.status == "rejected":
+                # A 4xx other than 408/429 will not change on retry (ADR 0023, decision 4): settle this receiver so the
+                # next runs do not resend it; the history record above keeps the real outcome, `rejected`.
+                state = record_delivery(state, notification.id, name, routed=routed)
+                failed += 1
             else:
                 failed += 1
 

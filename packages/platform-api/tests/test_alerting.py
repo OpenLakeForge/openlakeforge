@@ -52,6 +52,7 @@ class FakeDagster(DagsterClient):
 @dataclass
 class FakeNotifier:
     up: bool = True
+    rejecting: bool = False
     sent: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     # Raised by `send` after it is recorded, to stand for the process dying mid-delivery.
     crash: Callable[[], Exception] | None = None
@@ -60,6 +61,8 @@ class FakeNotifier:
         self.sent.append((delivery_id, dict(payload)))
         if self.crash:
             raise self.crash()
+        if self.rejecting:
+            return DeliveryResult("rejected", 404, 1)
         return DeliveryResult("delivered", 200, 1) if self.up else DeliveryResult("retryable", 503, 3)
 
     @property
@@ -209,6 +212,21 @@ def test_a_receiver_that_is_down_and_then_up_is_sent_to_once_and_the_other_not_a
         "delivered",
         "retryable",
     ]
+
+
+def test_a_rejected_delivery_is_not_resent_and_is_recorded_as_rejected() -> None:
+    # A 4xx other than 408/429 will not change on retry (ADR 0023, decision 4).
+    bucket, dagster = FakeBucket(), {"dev": FakeDagster([_failed()])}
+    rejecting = FakeNotifier(rejecting=True)
+    settings = _settings(A)
+
+    for minutes in (0, 5, 10):
+        _evaluate(settings, bucket, dagster, {"ops": rejecting}, NOW + timedelta(minutes=minutes))
+
+    assert len(rejecting.sent) == 1
+    records = bucket.under("alerts/history/v1/")
+    assert [r["outcome"] for r in records.values() if r["record"] == "delivery"] == ["rejected"]
+    assert bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["outbox"] == []
 
 
 def test_a_receiver_only_gets_the_stages_it_names() -> None:
