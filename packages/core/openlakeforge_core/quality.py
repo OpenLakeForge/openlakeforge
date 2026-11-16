@@ -208,7 +208,7 @@ class QualityResult:
             raise QualityRecordError(f"quality result is missing {exc.args[0]!r}") from exc
         except QualityRecordError:
             raise
-        except ValueError as exc:
+        except (ValueError, TypeError, AttributeError) as exc:
             raise QualityRecordError(f"quality result is invalid: {exc}") from exc
         stored = data.get("identity")
         if stored is not None and stored != record.identity:
@@ -282,17 +282,23 @@ class QualityManifest:
         unknown = set(data) - {"version", "stage", "domain", "product", "dagster_run_id", "results"}
         if unknown:
             raise QualityRecordError(f"quality manifest has unknown fields {sorted(unknown)}")
+        results = data.get("results")
+        if not isinstance(results, list):
+            raise QualityRecordError("quality manifest results must be a list")
+        for entry in results:
+            if not isinstance(entry, dict):
+                raise QualityRecordError(f"quality manifest result must be an object, not {type(entry).__name__}")
         try:
             return cls(
                 stage=data["stage"],
                 domain=data["domain"],
                 product=data["product"],
                 dagster_run_id=data["dagster_run_id"],
-                results=tuple(QualityResult.from_dict(r) for r in data["results"]),
+                results=tuple(QualityResult.from_dict(r) for r in results),
             )
         except KeyError as exc:
             raise QualityRecordError(f"quality manifest is missing {exc.args[0]!r}") from exc
-        except TypeError as exc:
+        except (TypeError, AttributeError) as exc:
             raise QualityRecordError(f"quality manifest is invalid: {exc}") from exc
 
 

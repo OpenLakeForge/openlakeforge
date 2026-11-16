@@ -49,6 +49,9 @@ _RUN_STATUS = {
     "CANCELING": RunStatus.CANCELED,
 }
 
+# Runs whose quality manifest is complete; a canceled or in-progress run stopped before its later checks.
+_FINISHED = frozenset({"SUCCESS", "FAILURE"})
+
 
 @dataclass(frozen=True)
 class PipelineEvaluation:
@@ -142,6 +145,26 @@ def _owed(schedule: DagsterSchedule | None, runs: list[DagsterRun], owed: dateti
     return owed
 
 
+def _quality(
+    quality: QualityReader, scope: Scope, job: str, runs: list[DagsterRun], now: datetime, max_age: timedelta
+) -> Signal | None:
+    """The quality signal of the latest run's manifest, which is where a failed run's blocking errors are.
+
+    The manifest is published after every step, so one that is not from a finished run lacks the checks still to
+    come (dbt runs last) and a pass in it proves nothing: a retry that has cleared Silver but not dbt would resolve
+    the incident the previous run's dbt failure opened. Such a run contributes only a warning or critical; otherwise
+    the latest finished run's manifest answers, and with none there is no signal, which leaves an open incident open.
+    """
+    latest = runs[0]
+    found = quality_signal(quality, scope, job, latest.run_id, latest.tags, now=now, max_age=max_age)
+    if latest.status in _FINISHED or found is None or found.state in (HealthState.WARNING, HealthState.CRITICAL):
+        return found
+    finished = next((run for run in runs[1:] if run.status in _FINISHED), None)
+    if finished is None:
+        return None
+    return quality_signal(quality, scope, job, finished.run_id, finished.tags, now=now, max_age=max_age)
+
+
 def _evaluate(
     stage: str,
     job: str,
@@ -173,8 +196,7 @@ def _evaluate(
         evaluate_freshness(scope, success, _owed(schedule, runs, owed), now=now, grace=SCHEDULE_GRACE, schedule=state),
     ]
     if quality is not None and runs:
-        # The latest run's manifest whatever its status: a failed run is where the blocking errors are.
-        found = quality_signal(quality, scope, job, runs[0].run_id, runs[0].tags, now=now, max_age=max_age)
+        found = _quality(quality, scope, job, runs, now, max_age)
         if found is not None:
             signals.append(found)
     return PipelineEvaluation(job, runs, schedule, due, signals)

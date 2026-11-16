@@ -122,6 +122,14 @@ quality signal.
 | No manifest, an unreadable or foreign one, or one older than the run's evidence bound | `unknown` |
 | Some checks `not_run` or `unknown` and the rest `passed` | `unknown` |
 
+A run that has not finished (in progress or canceled) has a partial manifest,
+because dbt runs after Silver: a pass in it proves nothing. It contributes only
+a `warning` or `critical`; otherwise the latest `SUCCESS` or `FAILURE` run's
+manifest answers, and with no such run the pipeline carries no `quality`
+signal, which leaves an open incident open. A manifest whose `results` are
+malformed (an entry that is not an object, wrong field types) reads `unknown`
+like an unreadable one.
+
 The worst check decides, and no table name is used, so a manifest written from
 the baked dbt manifest, which names no table, reads the same as any other. A
 stage without the reader adds no signal and reports the `quality` integration

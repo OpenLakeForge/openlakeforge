@@ -419,3 +419,7 @@ Proposed above; the maintainer may change any of them.
 2026-11-16: quality signals are read from the per-run manifests (#1186, slice
 c of #793); the health routes report the quality integration as `available` or
 `not_provided`.
+
+2026-11-16: a run that has not finished contributes only a quality `warning`
+or `critical`; a pass in its partial manifest never reads `healthy`, so a
+retry cannot resolve the previous run's quality incident before dbt has run.

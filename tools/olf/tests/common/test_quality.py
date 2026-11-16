@@ -164,6 +164,54 @@ def test_malformed_manifests_raise_a_record_error(text: str) -> None:
         QualityManifest.from_json(text)
 
 
+def _manifest_document(**changes: object) -> str:
+    document = json.loads(manifest(result()).to_json())
+    document.update(changes)
+    return json.dumps(document)
+
+
+def _result_document(**changes: object) -> dict[str, object]:
+    record = result().to_dict()
+    record.update(changes)
+    return record
+
+
+@pytest.mark.parametrize(
+    "results",
+    [
+        [None],
+        [[]],
+        ["text"],
+        [1],
+        {},
+        "text",
+        None,
+        1,
+        [_result_document(metrics="x")],
+        [_result_document(metrics=[1])],
+        [_result_document(metrics={"rows": "many"})],
+        [_result_document(outcome=[])],
+        [_result_document(outcome=1)],
+        [_result_document(observed_at=1)],
+        [_result_document(engine=1)],
+        [_result_document(check_id=None)],
+        [_result_document(domain=1)],
+    ],
+    ids=repr,
+)
+def test_structurally_malformed_results_raise_a_record_error(results: object) -> None:
+    with pytest.raises(QualityRecordError):
+        QualityManifest.from_json(_manifest_document(results=results))
+
+
+def test_a_manifest_without_results_raises_a_record_error() -> None:
+    document = json.loads(_manifest_document())
+    del document["results"]
+
+    with pytest.raises(QualityRecordError, match="results"):
+        QualityManifest.from_json(json.dumps(document))
+
+
 def test_manifest_key_refuses_path_traversal() -> None:
     with pytest.raises(QualityRecordError, match="safe path segment"):
         manifest_key("sales", "../other", "run-1")

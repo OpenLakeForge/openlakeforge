@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -245,6 +246,102 @@ def test_the_alert_evaluator_opens_nothing_for_a_pipeline_whose_manifest_passed_
         )
 
         assert notifier.sent == []
+
+
+@pytest.mark.parametrize(
+    "results",
+    [[None], [[]], "text", {"a": 1}, [{"version": 1, "metrics": "x"}]],
+    ids=["null-entry", "list-entry", "string", "object", "partial-entry"],
+)
+def test_a_manifest_with_malformed_results_reads_unknown(results: object) -> None:
+    document = json.loads(
+        _store(_result(QualityOutcome.PASSED)).objects[PREFIX + manifest_key("sales", "orders", "run-1")]
+    )
+    document["results"] = results
+    bucket = FakeBucket()
+    bucket.objects[PREFIX + manifest_key("sales", "orders", "run-1")] = json.dumps(document).encode()
+
+    assert _state(bucket) == "unknown"
+
+
+def _two_runs(*statuses: str) -> list[DagsterRun]:
+    return [_run(f"run-{n}", status) for n, status in reversed(list(enumerate(statuses, 1)))]
+
+
+def _states(runs: list[DagsterRun], *manifests: tuple[str, QualityResult]) -> str | None:
+    bucket = FakeBucket()
+    for run_id, outcome in manifests:
+        stored = QualityManifest("dev", "sales", "orders", run_id, (outcome,))
+        bucket.objects[stored.ops_key] = stored.to_json().encode()
+    _, (pipeline,) = read_stage_pipelines(FakeDagster(runs), "dev", NOW, QualityReader(bucket, BASE))
+    found = [signal for signal in pipeline.signals if signal.kind.value == "quality"]
+    return found[0].state.value if found else None
+
+
+def test_a_running_run_with_every_check_so_far_passing_is_not_healthy() -> None:
+    # The retry (run-2) has cleared Silver; the failed run-1 is the latest finished one.
+    failed = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
+    partial = _result(QualityOutcome.PASSED, run_id="run-2")
+
+    assert _states(_two_runs("FAILURE", "STARTED"), ("run-1", failed), ("run-2", partial)) == "critical"
+
+
+def test_a_running_run_with_no_finished_run_before_it_carries_no_quality_signal() -> None:
+    partial = _result(QualityOutcome.PASSED, run_id="run-1")
+
+    assert _states(_two_runs("STARTED"), ("run-1", partial)) is None
+
+
+def test_a_running_run_still_reports_a_blocking_error_and_a_warning() -> None:
+    passed = _result(QualityOutcome.PASSED, run_id="run-1")
+    blocked = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-2")
+    warned = _result(QualityOutcome.WARN, run_id="run-2")
+
+    assert _states(_two_runs("SUCCESS", "STARTED"), ("run-1", passed), ("run-2", blocked)) == "critical"
+    assert _states(_two_runs("SUCCESS", "STARTED"), ("run-1", passed), ("run-2", warned)) == "warning"
+
+
+def test_a_finished_run_after_a_running_one_resolves_through_its_own_manifest() -> None:
+    passed = _result(QualityOutcome.PASSED, run_id="run-2")
+
+    assert _states(_two_runs("FAILURE", "SUCCESS"), ("run-2", passed)) == "healthy"
+
+
+def test_a_running_retry_does_not_resolve_an_open_quality_incident_and_a_completed_one_does() -> None:
+    state, notifier = FakeBucket(), FakeNotifier()
+    store = AlertStore(state, "s3://ops/alerts/")
+    failed = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
+
+    def evaluate(runs: list[DagsterRun], *results: QualityResult, at: datetime) -> list[str]:
+        bucket = FakeBucket()
+        for result in results:
+            manifest = QualityManifest("dev", "sales", "orders", result.dagster_run_id, (result,))
+            bucket.objects[manifest.ops_key] = manifest.to_json().encode()
+        notifier.sent.clear()
+        run_once(
+            settings=_settings(A),
+            store=store,
+            dagster={"dev": FakeDagster(runs)},
+            notifiers={"ops": notifier},
+            now=at,
+            quality={"dev": QualityReader(bucket, BASE)},
+        )
+        return [
+            f"{payload['event']}:{payload['condition']}"
+            for _, payload in notifier.sent
+            if payload["condition"] == "quality"
+        ]
+
+    assert evaluate(_two_runs("FAILURE"), failed, at=NOW) == ["opened:quality"]
+    partial = _result(QualityOutcome.PASSED, run_id="run-2")
+    assert evaluate(_two_runs("FAILURE", "STARTED"), failed, partial, at=NOW + timedelta(minutes=5)) == []
+    # Still open: the retry failing in dbt does not notify a second time.
+    blocked_again = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-2")
+    assert evaluate(_two_runs("FAILURE", "FAILURE"), failed, blocked_again, at=NOW + timedelta(minutes=10)) == []
+    passed = _result(QualityOutcome.PASSED, run_id="run-3")
+    assert evaluate(_two_runs("FAILURE", "FAILURE", "SUCCESS"), passed, at=NOW + timedelta(minutes=15)) == [
+        "resolved:quality"
+    ]
 
 
 class QualityDagster(ScheduledDagster):
