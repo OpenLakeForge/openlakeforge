@@ -241,13 +241,13 @@ the receiver `type` the profile already validates **[V: `_RECEIVER_TYPES` in
 | Rule | Behaviour | Basis |
 | --- | --- | --- |
 | Credential | The URL stored under the receiver's `secret_ref` **is** the credential. There is no separate token, and no HMAC signing in v0.7 | Maintainer |
-| Transport | HTTPS only. A non-`https` URL is refused before any request. Redirects are **not** followed: a 3xx is a failed attempt | Maintainer |
+| Transport | HTTPS only. A non-`https` URL is refused before any request. Redirects are **not** followed: a 3xx is a rejected delivery, not retried. urllib3 logs the request path (the credential) at DEBUG, so the evaluator calls `notify.quiet_transport_logs()` at startup | Maintainer |
 | Secret reference | The Secret lives in `olf-system`, is created out-of-band, and reaches the pod through `secretKeyRef`. The reference (name and key, never the value) may enter Terraform state. **Deploy fails with a clear message if the Secret or the key is missing** | Maintainer |
 | URL handling | The URL is never logged, never written to state or history, and never sent in a payload. Logs and history name the receiver, not its host | Proposed |
 | Method and body | `POST`, `Content-Type: application/json`, the payload below | Proposed |
 | Idempotency | `Idempotency-Key: <incident id>:<event>`, identical on every retry of one notification | Proposed |
-| Timeouts | 5 seconds to connect, 10 seconds in total per attempt | Proposed |
-| Retries | At most 3 attempts per evaluator run, with 1 s then 4 s between them. A notification still failing stays in the outbox and is retried by the next runs; after 12 runs (about an hour) it is marked `undeliverable` in history and dropped from the outbox. 2xx is success; 4xx other than 408 and 429 is not retried | Proposed |
+| Timeouts | 5 seconds to connect and 10 seconds to read, per attempt (`openlakeforge_services/notify.py`, #1170) | Proposed |
+| Retries | At most 3 attempts per evaluator run. Between attempts the notifier waits an exponential backoff with jitter (0.5 s base, 4 s cap), or the receiver's `Retry-After` when longer, capped at 10 s, so one `send` is bounded (`notify.MAX_TOTAL_SECONDS`). Connection errors, 408, 429 and 5xx are retried. A notification still failing stays in the outbox and is retried by the next runs; after 12 runs (about an hour) it is marked `undeliverable` in history and dropped from the outbox. 2xx is success; 4xx other than 408 and 429 is not retried | Proposed |
 | Stage routing | A receiver's optional `stages` list (for example `[prod]`) limits it to those stages; omitted means all stages. A stage the profile does not enable is a validation error | Maintainer; built in #1168 |
 
 **Why the deploy check cannot be a Terraform data source.** A
