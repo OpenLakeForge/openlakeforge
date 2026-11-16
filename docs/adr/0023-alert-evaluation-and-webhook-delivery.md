@@ -95,8 +95,7 @@ configuration (#23).
 | `run_failed` | the latest run of a product's job failed (`execution` is `critical`) | `critical` | Default, revisit: critical signals alert |
 | `missed_run` | `expected_run` is `critical`: a running schedule, a due time past its 15-minute grace, no run started since | `critical` | Default, revisit |
 | `stale_output` | a running schedule's job has no success since the previous due time plus grace | `critical` | Default, revisit: stale is that rule, with no SLA input (SLAs are #921, v0.7.5) |
-| `quality_warning` | the latest quality outcome is `warn`, or a non-blocking `error` | `warning` | Default, revisit: quality WARN alerts as `warning` |
-| `quality_failed` | the latest quality outcome is a blocking `error` | `critical` | Default, revisit: critical signals alert |
+| `quality` | the latest quality outcome is `warn` or a non-blocking `error` (severity `warning`), or a blocking `error` (severity `critical`). One condition with two severities, so a warning that turns into a blocking error stays one incident (see Severity escalation) | `warning` or `critical` | Default, revisit: quality WARN alerts as `warning`; critical signals alert |
 | `stage_unreadable` | Dagster for a stage could not be read in 3 consecutive evaluations | `critical` | Default, revisit for the count of 3; the severity is proposed |
 
 What does not alert, all **default, revisit**:
@@ -120,7 +119,7 @@ What does not alert, all **default, revisit**:
   source **(proposed)**: the issue names run, schedule, freshness and quality
   conditions only.
 
-`quality_*` conditions need the evaluator to read quality manifests, which no
+`quality` conditions need the evaluator to read quality manifests, which no
 caller wires into the health route yet (`_NOT_PROVIDED` in `health_routes.py`)
 and which #1162 starts to write. Until a stage writes them, the quality
 conditions read `unknown` and open nothing.
@@ -150,7 +149,7 @@ incident: one notification per incident, not per run.
 | `missed_run` | a run started at or after the due time | yes, once |
 | `missed_run`, schedule stopped while open | the schedule becomes `disabled` | **no**; recorded in history as `resolved_silently`. Default, revisit |
 | `stale_output` | a success at or after the due time | yes, once |
-| `quality_*` | a later run's outcome is `passed` | yes, once |
+| `quality` | a later run's outcome is `passed` | yes, once |
 | `stage_unreadable` | the first evaluation that reads the stage | yes, once |
 
 Incidents notify **once on fire and once on resolve**, with no reminders
@@ -164,8 +163,8 @@ state.
 
 ### Severity escalation
 
-A `quality_warning` that becomes `quality_failed` for the same product is one
-incident whose severity moves from `warning` to `critical`. The escalation sends
+A `quality` incident whose outcome moves from a warning to a blocking error for the
+same product keeps its key and id; its severity moves from `warning` to `critical`. The escalation sends
 **one** notification (`event: escalated`) and no repeat reminders. A move from
 `critical` to `warning` sends nothing; the history records it. Default, revisit.
 
