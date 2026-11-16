@@ -149,6 +149,8 @@ class FakeS3:
                 raise _client_error("InternalError")
             self.copies_allowed -= 1
         source = (CopySource["Bucket"], CopySource["Key"])
+        if source[1].endswith("/"):
+            raise _client_error("NoSuchKey")  # SeaweedFS keeps a folder marker as a directory, which cannot be copied
         if CopySourceIfMatch is not None and self.etag(*source) != CopySourceIfMatch:
             raise _client_error("PreconditionFailed")
         self._create(Bucket, Key, self.objects[source][0], IfNoneMatch)
@@ -156,7 +158,9 @@ class FakeS3:
 
     def delete_object(self, *, Bucket: str, Key: str, IfMatch: str | None = None) -> dict[str, Any]:  # noqa: N803
         self._call("delete_object")
-        if IfMatch is not None and ((Bucket, Key) not in self.objects or self.etag(Bucket, Key) != IfMatch):
+        if IfMatch is not None and (
+            Key.endswith("/") or (Bucket, Key) not in self.objects or self.etag(Bucket, Key) != IfMatch
+        ):
             raise _client_error("PreconditionFailed")
         self.objects.pop((Bucket, Key), None)
         return {}
@@ -169,7 +173,9 @@ class FakeS3:
             key = entry["Key"]
             if key in self.delete_errors:
                 errors.append({"Key": key, "Code": self.delete_errors[key], "Message": "secret"})
-            elif "ETag" in entry and ((Bucket, key) not in self.objects or self.etag(Bucket, key) != entry["ETag"]):
+            elif "ETag" in entry and (
+                key.endswith("/") or (Bucket, key) not in self.objects or self.etag(Bucket, key) != entry["ETag"]
+            ):
                 errors.append({"Key": key, "Code": "PreconditionFailed", "Message": "secret"})
             else:
                 self.objects.pop((Bucket, key), None)

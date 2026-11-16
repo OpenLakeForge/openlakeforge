@@ -295,11 +295,62 @@ def test_a_folder_rollback_leaves_copies_that_someone_else_has_replaced(
     assert s3.objects[(DEV, "dst/a.txt")][0] == b"a"
 
 
+def test_an_empty_folder_made_by_create_folder_can_be_renamed(api: TestClient, s3: FakeS3, mint: Mint) -> None:
+    headers = _as(mint, "data-engineer")
+    assert folder(api, headers, prefix="made/").status_code == 201
+
+    response = rename(api, headers, source="made/", target="renamed/")
+
+    assert response.status_code == 200 and response.json() == {"moved": 1}
+    assert (DEV, "renamed/") in s3.objects and (DEV, "made/") not in s3.objects
+
+
+def test_a_created_folder_with_files_moves_its_marker_and_its_files(api: TestClient, s3: FakeS3, mint: Mint) -> None:
+    headers = _as(mint, "data-engineer")
+    folder(api, headers, prefix="made/")
+    s3.put(DEV, "made/a.txt", b"a")
+    s3.put(DEV, "made/sub/b.txt", b"b")
+
+    response = rename(api, headers, source="made/", target="renamed/")
+
+    assert response.status_code == 200 and response.json() == {"moved": 3}
+    assert [key for key in s3.keys() if key.startswith("made/")] == []
+    assert {"renamed/", "renamed/a.txt", "renamed/sub/b.txt"} <= set(s3.keys())
+
+
+def test_a_marker_conflict_on_a_folder_rename_rolls_back_without_touching_the_other_marker(
+    api: TestClient, s3: FakeS3, mint: Mint
+) -> None:
+    headers = _as(mint, "data-engineer")
+    folder(api, headers, prefix="made/")
+    s3.put(DEV, "made/a.txt", b"a")
+    s3.hooks["put_object"] = lambda: s3.put(DEV, "renamed/", b"")
+
+    response = rename(api, headers, source="made/", target="renamed/")
+
+    assert response.status_code == 409
+    assert {"made/", "made/a.txt", "renamed/"} <= set(s3.keys())
+    assert "renamed/a.txt" not in s3.keys()
+
+
+def test_a_created_folder_can_be_deleted_with_its_contents(api: TestClient, s3: FakeS3, mint: Mint) -> None:
+    headers = _as(mint, "data-engineer")
+    folder(api, headers, prefix="made/")
+    s3.put(DEV, "made/a.txt", b"a")
+
+    assert delete(api, headers, keys=["made/"]).status_code == 200
+    assert [key for key in s3.keys() if key.startswith("made/")] == []
+
+    folder(api, headers, prefix="empty/")
+    assert delete(api, headers, keys=["empty/"]).json()["errors"] == []
+    assert "empty/" not in s3.keys()
+
+
 def test_a_failed_copy_removes_the_copies_already_made(
     api: TestClient, s3: FakeS3, mint: Mint, audit_store: AuditStore
 ) -> None:
     before = s3.keys()
-    s3.copies_allowed = 2
+    s3.copies_allowed = 1  # the marker is written, not copied; one of the two files fails
 
     response = rename(api, _as(mint, "data-engineer"), source="orders/", target="archive/")
 
