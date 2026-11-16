@@ -69,7 +69,8 @@ on:
         description: >
           'full' suite only. 'core' (default for manual runs) skips the slow
           drills (restart recovery, certificate renewal, network/RBAC,
-          break-glass, perimeter latency, issuer outage, secret rotation).
+          break-glass, perimeter latency, issuer outage, log collector
+          short-lived pod and restart, secret rotation).
           'all' runs them, in the DEV suite only -- PROD always runs 'core'.
           The nightly schedule always uses 'all'.
         type: choice
