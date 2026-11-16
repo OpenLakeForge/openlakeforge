@@ -2,8 +2,8 @@
 
 The manifest is the only input. One signal per pipeline, scoped like its other signals, so the health routes and the
 alert evaluator join it to them: the worst outcome in the manifest wins, and a missing, unreadable, stale,
-incomplete or partly unreported manifest is `unknown`, never `healthy`. Table identity is not used: a manifest written from the baked dbt
-manifest names no table (#1166), and a product-level signal reads the same either way.
+incomplete or partly unreported manifest is `unknown`, never `healthy`. Table identity is not used: a manifest
+written from the baked dbt manifest names no table (#1166), and a product-level signal reads the same either way.
 """
 
 from __future__ import annotations
