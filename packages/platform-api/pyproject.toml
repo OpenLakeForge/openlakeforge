@@ -9,6 +9,8 @@ description = "OpenLakeForge platform API: one backend for the portal, olf and a
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "boto3>=1.34,<2",
+  # The public roots the webhook CA bundle is built from (alerting/__main__.py); already locked via requests.
+  "certifi>=2024.2.2",
   "croniter>=6,<7",
   "fastapi>=0.115,<1",
   # Direct so its path source applies: uv reads [tool.uv.sources] for direct

@@ -419,3 +419,8 @@ Proposed above; the maintainer may change any of them.
 reports `alerts.supported = true`. The Secret check is `require_alert_receiver_secrets` in
 `tools/olf/olf/infra/deployment/local/platform.py`, an `olf` precondition before the apply. The evaluator's variables are named by receiver position
 (`OPENLAKEFORGE_ALERT_RECEIVER_<n>`), and its state URI is `s3://<ops bucket>/alerts/`. No deviation from the decisions above.
+
+2026-11-16: the evaluator saves its state after every send attempt and stops starting sends after a 150 s budget, under the
+CronJob's 240 s deadline, so slow receivers cannot kill the Job before progress is recorded; a starved entry still ages
+through `runs` and expires. With `local-ca`, the evaluator trusts the public roots plus the cluster CA (a bundle built at
+startup in `/tmp`) rather than the cluster CA alone. No deviation from the decisions above.

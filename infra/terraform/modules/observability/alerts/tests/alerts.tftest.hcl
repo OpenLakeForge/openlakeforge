@@ -93,6 +93,16 @@ run "the_local_ca_is_mounted_only_when_given" {
     condition     = strcontains(kubernetes_config_map_v1.settings[0].data["alerts.json"], "\"ca_file\":\"/ca/ca.crt\"") && length(kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].volume) == 3
     error_message = "the CA is mounted and named in the settings"
   }
+
+  assert {
+    condition = (
+      anytrue([for m in kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].container[0].volume_mount : m.name == "ca" && m.mount_path == "/ca" && m.read_only == true])
+      && anytrue([for m in kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].container[0].volume_mount : m.name == "tmp" && m.mount_path == "/tmp"])
+      && anytrue([for v in kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].volume : v.name == "tmp" && length(v.empty_dir) == 1])
+      && anytrue([for e in kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].container[0].env : e.name == "TMPDIR" && e.value == "/tmp"])
+    )
+    error_message = "the combined CA bundle is written to a writable emptyDir at TMPDIR, since the root filesystem is read-only"
+  }
 }
 
 run "a_stage_without_a_url_is_refused" {

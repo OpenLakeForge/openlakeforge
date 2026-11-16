@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import json
+import ssl
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
+import certifi
 import pytest
 from _alerting_fakes import FakeBucket, settings_mapping
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 from openlakeforge_core.alerts_state import MAX_OUTBOX_RUNS
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient, DagsterJob, DagsterRun, DagsterSchedule
@@ -456,3 +463,122 @@ def test_the_entrypoint_exits_two_without_a_receiver_url(monkeypatch: pytest.Mon
     path.write_text(json.dumps(settings_mapping()))
 
     assert entrypoint.main(["--settings", str(path)]) == 2
+
+
+class _Clock:
+    """A monotonic clock that moves a fixed step each time it is read."""
+
+    def __init__(self, step: float) -> None:
+        self.step, self.now = step, 0.0
+
+    def __call__(self) -> float:
+        self.now += self.step
+        return self.now
+
+
+def _three_receivers() -> tuple[EvaluatorSettings, dict[str, FakeNotifier]]:
+    names = ("a", "b", "c")
+    settings = _settings(*(ReceiverSetting(n, f"{n.upper()}_URL") for n in names))
+    return settings, {n: FakeNotifier() for n in names}
+
+
+def _outbox(bucket: FakeBucket) -> list[dict[str, Any]]:
+    return bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["outbox"]
+
+
+def test_a_run_stops_starting_sends_at_the_budget_and_the_next_run_continues_without_resending() -> None:
+    bucket, dagster = FakeBucket(), {"dev": FakeDagster([_failed()])}
+    settings, notifiers = _three_receivers()
+
+    # Reads: start, then one per send. Step 40 against a 100 budget: two sends fit, the third does not start.
+    first = run_once(
+        settings=settings,
+        store=AlertStore(bucket, BASE),
+        dagster=dagster,
+        notifiers=notifiers,
+        now=NOW,
+        delivery_budget=100,
+        monotonic=_Clock(40),
+    )
+
+    assert first.delivered == 2
+    assert [len(n.sent) for n in notifiers.values()] == [1, 1, 0]
+    (entry,) = _outbox(bucket)
+    assert sorted(entry["delivered"]) == ["a", "b"]
+    assert entry["runs"] == 0
+
+    second = _evaluate(settings, bucket, dagster, notifiers, NOW + timedelta(minutes=5))
+
+    assert second.delivered == 1
+    assert [len(n.sent) for n in notifiers.values()] == [1, 1, 1]
+    assert _outbox(bucket) == []
+
+
+def test_a_starved_entry_still_counts_its_runs_and_expires() -> None:
+    bucket, dagster = FakeBucket(), {"dev": FakeDagster([_failed()])}
+    settings, notifiers = _three_receivers()
+
+    for minutes in range(MAX_OUTBOX_RUNS + 1):
+        summary = run_once(
+            settings=settings,
+            store=AlertStore(bucket, BASE),
+            dagster=dagster,
+            notifiers=notifiers,
+            now=NOW + timedelta(minutes=5 * minutes),
+            delivery_budget=0,
+            monotonic=_Clock(1),
+        )
+
+    assert summary.expired == 1
+    assert _outbox(bucket) == []
+    assert all(n.sent == [] for n in notifiers.values())
+
+
+def test_a_run_killed_mid_delivery_does_not_resend_what_it_delivered() -> None:
+    bucket, dagster = FakeBucket(), {"dev": FakeDagster([_failed()])}
+    settings, notifiers = _three_receivers()
+    notifiers["b"].crash = lambda: Killed("killed")
+
+    with pytest.raises(Killed):
+        _evaluate(settings, bucket, dagster, notifiers)
+    notifiers["b"].crash = None
+    _evaluate(settings, bucket, dagster, notifiers, NOW + timedelta(minutes=5))
+
+    assert len(notifiers["a"].sent) == 1
+    assert len(notifiers["b"].sent) == 2
+    assert len(notifiers["c"].sent) == 1
+    assert _outbox(bucket) == []
+
+
+def _self_signed_pem() -> str:
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "olf-local-ca")])
+    now = datetime.now(UTC)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.PEM).decode("ascii")
+
+
+def test_the_combined_ca_bundle_holds_the_public_roots_and_the_local_ca(tmp_path: Any) -> None:
+    local_pem = _self_signed_pem()
+    local = tmp_path / "ca.crt"
+    local.write_text(local_pem)
+    public_pem = Path(certifi.where()).read_text(encoding="ascii")
+
+    path = entrypoint.combined_ca_bundle(str(local), str(tmp_path))
+
+    bundle = Path(path).read_text(encoding="ascii")
+    assert public_pem.strip() in bundle
+    assert local_pem.strip() in bundle
+    assert Path(path).parent == tmp_path
+    # Every certificate loads, so a missing newline between the two files would have glued two PEMs together.
+    assert len(ssl.create_default_context(cafile=path).get_ca_certs()) == public_pem.count("BEGIN CERTIFICATE") + 1

@@ -99,6 +99,9 @@ resource "kubernetes_cron_job_v1" "evaluator" {
       spec {
         backoff_limit = 0
         # Under the five-minute period, so a hung run never holds the next off.
+        # The evaluator stops starting sends after DELIVERY_BUDGET_SECONDS (150,
+        # alerting/run.py) so a slow receiver cannot reach this deadline before
+        # the state is saved; keep that budget well below this value.
         active_deadline_seconds    = 240
         ttl_seconds_after_finished = 3600
 
@@ -139,6 +142,12 @@ resource "kubernetes_cron_job_v1" "evaluator" {
                     key  = "AWS_SECRET_ACCESS_KEY"
                   }
                 }
+              }
+              # The root filesystem is read-only; the combined CA bundle is written
+              # to the "tmp" volume.
+              env {
+                name  = "TMPDIR"
+                value = "/tmp"
               }
               dynamic "env" {
                 for_each = local.receiver_envs
