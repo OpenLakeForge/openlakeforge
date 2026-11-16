@@ -45,7 +45,12 @@ class ScheduledDagster(FakeDagster):
 
 
 def _schedule(
-    status: str, due_age: float, *, tick_age: float | None = None, started_age: float | None = None
+    status: str,
+    due_age: float,
+    *,
+    tick_age: float | None = None,
+    started_age: float | None = None,
+    declared: str = "STOPPED",
 ) -> dict[str, Any]:
     """A daily schedule whose latest due time was `due_age` seconds ago, whatever its ticks say."""
     due = datetime.fromtimestamp(NOW - due_age, UTC)
@@ -56,6 +61,7 @@ def _schedule(
         "pipelineName": "orders_job",
         "cronSchedule": f"{due.minute} {due.hour} * * *",
         "executionTimezone": "UTC",
+        "defaultStatus": declared,
         "scheduleState": {
             "status": status,
             "typeSpecificData": {"__typename": "ScheduleData", "startTimestamp": started},
@@ -349,3 +355,15 @@ def test_a_stage_with_no_dagster_is_disabled_for_stage_health_and_absent_for_pip
     assert stage["state"] == "unknown"
     assert stage["integrations"][0]["status"] == "disabled"
     assert api.get("/api/v1/stages/prod/health/pipelines", headers=headers).status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("status", "declared", "expected"),
+    [("STOPPED", "RUNNING", "warning"), ("STOPPED", "STOPPED", "disabled")],
+)
+def test_a_stopped_schedule_is_a_mismatch_only_when_the_cadence_declares_it_running(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster, status: str, declared: str, expected: str
+) -> None:
+    dagster.schedules = [_schedule(status, 2 * HOUR, declared=declared)]
+
+    assert _expected_run(api, mint)["state"] == expected

@@ -26,7 +26,7 @@ that points at the retained evidence rather than carrying log text.
 | --- | --- |
 | `execution` | Status of the latest run |
 | `latest_success` | Whether a successful run is on record |
-| `expected_run` | The schedule state and the run it expected |
+| `expected_run` | The schedule state, the run it expected, and whether it is stopped against its declared cadence |
 | `freshness` | Whether a successful run is on record since the schedule's owed due time (the latest one at least a grace old) |
 | `quality` | A Floe or dbt outcome |
 | `service` | Controller readiness of a component, or a probe's answer |
@@ -100,8 +100,30 @@ does not know.
 
 A missed run is critical without any failure event, because a stopped
 scheduler emits none. A schedule that is stopped or absent is `disabled`, not
-`critical`. The last expected run time comes from the schedule input; the
+`critical`, with one exception: a stopped schedule that the product's cadence
+declares running is a `warning` (see below). The last expected run time comes from the schedule input; the
 module does not parse cron.
+
+## Schedule mismatch
+
+`expected_run` compares the schedule's state with what the code location
+declares. Dagster reports both: `status` is the stored state, which a toggle in
+the Dagster UI overrides, and `defaultStatus` is the `default_status` the code
+declared, which `ProductCadence.enabled_in_prod` sets. `declared_running` on
+`ScheduleObservation` carries the second.
+
+| Declared (`defaultStatus`) | Actual (`status`) | `expected_run` |
+| --- | --- | --- |
+| `RUNNING` | `STOPPED` | `warning`: the schedule does not match its cadence |
+| `STOPPED` | `STOPPED` | `disabled` |
+| `RUNNING` | `RUNNING` | judged as a running schedule (`healthy`, or `critical` for a missed run) |
+| `STOPPED` | `RUNNING` | judged as a running schedule; the UI toggle wins and is not reported |
+
+A `warning` here is what the alert model reads as `schedule_mismatch`. It is
+`warning`, not `critical`, because nothing has failed: someone switched the
+schedule off, or its default was ignored. A schedule that is absent is
+`disabled` whatever the cadence says. `freshness` stays `disabled` for a
+stopped schedule, so the mismatch shows once, on `expected_run`.
 
 Other outcomes: a canceled run, a quality WARN or non-blocking ERROR, and a
 component that is scaled to zero, partly ready, crash looping or restarting

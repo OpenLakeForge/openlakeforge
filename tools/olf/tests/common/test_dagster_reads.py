@@ -56,6 +56,7 @@ def test_list_schedules_reads_state_cron_timezone_start_and_the_latest_run_reque
         "pipelineName": "sales_pipeline",
         "cronSchedule": "0 6 * * *",
         "executionTimezone": "Europe/Berlin",
+        "defaultStatus": "RUNNING",
     }
     running = {
         "status": "RUNNING",
@@ -76,7 +77,13 @@ def test_list_schedules_reads_state_cron_timezone_start_and_the_latest_run_reque
                     {
                         "schedules": [
                             {**schedule, "scheduleState": running},
-                            {**schedule, "name": "new", "executionTimezone": None, "scheduleState": stopped},
+                            {
+                                **schedule,
+                                "name": "new",
+                                "executionTimezone": None,
+                                "defaultStatus": "STOPPED",
+                                "scheduleState": stopped,
+                            },
                         ]
                     }
                 ],
@@ -86,9 +93,16 @@ def test_list_schedules_reads_state_cron_timezone_start_and_the_latest_run_reque
 
     assert client.list_schedules() == [
         DagsterSchedule(
-            "sales_daily", "sales_pipeline", "RUNNING", "0 6 * * *", "Europe/Berlin", 1699000000.0, 1700000000.0
+            "sales_daily",
+            "sales_pipeline",
+            "RUNNING",
+            "0 6 * * *",
+            "Europe/Berlin",
+            1699000000.0,
+            1700000000.0,
+            "RUNNING",
         ),
-        DagsterSchedule("new", "sales_pipeline", "STOPPED", "0 6 * * *", "UTC", None, None),
+        DagsterSchedule("new", "sales_pipeline", "STOPPED", "0 6 * * *", "UTC", None, None, "STOPPED"),
     ]
 
 

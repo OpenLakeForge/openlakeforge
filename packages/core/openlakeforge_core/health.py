@@ -111,6 +111,9 @@ class ScheduleObservation:
     # Start of the latest run actually seen, whatever its outcome.
     last_run_started_at: datetime | None = None
     evidence_uri: str | None = None
+    # Whether the product's cadence declares the schedule running. A stopped schedule is a mismatch only when this is
+    # set; the reverse, running while declared off, is the operator's UI toggle and is not reported.
+    declared_running: bool = False
 
 
 @dataclass(frozen=True)
@@ -190,7 +193,9 @@ def evaluate_expected_run(
         return _missing(SignalKind.EXPECTED_RUN, scope, max_age)
     if _is_stale(schedule, now, max_age):
         return _stale(SignalKind.EXPECTED_RUN, scope, schedule, max_age)
-    if schedule.state is not ScheduleState.RUNNING:
+    if schedule.state is ScheduleState.STOPPED and schedule.declared_running:
+        state, reason = HealthState.WARNING, "schedule is stopped but its cadence declares it running"
+    elif schedule.state is not ScheduleState.RUNNING:
         state, reason = HealthState.DISABLED, f"schedule is {schedule.state.value}"
     elif schedule.last_expected_at is None:
         state, reason = HealthState.HEALTHY, "no run is due yet"

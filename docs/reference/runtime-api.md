@@ -64,7 +64,8 @@ stage's metadata database and wins over the code until it is reset with
 Dagster's "reset to default schedule status" action. A schedule switched on in
 the UI keeps running when Git says off, and one switched on and then off in the
 UI stays off when `enabled_in_prod=True` is deployed later. The health
-cross-check (#1148) is meant to flag such a mismatch.
+`expected_run` signal flags the second case as a `warning` (a `schedule_mismatch`);
+see [health signals](health-signals.md). The first case is not flagged.
 
 Keep the spec in a module-level `spec` name: `olf check project-code` fails a
 product module that calls `build_product_definitions` without one. It loads the
