@@ -96,6 +96,7 @@ configuration (#23).
 | `missed_run` | `expected_run` is `critical`: a running schedule, a due time past its 15-minute grace, no run started since | `critical` | Default, revisit |
 | `stale_output` | a running schedule's job has no success since the previous due time plus grace | `critical` | Default, revisit: stale is that rule, with no SLA input (SLAs are #921, v0.7.5) |
 | `quality` | the latest quality outcome is `warn` or a non-blocking `error` (severity `warning`), or a blocking `error` (severity `critical`). One condition with two severities, so a warning that turns into a blocking error stays one incident (see Severity escalation) | `warning` or `critical` | Default, revisit: quality WARN alerts as `warning`; critical signals alert |
+| `schedule_mismatch` | a PROD schedule the product's cadence declares running is stopped in Dagster (#1175, #209 slice c) | `warning` | From #1169; resolves silently when the declaration or the schedule changes |
 | `stage_unreadable` | Dagster for a stage could not be read in 3 consecutive evaluations | `critical` | Default, revisit for the count of 3; the severity is proposed |
 
 What does not alert, all **default, revisit**:
@@ -134,9 +135,15 @@ evaluator does with it.
 
 ### Identity
 
-An incident is identified by its **key**: `<stage>/<product>/<condition>`, or
-`<stage>/-/stage_unreadable`. A recurrence after a resolve is a new incident with
-the same key, told apart by an **id**: `<key>@<opened_at, UTC, seconds>`.
+An incident is identified by its **fingerprint**: an opaque hash over the model
+version, stage, condition, domain, product, table and component
+(`openlakeforge_core.alerts.fingerprint`, #1169). It excludes the run id, so
+repeated failures of one product are one incident, and it includes the domain and
+table, so two products with the same name in different domains never collide. A
+recurrence after a resolve is a new incident with the same fingerprint, told apart
+by an **id**: `<fingerprint>-<seq>`, where `seq` is a per-fingerprint counter kept
+in state. Ids never repeat, even when a resolve and a re-open fall in the same
+second (as under the e2e's fixed `--now`).
 Repeated evaluations of an open key update `last_seen` and the latest run id and
 send nothing. A second failed run while `run_failed` is open is the same
 incident: one notification per incident, not per run.
@@ -181,7 +188,7 @@ tamper-evident against everyone but the evaluator, not immutable.
 
 | Object | Content |
 | --- | --- |
-| `alerts/state/v1/state.json` | `schema`, `evaluated_at`, the open incidents (key, id, severity, opened_at, last_seen, last run, notified severity), the per-stage count of consecutive unreadable evaluations, and an **outbox** of notifications not yet delivered |
+| `alerts/state/v1/state.json` | `schema_version`, `evaluated_at` (written by the evaluator), the open incidents only (fingerprint, id, severity, notified severity, opened_at, last_seen, last run), the per-fingerprint id sequence, the per-stage count of consecutive unreadable evaluations, and an **outbox** of notifications not yet delivered |
 | `alerts/history/v1/date=<YYYY-MM-DD>/<incident-id>-<seq>-<event>.json` | one object per event (`opened`, `escalated`, `resolved`, `resolved_silently`) and per delivery attempt (receiver name, attempt number, HTTP status or error class, time). No payload body and no URL |
 | `alerts/state/v1/corrupt/<UTC time>.json` | a state object that failed to parse, kept for the operator |
 
@@ -195,7 +202,7 @@ asynchronous from evaluation:
 2. Apply the rules, append the new events to the outbox and write
    `state.json`.
 3. Deliver the outbox. Each attempt is recorded in history; a success removes the
-   entry from the outbox and rewrites `state.json`.
+   receiver from the entry; the entry leaves the outbox once every receiver routed to it has it, or once it expires, and `state.json` is rewritten.
 
 A crash between a delivery and the rewrite sends the notification again with the
 same idempotency key (Decision 4). The design is at-least-once, never at-most-once:
