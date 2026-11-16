@@ -2,6 +2,22 @@
 
 from __future__ import annotations
 
+from .alerts import (
+    UNREADABLE_THRESHOLD,
+    AlertEvent,
+    AlertKind,
+    AlertSeverity,
+    AlertState,
+    AlertStateError,
+    Incident,
+    IncidentState,
+    Notification,
+    OutboxEntry,
+    drop_notification,
+    evaluate,
+    fingerprint,
+    record_attempt,
+)
 from .descriptors import (
     SOURCE_API_VERSION,
     SOURCE_KIND,
@@ -71,6 +87,20 @@ from .quality import (
 from .runs import FLOE_FULL_REFRESH_TAG, FULL_REFRESH_SCOPES, FULL_REFRESH_TAG, full_refresh_scope, full_refresh_tags
 
 __all__ = [
+    "AlertEvent",
+    "AlertKind",
+    "AlertSeverity",
+    "AlertState",
+    "AlertStateError",
+    "Incident",
+    "IncidentState",
+    "Notification",
+    "OutboxEntry",
+    "UNREADABLE_THRESHOLD",
+    "drop_notification",
+    "evaluate",
+    "fingerprint",
+    "record_attempt",
     "HealthState",
     "HealthQualityFields",
     "PipelineOutcome",
