@@ -16,7 +16,7 @@ UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 JSON = "application/json"
 # Operations whose body is not JSON, by the type they take. Every type here is outside what a cross-site <form>
 # can send (urlencoded, multipart, text/plain), so it needs a preflight that no origin passes.
-BODY_TYPES = {"import_report": "application/zip"}
+BODY_TYPES = {"import_report": "application/zip", "upload_object": "application/octet-stream"}
 
 
 def violation(request: Request, operation: str, public_origin: str | None) -> str | None:

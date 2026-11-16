@@ -45,7 +45,7 @@ def test_analyst_and_viewer_reach_no_files_route(api: TestClient, mint: Mint, ro
 
 
 def test_file_capabilities_per_role(api: TestClient, mint: Mint) -> None:
-    read = ["list_buckets", "list_objects", "download_object"]
+    read = ["list_buckets", "list_objects", "download_object", "upload_object"]
 
     admin = api.get("/api/v1/file-capabilities", headers=_as(mint, "platform-admin")).json()
     engineer = api.get("/api/v1/file-capabilities", headers=_as(mint, "data-engineer")).json()

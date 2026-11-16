@@ -18,7 +18,17 @@ from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 from openlakeforge_services.logs import ObjectStore
 
-from openlakeforge_platform_api import csrf, discovery, files, health_routes, queries, reads, report_routes, writes
+from openlakeforge_platform_api import (
+    csrf,
+    discovery,
+    file_writes,
+    files,
+    health_routes,
+    queries,
+    reads,
+    report_routes,
+    writes,
+)
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.models import Health, WhoAmI
@@ -205,7 +215,7 @@ def _files_store(settings: Settings) -> files.FileStore | None:
     secret_key = os.environ.get(FILES_SECRET_KEY_ENV)
     if not settings.file_buckets or not access_key or not secret_key:
         return None
-    client: files.FileStore = boto3.client(
+    client = boto3.client(
         "s3",
         endpoint_url=settings.s3_endpoint_url,
         region_name=settings.s3_region,
@@ -213,7 +223,8 @@ def _files_store(settings: Settings) -> files.FileStore | None:
         aws_secret_access_key=secret_key,
         config=Config(s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=30, retries={"max_attempts": 2}),
     )
-    return client
+    # boto3-stubs types the client's calls with TypedDicts; the Protocol names only the calls and arguments used.
+    return cast("files.FileStore", client)
 
 
 def _probe_store(settings: Settings) -> ListableStore | None:
@@ -377,6 +388,20 @@ def create_app(
         responses={
             200: {
                 "description": "The object's bytes, as an attachment.",
+                "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}},
+            }
+        },
+    )
+    app.add_api_route(
+        objects_path + "/content",
+        file_writes.upload_object,
+        methods=["PUT"],
+        status_code=201,
+        name="upload_object",
+        # The handler reads the raw body, so FastAPI cannot infer it.
+        openapi_extra={
+            "requestBody": {
+                "required": True,
                 "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}},
             }
         },
