@@ -369,6 +369,8 @@ probed. A 200 never counts alone:
 | `dagster.read-api` | the webserver answers GraphQL and a code location is loaded | that a run would launch |
 | `trino.readiness` | the coordinator finished starting (`/v1/info`) | workers, catalogs, Polaris |
 | `object-store.list` | the endpoint is reachable and the key may list the bucket | that a write is durable |
+| `log-archive.spool-age`, `log-archive.spool-size` | how old the collector's oldest unsent file is and how full its spool is, worst over every collector pod (F42; [ADR 0022](0022-pod-log-collection-and-archive-format.md), decision 2) | that an object reached the bucket |
+| `log-archive.newest-object` | the age of the newest object under the stage's `logs/v2/namespace=<ns>/`, listed with the log reader's key | that the stage logs anything: an idle stage reads the same as a stalled collector |
 
 The controllers of Dagster and Trino are found by label
 (`app.kubernetes.io/name=dagster` and `=trino`, overridable per stage); a

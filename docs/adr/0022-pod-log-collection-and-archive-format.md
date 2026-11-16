@@ -6,10 +6,10 @@ Decided; slice b is built. The Fluent Bit DaemonSet
 (`infra/terraform/modules/observability/log-collector`) writes archive format v2
 beside the polling CronJob's v1, in Slim and Full alike, with a write-only key.
 The CronJob and the v1 reader stay the only path the API reads until slices c
-and d land. The spool age and size signals of Decision 2 are partly built (#1189): the
-probe sidecar and the rules that classify its numbers exist; the platform API's
-health route does not read them yet. Not built yet: the newest-key
-signal of Decision 2 and the lifecycle rule of Decision 6 (`logs_archive_retention` stays reported as unsupported).
+and d land. The three delivery signals of Decision 2 are built (#1189): the probe sidecar,
+the platform API's stage health route that reads it and lists the newest object,
+and the thresholds. Their failure-injection e2e is the remaining part of #1189.
+Not built yet: the lifecycle rule of Decision 6 (`logs_archive_retention` stays reported as unsupported).
 Every claim marked [T] is still untested: the kind smoke does not run here, and
 slice d (#1123) verifies them on a cluster. Tags used below: **[V]** checked in this
 repository or in the upstream page cited; **[T]** a claim the implementing slice
@@ -113,7 +113,7 @@ or a file: the platform API already reads Dagster, Trino and the object store
 as `SERVICE` signals (`service_probes.py`), so a fourth HTTP read fits that
 shape; a node-level exporter would be one more workload to deploy, and a file
 would need a reader on every node. A headless Service, `log-collector-probe`,
-gives the API one address per collector pod, and the API takes (in the follow-up change) the worst signal
+gives the API one address per collector pod, and the API takes the worst signal
 over the pods (F42 in ADR 0017 opens that one port).
 
 | Property | Value |
@@ -135,6 +135,21 @@ whether the spool counts compressed or uncompressed bytes; whether `store_dir`
 and its quarantine are laid out as the probe assumes; and whether Fluent Bit's
 `512M` means 512 000 000 or 536 870 912 bytes (the probe assumes the smaller,
 so the fraction errs high).
+
+The newest-key signal reuses an identity: the platform API's log reader,
+`openlakeforge-platform-api-logs`, already holds `List` on each stage's
+`activations/<stage>/logs/v2/` (`credentials.tf`; F33). The alert evaluator's
+key was checked and cannot: it lists `alerts/` and each stage's quality
+manifests only. No identity is minted, no grant widened, no flow added. The
+health route lists `logs/v2/namespace=<namespace>/date=<day>/` for today and
+yesterday (UTC) and takes the newest `LastModified`, with a second S3 client on
+the same key and the probe's timeouts (the API's log client waits up to 30 s).
+Limits: the `platform/logs/v2/` prefix is outside that grant, so the platform
+namespace has the spool signals only; at most 5000 objects of a day are looked
+at, so a runaway prefix errs towards a stale reading; and a stage whose pods log
+nothing reads like a stalled collector (`unknown` when no object exists in the
+two days, `warning` at 15 minutes, `critical` at 60). The thresholds are
+maintainer-reviewable, as the spool's are.
 
 Slice d (#1123) verifies them by failure injection: block the ops-bucket
 endpoint with a NetworkPolicy, write known lines, and assert that the oldest-file
@@ -302,5 +317,8 @@ level token in `message`, because the v2 record has no severity field.
 
 2026-11-16: #1189 (part): the `spool-probe` sidecar, `archive_health` in
 `openlakeforge_core` and the F42 flow land, with proposed thresholds recorded in
-Decision 2. The health route reading them, the newest-key signal and the
-failure-injection e2e follow in their own changes.
+Decision 2. A spool the probe cannot read is `unknown`, not empty.
+
+2026-11-16: #1189 (part): the stage health route reads the spool signals from
+every collector pod and lists the newest archive object with the existing log
+reader key (no new identity). The failure-injection e2e follows.
