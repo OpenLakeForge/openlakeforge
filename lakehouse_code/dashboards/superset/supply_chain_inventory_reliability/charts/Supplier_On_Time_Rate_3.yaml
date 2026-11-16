@@ -12,7 +12,7 @@ params:
   row_limit: 100
   color_scheme: supersetColors
   show_legend: true
-  y_axis_format: PERCENT_1_POINT
+  y_axis_format: .1%
 query_context: null
 cache_timeout: null
 uuid: 29da5d4f-ef80-5625-b47c-46ce91dfb902
