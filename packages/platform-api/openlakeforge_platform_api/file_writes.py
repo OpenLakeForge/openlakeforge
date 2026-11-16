@@ -75,6 +75,22 @@ async def _audited_off_the_loop(request: Request, *, stage: str, target: dict[st
     outcome = await run_in_threadpool(manager.__enter__)
     try:
         yield outcome
+    except asyncio.CancelledError:
+        # `audited` only closes the record on an Exception; a cancelled request would leave "attempted" alone. The
+        # object is known to have landed when the final write marked the outcome, so say that, else say cancelled.
+        landed = bool(outcome.result)
+        closing = record(
+            request,
+            "succeeded" if landed else "failed",
+            stage=stage,
+            target=target,
+            result=outcome.result if landed else None,
+            status=None if landed else 499,
+            detail="" if landed else "the request was cancelled",
+        )
+        audit: AuditLog = request.app.state.audit
+        await _shielded(audit.write_best_effort, closing)
+        raise
     except BaseException as exc:
         if not await _shielded(manager.__exit__, type(exc), exc, exc.__traceback__):
             raise
@@ -110,8 +126,7 @@ async def upload_object(
         with s3_errors():
             if not overwrite and await run_in_threadpool(_exists, store, bucket, key):
                 raise _already_exists(key)
-            await _stream_to_s3(request, store, bucket, key, length, overwrite=overwrite)
-        outcome.result["size"] = str(length)
+            await _stream_to_s3(request, store, bucket, key, length, outcome, overwrite=overwrite)
     return UploadedObject(key=key, size=length)
 
 
@@ -119,8 +134,28 @@ def _already_exists(key: str) -> HTTPException:
     return HTTPException(status_code=409, detail=f"{key!r} already exists; pass overwrite=true to replace it")
 
 
+def _finished_by(outcome: Outcome, length: int, final_write: Callable[..., Any], **kwargs: Any) -> None:
+    """Run the upload's last S3 call and, in the same worker thread, note that it landed.
+
+    A request cancelled while that call is in flight cannot tell whether it returned; this marker can, so the
+    cancelled upload's audit record says what happened to the object.
+    """
+    final_write(**kwargs)
+    outcome.result["size"] = str(length)
+
+
+async def _final_write(outcome: Outcome, length: int, call: Callable[..., Any], **kwargs: Any) -> None:
+    """`_finished_by` on a worker thread; a cancelled request waits for the call to end before it unwinds."""
+    task = asyncio.ensure_future(run_in_threadpool(_finished_by, outcome, length, call, **kwargs))
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await asyncio.wait([task])
+        raise
+
+
 async def _stream_to_s3(
-    request: Request, store: FileStore, bucket: str, key: str, length: int, *, overwrite: bool
+    request: Request, store: FileStore, bucket: str, key: str, length: int, outcome: Outcome, *, overwrite: bool
 ) -> None:
     # The check above is only a courtesy: another upload can land between it and the final write. Without
     # overwrite, the final write itself (PutObject, or CompleteMultipartUpload) carries If-None-Match: *, which
@@ -159,7 +194,9 @@ async def _stream_to_s3(
             if upload_id is not None:
                 if buffer:
                     await send_part()
-                await run_in_threadpool(
+                await _final_write(
+                    outcome,
+                    length,
                     store.complete_multipart_upload,
                     Bucket=bucket,
                     Key=key,
@@ -168,7 +205,15 @@ async def _stream_to_s3(
                     **conditions,
                 )
             else:
-                await run_in_threadpool(store.put_object, Bucket=bucket, Key=key, Body=bytes(buffer), **conditions)
+                await _final_write(
+                    outcome,
+                    length,
+                    store.put_object,
+                    Bucket=bucket,
+                    Key=key,
+                    Body=bytes(buffer),
+                    **conditions,
+                )
         except ClientError as exc:
             if _error_code(exc) in _PRECONDITION_FAILED:
                 raise _already_exists(key) from exc
