@@ -117,11 +117,17 @@ def _delete_keys(
     A key with an ETag in `etags` is deleted only while it still has that ETag (`PreconditionFailed` otherwise).
     """
     pinned = etags or {}
+    # A folder marker is a directory to SeaweedFS, which has no ETag to compare, and deleting one that still has
+    # children only demotes it; so markers are never pinned and go last, after what is under them.
+    ordered = sorted(keys, key=lambda key: key.endswith("/"))
     deleted: list[str] = []
     errors: list[DeleteError] = []
-    for start in range(0, len(keys), MAX_KEYS):
-        batch = keys[start : start + MAX_KEYS]
-        objects = [{"Key": key, **({"ETag": pinned[key]} if pinned.get(key) else {})} for key in batch]
+    for start in range(0, len(ordered), MAX_KEYS):
+        batch = ordered[start : start + MAX_KEYS]
+        objects = [
+            {"Key": key, "ETag": pinned[key]} if pinned.get(key) and not key.endswith("/") else {"Key": key}
+            for key in batch
+        ]
         result = store.delete_objects(Bucket=bucket, Delete={"Objects": objects})
         failed = {entry["Key"]: str(entry.get("Code") or "error") for entry in result.get("Errors", [])}
         errors.extend(DeleteError(key=key, detail=detail) for key, detail in failed.items())
@@ -138,8 +144,15 @@ def _delete_keys(
 # (the move is rolled back, nothing is lost). A rollback deletes each copy only while it keeps the ETag the copy
 # gave it, so a writer that replaced a copy keeps its write; the only window left is that delete's own check.
 def _copy(store: FileStore, bucket: str, source: str, destination: str, source_etag: str) -> str:
-    """Copy `source` (while it still has `source_etag`) to a new `destination`; the copy's own ETag."""
+    """Copy `source` (while it still has `source_etag`) to a new `destination`; the copy's own ETag.
+
+    A folder marker cannot be copied (SeaweedFS answers NoSuchKey for a directory source), so its destination marker
+    is written fresh, still only if absent; it has no ETag to pin a rollback to, so none is returned.
+    """
     try:
+        if source.endswith("/"):
+            store.put_object(Bucket=bucket, Key=destination, Body=b"", IfNoneMatch="*")
+            return ""
         result = store.copy_object(
             Bucket=bucket,
             Key=destination,
