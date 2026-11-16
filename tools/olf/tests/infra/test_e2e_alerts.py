@@ -117,10 +117,10 @@ def _receiver_cronjob(*receivers: tuple[str, str]) -> dict:
 @pytest.mark.parametrize(
     ("receivers", "runs"),
     [
-        ([(_alerts.RECEIVER_SECRET, _alerts.RECEIVER_KEY)], True),
+        ([(_alerts.RECEIVER_REF_NAME, _alerts.RECEIVER_KEY)], True),
         ([("slack-hook", "url")], False),
-        ([(_alerts.RECEIVER_SECRET, "other-key")], False),
-        ([(_alerts.RECEIVER_SECRET, _alerts.RECEIVER_KEY), ("slack-hook", "url")], False),
+        ([(_alerts.RECEIVER_REF_NAME, "other-key")], False),
+        ([(_alerts.RECEIVER_REF_NAME, _alerts.RECEIVER_KEY), ("slack-hook", "url")], False),
         ([], False),
     ],
 )
@@ -227,9 +227,9 @@ def test_find_schedule_reads_the_selector_and_the_next_two_due_times() -> None:
 def test_the_receiver_is_declared_where_the_e2e_and_the_nightly_expect_it() -> None:
     profile = yaml.safe_load((ROOT / "openlakeforge.conformance.yaml").read_text())
     (receiver,) = profile["spec"]["observability"]["alerts"]["receivers"]
-    assert receiver["secret_ref"] == {"name": _alerts.RECEIVER_SECRET, "key": _alerts.RECEIVER_KEY}
+    assert receiver["secret_ref"] == {"name": _alerts.RECEIVER_REF_NAME, "key": _alerts.RECEIVER_KEY}
     workflow = (ROOT / ".github/workflows/local-full-e2e.yml").read_text()
-    assert f"create secret generic {_alerts.RECEIVER_SECRET}" in workflow
+    assert f"create secret generic {_alerts.RECEIVER_REF_NAME}" in workflow
     assert f"--from-literal={_alerts.RECEIVER_KEY}=https://{_alerts.STUB_NAME}.olf-system.svc/hook" in workflow
 
 

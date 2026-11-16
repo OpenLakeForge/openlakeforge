@@ -51,7 +51,7 @@ STUB_NAME = "olf-e2e-alert-receiver"
 LABEL = "openlakeforge.io/e2e=alert-receiver"
 LOCAL_CA_ISSUER = "local-ca"  # modules/access/cert-manager
 # The Secret the profile's e2e receiver reads (openlakeforge.conformance.yaml); the nightly creates it before deploy.
-RECEIVER_SECRET, RECEIVER_KEY = "olf-e2e-alert-receiver", "webhook-url"
+RECEIVER_REF_NAME, RECEIVER_KEY = "olf-e2e-alert-receiver", "webhook-url"
 EVALUATOR = "alert-evaluator"  # the CronJob's name (modules/observability/alerts)
 # Inside the evaluator key's `alerts/*` grant; the real evaluator writes only `state/` and `history/` there.
 STATE_PREFIX = "alerts/e2e/"
@@ -87,7 +87,7 @@ def sole_receiver_is_the_stub(cronjob: Mapping[str, Any]) -> bool:
     spec = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
     env = [e for c in spec["containers"] for e in c.get("env", []) if e["name"].startswith(RECEIVER_ENV_PREFIX)]
     refs = [e.get("valueFrom", {}).get("secretKeyRef", {}) for e in env]
-    return [(r.get("name"), r.get("key")) for r in refs] == [(RECEIVER_SECRET, RECEIVER_KEY)]
+    return [(r.get("name"), r.get("key")) for r in refs] == [(RECEIVER_REF_NAME, RECEIVER_KEY)]
 
 
 def e2e_settings(settings_json: str) -> str:
@@ -611,14 +611,16 @@ def check_alert_delivery(cfg: E2EConfig) -> None:
     cronjob = json.loads(listing)
     if not sole_receiver_is_the_stub(cronjob):
         log.info(
-            f"Skipping the alert checks: the evaluator's only receiver is not {RECEIVER_SECRET} "
-            "(the conformance profile's), and the checks must not send test incidents to a real one."
+            "Skipping the alert checks: the evaluator's only receiver is not the conformance profile's "
+            "e2e receiver, and the checks must not send test incidents to a real one."
         )
         return
     log.step("Checking alert notifications reach a receiver once per incident...")
     stage = cfg.namespace.removeprefix("olf-")
     token = uuid.uuid4().hex
-    url = k8s.secret_value(RECEIVER_SECRET, RECEIVER_KEY, namespace, kube_context=cfg.kube_context, environ=cfg.environ)
+    url = k8s.secret_value(
+        RECEIVER_REF_NAME, RECEIVER_KEY, namespace, kube_context=cfg.kube_context, environ=cfg.environ
+    )
     routes = contract_access(load_provider_contracts_or_raise(cfg), stage=stage).get("routes", {})
     secrets = {**secret_values(cfg), "the receiver URL": url, "a run tag": token}
     with (
