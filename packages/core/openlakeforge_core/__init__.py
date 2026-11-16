@@ -38,6 +38,7 @@ from .archive_health import (
     evaluate_newest_object,
     evaluate_spool_age,
     evaluate_spool_size,
+    parse_spool_report,
 )
 from .descriptors import (
     SOURCE_API_VERSION,
@@ -116,6 +117,7 @@ __all__ = [
     "SpoolObservation",
     "evaluate_newest_object",
     "evaluate_spool_age",
+    "parse_spool_report",
     "evaluate_spool_size",
     "AlertEvent",
     "AlertKind",

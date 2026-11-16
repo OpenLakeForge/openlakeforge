@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from openlakeforge_core import parse_spool_report
 
 from openlakeforge_platform_api import spool_probe
 
@@ -67,7 +68,7 @@ def test_a_report_parses_into_observations(tmp_path: Path) -> None:
     _file(tmp_path / "spool-dev" / "a", 100, 600)
     report = spool_probe.build_report(tmp_path, {"dev": "spool-dev", "uat": "spool-uat"}, 512_000_000, now=NOW)
 
-    by_stage = {o.stage: o for o in spool_probe.parse_report(json.loads(json.dumps(report)))}
+    by_stage = {o.stage: o for o in parse_spool_report(json.loads(json.dumps(report)))}
 
     assert by_stage["dev"].oldest_file_age == timedelta(seconds=600)
     assert by_stage["dev"].size_bytes == 100
@@ -78,7 +79,7 @@ def test_a_report_parses_into_observations(tmp_path: Path) -> None:
 @pytest.mark.parametrize("payload", [{}, {"observed_at": "2026-11-16T00:00:00+00:00", "limit_bytes": 1, "stages": []}])
 def test_a_malformed_report_is_refused(payload: dict[str, object]) -> None:
     with pytest.raises(ValueError, match="malformed"):
-        spool_probe.parse_report(payload)
+        parse_spool_report(payload)
 
 
 def test_a_report_without_a_zone_is_refused() -> None:
@@ -89,7 +90,7 @@ def test_a_report_without_a_zone_is_refused() -> None:
     }
 
     with pytest.raises(ValueError, match="timezone"):
-        spool_probe.parse_report(payload)
+        parse_spool_report(payload)
 
 
 @pytest.mark.parametrize(("text", "expected"), [("512M", 512_000_000), ("2G", 2_000_000_000), ("64K", 64_000)])
@@ -111,7 +112,7 @@ def test_the_server_answers_the_spool_path_only(tmp_path: Path) -> None:
     base = f"http://127.0.0.1:{server.server_address[1]}"
     try:
         with urllib.request.urlopen(base + spool_probe.PATH, timeout=5) as response:  # noqa: S310
-            observed = spool_probe.parse_report(json.load(response))
+            observed = parse_spool_report(json.load(response))
         with pytest.raises(urllib.error.HTTPError) as missing:
             urllib.request.urlopen(base + "/", timeout=5)  # noqa: S310
     finally:
@@ -137,7 +138,7 @@ def test_a_spool_that_cannot_be_read_is_reported_unreadable_not_empty(
     monkeypatch.setattr(Path, "iterdir", deny_nested)
 
     report = spool_probe.build_report(tmp_path, {"dev": "spool-dev", "prod": "spool-prod"}, 1000, now=NOW)
-    by_stage = {o.stage: o for o in spool_probe.parse_report(report)}
+    by_stage = {o.stage: o for o in parse_spool_report(report)}
 
     assert report["stages"]["dev"]["unreadable"] is True
     assert by_stage["dev"].unreadable

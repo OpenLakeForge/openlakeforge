@@ -46,6 +46,7 @@ from openlakeforge_core import (
     evaluate_spool_age,
     evaluate_spool_size,
     evaluate_workload,
+    parse_spool_report,
     service_signal,
     worst_state,
 )
@@ -53,7 +54,6 @@ from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
 
 from openlakeforge_platform_api.spool_probe import PATH as SPOOL_PATH
-from openlakeforge_platform_api.spool_probe import parse_report
 
 log = logging.getLogger(__name__)
 
@@ -482,7 +482,7 @@ def in_cluster_spool_read(timeout: float) -> SpoolRead:
         # Connect and read are separate timeouts, so each gets half to keep the call within the pod's budget.
         response = requests.get(url, timeout=(per_pod / 2, per_pod / 2))
         response.raise_for_status()
-        return parse_report(response.json())
+        return parse_spool_report(response.json())
 
     def read(base_url: str) -> tuple[list[SpoolObservation], int]:
         parts = urlsplit(base_url)

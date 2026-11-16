@@ -31,6 +31,7 @@ from olf.infra.e2e._isolation import check_stage_isolation
 from olf.infra.e2e._issuer_outage import check_issuer_outage
 from olf.infra.e2e._layers import Layer, configured_layers
 from olf.infra.e2e._log_collector import check_collector_restart, check_short_lived_pod_output
+from olf.infra.e2e._log_delivery import check_delivery_signals_follow_an_outage, check_spool_limit_is_the_loss_point
 from olf.infra.e2e._maintenance import check_iceberg_maintenance
 from olf.infra.e2e._network import check_network_and_rbac
 from olf.infra.e2e._perimeter import check_perimeter
@@ -397,6 +398,17 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
             FullAssertion("short-lived pod output in the log archive", check_short_lived_pod_output, tier="drill")
         )
         assertions.append(FullAssertion("log collector restart mid-stream", check_collector_restart, tier="drill"))
+        # They cut the collector's route to the object store, so they run after the checks that need the archive.
+        assertions.append(
+            FullAssertion(
+                "log archive delivery signals through an outage", check_delivery_signals_follow_an_outage, tier="drill"
+            )
+        )
+        assertions.append(
+            FullAssertion(
+                "log archive spool limit is the loss point", check_spool_limit_is_the_loss_point, tier="drill"
+            )
+        )
     if cfg.env == "local":
         assertions.append(FullAssertion("alert notifications reach a receiver", check_alert_delivery))
     assertions.append(FullAssertion("cross-stage isolation", check_stage_isolation))
