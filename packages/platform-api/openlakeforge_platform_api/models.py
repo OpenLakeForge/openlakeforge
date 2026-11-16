@@ -214,3 +214,39 @@ class PipelinesHealth(BaseModel):
     thresholds: HealthThresholds
     integrations: list[IntegrationStatus]
     pipelines: list[PipelineHealth]
+
+
+class FileStageCapability(BaseModel):
+    stage: str
+    operations: list[str]
+
+
+class FileCapabilities(BaseModel):
+    stages: list[FileStageCapability]
+    max_upload_bytes: int
+
+
+class Bucket(BaseModel):
+    name: str
+    created_at: str | None
+
+
+class Buckets(BaseModel):
+    buckets: list[Bucket]
+
+
+class Folder(BaseModel):
+    prefix: str
+
+
+class FileObject(BaseModel):
+    key: str
+    size: int
+    last_modified: str
+
+
+class Objects(BaseModel):
+    prefix: str
+    folders: list[Folder]
+    files: list[FileObject]
+    next_cursor: str | None

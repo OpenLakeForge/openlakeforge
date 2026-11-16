@@ -623,6 +623,7 @@ module "dagster" {
 
   namespace                      = kubernetes_namespace_v1.stage[each.key].metadata[0].name
   base_values_file               = "${path.root}/../../../helm/values/local/dagster.yaml"
+  max_concurrent_runs            = try(var.query_sizing[each.key].max_concurrent_runs, null)
   project_code_image_repository  = var.project_code_image_repository
   project_code_image_tag         = var.project_code_image_tag
   project_code_image_pull_policy = var.project_code_image_pull_policy

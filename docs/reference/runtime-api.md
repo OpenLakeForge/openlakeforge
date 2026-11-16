@@ -65,6 +65,29 @@ spec = ProductDefinitionSpec(
 defs = build_product_definitions(spec)
 ```
 
+## Retries
+
+Only the Bronze extract and load retries, and only inside the step: when it
+raises a transient network error (a `ConnectionError` or `TimeoutError`, a
+`requests` connection error, timeout or chunked-encoding error, or a botocore
+connection, read-timeout, connection-closed or response-streaming error, also
+as the cause dlt wraps in `PipelineStepFailed`), the loader runs again after
+15 s, then 30 s, then 60 s (15 s doubling, at most 2 minutes), so 3 retries by
+default. A TLS or proxy error (`ssl.SSLError`, or the `requests` and botocore SSL and proxy errors, which are
+connection errors too) and any other error fail the step at once. An interrupt
+(`KeyboardInterrupt`, `SystemExit` or Dagster's `DagsterExecutionInterruptedError`,
+raised when a run is terminated) is never retried, so a terminated run stops.
+The wait is a sleep in the run pod, so the run keeps its queue slot meanwhile.
+
+`SourceDefinitionSpec(bronze_retry_attempts=...)` sets the number of retries
+for a source; `0` turns them off.
+
+Silver and Gold never retry. A Floe failure can be a deterministic `abort` or
+contract failure that must stop the run, and a failed dbt build leaves a
+half-built generation behind. The job carries no Dagster `RetryPolicy`,
+because Dagster would also use it to restart a step that a terminated run
+interrupted.
+
 A dbt source that is not a Silver table of the domain fails when the
 definitions load, naming the source. `ProductDefinitionSpec.resolve()` returns
 the effective lists.

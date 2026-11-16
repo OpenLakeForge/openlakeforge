@@ -1,6 +1,47 @@
 {
   "components": {
     "schemas": {
+      "Bucket": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "created_at"
+        ],
+        "title": "Bucket",
+        "type": "object"
+      },
+      "Buckets": {
+        "properties": {
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/Bucket"
+            },
+            "title": "Buckets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "buckets"
+        ],
+        "title": "Buckets",
+        "type": "object"
+      },
       "DataProduct": {
         "properties": {
           "display_name": {
@@ -75,6 +116,84 @@
           "domains"
         ],
         "title": "Domains",
+        "type": "object"
+      },
+      "FileCapabilities": {
+        "properties": {
+          "max_upload_bytes": {
+            "title": "Max Upload Bytes",
+            "type": "integer"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/FileStageCapability"
+            },
+            "title": "Stages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "stages",
+          "max_upload_bytes"
+        ],
+        "title": "FileCapabilities",
+        "type": "object"
+      },
+      "FileObject": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "last_modified": {
+            "title": "Last Modified",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "size",
+          "last_modified"
+        ],
+        "title": "FileObject",
+        "type": "object"
+      },
+      "FileStageCapability": {
+        "properties": {
+          "operations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "operations"
+        ],
+        "title": "FileStageCapability",
+        "type": "object"
+      },
+      "Folder": {
+        "properties": {
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prefix"
+        ],
+        "title": "Folder",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -428,6 +547,47 @@
           "truncated"
         ],
         "title": "Logs",
+        "type": "object"
+      },
+      "Objects": {
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/FileObject"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "folders": {
+            "items": {
+              "$ref": "#/components/schemas/Folder"
+            },
+            "title": "Folders",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prefix",
+          "folders",
+          "files",
+          "next_cursor"
+        ],
+        "title": "Objects",
         "type": "object"
       },
       "PipelineFreshness": {
@@ -1176,6 +1336,24 @@
         "summary": "List Domains"
       }
     },
+    "/api/v1/file-capabilities": {
+      "get": {
+        "operationId": "file_capabilities_api_v1_file_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileCapabilities"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "File Capabilities"
+      }
+    },
     "/api/v1/query-capabilities": {
       "get": {
         "operationId": "query_capabilities_api_v1_query_capabilities_get",
@@ -1192,6 +1370,192 @@
           }
         },
         "summary": "Query Capabilities"
+      }
+    },
+    "/api/v1/stages/{stage}/buckets": {
+      "get": {
+        "description": "The stage's buckets, plus the ops bucket for a platform-admin.",
+        "operationId": "list_buckets_api_v1_stages__stage__buckets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Buckets"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Buckets"
+      }
+    },
+    "/api/v1/stages/{stage}/buckets/{bucket}/objects": {
+      "get": {
+        "description": "One page of the folders and files directly under `prefix`.",
+        "operationId": "list_objects_api_v1_stages__stage__buckets__bucket__objects_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "bucket",
+            "required": true,
+            "schema": {
+              "title": "Bucket",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "prefix",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Prefix",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Objects"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Objects"
+      }
+    },
+    "/api/v1/stages/{stage}/buckets/{bucket}/objects/content": {
+      "get": {
+        "description": "The object's bytes, streamed in chunks, never read whole.",
+        "operationId": "download_object_api_v1_stages__stage__buckets__bucket__objects_content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "bucket",
+            "required": true,
+            "schema": {
+              "title": "Bucket",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The object's bytes, as an attachment."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Object"
       }
     },
     "/api/v1/stages/{stage}/health": {

@@ -122,3 +122,26 @@ stages = ["*"]
 [operations.export_query]
 role = "viewer"
 stages = ["*"]
+
+# The files explorer (#1114). The object store cannot take a person's token, so these rows are the only control on
+# who reads a stage's buckets through the API's own key. platform-admin: every stage; data-engineer: dev only
+# (role_stages); analyst and viewer: nothing, reads included. file_capabilities is open to every role so a client
+# can ask what it may show: an analyst or viewer gets no stage back.
+[operations.file_capabilities]
+role = "viewer"
+stages = []
+
+[operations.list_buckets]
+role = "data-engineer"
+stages = ["*"]
+role_stages = { data-engineer = ["dev"] }
+
+[operations.list_objects]
+role = "data-engineer"
+stages = ["*"]
+role_stages = { data-engineer = ["dev"] }
+
+[operations.download_object]
+role = "data-engineer"
+stages = ["*"]
+role_stages = { data-engineer = ["dev"] }
