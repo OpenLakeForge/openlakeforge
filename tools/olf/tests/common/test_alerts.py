@@ -247,6 +247,24 @@ def test_failed_pipeline_reads_followed_by_good_ones_resolve_the_single_incident
     assert (state.incidents, state.unknown_counts) == ((), {})
 
 
+@pytest.mark.parametrize("answer", [HealthState.WARNING, HealthState.CRITICAL])
+def test_a_degraded_but_answered_read_resolves_an_unreadable_stage(answer: HealthState) -> None:
+    # WARNING (no code location loaded) and CRITICAL (a repository-loading error) are answers: Dagster is readable.
+    state, sent = _replay([[_dagster(HealthState.UNKNOWN)]] * UNREADABLE_THRESHOLD)
+    assert _events(sent) == [AlertEvent.OPENED]
+
+    state, notifications = _run(state, [_dagster(answer)], 20)
+    assert _events(notifications) == [AlertEvent.RESOLVED]
+    assert (state.incidents, state.unknown_counts) == ((), {})
+
+
+def test_a_degraded_read_api_beside_an_unknown_pipelines_read_keeps_the_stage_unreadable() -> None:
+    state, _ = _replay([[_dagster(HealthState.UNKNOWN)]] * UNREADABLE_THRESHOLD)
+    mixed = [_dagster(HealthState.WARNING), _dagster(HealthState.UNKNOWN, component=DAGSTER_PIPELINES)]
+    state, notifications = _run(state, mixed, 20)
+    assert (notifications, len(state.firing())) == ([], 1)
+
+
 def test_read_api_and_pipelines_unknowns_share_one_incident_and_counter() -> None:
     both = [_dagster(HealthState.UNKNOWN), _dagster(HealthState.UNKNOWN, component=DAGSTER_PIPELINES)]
     pipelines = [_dagster(HealthState.UNKNOWN, component=DAGSTER_PIPELINES)]
