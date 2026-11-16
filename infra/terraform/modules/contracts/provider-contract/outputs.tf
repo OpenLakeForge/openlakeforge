@@ -37,8 +37,18 @@ output "provider_contracts" {
           { ref = "shared/identity", implementation = var.identity.implementation, roles = var.identity.roles },
           var.identity.extra,
         )
-        access        = merge({ ref = "shared/access", implementation = var.access.implementation }, var.access.extra)
-        observability = { ref = "shared/observability", implementation = var.implementations.observability }
+        access = merge({ ref = "shared/access", implementation = var.access.implementation }, var.access.extra)
+        observability = {
+          ref            = "shared/observability"
+          implementation = var.implementations.observability
+          logs = {
+            archive = { enabled = true, retention_days = var.observability.archive_retention_days, retention_supported = var.observability_support.logs_archive_retention, supported = var.observability_support.logs_archive }
+            search  = { enabled = var.observability.search_enabled, supported = var.observability_support.logs_search }
+          }
+          metrics = { enabled = var.observability.metrics_enabled, retention_days = var.observability.metrics_retention_days, retention_supported = var.observability_support.metrics_retention, supported = var.observability_support.metrics }
+          grafana = { enabled = var.observability.grafana_enabled, supported = var.observability_support.grafana }
+          alerts  = { receivers = var.observability.alert_receivers, supported = var.observability_support.alerts }
+        }
       },
       # Filtered for expressions, not `cond ? {...} : {}`: Terraform cannot
       # unify an empty object with one holding nested objects.

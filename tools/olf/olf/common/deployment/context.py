@@ -68,6 +68,24 @@ def topology_variables(context: DeploymentContext) -> dict[str, str]:
     }
 
 
+def observability_variables(context: DeploymentContext) -> dict[str, str]:
+    """The resolved `spec.observability` as the roots' `observability` input.
+
+    Alert receivers carry their name and type only: the Secret reference stays
+    out of the contract and out of Terraform state (AGENTS.md rule 7).
+    """
+    observability = context.topology.observability
+    document = {
+        "archive_retention_days": observability.archive_retention_days,
+        "search_enabled": observability.search_enabled,
+        "metrics_enabled": observability.metrics_enabled,
+        "metrics_retention_days": observability.metrics_retention_days,
+        "grafana_enabled": observability.grafana_enabled,
+        "alert_receivers": [{"name": r.name, "type": r.type} for r in observability.alert_receivers],
+    }
+    return {"observability": json.dumps(document, sort_keys=True, separators=(",", ":"))}
+
+
 def query_variables(context: DeploymentContext) -> dict[str, str]:
     """Each enabled stage's query size as its row of `release/query-sizes.yaml`, keyed by stage.
 

@@ -10,6 +10,22 @@ variable "shared_namespace" {
   default     = "olf-system"
 }
 
+variable "observability" {
+  description = "Deployment Profile spec.observability as resolved by olf (#332): archive retention, search, metrics, Grafana and alert receivers. The root only reports it in the provider contract; no adapter consumes it yet. The default is what a Slim profile resolves to."
+  type = object({
+    archive_retention_days = optional(number, 30)
+    search_enabled         = optional(bool, false)
+    metrics_enabled        = optional(bool, false)
+    metrics_retention_days = optional(number, 7)
+    grafana_enabled        = optional(bool, false)
+    alert_receivers = optional(list(object({
+      name = string
+      type = string
+    })), [])
+  })
+  default = {}
+}
+
 variable "stages" {
   description = "Resolved deployment topology: one entry per stage the resolver knows about, with its enabled flag and capabilities. Disabled stages stay in the map so the root can report what an apply would remove."
   type = map(object({
