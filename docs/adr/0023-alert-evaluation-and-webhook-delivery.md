@@ -425,4 +425,7 @@ c of #793); the health routes report the quality integration as `available` or
 pass in an incomplete manifest reads `unknown`. Runs are read newest first: one
 that did not succeed answers only with a `warning` or `critical`, so a retry's
 partial manifest cannot resolve the previous run's quality incident, even when
-an older success precedes the failure.
+an older success precedes the failure. A success after a newer run whose
+manifest could not be read reads `unknown`, not `healthy`, so a transient read
+failure neither resolves nor reopens the
+incident.

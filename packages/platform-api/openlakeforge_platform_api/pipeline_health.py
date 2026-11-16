@@ -21,6 +21,7 @@ from openlakeforge_core.health import (
     evaluate_expected_run,
     evaluate_freshness,
     evaluate_latest_success,
+    evaluate_quality,
     rollup,
 )
 from openlakeforge_services.base import ServiceClientError
@@ -154,14 +155,22 @@ def _quality(
     first: one that did not succeed answers only with a warning or critical, and is otherwise passed over, so a
     failure between an old success and a Silver-only retry still speaks. The first success answers with its own
     manifest (`unknown` while that is incomplete) and ends the walk; with none reached there is no signal, which
-    leaves an open incident open.
+    leaves an open incident open. A newer run whose manifest exists but cannot be read may be hiding a failure,
+    so a success after it cannot answer `healthy`: it answers `unknown`. A run with no manifest hides nothing.
     """
+    unreadable_seen = False
     for run in runs:
-        found = quality_signal(quality, scope, job, run.run_id, run.tags, now=now, max_age=max_age)
-        if found is None or run.status == "SUCCESS":
+        read = quality_signal(quality, scope, job, run.run_id, run.tags, now=now, max_age=max_age)
+        if read is None:
+            return None
+        found = read.signal
+        if run.status == "SUCCESS":
+            if unreadable_seen and found.state is HealthState.HEALTHY:
+                return evaluate_quality(scope, None, now=now, max_age=max_age)
             return found
         if found.state in (HealthState.WARNING, HealthState.CRITICAL):
             return found
+        unreadable_seen = unreadable_seen or read.unreadable
     return None
 
 

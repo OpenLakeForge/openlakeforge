@@ -320,6 +320,21 @@ def test_a_failure_between_an_old_success_and_a_silver_only_retry_still_speaks(r
     assert _states(_two_runs("SUCCESS", "FAILURE", retry), *manifests) == "critical"
 
 
+def test_a_success_after_a_run_whose_manifest_is_unreadable_cannot_read_healthy() -> None:
+    old = _result(QualityOutcome.PASSED, run_id="run-1")
+    bucket = _store(old)
+    bucket.objects[PREFIX + manifest_key("sales", "orders", "run-2")] = b"{not json"
+    runs = _two_runs("SUCCESS", "FAILURE")
+
+    def read(bucket: FakeBucket) -> str | None:
+        _, (pipeline,) = read_stage_pipelines(FakeDagster(runs), "dev", NOW, QualityReader(bucket, BASE))
+        return next((s.state.value for s in pipeline.signals if s.kind.value == "quality"), None)
+
+    assert read(bucket) == "unknown"
+    # A failed run that wrote no manifest hides nothing.
+    assert read(_store(old)) == "healthy"
+
+
 def test_a_failed_run_with_a_blocking_error_still_reads_critical() -> None:
     blocked = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
 
@@ -352,8 +367,12 @@ def test_a_running_retry_does_not_resolve_an_open_quality_incident_and_a_complet
     store = AlertStore(state, "s3://ops/alerts/")
     failed = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
 
-    def evaluate(runs: list[DagsterRun], *results: QualityResult, at: datetime, complete: bool = True) -> list[str]:
+    def evaluate(
+        runs: list[DagsterRun], *results: QualityResult, at: datetime, complete: bool = True, corrupt: str = ""
+    ) -> list[str]:
         bucket = FakeBucket()
+        if corrupt:
+            bucket.objects[PREFIX + manifest_key("sales", "orders", corrupt)] = b"{not json"
         for result in results:
             manifest = QualityManifest("dev", "sales", "orders", result.dagster_run_id, (result,), complete=complete)
             bucket.objects[manifest.ops_key] = manifest.to_json().encode()
@@ -397,6 +416,41 @@ def test_a_running_retry_does_not_resolve_an_open_quality_incident_and_a_complet
     assert evaluate(_two_runs("FAILURE", "FAILURE", "SUCCESS"), passed, at=NOW + timedelta(minutes=15)) == [
         "resolved:quality"
     ]
+
+
+def test_an_unreadable_failed_manifest_keeps_an_open_incident_open_and_silent() -> None:
+    store = AlertStore(FakeBucket(), "s3://ops/alerts/")
+    notifier = FakeNotifier()
+    old = _result(QualityOutcome.PASSED, run_id="run-1")
+    blocked = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-2")
+    runs = _two_runs("SUCCESS", "FAILURE")
+
+    def evaluate(*results: QualityResult, corrupt: str = "", minutes: int) -> list[str]:
+        bucket = FakeBucket()
+        for result in results:
+            manifest = QualityManifest("dev", "sales", "orders", result.dagster_run_id, (result,), complete=True)
+            bucket.objects[manifest.ops_key] = manifest.to_json().encode()
+        if corrupt:
+            bucket.objects[PREFIX + manifest_key("sales", "orders", corrupt)] = b"{not json"
+        notifier.sent.clear()
+        run_once(
+            settings=_settings(A),
+            store=store,
+            dagster={"dev": FakeDagster(runs)},
+            notifiers={"ops": notifier},
+            now=NOW + timedelta(minutes=minutes),
+            quality={"dev": QualityReader(bucket, BASE)},
+        )
+        return [p["event"] for _, p in notifier.sent if p["condition"] == "quality"]
+
+    def open_quality() -> list[str]:
+        return [i.kind.value for i in store.read_state(NOW + timedelta(hours=1)).incidents if i.kind.value == "quality"]
+
+    assert evaluate(old, blocked, minutes=0) == ["opened"]
+    assert evaluate(old, corrupt="run-2", minutes=5) == []
+    assert open_quality() == ["quality"]
+    assert evaluate(old, blocked, minutes=10) == []
+    assert open_quality() == ["quality"]
 
 
 class QualityDagster(ScheduledDagster):

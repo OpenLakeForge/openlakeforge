@@ -130,7 +130,10 @@ one reads `unknown`, because dbt's results are added last. Runs are read newest
 first. One that did not succeed answers only with a `warning` or `critical`,
 and is otherwise passed over, so a failure between an old success and a
 Silver-only retry still speaks. The first `SUCCESS` run answers with its own
-manifest and the walk stops there, and when none is reached the pipeline
+manifest and the walk stops there, except that a newer run whose manifest
+exists but cannot be read (store error, malformed, foreign) may be hiding a
+failure, so a success after it reads `unknown` rather than `healthy`; a run with
+no manifest hides nothing. When none is reached the pipeline
 carries no `quality` signal, which leaves an open incident open. A manifest
 whose `results` are malformed (an entry that is not an object, wrong field
 types) reads `unknown` like an unreadable one.

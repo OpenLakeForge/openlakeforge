@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 from urllib.parse import urlsplit
 
 from botocore.exceptions import BotoCoreError, ClientError
@@ -44,6 +44,12 @@ class ManifestStore(Protocol):
 
 class QualityReadError(Exception):
     """The manifest could not be read or parsed, as opposed to not being there."""
+
+
+class QualityRead(NamedTuple):
+    signal: Signal
+    # The manifest exists but could not be used (read error, malformed, foreign), as opposed to being absent.
+    unreadable: bool
 
 
 class QualityReader:
@@ -99,19 +105,21 @@ def quality_signal(
     *,
     now: datetime,
     max_age: timedelta,
-) -> Signal | None:
+) -> QualityRead | None:
     """The quality signal of `job`'s run, or None for a job that is not a product pipeline."""
     domain = tags.get(DOMAIN_TAG)
     if domain is None or not job.endswith(PIPELINE_JOB_SUFFIX):
         return None
     product = job.removesuffix(PIPELINE_JOB_SUFFIX)
+    unreadable = False
     try:
         manifest = reader.read(scope.stage, domain, product, run_id)
     except QualityReadError as error:
+        unreadable = True
         # The store's message can name keys and endpoints: the log has it, the answer does not.
         log.warning("quality manifest of %s run %s in stage %s was not usable: %s", job, run_id, scope.stage, error)
         manifest = None
-    return _summarize(scope, manifest, now=now, max_age=max_age)
+    return QualityRead(_summarize(scope, manifest, now=now, max_age=max_age), unreadable)
 
 
 def _summarize(scope: Scope, manifest: QualityManifest | None, *, now: datetime, max_age: timedelta) -> Signal:
