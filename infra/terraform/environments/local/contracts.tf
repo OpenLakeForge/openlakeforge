@@ -581,6 +581,18 @@ module "provider_contract" {
   kube_context            = local.kubernetes_platform_contract.kube_context
   foundation_kube_context = local.foundation_contract.kube_context
 
+  observability = var.observability
+  # Archive only: no adapter implements search, metrics, Grafana or alerting yet.
+  # #22 slice b flips these as each one lands, so a Full profile that asks for
+  # metrics reads as requested-but-unsupported rather than as working.
+  observability_support = {
+    logs_archive = true
+    logs_search  = false
+    metrics      = false
+    grafana      = false
+    alerts       = false
+  }
+
   implementations = {
     foundation          = local.foundation_contract.implementation
     kubernetes_platform = local.kubernetes_platform_contract.implementation

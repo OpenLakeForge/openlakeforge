@@ -366,6 +366,16 @@ module "provider_contract" {
   kube_context            = local.kubernetes_platform_contract.kube_context
   foundation_kube_context = local.foundation_contract.kube_context
 
+  observability = var.observability
+  # Archive only. CloudWatch and managed Prometheus are future adapter shapes.
+  observability_support = {
+    logs_archive = true
+    logs_search  = false
+    metrics      = false
+    grafana      = false
+    alerts       = false
+  }
+
   implementations = {
     foundation          = local.foundation_contract.implementation
     kubernetes_platform = local.kubernetes_platform_contract.implementation

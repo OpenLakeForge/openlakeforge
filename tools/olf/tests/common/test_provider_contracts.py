@@ -246,6 +246,32 @@ def test_v3_contracts_fail_closed_for_cross_stage_and_unknown_shapes(mutate, mat
         parse_provider_contracts(contract, topology)
 
 
+def test_observability_capabilities_are_optional_for_a_contract_already_in_state() -> None:
+    contract = _fixture("azure-provider-contracts-v3.json")
+
+    assert "logs" not in contract["shared"]["observability"]
+    parse_provider_contracts(contract, _topology(contract))
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (lambda observability: observability.pop("alerts"), "together"),
+        (lambda observability: observability["logs"]["archive"].__setitem__("enabled", False), "always enabled"),
+        (lambda observability: observability["metrics"].__setitem__("supported", "no"), "must be a boolean"),
+        (lambda observability: observability["metrics"].__setitem__("retention_days", 0), "positive integer"),
+        (lambda observability: observability["grafana"].__setitem__("url", "x"), "unsupported fields"),
+    ],
+)
+def test_observability_capabilities_fail_closed_on_a_malformed_shape(mutate, match: str) -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    mutate(contract["shared"]["observability"])
+
+    with pytest.raises(ProviderContractError, match=match):
+        parse_provider_contracts(contract, topology)
+
+
 def test_v3_contract_rejects_a_missing_capability_binding() -> None:
     contract = _fixture("aws-provider-contracts-v3.json")
     topology = _topology(contract)

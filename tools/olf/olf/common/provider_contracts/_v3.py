@@ -54,6 +54,8 @@ from olf.common.provider_contracts._validation import (
 _ACCESS_INGRESS_FIELDS = {"base_domain", "tls", "tls_mode", "routes"}
 # Contracts already in Terraform state carry the v1alpha1 name of `tls`, like `code_locations`.
 _ACCESS_LEGACY_TLS_FIELD = "issuer"
+# Observability capabilities (#332). A contract already in state predates them, so they are optional as a group.
+_OBSERVABILITY_FIELDS = {"logs", "metrics", "grafana", "alerts"}
 # Services a route may publish to users, by the last segment of their contract
 # ref. Everything else (metadata database, ops storage, catalog service,
 # registry, ...) can only be routed as internal, and Dagster code servers have
@@ -424,6 +426,7 @@ def _parse_shared(
             required={"ref", "implementation"},
             optional=(_ACCESS_INGRESS_FIELDS | {"perimeter", _ACCESS_LEGACY_TLS_FIELD} if name == "access" else set())
             | ({"image_repository"} if name == "artifact_registry" else set())
+            | (_OBSERVABILITY_FIELDS if name == "observability" else set())
             | ({"roles"} | _OIDC_FIELDS | _OIDC_OPTIONAL if name == "identity" else set())
             | {
                 "endpoint",
@@ -444,6 +447,7 @@ def _parse_shared(
         _reference(parsed[name]["ref"], where=f"shared.{name}.ref", allowed=("shared/",))
         if parsed[name]["ref"] != f"shared/{name}":
             raise ProviderContractError(f"shared.{name}.ref must be 'shared/{name}'")
+    _check_observability(parsed["observability"])
     registry = parsed["artifact_registry"]
     if "image_repository" in registry:
         repository = registry["image_repository"]
@@ -480,6 +484,34 @@ def _parse_shared(
             "the name the Deployment Profile derives as <metadata.name>-ops"
         )
     return SharedPlatformContract(values=_frozen(parsed))
+
+
+def _check_observability(binding: Mapping[str, Any]) -> None:
+    if not _OBSERVABILITY_FIELDS <= set(binding):
+        if _OBSERVABILITY_FIELDS & set(binding):
+            raise ProviderContractError("shared.observability must carry logs, metrics, grafana and alerts together")
+        return
+    where = "shared.observability"
+    logs = _fields(binding["logs"], where=f"{where}.logs", required={"archive", "search"})
+    capabilities = {
+        "logs.archive": (logs["archive"], {"retention_days"}),
+        "logs.search": (logs["search"], set()),
+        "metrics": (binding["metrics"], {"retention_days"}),
+        "grafana": (binding["grafana"], set()),
+    }
+    for name, (value, extra) in capabilities.items():
+        capability = _fields(value, where=f"{where}.{name}", required={"enabled", "supported"}, optional=extra)
+        for flag in ("enabled", "supported"):
+            if not isinstance(capability[flag], bool):
+                raise ProviderContractError(f"{where}.{name}.{flag} must be a boolean")
+        days = capability.get("retention_days")
+        if "retention_days" in extra and (isinstance(days, bool) or not isinstance(days, int) or days < 1):
+            raise ProviderContractError(f"{where}.{name}.retention_days must be a positive integer")
+    alerts = _fields(binding["alerts"], where=f"{where}.alerts", required={"receivers", "supported"})
+    if not isinstance(alerts["supported"], bool) or not isinstance(alerts["receivers"], list | tuple):
+        raise ProviderContractError(f"{where}.alerts must carry a boolean supported and a receivers list")
+    if not logs["archive"]["enabled"]:
+        raise ProviderContractError(f"{where}.logs.archive is always enabled (ADR 0011)")
 
 
 def _parse_stage(
