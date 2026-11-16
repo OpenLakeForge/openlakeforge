@@ -578,8 +578,9 @@ def test_the_schema_agrees_with_the_parser_on_observability(tmp_path: Path) -> N
         _write_profile(repo_root, accepted)
         assert contracts_check.profile_schema_errors(repo_root) == []
 
-    _write_profile(repo_root, "invalid_observability_archive_disabled.yaml")
-    assert contracts_check.profile_schema_errors(repo_root)
+    for rejected in ("invalid_observability_archive_disabled.yaml", "invalid_observability_email_receiver.yaml"):
+        _write_profile(repo_root, rejected)
+        assert contracts_check.profile_schema_errors(repo_root)
 
 
 def test_the_schema_accepts_the_github_issuer_and_rejects_a_hand_written_mapping(tmp_path: Path) -> None:

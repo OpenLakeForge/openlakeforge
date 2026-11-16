@@ -162,7 +162,7 @@ def test_profile_resolve_reports_the_observability_defaults_for_slim_and_full(tm
         resolved[preset] = json.loads(result.output)["observability"]
 
     assert resolved["slim"]["logs"] == {
-        "archive": {"enabled": True, "retention_days": 30},
+        "archive": {"retention_days": 30},
         "search": {"enabled": False},
     }
     assert resolved["slim"]["metrics"]["enabled"] is False
