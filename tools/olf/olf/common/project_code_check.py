@@ -15,7 +15,7 @@ from collections import Counter
 from contextlib import contextmanager
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, NoReturn, Protocol, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
@@ -37,7 +37,18 @@ class _Job(Protocol):
 class _Schedule(Protocol):
     name: str
     job_name: str
+    cron_schedule: str
     default_status: object
+
+
+class _Sensor(Protocol):
+    name: str
+    default_status: object
+
+
+class _StageDefinitions(NamedTuple):
+    schedules: list[_Schedule]
+    sensors: list[_Sensor]
 
 
 class _ProductDagsterLibrary(Protocol):
@@ -46,6 +57,10 @@ class _ProductDagsterLibrary(Protocol):
     ProductDefinitionSpec: Callable[..., object]
 
     def build_stage_schedules(self, spec: object, *, stage: str | None = None) -> Sequence[_Schedule]: ...
+
+    def build_maintenance_definitions(self, *, stage: str | None = None) -> Any: ...
+
+    def build_gold_maintenance_definitions(self, *, stage: str | None = None) -> Any: ...
 
 
 def _fail(message: str) -> NoReturn:
@@ -184,14 +199,14 @@ def validate(root: Path) -> None:
     if not all_product_keys <= merged_keys:
         _fail("merged definitions do not contain every product asset")
     _verify_shared_assets(inventory, entities, merged_keys_list)
+    stages = {stage: _load_stage_definitions(stage) for stage in _SCHEDULE_STAGES}
+    _verify_stage_sensors(stages)
     _verify_stage_schedules(
         inventory,
         product_dagster_lib,
-        {
-            product.id: spec
-            for product in products
-            if (spec := getattr(import_module(f"lakehouse_code.pipelines.dagster.{product.id}"), "spec", None))
-        },
+        {stage: loaded.schedules for stage, loaded in stages.items()},
+        _product_specs(products),
+        _maintenance_schedule_names(product_dagster_lib),
     )
     _verify_bronze_dlt_stage_state()
     _verify_bronze_dlt_load_modes()
@@ -285,23 +300,123 @@ def _verify_in_process_execution(product: Product, job: _Job) -> None:
         _fail(f"{product.job_name} run config must not set execution; the in-process executor takes none")
 
 
+_STAGE_ENV = "OPENLAKEFORGE_STAGE"
+_SCHEDULE_STAGES = ("dev", "uat", "", "prod")
+
+
+def _maintenance_schedule_names(library: _ProductDagsterLibrary) -> frozenset[str]:
+    """The maintenance schedules `lakehouse_code/definitions.py` merges in: prod only, never started by a deploy."""
+    return frozenset(
+        schedule.name
+        for build in (library.build_maintenance_definitions, library.build_gold_maintenance_definitions)
+        for schedule in build(stage="prod").schedules or ()
+    )
+
+
+def _product_specs(products: Sequence[Product]) -> dict[str, object]:
+    """The `spec` each product's pipeline module declares, which the schedule check compares the loaded code with.
+
+    A module that calls `build_product_definitions` without keeping its spec in a module-level `spec` is refused:
+    the check could not tell what cadence it declared, so it would pass whatever the module ships.
+    """
+    specs: dict[str, object] = {}
+    for product in products:
+        module = import_module(f"lakehouse_code.pipelines.dagster.{product.id}")
+        spec = getattr(module, "spec", None)
+        if spec is not None:
+            specs[product.id] = spec
+        elif _calls_build_product_definitions(module):
+            _fail(
+                f"{module.__name__} calls build_product_definitions but does not expose a module-level `spec`; "
+                "assign the ProductDefinitionSpec to `spec` so the cadence it declares can be checked"
+            )
+    return specs
+
+
+def _calls_build_product_definitions(module: object) -> bool:
+    path = getattr(module, "__file__", None)
+    if not path:
+        return False
+    for node in ast.walk(ast.parse(Path(path).read_text(), filename=path)):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if (isinstance(func, ast.Name) and func.id == "build_product_definitions") or (
+                isinstance(func, ast.Attribute) and func.attr == "build_product_definitions"
+            ):
+                return True
+    return False
+
+
+@contextmanager
+def _fresh_project_modules() -> Iterator[None]:
+    """Let `lakehouse_code` be imported again, and put the modules the caller already holds back afterwards."""
+    held = {name: module for name, module in sys.modules.items() if name.split(".")[0] == "lakehouse_code"}
+    for name in held:
+        del sys.modules[name]
+    try:
+        yield
+    finally:
+        for name in [name for name in sys.modules if name.split(".")[0] == "lakehouse_code"]:
+            del sys.modules[name]
+        sys.modules.update(held)
+
+
+def _load_stage_definitions(stage: str) -> _StageDefinitions:
+    """The schedules and sensors `lakehouse_code.definitions` loads when the pod reports `stage`, as shipped."""
+    with _environment({_STAGE_ENV: stage}), _fresh_project_modules():
+        defs = import_module("lakehouse_code.definitions").defs
+        return _StageDefinitions(list(defs.schedules or ()), list(defs.sensors or ()))
+
+
+def _verify_stage_sensors(stages: Mapping[str, _StageDefinitions]) -> None:
+    """Refuse every sensor the code location defines, in every stage.
+
+    A sensor with `default_status=RUNNING` starts runs on deploy in DEV, UAT and
+    PROD alike, outside the cadence. No sensor ships today and the cadence is the
+    only declared way to start runs, so any sensor is refused rather than only
+    RUNNING ones. `Definitions.sensors` holds just the sensors the code defines:
+    Dagster adds its implicit `default_automation_condition_sensor` (STOPPED by
+    default) when the repository is built, so assets that carry automation
+    conditions do not trip this. Defining an `AutomationConditionSensorDefinition`
+    yourself does.
+    """
+    for stage, loaded in stages.items():
+        for sensor in loaded.sensors:
+            status = getattr(sensor.default_status, "value", sensor.default_status)
+            _fail(
+                f"stage {stage!r} loads the sensor {sensor.name} (default status {status}); a sensor can start runs "
+                "when a revision deploys, so none may be defined: schedule the product through its cadence instead"
+            )
+
+
 def _verify_stage_schedules(
-    inventory: LakehouseInventory, library: _ProductDagsterLibrary, specs: Mapping[str, object] | None = None
+    inventory: LakehouseInventory,
+    library: _ProductDagsterLibrary,
+    loaded: Mapping[str, Sequence[_Schedule]],
+    specs: Mapping[str, object],
+    maintenance: Collection[str],
 ) -> None:
-    """Require a schedule to exist only where a stage asks for it, and never to start itself.
+    """Require the schedules the code location loads to be the ones each stage and each product's cadence allow.
 
     Every stage runs the same immutable revision, so this is the only thing
     standing between a promotion and a recurring production-shaped workload
-    appearing in DEV. How often PROD runs, or whether it has a schedule at all,
-    is the product's cadence and not this check's business.
-
-    `specs` holds the `spec` a product's pipeline module declares; a product
-    whose module does not declare one is checked with the default cadence.
+    appearing in DEV. `loaded` is what `lakehouse_code.definitions` actually
+    loads for each stage in `_SCHEDULE_STAGES`, hand-written schedules
+    included; it is compared with what `build_stage_schedules` returns for the
+    `spec` each product module declares (a product whose module declares none
+    is held to the default cadence). DEV, UAT and an unset stage must load no
+    schedule. PROD must load nothing but those product schedules, with their
+    job, cron and status, and the maintenance schedules, which stay STOPPED. A
+    schedule defaults to RUNNING only through `enabled_in_prod=True` in the
+    cadence. A schedule the cadence declares RUNNING must also be among those
+    PROD loads: a module that declares `enabled_in_prod=True` but ships
+    definitions built from another spec would otherwise pass. How often PROD
+    runs, or whether it has a schedule at all, is the product's cadence and not
+    this check's business. `maintenance` names the maintenance schedules.
     """
+    expected: dict[str, tuple[Any, str]] = {}
     for product in inventory.products:
-        spec = (specs or {}).get(product.id) or library.ProductDefinitionSpec(
-            domain=product.domain_name, product=product.id
-        )
+        spec = specs.get(product.id) or library.ProductDefinitionSpec(domain=product.domain_name, product=product.id)
         for stage in ("dev", "uat", ""):
             if library.build_stage_schedules(spec, stage=stage):
                 _fail(f"stage {stage!r} must define no schedule for {product.job_name}")
@@ -311,9 +426,44 @@ def _verify_stage_schedules(
         for schedule in schedules:
             if schedule.job_name != product.job_name:
                 _fail(f"{schedule.name} targets {schedule.job_name}, not the descriptor job {product.job_name}")
-            status = getattr(schedule.default_status, "value", schedule.default_status)
+            expected[schedule.name] = (schedule, product.job_name)
+    for stage in ("dev", "uat", ""):
+        if names := [schedule.name for schedule in loaded.get(stage, ())]:
+            _fail(f"stage {stage!r} must load no schedule; the code location loads {sorted(names)}")
+    seen: set[str] = set()
+    for schedule in loaded.get("prod", ()):
+        status = getattr(schedule.default_status, "value", schedule.default_status)
+        if schedule.name in seen:
+            _fail(f"prod loads the schedule {schedule.name} more than once")
+        seen.add(schedule.name)
+        if schedule.name in maintenance:
             if status != "STOPPED":
-                _fail(f"{schedule.name} defaults to {status}; deploying a revision must not start a schedule")
+                _fail(f"{schedule.name} defaults to {status}; maintenance deletes data, so deploying must not start it")
+            continue
+        if schedule.name not in expected:
+            _fail(
+                f"prod loads the schedule {schedule.name}, which no product cadence declares "
+                f"(declared: {sorted(expected)}); build it from the product's cadence"
+            )
+        declared, _ = expected[schedule.name]
+        want = getattr(declared.default_status, "value", declared.default_status)
+        if status == "RUNNING" and want != "RUNNING":
+            _fail(
+                f"{schedule.name} defaults to RUNNING; deploying a revision must not start a schedule "
+                "unless the cadence sets enabled_in_prod=True"
+            )
+        if schedule.job_name != declared.job_name or schedule.cron_schedule != declared.cron_schedule or status != want:
+            _fail(
+                f"{schedule.name} loads as job {schedule.job_name}, cron {schedule.cron_schedule!r}, {status}; "
+                f"the product's cadence declares {declared.job_name}, {declared.cron_schedule!r}, {want}"
+            )
+    for name, (declared, _) in expected.items():
+        want = getattr(declared.default_status, "value", declared.default_status)
+        if want == "RUNNING" and name not in seen:
+            _fail(
+                f"the cadence declares {name} RUNNING in prod, but the code location does not load it; "
+                "ship the definitions built from the same spec"
+            )
 
 
 def _verify_shared_assets(
