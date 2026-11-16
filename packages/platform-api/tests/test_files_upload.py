@@ -283,7 +283,7 @@ def test_the_object_store_calls_of_an_upload_do_not_run_on_the_event_loop(
 # cancellation
 
 
-def _cancel_while_blocked_in(api: TestClient, s3: FakeS3, mint: Mint, call: str) -> None:
+def _cancel_while_blocked_in(api: TestClient, s3: FakeS3, mint: Mint, call: str, body: bytes = b"x") -> None:
     """Start an upload, hold `call` on the object store, cancel the request, then let `call` finish."""
     gate, entered = threading.Event(), threading.Event()
 
@@ -296,7 +296,7 @@ def _cancel_while_blocked_in(api: TestClient, s3: FakeS3, mint: Mint, call: str)
 
     async def scenario() -> None:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api.app), base_url="http://api") as client:
-            sending = asyncio.create_task(client.put(f"{_base()}/content?key=cut.bin", content=b"x", headers=headers))
+            sending = asyncio.create_task(client.put(f"{_base()}/content?key=cut.bin", content=body, headers=headers))
             while not entered.is_set():
                 await asyncio.sleep(0.01)
             sending.cancel()
@@ -315,6 +315,18 @@ def test_a_request_cancelled_after_the_object_landed_records_success(
     assert (DEV, "cut.bin") in s3.objects
     assert audit_store.phases() == ["attempted", "succeeded"]
     assert list(audit_store.records.values())[-1]["result"] == {"size": "1"}
+
+
+def test_a_request_cancelled_while_the_multipart_upload_is_created_still_aborts_it(
+    api: TestClient, s3: FakeS3, mint: Mint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(file_writes, "PART_BYTES", 4)
+
+    _cancel_while_blocked_in(api, s3, mint, "create_multipart_upload", body=b"0123456789")
+
+    assert s3.aborted == ["upload-1"]
+    assert s3.uploads == {}
+    assert (DEV, "cut.bin") not in s3.objects
 
 
 def test_a_request_cancelled_before_anything_was_written_records_a_failure(

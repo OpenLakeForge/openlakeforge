@@ -237,6 +237,16 @@ def _finished_by(outcome: Outcome, length: int, final_write: Callable[..., Any],
     outcome.result["size"] = str(length)
 
 
+async def _to_the_end(function: Callable[..., Any], /, **kwargs: Any) -> Any:
+    """`function` on a worker thread; a cancelled request waits for it to end, so cleanup never races it."""
+    task = asyncio.ensure_future(run_in_threadpool(function, **kwargs))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await asyncio.wait([task])
+        raise
+
+
 async def _final_write(outcome: Outcome, length: int, call: Callable[..., Any], **kwargs: Any) -> None:
     """`_finished_by` on a worker thread; a cancelled request waits for the call to end before it unwinds."""
     task = asyncio.ensure_future(run_in_threadpool(_finished_by, outcome, length, call, **kwargs))
@@ -265,14 +275,22 @@ async def _stream_to_s3(
         number = len(parts) + 1
         body = bytes(buffer[:PART_BYTES])
         del buffer[:PART_BYTES]
-        result = await run_in_threadpool(
+        result = await _to_the_end(
             store.upload_part, Bucket=bucket, Key=key, UploadId=upload_id, PartNumber=number, Body=body
         )
         parts.append({"ETag": result["ETag"], "PartNumber": number})
 
     try:
         if multipart:
-            created = await run_in_threadpool(store.create_multipart_upload, Bucket=bucket, Key=key)
+            creating = asyncio.ensure_future(run_in_threadpool(store.create_multipart_upload, Bucket=bucket, Key=key))
+            try:
+                created = await asyncio.shield(creating)
+            except asyncio.CancelledError:
+                # The worker thread still creates the upload; learn its id so the cleanup below aborts it.
+                await asyncio.wait([creating])
+                if not creating.cancelled() and creating.exception() is None:
+                    upload_id = creating.result()["UploadId"]
+                raise
             upload_id = created["UploadId"]
         async for chunk in request.stream():
             received += len(chunk)
