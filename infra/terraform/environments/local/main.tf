@@ -58,6 +58,10 @@ locals {
   bootstrap_job_image = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
   # Shared by the audit identity's grant and the API's settings, which must agree.
   platform_api_audit_prefix = "audit/platform-api/"
+  # Shared by the files identity's grant and the API's settings, which must agree.
+  platform_api_file_buckets = {
+    for name, binding in local.stage_storage : name => [binding.bronze_bucket_name, binding.silver_bucket_name, binding.gold_bucket_name]
+  }
   # Catalog namespaces themselves are not declared here. `olf infra catalog
   # sync-namespaces` reconciles them from the lakehouse inventory during
   # artifacts-deploy (ADR 0002); this root only records which naming model
@@ -230,6 +234,11 @@ module "seaweedfs" {
     ops_bucket_name         = var.ops_bucket_name
     prefix                  = local.platform_api_audit_prefix
   } : null
+  files_credentials = local.platform_api_enabled ? {
+    namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+    credentials_secret_name = "platform-api-files-s3-creds"
+    bucket_names            = concat(flatten(values(local.platform_api_file_buckets)), [var.ops_bucket_name])
+  } : null
 
   depends_on = [
     kubernetes_namespace_v1.stage,
@@ -317,6 +326,11 @@ module "platform_api" {
   # same Job mints, over the same flow.
   audit_base_uri           = "${local.artifact_base_uri}/${local.platform_api_audit_prefix}"
   audit_writer_secret_name = module.seaweedfs.audit_writer_secret_name
+  # The files explorer (ADR 0021): the buckets the stage bindings name, browsed
+  # with its own key.
+  file_buckets      = local.platform_api_file_buckets
+  ops_bucket        = var.ops_bucket_name
+  files_secret_name = module.seaweedfs.files_secret_name
   # One Superset service user per stage with Superset; this module mints each
   # password and copies it into the stage's namespace (ADR 0017, Exception E1).
   superset_service_users = { for name in keys(local.analytics_stages) : name => kubernetes_namespace_v1.stage[name].metadata[0].name }

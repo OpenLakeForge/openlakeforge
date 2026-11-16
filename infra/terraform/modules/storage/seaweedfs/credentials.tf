@@ -23,6 +23,10 @@ locals {
       secret    = var.audit_writer_credentials.credentials_secret_name
       namespace = var.audit_writer_credentials.namespace
     }],
+    var.files_credentials == null ? [] : [{
+      secret    = var.files_credentials.credentials_secret_name
+      namespace = var.files_credentials.namespace
+    }],
   )
 
   # Every namespace that receives a Secret, with the names it may read.
@@ -83,6 +87,18 @@ locals {
       secret    = var.audit_writer_credentials.credentials_secret_name
       namespace = var.audit_writer_credentials.namespace
       actions   = ["Write:${var.audit_writer_credentials.ops_bucket_name}/${var.audit_writer_credentials.prefix}*"]
+    }],
+    # Read, Write and List on whole buckets: the platform API's files explorer
+    # (ADR 0021) browses and edits the layer buckets and the ops bucket. SeaweedFS
+    # gates delete on Write, so the API itself keeps the audit prefix read-only;
+    # this grant cannot.
+    var.files_credentials == null ? [] : [{
+      name      = "openlakeforge-platform-api-files"
+      secret    = var.files_credentials.credentials_secret_name
+      namespace = var.files_credentials.namespace
+      actions = flatten([
+        for bucket in var.files_credentials.bucket_names : [for action in ["Read", "Write", "List"] : "${action}:${bucket}"]
+      ])
     }],
   )
 

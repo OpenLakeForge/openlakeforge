@@ -88,6 +88,7 @@ spec:
 | `catalog` | object | no | provider default | Catalog adapter selector. |
 | `metadata_database` | object | no | provider default | Metadata database adapter selector. |
 | `state` | object | no | `backend: local` | Terraform state backend selector. |
+| `observability` | object | no | log archive on; metrics by preset; search and Grafana off | Which observability capabilities the platform offers. |
 
 ### `spec.provider`
 
@@ -356,6 +357,47 @@ Deployments (and, through them, Dagster run pods) and on the
 `openlakeforge-k8s-log-archive` CronJob, and adds it to the stage's `dagster`
 ServiceAccount, which Floe Jobs run as. A rollback restores the Secret the
 previous release used.
+
+### `spec.observability`
+
+Names capabilities, not products: no field selects a metrics or log backend.
+It is platform-wide, not per stage. `olf profile validate` and `olf profile
+resolve` check and print it, and `olf profile resolve --json` reports the
+resolved values as `observability`, including when the block is omitted.
+Nothing deploys from it yet: Terraform does not read these values, so changing
+them changes no running component.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `logs.archive.retention_days` | integer, 1 to 3650 | `30` | How long the durable log archive keeps logs. |
+| `logs.archive.enabled` | `true` | `true` | Accepted only as `true`: the archive is always on in `slim` and `full`, and `false` is rejected. |
+| `logs.search.enabled` | boolean | `false` | Indexed log search. Browsing archived logs does not need it. |
+| `metrics.enabled` | boolean | `false` with `preset: slim`, `true` with `preset: full` | Metrics collection and history. An explicit value wins over the preset. |
+| `metrics.retention_days` | integer, 1 to 3650 | `7` | How long metrics history is kept. |
+| `grafana.enabled` | boolean | `false` | Grafana for operators. |
+| `alerts.receivers` | list | empty | Where alert notifications go; see below. |
+
+A receiver takes `name` (lowercase, same pattern as `metadata.name`, unique in
+the list), `type` (`webhook`, `email` or `slack`) and `secret_ref`, all
+required. `secret_ref` takes `name` and `key`, both required: the Kubernetes
+Secret (created out-of-band) and the data key that hold the receiver's
+credential. A credential written inline is rejected as an unknown field.
+
+```yaml
+observability:
+  logs:
+    archive:
+      retention_days: 90
+  metrics:
+    enabled: true
+  alerts:
+    receivers:
+      - name: on-call
+        type: slack
+        secret_ref:
+          name: alert-webhooks
+          key: slack-url
+```
 
 ### `spec.access`
 

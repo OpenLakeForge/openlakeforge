@@ -141,6 +141,35 @@ variable "audit_writer_secret_name" {
   default     = null
 }
 
+variable "file_buckets" {
+  description = "Each enabled stage's layer buckets the files explorer may browse (ADR 0021). The API refuses to start on a stage outside `stages`; a stage without an entry has no files routes."
+  type        = map(list(string))
+  default     = {}
+}
+
+variable "ops_bucket" {
+  description = "The ops bucket the files explorer lists for platform-admin only. Null leaves it out."
+  type        = string
+  default     = null
+}
+
+variable "files_max_upload_bytes" {
+  description = "The largest object the files explorer accepts in one upload; a bigger body answers 413."
+  type        = number
+  default     = 1073741824
+
+  validation {
+    condition     = var.files_max_upload_bytes > 0 && floor(var.files_max_upload_bytes) == var.files_max_upload_bytes
+    error_message = "files_max_upload_bytes is a positive whole number of bytes."
+  }
+}
+
+variable "files_secret_name" {
+  description = "Secret in `namespace` holding the files explorer's object-store key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) for the layer buckets and the ops bucket. Null leaves the API without a files key."
+  type        = string
+  default     = null
+}
+
 variable "superset_service_users" {
   description = "Each stage with Superset whose platform API service user this module mints a password for: stage name to its namespace (ADR 0021, open item 3). Empty mints none."
   type        = map(string)

@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -19,7 +20,7 @@ from olf.common.commands.checks._shared import (
     _run,
     _uv_pip_install,
 )
-from olf.common.log import fail
+from olf.common.log import fail, warn
 
 
 def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
@@ -142,3 +143,22 @@ def _validate_dbt_relation_contract(project: Path, *, root: Path, catalog: str) 
             )
     if details:
         raise typer.Exit(code=fail("\n".join(details)))
+    for name in untested_models(manifest):
+        warn(f"Gold model {name} has no dbt test; test its grain with unique and not_null")
+
+
+def untested_models(manifest: dict[str, Any]) -> list[str]:
+    """Names of the project's models that no test depends on."""
+    nodes = manifest.get("nodes", {})
+    project_name = manifest.get("metadata", {}).get("project_name")
+    tested = {
+        parent
+        for node in nodes.values()
+        if node.get("resource_type") == "test"
+        for parent in node.get("depends_on", {}).get("nodes", [])
+    }
+    return sorted(
+        node["name"]
+        for key, node in nodes.items()
+        if node.get("resource_type") == "model" and node.get("package_name") == project_name and key not in tested
+    )

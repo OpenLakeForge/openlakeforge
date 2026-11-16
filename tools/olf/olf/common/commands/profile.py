@@ -67,6 +67,12 @@ def resolve(
 
     typer.echo(f"provider={topology.provider.value} region={topology.region} preset={topology.preset.value}")
     typer.echo(f"sizes: storage={topology.storage_size.value}")
+    observability = topology.observability
+    typer.echo(
+        f"observability: archive_retention_days={observability.archive_retention_days} "
+        f"log_search={observability.search_enabled} metrics={observability.metrics_enabled} "
+        f"grafana={observability.grafana_enabled} alert_receivers={len(observability.alert_receivers)}"
+    )
     for stage in topology.stages:
         typer.echo(
             f"  {stage.name.value}: enabled={stage.enabled} "

@@ -55,6 +55,7 @@ _SPEC_FIELDS = {
     "catalog",
     "metadata_database",
     "state",
+    "observability",
 }
 _SIZE_BLOCK_FIELDS = {"size"}
 _PROVIDER_FIELDS = {"type", "region"}
@@ -93,6 +94,21 @@ PUBLIC_EXAMPLE_IMAGE_REPOSITORY = "ghcr.io/openlakeforge/openlakeforge/project-c
 _STAGE_FIELDS = {"enabled", "capabilities", "source_egress", "query"}
 _SOURCE_EGRESS_FIELDS = {"ports"}
 _CAPABILITIES_FIELDS = {"analytics", "governance"}
+
+# spec.observability (ADR 0011, #332): capability switches, never a backend product. Retention is a day count
+# because the archive and metrics adapters each map it onto their own store.
+_OBSERVABILITY_FIELDS = {"logs", "metrics", "grafana", "alerts"}
+_LOGS_FIELDS = {"archive", "search"}
+_ARCHIVE_FIELDS = {"enabled", "retention_days"}
+_ENABLED_FIELDS = {"enabled"}
+_METRICS_FIELDS = {"enabled", "retention_days"}
+_ALERTS_FIELDS = {"receivers"}
+_RECEIVER_FIELDS = {"name", "type", "secret_ref"}
+_RECEIVER_TYPES = ("webhook", "email", "slack")
+_SECRET_REF_FIELDS = {"name", "key"}
+DEFAULT_ARCHIVE_RETENTION_DAYS = 30
+DEFAULT_METRICS_RETENTION_DAYS = 7
+MAX_RETENTION_DAYS = 3650
 
 _SHARED_SERVICES = ("catalog", "governance", "metadata_database", "query")
 _STAGE_SERVICES = ("orchestration", "reporting")
@@ -310,6 +326,61 @@ class StageSpec:
 
 
 @dataclass(frozen=True)
+class SecretRef:
+    """A key in a Kubernetes Secret created out-of-band; the profile never holds the value."""
+
+    name: str
+    key: str
+
+
+@dataclass(frozen=True)
+class AlertReceiver:
+    name: str
+    type: str
+    secret_ref: SecretRef
+
+
+@dataclass(frozen=True)
+class ObservabilitySpec:
+    """`spec.observability` as written. `None` means unstated, which is not the same as a value the user chose:
+    `metrics_enabled` follows the preset only while it is `None`."""
+
+    archive_retention_days: int | None = None
+    search_enabled: bool = False
+    metrics_enabled: bool | None = None
+    metrics_retention_days: int | None = None
+    grafana_enabled: bool = False
+    alert_receivers: tuple[AlertReceiver, ...] = ()
+
+
+@dataclass(frozen=True)
+class ResolvedObservability:
+    """Platform-wide, not per stage: shared observability services run once where enabled (#332)."""
+
+    archive_retention_days: int = DEFAULT_ARCHIVE_RETENTION_DAYS
+    search_enabled: bool = False
+    metrics_enabled: bool = False
+    metrics_retention_days: int = DEFAULT_METRICS_RETENTION_DAYS
+    grafana_enabled: bool = False
+    alert_receivers: tuple[AlertReceiver, ...] = ()
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "logs": {
+                "archive": {"enabled": True, "retention_days": self.archive_retention_days},
+                "search": {"enabled": self.search_enabled},
+            },
+            "metrics": {"enabled": self.metrics_enabled, "retention_days": self.metrics_retention_days},
+            "grafana": {"enabled": self.grafana_enabled},
+            "alerts": {
+                "receivers": [
+                    {"name": r.name, "type": r.type, "secret_ref": vars(r.secret_ref)} for r in self.alert_receivers
+                ]
+            },
+        }
+
+
+@dataclass(frozen=True)
 class DeploymentProfile:
     name: str
     provider: ProviderSpec
@@ -320,6 +391,7 @@ class DeploymentProfile:
     project: ProjectSpec | None = None
     query_size: Size = Size.SMALL
     storage_size: Size = Size.SMALL
+    observability: ObservabilitySpec | None = None
 
     def stage(self, name: StageName) -> StageSpec | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -365,6 +437,7 @@ class DeploymentTopology:
     # The largest enabled stage's size, for the roots that still render one shared Trino (AWS, Azure).
     query_size: Size = Size.SMALL
     storage_size: Size = Size.SMALL
+    observability: ResolvedObservability = ResolvedObservability()
 
     def stage(self, name: StageName) -> ResolvedStage | None:
         return next((stage for stage in self.stages if stage.name == name), None)
@@ -395,6 +468,7 @@ class DeploymentTopology:
                 "identity": None if self.identity is None else vars(self.identity),
                 "query": {"size": self.query_size.value},
                 "storage": {"size": self.storage_size.value},
+                "observability": self.observability.as_dict(),
                 "adapters": vars(_DEFAULT_ADAPTERS[self.provider]),
             },
             sort_keys=True,
@@ -824,6 +898,89 @@ def _validate_identity(document: object, *, source: str, distribution_root: Path
     )
 
 
+def _object(document: object, allowed: set[str], *, where: str) -> Mapping[str, Any]:
+    if not isinstance(document, Mapping):
+        raise DeploymentProfileError(f"{where} must be an object")
+    _forbid_unexpected(document, allowed, where=where)
+    return document
+
+
+def _require(document: Mapping[str, Any], required: set[str], *, where: str) -> None:
+    missing = sorted(required - set(document))
+    if missing:
+        raise DeploymentProfileError(f"{where}: missing required field {missing[0]!r}")
+
+
+def _optional_flag(document: Mapping[str, Any], *, where: str) -> bool | None:
+    if "enabled" not in document:
+        return None
+    return _bool(document["enabled"], field=f"{where}.enabled", source=where.split(": ", 1)[0])
+
+
+def _retention_days(document: Mapping[str, Any], *, where: str) -> int | None:
+    if "retention_days" not in document:
+        return None
+    value = document["retention_days"]
+    # bool is an int subclass; `retention_days: true` must not read as one day.
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_RETENTION_DAYS:
+        raise DeploymentProfileError(f"{where}.retention_days must be an integer from 1 to {MAX_RETENTION_DAYS}")
+    return value
+
+
+def _validate_alert_receiver(document: object, *, where: str) -> AlertReceiver:
+    receiver = _object(document, _RECEIVER_FIELDS, where=where)
+    _require(receiver, _RECEIVER_FIELDS, where=where)
+    name = receiver["name"]
+    if not isinstance(name, str) or not _IDENTIFIER_PATTERN.fullmatch(name):
+        raise DeploymentProfileError(f"{where}.name must match '{_IDENTIFIER_PATTERN_SOURCE}'")
+    if receiver["type"] not in _RECEIVER_TYPES:
+        raise DeploymentProfileError(f"{where}.type must be one of {list(_RECEIVER_TYPES)!r}")
+    ref = _object(receiver["secret_ref"], _SECRET_REF_FIELDS, where=f"{where}.secret_ref")
+    _require(ref, _SECRET_REF_FIELDS, where=f"{where}.secret_ref")
+    if not is_secret_name(ref["name"]):
+        raise DeploymentProfileError(f"{where}.secret_ref.name must be a Kubernetes Secret name")
+    if not is_secret_key(ref["key"]):
+        raise DeploymentProfileError(f"{where}.secret_ref.key must be a Kubernetes Secret data key")
+    return AlertReceiver(name=name, type=receiver["type"], secret_ref=SecretRef(name=ref["name"], key=ref["key"]))
+
+
+def _validate_observability(document: object, *, source: str) -> ObservabilitySpec:
+    where = f"{source}: spec.observability"
+    block = _object(document, _OBSERVABILITY_FIELDS, where=where)
+
+    logs = _object(block.get("logs", {}), _LOGS_FIELDS, where=f"{where}.logs")
+    archive = _object(logs.get("archive", {}), _ARCHIVE_FIELDS, where=f"{where}.logs.archive")
+    # The archive is the durable record Slim and Full both promise (#332): turning it off would lose logs silently.
+    if archive.get("enabled", True) is not True:
+        raise DeploymentProfileError(
+            f"{where}.logs.archive.enabled cannot be false: the log archive is always on in Slim and Full; "
+            "set logs.archive.retention_days to change how long it keeps logs"
+        )
+    search = _object(logs.get("search", {}), _ENABLED_FIELDS, where=f"{where}.logs.search")
+    metrics = _object(block.get("metrics", {}), _METRICS_FIELDS, where=f"{where}.metrics")
+    grafana = _object(block.get("grafana", {}), _ENABLED_FIELDS, where=f"{where}.grafana")
+    alerts = _object(block.get("alerts", {}), _ALERTS_FIELDS, where=f"{where}.alerts")
+    receivers = alerts.get("receivers", [])
+    if not isinstance(receivers, list):
+        raise DeploymentProfileError(f"{where}.alerts.receivers must be a list")
+    parsed = tuple(
+        _validate_alert_receiver(receiver, where=f"{where}.alerts.receivers[{index}]")
+        for index, receiver in enumerate(receivers)
+    )
+    names = [receiver.name for receiver in parsed]
+    if len(set(names)) != len(names):
+        raise DeploymentProfileError(f"{where}.alerts.receivers must not repeat a name")
+
+    return ObservabilitySpec(
+        archive_retention_days=_retention_days(archive, where=f"{where}.logs.archive"),
+        search_enabled=bool(_optional_flag(search, where=f"{where}.logs.search")),
+        metrics_enabled=_optional_flag(metrics, where=f"{where}.metrics"),
+        metrics_retention_days=_retention_days(metrics, where=f"{where}.metrics"),
+        grafana_enabled=bool(_optional_flag(grafana, where=f"{where}.grafana")),
+        alert_receivers=parsed,
+    )
+
+
 def validate_deployment_profile(
     document: Mapping[str, Any], *, source: str = "openlakeforge.yaml", distribution_root: Path | None = None
 ) -> DeploymentProfile:
@@ -921,6 +1078,7 @@ def validate_deployment_profile(
             f"{source}: a profile without spec.identity (authentication off) publishes nothing beyond this machine: "
             "use no spec.access, or on provider 'local' a base_domain ending in '.localhost'"
         )
+    observability = _validate_observability(spec["observability"], source=source) if "observability" in spec else None
     if provider.type == Provider.AWS and "storage" in spec and "size" in spec["storage"]:
         raise DeploymentProfileError(
             f"{source}: spec.storage is not available on provider 'aws': object storage is managed S3 there, "
@@ -936,6 +1094,7 @@ def validate_deployment_profile(
         project=project,
         query_size=_validate_size(spec, "query", source=source),
         storage_size=_validate_size(spec, "storage", source=source),
+        observability=observability,
     )
 
 
@@ -952,6 +1111,19 @@ def load_deployment_profile(path: str | Path, *, distribution_root: Path | None 
 def _preset_defaults(preset: Preset) -> StageCapabilities:
     enabled = preset == Preset.FULL
     return StageCapabilities(analytics=enabled, governance=enabled)
+
+
+def _resolve_observability(profile: DeploymentProfile) -> ResolvedObservability:
+    written = profile.observability or ObservabilitySpec()
+    return ResolvedObservability(
+        archive_retention_days=written.archive_retention_days or DEFAULT_ARCHIVE_RETENTION_DAYS,
+        search_enabled=written.search_enabled,
+        # Metrics are the one capability whose default follows the preset; an explicit value always wins.
+        metrics_enabled=profile.preset == Preset.FULL if written.metrics_enabled is None else written.metrics_enabled,
+        metrics_retention_days=written.metrics_retention_days or DEFAULT_METRICS_RETENTION_DAYS,
+        grafana_enabled=written.grafana_enabled,
+        alert_receivers=written.alert_receivers,
+    )
 
 
 def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
@@ -990,6 +1162,7 @@ def resolve_topology(profile: DeploymentProfile) -> DeploymentTopology:
         project=profile.project,
         query_size=max((stage.query_size for stage in resolved if stage.enabled), key=list(Size).index),
         storage_size=profile.storage_size,
+        observability=_resolve_observability(profile),
     )
 
 
