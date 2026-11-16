@@ -19,6 +19,16 @@ from .alerts import (
     evaluate,
     fingerprint,
 )
+from .alerts_state import (
+    MAX_OUTBOX_RUNS,
+    AlertStateError,
+    drop_notification,
+    expire_outbox,
+    record_attempt,
+    record_delivery,
+    state_from_json,
+    state_to_json,
+)
 from .descriptors import (
     SOURCE_API_VERSION,
     SOURCE_KIND,
@@ -92,6 +102,14 @@ __all__ = [
     "AlertKind",
     "AlertSeverity",
     "AlertState",
+    "AlertStateError",
+    "MAX_OUTBOX_RUNS",
+    "drop_notification",
+    "expire_outbox",
+    "record_attempt",
+    "record_delivery",
+    "state_from_json",
+    "state_to_json",
     "Evaluation",
     "HistoryEvent",
     "Incident",
