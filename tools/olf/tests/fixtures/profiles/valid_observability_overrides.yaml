@@ -25,7 +25,7 @@ spec:
     alerts:
       receivers:
         - name: on-call
-          type: slack
+          type: webhook
           secret_ref:
             name: alert-webhooks
-            key: slack-url
+            key: webhook-url

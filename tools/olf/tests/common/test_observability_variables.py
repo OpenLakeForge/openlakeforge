@@ -52,10 +52,10 @@ def test_full_differs_from_slim_only_by_metrics(tmp_path: Path) -> None:
 
 
 def test_no_secret_reference_reaches_the_input(tmp_path: Path) -> None:
-    receiver = AlertReceiver(name="ops", type="slack", secret_ref=SecretRef(name="ops-slack-hook", key="webhook-url"))
+    receiver = AlertReceiver(name="ops", type="webhook", secret_ref=SecretRef(name="ops-webhook", key="webhook-url"))
     variables = _variables(tmp_path, Preset.FULL, ObservabilitySpec(alert_receivers=(receiver,)))
 
-    assert variables["alert_receivers"] == [{"name": "ops", "type": "slack"}]
+    assert variables["alert_receivers"] == [{"name": "ops", "type": "webhook"}]
     serialized = json.dumps(variables)
-    assert "ops-slack-hook" not in serialized
+    assert "ops-webhook" not in serialized
     assert "webhook-url" not in serialized
