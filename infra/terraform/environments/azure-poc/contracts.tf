@@ -380,6 +380,21 @@ module "provider_contract" {
   kube_context            = local.kubernetes_platform_contract.kube_context
   foundation_kube_context = local.foundation_contract.kube_context
 
+  observability = var.observability
+  # Archive only. Loki, Azure Monitor and managed Prometheus are future adapter shapes.
+  observability_support = {
+    logs_archive = true
+    # The requested retention is reported, not applied: no lifecycle rule
+    # reaches the log prefix. #22 slice b flips logs_archive_retention and #21
+    # flips metrics_retention once the adapter enforces them.
+    logs_archive_retention = false
+    logs_search            = false
+    metrics                = false
+    metrics_retention      = false
+    grafana                = false
+    alerts                 = false
+  }
+
   implementations = {
     foundation          = local.foundation_contract.implementation
     kubernetes_platform = local.kubernetes_platform_contract.implementation

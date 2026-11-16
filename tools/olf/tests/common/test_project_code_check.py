@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -167,21 +168,17 @@ def test_gold_assets_of_a_product_named_like_its_domain_are_not_silver() -> None
     project_code_check._verify_silver_assets(_silver_inventory(), definitions)
 
 
-def _schedule_library(
-    *,
-    stages: tuple[str, ...] = ("prod",),
-    job_name: str = "order_revenue_pipeline",
-    status: str = "STOPPED",
-    count: int = 1,
-) -> SimpleNamespace:
-    schedule = SimpleNamespace(
-        name="order_revenue_schedule",
-        job_name=job_name,
-        default_status=SimpleNamespace(value=status),
-    )
+def _schedule(name: str, *, job: str = "order_revenue_pipeline", cron: str = "0 3 * * *", status: str = "STOPPED"):
+    return SimpleNamespace(name=name, job_name=job, cron_schedule=cron, default_status=SimpleNamespace(value=status))
+
+
+def _schedule_library(*, status: str = "STOPPED", dev: bool = False, count: int = 1) -> SimpleNamespace:
+    declared = _schedule("order_revenue_daily", status=status)
     return SimpleNamespace(
         ProductDefinitionSpec=lambda **fields: SimpleNamespace(**fields),
-        build_stage_schedules=lambda spec, *, stage: [schedule] * count if stage in stages else [],
+        build_stage_schedules=lambda spec, *, stage: (
+            [declared] * count if stage == "prod" or (dev and stage == "dev") else []
+        ),
     )
 
 
@@ -190,36 +187,262 @@ def _inventory() -> SimpleNamespace:
     return SimpleNamespace(products=(product,))
 
 
-@pytest.mark.parametrize("stages", [("prod",), ()], ids=["a PROD schedule", "no schedule at all"])
-def test_stage_schedules_accept_any_cadence_or_none_in_prod_only(stages: tuple[str, ...]) -> None:
-    project_code_check._verify_stage_schedules(_inventory(), _schedule_library(stages=stages))
+_MAINTENANCE = frozenset({"silver_maintenance_weekly", "gold_maintenance_weekly"})
 
 
-def test_stage_schedules_check_the_spec_the_product_module_declares() -> None:
-    seen: list[object] = []
-    library = _schedule_library()
-    build = library.build_stage_schedules
-    library.build_stage_schedules = lambda spec, *, stage: seen.append(spec) or build(spec, stage=stage)
-    declared = SimpleNamespace(cadence="hourly")
+def _loaded(prod: list | None = None, **other_stages: list) -> dict[str, list]:
+    stages: dict[str, list] = {"dev": [], "uat": [], "": [], "prod": prod or []}
+    stages.update(other_stages)
+    return stages
 
-    project_code_check._verify_stage_schedules(_inventory(), library, {"order_revenue": declared})
 
-    assert seen and all(spec is declared for spec in seen)
+def test_stage_schedules_accept_the_declared_schedule_in_prod_and_none_elsewhere() -> None:
+    maintenance = _schedule("silver_maintenance_weekly", job="silver_maintenance")
+    loaded = _loaded([_schedule("order_revenue_daily"), maintenance])
+
+    project_code_check._verify_stage_schedules(_inventory(), _schedule_library(), loaded, {}, _MAINTENANCE)
+    project_code_check._verify_stage_schedules(_inventory(), _schedule_library(), _loaded(), {}, _MAINTENANCE)
 
 
 @pytest.mark.parametrize(
-    ("overrides", "message"),
+    ("library", "loaded", "message"),
     [
-        ({"stages": ("dev", "prod")}, "must define no schedule"),
-        ({"stages": ("", "prod")}, "must define no schedule"),
-        ({"count": 2}, "at most one schedule"),
-        ({"job_name": "hand_written_job"}, "not the descriptor job"),
-        ({"status": "RUNNING"}, "must not start a schedule"),
+        (_schedule_library(dev=True), _loaded(), "stage 'dev' must define no schedule"),
+        (_schedule_library(count=2), _loaded(), "at most one schedule"),
+        (_schedule_library(), _loaded(uat=[_schedule("order_revenue_daily")]), "stage 'uat' must load no schedule"),
+        (_schedule_library(), _loaded(**{"": [_schedule("order_revenue_daily")]}), "stage '' must load no schedule"),
+        (_schedule_library(), _loaded([_schedule("hand_written")]), "no product cadence declares"),
+        (
+            _schedule_library(),
+            _loaded([_schedule("order_revenue_daily", job="hand_written_job")]),
+            "loads as job hand_written_job",
+        ),
+        (
+            _schedule_library(),
+            _loaded([_schedule("order_revenue_daily", cron="* * * * *")]),
+            "loads as job order_revenue_pipeline, cron '\\* \\* \\* \\* \\*'",
+        ),
+        (
+            _schedule_library(),
+            _loaded([_schedule("order_revenue_daily", status="RUNNING")]),
+            "must not start a schedule unless the cadence sets enabled_in_prod=True",
+        ),
+        (
+            _schedule_library(),
+            _loaded([_schedule("order_revenue_daily")] * 2),
+            "more than once",
+        ),
+        (
+            _schedule_library(),
+            _loaded([_schedule("gold_maintenance_weekly", status="RUNNING")]),
+            "maintenance deletes data",
+        ),
+        (
+            _schedule_library(status="RUNNING"),
+            _loaded([_schedule("order_revenue_daily")]),
+            "contradicts|cadence declares .*RUNNING",
+        ),
+        (
+            _schedule_library(status="RUNNING"),
+            _loaded([_schedule("silver_maintenance_weekly", job="silver_maintenance")]),
+            "declares order_revenue_daily RUNNING in prod, but the code location does not load it",
+        ),
     ],
 )
-def test_stage_schedules_reject_anything_a_promotion_could_start(overrides: dict, message: str) -> None:
+def test_stage_schedules_reject_what_the_code_location_loads_against_the_cadence(
+    library: SimpleNamespace, loaded: dict[str, list], message: str
+) -> None:
     with pytest.raises(RuntimeError, match=message):
-        project_code_check._verify_stage_schedules(_inventory(), _schedule_library(**overrides))
+        project_code_check._verify_stage_schedules(_inventory(), library, loaded, {}, _MAINTENANCE)
+
+
+def test_stage_schedules_accept_a_running_prod_schedule_the_cadence_declares() -> None:
+    project_code_check._verify_stage_schedules(
+        _inventory(),
+        _schedule_library(status="RUNNING"),
+        _loaded([_schedule("order_revenue_daily", status="RUNNING")]),
+        {},
+        _MAINTENANCE,
+    )
+
+
+_FAKE_RUNTIME = """
+import os
+import sys
+from dataclasses import dataclass
+from dagster import DefaultScheduleStatus, Definitions, ScheduleDefinition, job, op
+
+
+@dataclass(frozen=True)
+class ProductCadence:
+    cron: str = "0 3 * * *"
+    enabled_in_prod: bool = False
+
+
+@dataclass(frozen=True)
+class ProductDefinitionSpec:
+    domain: str
+    product: str
+    cadence: ProductCadence | None = None
+
+    @property
+    def job_name(self):
+        return f"{self.product}_pipeline"
+
+
+def build_stage_schedules(spec, *, stage=None):
+    stage = os.environ.get("OPENLAKEFORGE_STAGE", "") if stage is None else stage
+    if stage != "prod":
+        return []
+    cadence = spec.cadence or ProductCadence()
+    status = DefaultScheduleStatus.RUNNING if cadence.enabled_in_prod else DefaultScheduleStatus.STOPPED
+    return [ScheduleDefinition(name=f"{spec.product}_schedule", job_name=spec.job_name, cron_schedule=cadence.cron,
+                               default_status=status)]
+
+
+def build_product_definitions(spec):
+    @op
+    def noop():
+        pass
+
+    @job(name=spec.job_name)
+    def pipeline():
+        noop()
+
+    return Definitions(jobs=[pipeline], schedules=build_stage_schedules(spec))
+"""
+
+_PRODUCT_NO_SPEC = """
+from fake_runtime import ProductCadence, ProductDefinitionSpec, build_product_definitions
+
+defs = build_product_definitions(
+    ProductDefinitionSpec("sales", "order_revenue", cadence=ProductCadence("0 * * * *", enabled_in_prod=True))
+)
+"""
+
+_PRODUCT_OWN_SCHEDULE = """
+from dagster import DefaultScheduleStatus, Definitions, ScheduleDefinition
+from fake_runtime import ProductDefinitionSpec, build_product_definitions
+
+spec = ProductDefinitionSpec("sales", "order_revenue")
+own = ScheduleDefinition(
+    name="order_revenue_manual_on", job_name=spec.job_name, cron_schedule="0 3 * * *",
+    default_status=DefaultScheduleStatus.RUNNING,
+)
+defs = Definitions.merge(build_product_definitions(spec), Definitions(schedules=[own]))
+"""
+
+
+_PRODUCT_RUNNING_SENSOR = """
+from dagster import DefaultSensorStatus, Definitions, RunRequest, sensor
+from fake_runtime import ProductDefinitionSpec, build_product_definitions
+
+spec = ProductDefinitionSpec("sales", "order_revenue")
+
+
+@sensor(job_name=spec.job_name, default_status=DefaultSensorStatus.RUNNING)
+def every_minute():
+    yield RunRequest()
+
+
+defs = Definitions.merge(build_product_definitions(spec), Definitions(sensors=[every_minute]))
+"""
+
+_PRODUCT_DECLARED_SCHEDULE_NOT_SHIPPED = """
+from dagster import Definitions
+from fake_runtime import ProductCadence, ProductDefinitionSpec, build_product_definitions
+
+spec = ProductDefinitionSpec("sales", "order_revenue", cadence=ProductCadence("0 * * * *", enabled_in_prod=True))
+defs = Definitions(jobs=build_product_definitions(spec).jobs)
+"""
+
+
+def _fixture_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, product_module: str) -> SimpleNamespace:
+    pytest.importorskip("dagster")
+    code = tmp_path / "lakehouse_code"
+    (code / "pipelines" / "dagster").mkdir(parents=True)
+    for package in (code, code / "pipelines", code / "pipelines" / "dagster"):
+        (package / "__init__.py").write_text("")
+    (tmp_path / "fake_runtime.py").write_text(_FAKE_RUNTIME)
+    (code / "pipelines" / "dagster" / "order_revenue.py").write_text(product_module)
+    (code / "definitions.py").write_text(
+        "from dagster import Definitions\n"
+        "from lakehouse_code.pipelines.dagster.order_revenue import defs as product\n"
+        "defs = Definitions.merge(product)\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    for name in [name for name in sys.modules if name.split(".")[0] in {"lakehouse_code", "fake_runtime"}]:
+        monkeypatch.delitem(sys.modules, name)
+    import fake_runtime  # type: ignore[import-not-found]
+
+    products = (SimpleNamespace(id="order_revenue", domain_name="sales", job_name="order_revenue_pipeline"),)
+    return SimpleNamespace(library=fake_runtime, products=products)
+
+
+def _check_fixture_project(project: SimpleNamespace) -> None:
+    specs = project_code_check._product_specs(project.products)
+    stages = {stage: project_code_check._load_stage_definitions(stage) for stage in project_code_check._SCHEDULE_STAGES}
+    project_code_check._verify_stage_sensors(stages)
+    project_code_check._verify_stage_schedules(
+        SimpleNamespace(products=project.products),
+        project.library,
+        {stage: loaded.schedules for stage, loaded in stages.items()},
+        specs,
+        _MAINTENANCE,
+    )
+
+
+def test_a_product_module_that_builds_definitions_without_a_module_level_spec_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _fixture_project(tmp_path, monkeypatch, _PRODUCT_NO_SPEC)
+
+    with pytest.raises(RuntimeError, match="does not expose a module-level `spec`"):
+        _check_fixture_project(project)
+
+
+def test_a_schedule_the_module_merges_in_is_refused_in_dev_and_in_prod(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _fixture_project(tmp_path, monkeypatch, _PRODUCT_OWN_SCHEDULE)
+    specs = project_code_check._product_specs(project.products)
+    loaded = {
+        stage: project_code_check._load_stage_definitions(stage).schedules
+        for stage in project_code_check._SCHEDULE_STAGES
+    }
+    inventory = SimpleNamespace(products=project.products)
+
+    with pytest.raises(RuntimeError, match="stage 'dev' must load no schedule"):
+        project_code_check._verify_stage_schedules(inventory, project.library, loaded, specs, _MAINTENANCE)
+    prod_only = {**loaded, "dev": [], "uat": [], "": []}
+    with pytest.raises(RuntimeError, match="order_revenue_manual_on, which no product cadence declares"):
+        project_code_check._verify_stage_schedules(inventory, project.library, prod_only, specs, _MAINTENANCE)
+
+
+def test_a_running_sensor_the_module_merges_in_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = _fixture_project(tmp_path, monkeypatch, _PRODUCT_RUNNING_SENSOR)
+
+    with pytest.raises(RuntimeError, match="stage 'dev' loads the sensor every_minute \\(default status RUNNING\\)"):
+        _check_fixture_project(project)
+
+
+def test_a_running_schedule_the_cadence_declares_but_the_module_does_not_ship_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _fixture_project(tmp_path, monkeypatch, _PRODUCT_DECLARED_SCHEDULE_NOT_SHIPPED)
+
+    with pytest.raises(RuntimeError, match="declares order_revenue_schedule RUNNING in prod, but the code location"):
+        _check_fixture_project(project)
+
+
+def test_the_declared_schedule_the_module_ships_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _PRODUCT_NO_SPEC.replace(
+        "defs = build_product_definitions(\n    ProductDefinitionSpec", "spec = (\n    ProductDefinitionSpec"
+    )
+    module += "\ndefs = build_product_definitions(spec)\n"
+    project = _fixture_project(tmp_path, monkeypatch, module)
+
+    _check_fixture_project(project)
 
 
 def test_environment_exports_values_to_the_reader_and_restores_os_environ(monkeypatch: pytest.MonkeyPatch) -> None:

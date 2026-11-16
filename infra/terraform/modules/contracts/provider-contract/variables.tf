@@ -109,6 +109,44 @@ variable "identity" {
   })
 }
 
+variable "observability" {
+  description = "Resolved Deployment Profile spec.observability (#332): the capabilities the profile asks for, whether or not this provider can honour them. Defaults to the archive-only shape a Slim profile resolves to."
+  type = object({
+    archive_retention_days = optional(number, 30)
+    search_enabled         = optional(bool, false)
+    metrics_enabled        = optional(bool, false)
+    metrics_retention_days = optional(number, 7)
+    grafana_enabled        = optional(bool, false)
+    alert_receivers = optional(list(object({
+      name = string
+      type = string
+    })), [])
+  })
+  default = {}
+}
+
+variable "observability_support" {
+  description = "Which observability capabilities this provider can honour today. A capability reported false is advertised as unsupported in the contract, whatever the profile asks for. The two *_retention flags say whether anything applies the requested retention_days to the stored data; they stay false until an adapter does."
+  type = object({
+    logs_archive           = bool
+    logs_archive_retention = bool
+    logs_search            = bool
+    metrics                = bool
+    metrics_retention      = bool
+    grafana                = bool
+    alerts                 = bool
+  })
+  default = {
+    logs_archive           = true
+    logs_archive_retention = false
+    logs_search            = false
+    metrics                = false
+    metrics_retention      = false
+    grafana                = false
+    alerts                 = false
+  }
+}
+
 variable "access" {
   description = "Shared access binding. `extra` holds the ingress fields merged after ref and implementation; empty for a port-forward contract (ADR 0013)."
   type = object({

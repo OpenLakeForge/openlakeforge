@@ -177,11 +177,22 @@ class StagePipelineState(BaseModel):
     state: HealthStateName
 
 
+class ServiceHealth(BaseModel):
+    """One service probe's answer (ADR 0021, decision 7); `component` is e.g. `dagster.workloads`."""
+
+    component: str
+    state: HealthStateName
+    reason: str
+    observed_at: datetime | None
+    expires_at: datetime | None
+
+
 class StageHealth(BaseModel):
     stage: str
     state: HealthStateName
     evaluated_at: datetime
     pipelines: list[StagePipelineState]
+    services: list[ServiceHealth]
     integrations: list[IntegrationStatus]
 
 

@@ -469,3 +469,59 @@ def test_a_missing_token_file_is_unknown_and_never_calls_the_api(
     monkeypatch.setattr(service_probes.requests, "get", get)
     with pytest.raises(ProbeError, match="unreachable"):
         in_cluster_kube_list()("/api/v1/namespaces/olf-dev/pods")
+
+
+class Ticking:
+    def __init__(self) -> None:
+        self.now = NOW
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+def cached_probes(clock: Ticking, calls: list[int]) -> ServiceProbes:
+    def info() -> Mapping[str, Any]:
+        calls.append(1)
+        return {"starting": False}
+
+    return ServiceProbes(
+        kube_list=healthy_cluster(),
+        http_get_json=lambda url, _timeout: info(),
+        dagster_query=lambda url, query: REPOSITORIES,
+        store=Store(),
+        ttl=TTL,
+        clock=clock,
+        cache_ttl=timedelta(seconds=10),
+    )
+
+
+def test_a_stage_probed_again_within_the_cache_ttl_is_not_re_probed_until_it_lapses() -> None:
+    clock, calls = Ticking(), list[int]()
+    cached = cached_probes(clock, calls)
+
+    first = cached.probe(ALL)
+    clock.now = NOW + timedelta(seconds=9)
+    assert cached.probe(ALL) == first
+    assert len(calls) == 1
+
+    clock.now = NOW + timedelta(seconds=11)
+    cached.probe(ALL)
+    assert len(calls) == 2
+
+
+def test_a_probe_that_raises_is_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock, calls = Ticking(), list[int]()
+    cached = cached_probes(clock, calls)
+    attempts = []
+
+    def flaky(targets: StageTargets) -> list[Signal]:
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise RuntimeError("boom")
+        return []
+
+    monkeypatch.setattr(cached, "_probe_uncached", flaky)
+    with pytest.raises(RuntimeError):
+        cached.probe(ALL)
+    assert cached.probe(ALL) == []
+    assert len(attempts) == 2

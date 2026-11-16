@@ -5,7 +5,9 @@ from __future__ import annotations
 import functools
 import os
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import NoReturn, cast
 
 import boto3
@@ -31,6 +33,7 @@ from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.models import Health, WhoAmI
 from openlakeforge_platform_api.permissions import ANONYMOUS, EVERY_STAGE, Permission, PermissionMatrix
+from openlakeforge_platform_api.service_probes import ListableStore, ServiceProbes, StageProber, bounded_s3_config
 from openlakeforge_platform_api.settings import QUERY_SIGNING_KEY_ENV, Settings
 from openlakeforge_platform_api.tokens import InvalidToken, IssuerUnavailable, Principal, TokenValidator
 
@@ -42,6 +45,9 @@ AUDIT_SECRET_KEY_ENV = "OPENLAKEFORGE_AUDIT_SECRET_ACCESS_KEY"
 # The files explorer's key: read, list, write and delete on the stage buckets, and nothing else.
 FILES_ACCESS_KEY_ENV = "OPENLAKEFORGE_FILES_ACCESS_KEY_ID"
 FILES_SECRET_KEY_ENV = "OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY"
+
+# Every service probe, and the S3 client it lists with, is bounded by this (ADR 0021, decision 7).
+PROBE_TIMEOUT = timedelta(seconds=5)
 
 _BINARY_ZIP: dict[str, object] = {
     "description": "A stage-neutral assets bundle.",
@@ -221,6 +227,31 @@ def _files_store(settings: Settings) -> files.FileStore | None:
     return cast("files.FileStore", client)
 
 
+def _probe_store(settings: Settings) -> ListableStore | None:
+    """The S3 client the object-store probe lists with, or None when there is no key or no bucket to list.
+
+    The files key, because it may list each stage's buckets: the log reader's key is scoped to the archive prefixes
+    and could not list a bucket's root. The probe only ever calls list_objects_v2 with it. The client is built with
+    `bounded_s3_config` so a hung store cannot hold a probe thread longer than the probe timeout.
+    """
+    access_key = os.environ.get(FILES_ACCESS_KEY_ENV)
+    secret_key = os.environ.get(FILES_SECRET_KEY_ENV)
+    if not settings.file_buckets or not access_key or not secret_key:
+        return None
+    # boto3's stubs type list_objects_v2 by keyword, which the probe's one-method Protocol cannot express.
+    return cast(
+        ListableStore,
+        boto3.client(
+            "s3",
+            endpoint_url=settings.s3_endpoint_url,
+            region_name=settings.s3_region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            config=bounded_s3_config(PROBE_TIMEOUT).merge(Config(s3={"addressing_style": "path"})),
+        ),
+    )
+
+
 def create_app(
     settings: Settings,
     *,
@@ -230,10 +261,26 @@ def create_app(
     audit: AuditLog | None = None,
     files_store: files.FileStore | None = None,
     trino_send: Callable[..., requests.Response] | None = None,
+    service_probes: StageProber | None = None,
 ) -> FastAPI:
     # No interactive docs or OpenAPI route: each would be a route outside the
     # matrix. ADR 0021 decision 5 commits the OpenAPI document under docs/schema.
+    # Built once, here: it owns the probes' thread pool. Only where a stage namespace is configured, which is where
+    # the Roles and the ServiceAccount token exist; elsewhere no probe could succeed and none is made.
+    owned_probes = (
+        ServiceProbes.in_cluster(_probe_store(settings), timeout=PROBE_TIMEOUT)
+        if service_probes is None and settings.stage_namespaces
+        else None
+    )
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        if owned_probes is not None:
+            owned_probes.close()
+
     app = FastAPI(
+        lifespan=lifespan,
         title="OpenLakeForge platform API",
         version="v1",
         docs_url=None,
@@ -242,6 +289,7 @@ def create_app(
         dependencies=[Depends(_enforce)],
     )
     app.state.settings = settings
+    app.state.service_probes = service_probes or owned_probes
     app.state.permissions = permissions or PermissionMatrix.packaged(settings.precedence)
     app.state.validator = validator or TokenValidator(settings)
     app.state.object_store = object_store or _object_store(settings)

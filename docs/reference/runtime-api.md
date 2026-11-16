@@ -44,23 +44,47 @@ project declares, and a list you pass wins over its default:
 | `gold_assets` | The models under `gold/models/<product>/` in the Gold dbt project |
 | `silver_inputs` | The domain's Silver tables those models read; a source of another domain is refused |
 | `bronze_inputs` | The Bronze resource each of `silver_inputs` reads, from the domain's Floe entities |
-| `cadence` | Daily at 03:00 UTC, as `<product>_daily` |
+| `cadence` | Daily at 03:00 UTC, stopped, as `<product>_daily` |
 
 ```python
 spec = ProductDefinitionSpec(domain="sales", product="order_revenue")
 defs = build_product_definitions(spec)
 ```
 
-`cadence` is a `ProductCadence(cron, timezone="UTC")` and sets the PROD
-schedule, named `<product>_schedule`. `ProductCadence(cron=None)` declares a
-product with no schedule. DEV and UAT never get one, and the schedule is
-`STOPPED` either way: switching it on stays a decision in the Dagster UI.
-Keep the spec in a module-level `spec` name so `olf check project-code` checks
-the cadence the product declares.
+`cadence` is a `ProductCadence(cron, timezone="UTC", enabled_in_prod=False)`
+and sets the PROD schedule, named `<product>_schedule`.
+`ProductCadence(cron=None)` declares a product with no schedule. DEV and UAT
+never get one.
+
+`enabled_in_prod` sets the PROD schedule's default status. `False` ships it
+`STOPPED`; `True` ships it `RUNNING`, so deploying the revision to PROD starts
+it. `cron=None` with `enabled_in_prod=True` raises `ValueError`. It is a
+default, not a lock: a status someone sets in the Dagster UI is stored in the
+stage's metadata database and wins over the code until it is reset with
+Dagster's "reset to default schedule status" action. A schedule switched on in
+the UI keeps running when Git says off, and one switched on and then off in the
+UI stays off when `enabled_in_prod=True` is deployed later. The health
+cross-check (#1148) is meant to flag such a mismatch.
+
+Keep the spec in a module-level `spec` name: `olf check project-code` fails a
+product module that calls `build_product_definitions` without one. It loads the
+code location's schedules for each stage and fails on any in DEV, UAT or an
+unset stage, and on any in PROD other than the product's cadence schedule (job,
+cron and default status as the cadence declares) and the maintenance
+schedules. A `RUNNING` default is accepted only when `enabled_in_prod` is
+`True`, and a schedule the cadence declares `RUNNING` must be among those PROD
+loads. It also fails on any sensor the code location defines, in any stage,
+whatever its default status: the cadence is the only declared way to start
+runs. Dagster's implicit `default_automation_condition_sensor` is added when
+the repository is built, not defined in the code, so assets with automation
+conditions do not trip it; an `AutomationConditionSensorDefinition` you define
+yourself does.
 
 ```python
 spec = ProductDefinitionSpec(
-    domain="sales", product="order_revenue", cadence=ProductCadence("0 * * * *")
+    domain="sales",
+    product="order_revenue",
+    cadence=ProductCadence("0 * * * *", enabled_in_prod=True),
 )
 defs = build_product_definitions(spec)
 ```

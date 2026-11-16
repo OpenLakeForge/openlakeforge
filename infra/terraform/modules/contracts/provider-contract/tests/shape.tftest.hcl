@@ -202,3 +202,73 @@ run "capabilities_follow_the_stage_flags" {
     error_message = "each stage keeps the shared database contract and its own Dagster database"
   }
 }
+
+run "observability_defaults_to_an_archive_only_contract" {
+  command = plan
+
+  assert {
+    condition     = output.provider_contracts.shared.observability.logs.archive == { enabled = true, retention_days = 30, retention_supported = false, supported = true }
+    error_message = "the archive is always enabled and carries its retention"
+  }
+
+  assert {
+    condition = alltrue([
+      !output.provider_contracts.shared.observability.logs.search.enabled,
+      !output.provider_contracts.shared.observability.metrics.enabled,
+      !output.provider_contracts.shared.observability.grafana.enabled,
+      length(output.provider_contracts.shared.observability.alerts.receivers) == 0,
+    ])
+    error_message = "a Slim profile resolves to an archive-only contract: no search, metrics, Grafana or alert receivers"
+  }
+
+  assert {
+    condition = alltrue([
+      !output.provider_contracts.shared.observability.logs.search.supported,
+      !output.provider_contracts.shared.observability.metrics.supported,
+      !output.provider_contracts.shared.observability.grafana.supported,
+      !output.provider_contracts.shared.observability.alerts.supported,
+    ])
+    error_message = "a provider with no adapter for a capability advertises it as unsupported"
+  }
+}
+
+run "observability_reports_what_the_profile_asks_for_next_to_what_is_supported" {
+  command = plan
+
+  variables {
+    observability = {
+      archive_retention_days = 90
+      metrics_enabled        = true
+      metrics_retention_days = 14
+      alert_receivers        = [{ name = "ops", type = "slack" }]
+    }
+  }
+
+  assert {
+    condition     = output.provider_contracts.shared.observability.logs.archive.retention_days == 90 && output.provider_contracts.shared.observability.metrics == { enabled = true, retention_days = 14, retention_supported = false, supported = false }
+    error_message = "requested retention and metrics reach the contract, with metrics still unsupported"
+  }
+
+  assert {
+    condition     = length(output.provider_contracts.shared.observability.alerts.receivers) == 1 && output.provider_contracts.shared.observability.alerts.receivers[0].name == "ops" && output.provider_contracts.shared.observability.alerts.receivers[0].type == "slack"
+    error_message = "alert receivers carry their name and type only"
+  }
+}
+
+run "observability_support_is_declared_per_provider" {
+  command = plan
+
+  variables {
+    observability_support = { logs_archive = true, logs_archive_retention = true, logs_search = false, metrics = true, metrics_retention = true, grafana = false, alerts = false }
+  }
+
+  assert {
+    condition = alltrue([
+      output.provider_contracts.shared.observability.metrics.supported,
+      output.provider_contracts.shared.observability.metrics.retention_supported,
+      output.provider_contracts.shared.observability.logs.archive.retention_supported,
+      !output.provider_contracts.shared.observability.grafana.supported,
+    ])
+    error_message = "support, and whether retention is enforced, are reported per capability"
+  }
+}
