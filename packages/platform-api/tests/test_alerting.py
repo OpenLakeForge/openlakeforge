@@ -29,10 +29,12 @@ class FakeDagster(DagsterClient):
         super().__init__("http://dagster.invalid/graphql")
         self.runs = runs or []
         self.unreadable = False
+        # A Dagster that answers but has no code location loaded lists no job.
+        self.unloaded = False
 
     def list_jobs(self) -> list[DagsterJob]:
         self._read()
-        return [DagsterJob("loc", "repo", "orders_job", "")]
+        return [] if self.unloaded else [DagsterJob("loc", "repo", "orders_job", "")]
 
     def list_schedules(self) -> list[DagsterSchedule]:
         return []
@@ -312,6 +314,22 @@ def test_history_names_the_receiver_and_status_but_never_a_url() -> None:
     assert delivery["http_status"] == 200
     assert delivery["attempts"] == 1
     assert "://" not in json.dumps(bucket.under("alerts/history/v1/"))
+
+
+def test_an_unloaded_code_location_holds_open_incidents_instead_of_resolving_them() -> None:
+    bucket, notifier, fake = FakeBucket(), FakeNotifier(), FakeDagster([_failed()])
+    settings = _settings(A)
+    _evaluate(settings, bucket, {"dev": fake}, {"ops": notifier})
+
+    fake.unloaded = True
+    _evaluate(settings, bucket, {"dev": fake}, {"ops": notifier}, NOW + timedelta(minutes=5))
+    fake.unloaded = False
+    _evaluate(settings, bucket, {"dev": fake}, {"ops": notifier}, NOW + timedelta(minutes=10))
+
+    # One opening, no silent resolve while the location was unloaded, and no duplicate opening after it returned.
+    assert [payload["event"] for _, payload in notifier.sent] == ["opened"]
+    events = [r for r in bucket.under("alerts/history/v1/").values() if r["record"] != "delivery"]
+    assert [r["event"] for r in events] == ["opened"]
 
 
 def test_an_unreadable_stage_holds_its_open_incidents_until_it_is_the_stage_that_is_reported() -> None:

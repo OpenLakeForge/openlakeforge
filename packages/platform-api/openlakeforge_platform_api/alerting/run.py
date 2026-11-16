@@ -132,7 +132,8 @@ def _read_stages(
 ) -> tuple[list[Signal], list[Scope]]:
     """Signals of every enabled stage, and the products that still exist in the stages that could be read.
 
-    An unreadable stage keeps the scopes of its open incidents: they are held, not resolved as deleted.
+    An unreadable stage, or one listing no job at all, keeps the scopes of its open incidents: they are held, not
+    resolved as deleted.
     """
     signals: list[Signal] = []
     scopes: list[Scope] = []
@@ -153,7 +154,10 @@ def _read_stages(
         for pipeline in pipelines:
             signals.extend(pipeline.signals)
             scopes.append(Scope(stage=stage, product=pipeline.job))
-        if not readable:
+        # An unreadable stage, or one whose Dagster answers with no job at all (a code location not loaded yet, as
+        # the service probe reports it), is no evidence that a product was removed: keep its open incidents' scopes.
+        # A product missing while other jobs are listed is a real removal and resolves.
+        if not readable or not pipelines:
             scopes.extend(i.scope for i in previous.incidents if i.scope.stage == stage and i.scope.product)
     return signals, scopes
 
