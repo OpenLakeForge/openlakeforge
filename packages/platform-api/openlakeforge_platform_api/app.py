@@ -307,6 +307,23 @@ def create_app(
             }
         },
     )
+    app.add_api_route("/api/v1/file-capabilities", files.file_capabilities, methods=["GET"], name="file_capabilities")
+    app.add_api_route("/api/v1/stages/{stage}/buckets", files.list_buckets, methods=["GET"], name="list_buckets")
+    objects_path = "/api/v1/stages/{stage}/buckets/{bucket}/objects"
+    app.add_api_route(objects_path, files.list_objects, methods=["GET"], name="list_objects")
+    app.add_api_route(
+        objects_path + "/content",
+        files.download_object,
+        methods=["GET"],
+        name="download_object",
+        response_class=StreamingResponse,
+        responses={
+            200: {
+                "description": "The object's bytes, as an attachment.",
+                "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}},
+            }
+        },
+    )
     app.add_api_route("/api/v1/domains", reads.list_domains, methods=["GET"], name="list_domains")
     app.add_api_route("/api/v1/data-products", reads.list_data_products, methods=["GET"], name="list_data_products")
     return app
