@@ -29,6 +29,7 @@ from olf.infra.e2e._ingress import check_certificate_renewal, check_portal_lists
 from olf.infra.e2e._isolation import check_stage_isolation
 from olf.infra.e2e._issuer_outage import check_issuer_outage
 from olf.infra.e2e._layers import Layer, configured_layers
+from olf.infra.e2e._log_collector import check_collector_restart, check_short_lived_pod_output
 from olf.infra.e2e._maintenance import check_iceberg_maintenance
 from olf.infra.e2e._network import check_network_and_rbac
 from olf.infra.e2e._perimeter import check_perimeter
@@ -387,9 +388,15 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
             FullAssertion("OpenMetadata governance assets", check_openmetadata_assets, layer="governance"),
             FullAssertion("ops bucket artifacts", check_ops_artifacts),
-            FullAssertion("cross-stage isolation", check_stage_isolation),
         ]
     )
+    if cfg.env == "local":
+        # Each waits out the collector's 5m upload_timeout, so they are drills.
+        assertions.append(
+            FullAssertion("short-lived pod output in the log archive", check_short_lived_pod_output, tier="drill")
+        )
+        assertions.append(FullAssertion("log collector restart mid-stream", check_collector_restart, tier="drill"))
+    assertions.append(FullAssertion("cross-stage isolation", check_stage_isolation))
     if cfg.env == "local":
         # The scan sees only current values, so it runs before the rotation replaces the credential the whole run used.
         assertions.append(FullAssertion("identity credential exposure", check_secret_exposure))
