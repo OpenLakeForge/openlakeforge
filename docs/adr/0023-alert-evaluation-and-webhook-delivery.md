@@ -296,7 +296,7 @@ asserts that its keys are a subset of this table **[T]**.
 
 | Link | Target | Until then |
 | --- | --- | --- |
-| `run` | `https://dagster-<stage>.<base_domain>/runs/<run_id>` for a condition with a run. The host pattern is ADR 0013's **[V]**; the `/runs/<id>` path is Dagster's UI route **[T: checked against the pinned Dagster version in #1173]** | Always available once the route exists |
+| `run` | `<scheme>://dagster-<stage>.<base_domain>/runs/<run_id>` for a condition with a run, where `<scheme>` is `http` when `spec.access.tls` is `none` (the local default, ADR 0013 decision 9) and `https` for every TLS mode. The evaluator takes the scheme from the access contract, never a constant. The host pattern is ADR 0013's **[V]**; the `/runs/<id>` path is Dagster's UI route **[T: checked against the pinned Dagster version in #1173]** | Always available once the route exists |
 | `portal` | the Portal's diagnostic page for the incident (#333) | Omitted until #333 exists |
 | `runbook` | an anchor in the published docs for the condition (`stale_output`, `missed_run`, ...) | A docs anchor until runbooks (#51) exist (Default, revisit) |
 
