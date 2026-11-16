@@ -21,7 +21,7 @@ from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.notify import Notifier
 
 from openlakeforge_platform_api.alerting.settings import EvaluatorSettings, LinkSettings
-from openlakeforge_platform_api.alerting.store import AlertStore
+from openlakeforge_platform_api.alerting.store import AlertStore, PendingRecord
 from openlakeforge_platform_api.pipeline_health import read_stage_pipelines
 
 log = logging.getLogger(__name__)
@@ -49,6 +49,8 @@ def run_once(
 ) -> RunSummary:
     now = now.astimezone(UTC)
     previous = store.read_state(now)
+    # Transitions of the stored state whose history writes did not all land last run: replay them now.
+    _flush_history(store, store.read_pending_history(previous))
     signals, scopes = _read_stages(settings, dagster, previous, now)
     evaluation = evaluate(
         previous,
@@ -59,19 +61,26 @@ def run_once(
         active_scopes=scopes,
     )
     state = evaluation.state
-    # History first: its keys are deterministic, so a rewrite after a failed state write overwrites rather than
-    # duplicates, while history written after the state would be lost for good on a crash in between (a silent
-    # resolve has no outbox entry to recover it from). A failure here leaves the state as it was, so the next run
-    # sees the same transitions again.
-    for event in evaluation.events:
-        store.write_history(now, f"{event.incident.id}-{event.event.value}", _event_record(event))
+    # The transitions are first saved as pending, tagged with the state they belong to, then the state, then the
+    # history. A crash after the state write replays them next run (a silent resolve has no outbox entry to
+    # recover it from); a failed state write leaves them tagged with a state that never committed, so they are
+    # dropped instead of recording incident ids the next evaluation will mint afresh. Each record is filed under
+    # its own event's day, so a replay lands where the first attempt would have.
+    pending = [
+        (f"{event.event_at.astimezone(UTC):%Y-%m-%d}", f"{event.incident.id}-{event.event.value}", _event_record(event))
+        for event in evaluation.events
+    ]
+    if pending:
+        store.write_pending_history(pending, state)
     store.write_state(state)
+    _flush_history(store, pending)
 
     delivered = failed = 0
     for entry in state.outbox:
         notification = entry.notification
         routed = {receiver.name for receiver in settings.receivers if receiver.routes(notification.scope.stage)}
-        if not routed:
+        if not routed or routed <= entry.delivered:
+            # Nobody to send to, or every receiver still routed to it has it (a route can change between runs).
             state = drop_notification(state, notification.id)
             continue
         for name in sorted(routed - entry.delivered):
@@ -125,6 +134,14 @@ def run_once(
         )
     store.write_state(state)
     return RunSummary(len(evaluation.notifications), delivered, failed, len(expired))
+
+
+def _flush_history(store: AlertStore, pending: list[PendingRecord]) -> None:
+    if not pending:
+        return
+    for day, name, record in pending:
+        store.write_history_at(day, name, record)
+    store.write_pending_history([], None)
 
 
 def _read_stages(

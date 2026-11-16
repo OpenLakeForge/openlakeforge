@@ -1,11 +1,13 @@
 """Alert objects in the ops bucket: the state document, history records and a kept copy of a corrupt state.
 
-Layout under the base prefix (ADR 0023, decision 3): `state/v1/state.json`, `state/v1/corrupt/<time>.json` and
-`history/v1/date=<day>/<name>.json`. Nothing here takes a webhook URL, so none can reach an object.
+Layout under the base prefix (ADR 0023, decision 3): `state/v1/state.json`, `state/v1/corrupt/<time>.json`,
+`state/v1/pending-history.json` and `history/v1/date=<day>/<name>.json`. Nothing here takes a webhook URL, so
+none can reach an object.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -27,6 +29,14 @@ class AlertObjectStore(ObjectStore, Protocol):
     """The reads of the log archive plus the one write this evaluator adds; boto3's S3 client satisfies it."""
 
     def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> Any: ...  # noqa: N803
+
+
+# (UTC day of the event, history object name, record): replayable without the evaluation that produced it.
+PendingRecord = tuple[str, str, dict[str, Any]]
+
+
+def state_digest(state: AlertState) -> str:
+    return hashlib.sha256(state_to_json(state).encode()).hexdigest()
 
 
 class StoreError(Exception):
@@ -71,6 +81,40 @@ class AlertStore:
 
     def write_state(self, state: AlertState) -> None:
         self._put(self._key("state", "v1", "state.json"), state_to_json(state).encode())
+
+    def write_pending_history(self, records: list[PendingRecord], state: AlertState | None) -> None:
+        """The transition records of a state about to be written, tagged with that state's digest; [] clears them."""
+        body = {"state": state_digest(state) if state is not None else None, "records": records}
+        self._put(self._key("state", "v1", "pending-history.json"), json.dumps(body, sort_keys=True).encode())
+
+    def read_pending_history(self, stored: AlertState) -> list[PendingRecord]:
+        """Records to replay: only those written for the state that is actually stored, else none.
+
+        Records tagged with another state belong to a state write that failed: replaying them would record
+        transitions that never happened (their incident ids were minted at a time that never committed).
+        """
+        key = self._key("state", "v1", "pending-history.json")
+        try:
+            body = self._client.get_object(Bucket=self._bucket, Key=key)["Body"].read()
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") in _MISSING:
+                return []
+            raise StoreError(f"pending alert history could not be read: {error}") from error
+        except BotoCoreError as error:
+            raise StoreError(f"pending alert history could not be read: {error}") from error
+        try:
+            pending = json.loads(body)
+            records = pending["records"]
+            if pending["state"] != state_digest(stored) or not isinstance(records, list):
+                return []
+            return [(str(at), str(name), dict(record)) for at, name, record in records]
+        except (ValueError, KeyError, TypeError) as error:
+            log.warning("pending alert history is unreadable (%s); dropping it", error)
+            return []
+
+    def write_history_at(self, day: str, name: str, record: dict[str, Any]) -> None:
+        key = self._key("history", "v1", f"date={day}", f"{safe_name(name)}.json")
+        self._put(key, json.dumps(record, sort_keys=True, separators=(",", ":")).encode())
 
     def write_history(self, at: datetime, name: str, record: dict[str, Any]) -> None:
         key = self._key("history", "v1", f"date={at:%Y-%m-%d}", f"{safe_name(name)}.json")

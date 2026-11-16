@@ -167,16 +167,57 @@ def test_a_restart_reloads_the_state_and_sends_no_duplicate() -> None:
     assert len(notifier.sent) == 1
 
 
-def test_history_is_written_before_the_state_so_a_failed_state_write_loses_no_transition() -> None:
-    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
-    bucket.failing_writes = ("alerts/state/",)
+def _events(bucket: FakeBucket) -> list[dict[str, Any]]:
+    return [r for r in bucket.under("alerts/history/v1/").values() if r["record"] == "event"]
 
+
+def _state(bucket: FakeBucket) -> dict[str, Any]:
+    return bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]
+
+
+def test_a_failed_state_write_leaves_no_phantom_transition_in_history() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    bucket.failing_writes = ("alerts/state/v1/state.json",)
     with pytest.raises(StoreError):
         _evaluate(_settings(A), bucket, dagster, {"ops": notifier})
+    assert _events(bucket) == [] and notifier.sent == []
 
-    events = [r for r in bucket.under("alerts/history/v1/").values() if r["record"] != "delivery"]
-    assert len(events) == 1
-    assert notifier.sent == []
+    bucket.failing_writes = ()
+    _evaluate(_settings(A), bucket, dagster, {"ops": notifier}, NOW + timedelta(minutes=5))
+
+    # Only the transition of the state that committed is recorded, under the id that state carries.
+    (opened,) = _events(bucket)
+    assert opened["incident_id"] == _state(bucket)["incidents"][0]["id"]
+    assert len(notifier.sent) == 1
+
+
+def test_a_failed_history_write_after_the_state_is_replayed_next_run_under_the_same_id() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    bucket.failing_writes = ("alerts/history/",)
+    with pytest.raises(StoreError):
+        _evaluate(_settings(A), bucket, dagster, {"ops": notifier})
+    committed = _state(bucket)["incidents"][0]["id"]
+
+    bucket.failing_writes = ()
+    _evaluate(_settings(A), bucket, dagster, {"ops": notifier}, NOW + timedelta(minutes=5))
+
+    assert [e["incident_id"] for e in _events(bucket)] == [committed]
+    assert len(notifier.sent) == 1
+
+
+def test_an_entry_already_held_by_every_receiver_still_routed_leaves_the_outbox() -> None:
+    bucket, dagster = FakeBucket(), {"dev": FakeDagster([_failed()])}
+    steady, flaky = FakeNotifier(), FakeNotifier(up=False)
+    both = _settings(A, ReceiverSetting("chat", "CHAT_URL"))
+    _evaluate(both, bucket, dagster, {"ops": steady, "chat": flaky})
+    assert len(_state(bucket)["outbox"]) == 1
+
+    # "chat" is removed from the settings: "ops" already has it, so nothing is left to deliver.
+    _evaluate(_settings(A), bucket, dagster, {"ops": steady}, NOW + timedelta(minutes=5))
+
+    assert _state(bucket)["outbox"] == []
+    assert len(steady.sent) == 1
+    assert not [r for r in bucket.under("alerts/history/v1/").values() if r["record"] == "undeliverable"]
 
 
 def test_a_store_outage_delivers_nothing() -> None:
