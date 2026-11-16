@@ -145,10 +145,12 @@ def test_stale_schedule_observation_is_unknown_not_critical() -> None:
 @pytest.mark.parametrize(
     ("outcome", "blocking", "expected"),
     [
-        (QualityOutcome.PASS, True, HealthState.HEALTHY),
+        (QualityOutcome.PASSED, True, HealthState.HEALTHY),
         (QualityOutcome.WARN, True, HealthState.WARNING),
         (QualityOutcome.ERROR, True, HealthState.CRITICAL),
         (QualityOutcome.ERROR, False, HealthState.WARNING),
+        (QualityOutcome.NOT_RUN, True, HealthState.UNKNOWN),
+        (QualityOutcome.UNKNOWN, True, HealthState.UNKNOWN),
     ],
 )
 def test_quality_outcome_maps_to_state(outcome: QualityOutcome, blocking: bool, expected: HealthState) -> None:
@@ -160,7 +162,7 @@ def test_quality_outcome_maps_to_state(outcome: QualityOutcome, blocking: bool, 
 
 
 def test_stale_quality_result_is_unknown() -> None:
-    quality = QualityObservation(QualityOutcome.PASS, STALE)
+    quality = QualityObservation(QualityOutcome.PASSED, STALE)
     assert evaluate_quality(DEV, quality, now=NOW, max_age=MAX_AGE).state is HealthState.UNKNOWN
 
 

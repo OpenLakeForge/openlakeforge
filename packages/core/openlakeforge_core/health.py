@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 
+from .quality import QualityOutcome
+
 
 class HealthState(StrEnum):
     HEALTHY = "healthy"
@@ -51,12 +53,6 @@ class ScheduleState(StrEnum):
     RUNNING = "running"
     STOPPED = "stopped"
     ABSENT = "absent"
-
-
-class QualityOutcome(StrEnum):
-    PASS = "pass"
-    WARN = "warn"
-    ERROR = "error"
 
 
 @dataclass(frozen=True)
@@ -194,7 +190,10 @@ def evaluate_quality(scope: Scope, quality: QualityObservation | None, *, now: d
         return _missing(SignalKind.QUALITY, scope, max_age)
     if _is_stale(quality, now, max_age):
         return _stale(SignalKind.QUALITY, scope, quality, max_age)
-    if quality.outcome is QualityOutcome.PASS:
+    if quality.outcome in (QualityOutcome.NOT_RUN, QualityOutcome.UNKNOWN):
+        # A check that did not run says nothing about the data, so it must not read as a pass.
+        state, reason = HealthState.UNKNOWN, "quality checks did not report an outcome"
+    elif quality.outcome is QualityOutcome.PASSED:
         state, reason = HealthState.HEALTHY, "quality checks passed"
     elif quality.outcome is QualityOutcome.WARN:
         state, reason = HealthState.WARNING, "quality checks warned"
