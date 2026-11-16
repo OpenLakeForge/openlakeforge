@@ -20,7 +20,6 @@ from .governance import (
 from .health import (
     HealthState,
     QualityObservation,
-    QualityOutcome,
     RunObservation,
     RunStatus,
     ScheduleObservation,
@@ -56,12 +55,29 @@ from .inventory import (
     load_source,
     load_transitional_lakehouse_inventory,
 )
+from .quality import (
+    HealthQualityFields,
+    PipelineOutcome,
+    QualityManifest,
+    QualityOutcome,
+    QualityRecordError,
+    QualityResult,
+    health_quality_fields,
+    manifest_key,
+)
 from .runs import FLOE_FULL_REFRESH_TAG, FULL_REFRESH_SCOPES, FULL_REFRESH_TAG, full_refresh_scope, full_refresh_tags
 
 __all__ = [
     "HealthState",
+    "HealthQualityFields",
+    "PipelineOutcome",
+    "QualityManifest",
     "QualityObservation",
     "QualityOutcome",
+    "QualityRecordError",
+    "QualityResult",
+    "health_quality_fields",
+    "manifest_key",
     "RunObservation",
     "RunStatus",
     "ScheduleObservation",
