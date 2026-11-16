@@ -1058,6 +1058,63 @@
         "title": "Schemas",
         "type": "object"
       },
+      "ServiceHealth": {
+        "description": "One service probe's answer (ADR 0021, decision 7); `component` is e.g. `dagster.workloads`.",
+        "properties": {
+          "component": {
+            "title": "Component",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "healthy",
+              "warning",
+              "critical",
+              "unknown",
+              "disabled"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "component",
+          "state",
+          "reason",
+          "observed_at",
+          "expires_at"
+        ],
+        "title": "ServiceHealth",
+        "type": "object"
+      },
       "StageHealth": {
         "properties": {
           "evaluated_at": {
@@ -1077,6 +1134,13 @@
               "$ref": "#/components/schemas/StagePipelineState"
             },
             "title": "Pipelines",
+            "type": "array"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceHealth"
+            },
+            "title": "Services",
             "type": "array"
           },
           "stage": {
@@ -1100,6 +1164,7 @@
           "state",
           "evaluated_at",
           "pipelines",
+          "services",
           "integrations"
         ],
         "title": "StageHealth",
@@ -1560,7 +1625,7 @@
     },
     "/api/v1/stages/{stage}/health": {
       "get": {
-        "description": "A rollup of the stage's pipeline signals. Integrations that give none are listed, never counted as healthy.",
+        "description": "A rollup of the stage's pipeline and service signals. Integrations that give none are never healthy.\n\nBoth reads block (Dagster's HTTP, and the probes for up to their timeout), so each runs on a worker thread,\ntogether: the event loop keeps serving other requests, and the stage answers in the slower read's time.",
         "operationId": "get_stage_health_api_v1_stages__stage__health_get",
         "parameters": [
           {

@@ -342,6 +342,15 @@ module "platform_api" {
     for name in keys(local.analytics_stages) :
     name => "http://${local.superset_service.name}.${local.stage_namespaces[name]}:${local.superset_service.port}"
   }
+  # Service probes (ADR 0021, decision 7): the Roles that let the API list pods
+  # and controllers, and the token that uses them, exist only in the stage
+  # namespaces named here. Built from the namespace resources, not their
+  # names, so a fresh apply creates each Role after its namespace.
+  probe_namespaces = { for name, ns in kubernetes_namespace_v1.stage : name => ns.metadata[0].name }
+  trino_urls = {
+    for stage in keys(local.enabled_stages) :
+    stage => "http://${module.trino[stage].service_name}.${local.stage_namespaces[stage]}.svc.cluster.local:${module.trino[stage].http_port}"
+  }
   bootstrap_job_image = local.bootstrap_job_image
 }
 

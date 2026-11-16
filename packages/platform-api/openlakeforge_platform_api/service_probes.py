@@ -86,6 +86,12 @@ class StageTargets:
     trino_selector: Mapping[str, str] | None = None
 
 
+class StageProber(Protocol):
+    """What the health routes need of `ServiceProbes`: a blocking call that returns one signal per component."""
+
+    def probe(self, targets: StageTargets) -> list[Signal]: ...
+
+
 DEFAULT_DAGSTER_SELECTOR = {"app.kubernetes.io/name": "dagster"}
 DEFAULT_TRINO_SELECTOR = {"app.kubernetes.io/name": "trino"}
 
@@ -135,6 +141,10 @@ class ServiceProbes:
             store=store,
             **options,
         )
+
+    def close(self) -> None:
+        """Stop accepting probes. A probe stuck in a socket is abandoned, not joined, so shutdown never waits on one."""
+        self._pool.shutdown(wait=False, cancel_futures=True)
 
     def probe(self, targets: StageTargets) -> list[Signal]:
         """Signals for one stage; the probes run concurrently and share one timeout."""
