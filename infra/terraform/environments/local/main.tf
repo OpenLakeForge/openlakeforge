@@ -53,6 +53,12 @@ locals {
   # ops bucket; the platform API's read-only key is scoped to the same prefixes.
   stage_log_prefixes   = { for name in keys(local.enabled_stages) : name => "activations/${name}/logs" }
   platform_api_enabled = local.identity_enabled && var.platform_api_image != null
+  # ADR 0022: the collector writes archive format v2 beside the CronJob's v1,
+  # one route per stage namespace plus the platform namespace.
+  log_collector_routes = merge(
+    { for name, prefix in local.stage_log_prefixes : name => { namespace = local.stage_namespaces[name], key_prefix = "${prefix}/v2/" } },
+    { platform = { namespace = var.shared_namespace, key_prefix = "platform/logs/v2/" } },
+  )
   # Each stage's Superset Service; the platform API's settings name it without waiting for the release.
   superset_service    = { name = "superset", port = 8088 }
   bootstrap_job_image = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
@@ -234,6 +240,12 @@ module "seaweedfs" {
     ops_bucket_name         = var.ops_bucket_name
     prefix                  = local.platform_api_audit_prefix
   } : null
+  log_collector_credentials = {
+    namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+    credentials_secret_name = "log-collector-s3-creds"
+    ops_bucket_name         = var.ops_bucket_name
+    prefixes                = [for route in values(local.log_collector_routes) : route.key_prefix]
+  }
   files_credentials = local.platform_api_enabled ? {
     namespace               = kubernetes_namespace_v1.shared.metadata[0].name
     credentials_secret_name = "platform-api-files-s3-creds"
@@ -243,6 +255,19 @@ module "seaweedfs" {
   depends_on = [
     kubernetes_namespace_v1.stage,
   ]
+}
+
+# ADR 0022: continuous pod log collection, in Slim and Full alike. The polling
+# CronJob stays until the API reads v2 (slice c), so there is no cutover here.
+module "log_collector" {
+  source = "../../modules/observability/log-collector"
+
+  namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+  routes                  = local.log_collector_routes
+  bucket                  = var.ops_bucket_name
+  s3_endpoint_url         = module.seaweedfs.contract.endpoint
+  s3_region               = module.seaweedfs.contract.region
+  credentials_secret_name = module.seaweedfs.log_collector_secret_name
 }
 
 module "cert_manager" {
