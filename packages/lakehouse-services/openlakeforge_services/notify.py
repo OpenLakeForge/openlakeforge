@@ -59,7 +59,18 @@ class _DropConnectionLogs(logging.Filter):
         return False
 
 
-logging.getLogger("urllib3.connectionpool").addFilter(_DropConnectionLogs())
+_CONNECTION_LOGGER = "urllib3.connectionpool"
+
+
+def quiet_transport_logs() -> None:
+    """Drop urllib3's connection-pool records, which carry the webhook path (the credential) at DEBUG.
+
+    A process that sends webhooks calls this once at startup. It is not done on import: importing this module must not
+    change logging for every other HTTP client in the process.
+    """
+    pool = logging.getLogger(_CONNECTION_LOGGER)
+    if not any(isinstance(existing, _DropConnectionLogs) for existing in pool.filters):
+        pool.addFilter(_DropConnectionLogs())
 
 
 def _random_jitter(ceiling: float) -> float:

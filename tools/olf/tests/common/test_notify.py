@@ -5,6 +5,8 @@ import http.server
 import ipaddress
 import logging
 import ssl
+import subprocess
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -15,7 +17,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 from openlakeforge_services import notify
-from openlakeforge_services.notify import DeliveryResult, WebhookNotifier
+from openlakeforge_services.notify import DeliveryResult, WebhookNotifier, quiet_transport_logs
 
 SECRET_PATH = "/hooks/T0SECRET/B0TOKEN"
 SECRET_QUERY = "key=s3cr3t-query"
@@ -159,6 +161,7 @@ def test_url_never_reaches_logs_exceptions_or_repr(
 ) -> None:
     receiver = serve([(500, {}), (500, {}), (500, {}), (400, {})])
     caplog.set_level(logging.DEBUG)
+    quiet_transport_logs()
     notifier = _notifier(receiver.url, cert, [])
     notifier.send({}, delivery_id="d")
     notifier.send({}, delivery_id="d")
@@ -171,3 +174,14 @@ def test_url_never_reaches_logs_exceptions_or_repr(
     for leaked in (SECRET_PATH, "T0SECRET", "s3cr3t-query", "BODY-X", receiver.url):
         assert leaked not in text
     assert "ops" in caplog.text
+
+
+def test_importing_the_notifier_leaves_other_clients_logging_alone() -> None:
+    probe = (
+        "import logging, openlakeforge_services.notify as n;"
+        "pool = logging.getLogger('urllib3.connectionpool');"
+        "assert pool.filters == [], 'import changed urllib3 logging';"
+        "n.quiet_transport_logs(); n.quiet_transport_logs();"
+        "assert len(pool.filters) == 1"
+    )
+    subprocess.run([sys.executable, "-c", probe], check=True)
