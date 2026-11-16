@@ -246,8 +246,11 @@ For those calls it therefore:
   with the ETag the rename read from the source, the original is deleted with
   `If-Match` (per-key ETags in the batch delete of a folder), and a failed move
   removes the copies it made with each copy's own ETag, leaving any a different
-  writer has since replaced. A source that changed during the move stays, with
-  409. Only the multi-key folder move is not atomic: a failure midway leaves the
+  writer has since replaced. A folder's marker key is a directory in SeaweedFS
+  4.48, which cannot be copied (NoSuchKey) and has no ETag to compare, so a
+  rename writes the destination marker with `If-None-Match: *` instead, and a
+  delete or rollback never pins an ETag on a marker and removes markers after
+  what is under them. A source that changed during the move stays, with 409. Only the multi-key folder move is not atomic: a failure midway leaves the
   keys already deleted moved and the rest in place, and a delete reports each
   key's outcome instead of failing as a whole. The existence look before a
   rename or a new folder is a courtesy; a folder is created by a plain `PutObject`
