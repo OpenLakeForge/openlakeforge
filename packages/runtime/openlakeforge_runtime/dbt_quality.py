@@ -11,7 +11,9 @@ the whole project. Data tests (generic and singular) are mapped; unit tests are 
 
 Selected but not run: the manifest lists every test of the project, so it cannot say which ones this run
 selected. The caller passes `selected_tests`, the unique ids `dbt_build.dbt_tests` marks `explicit` less those
-`without_deselected_checks` drops, because that is the set `generation_args` hands to dbt. A selected test with
+`without_deselected_checks` drops, because that is the set `generation_args` hands to dbt. The product job writes
+that set to `selected_tests.json` before the build starts, so a build that fails early still leaves it, and
+`read_dbt_evidence` reads it when the caller passes none. A selected test with
 no result is `not_run` when other tests have results, and `unknown` when none has or the build failed: then we
 cannot tell whether it ran. Without `selected_tests`, a test with no result produces no record rather than a guess.
 
@@ -44,6 +46,7 @@ ENGINE = "dbt"
 MANIFEST_PATH = "target/manifest.json"
 RUN_RESULTS_PATH = "target/run_results.json"
 INCOMPLETE_MARKER_PATH = "artifacts_incomplete.json"
+SELECTED_TESTS_PATH = "selected_tests.json"
 
 _UNKNOWN_SEVERITY = "unknown"
 
@@ -81,6 +84,8 @@ def read_dbt_evidence(
     marker = _read(read, f"{base}/{INCOMPLETE_MARKER_PATH}")
     if manifest is None or (run_results is None and marker is None):
         return None
+    if selected_tests is None:
+        selected_tests = _selected_ids(_read(read, f"{base}/{SELECTED_TESTS_PATH}"))
     return DbtRunEvidence(
         manifest=manifest,
         run_results=run_results,
@@ -219,6 +224,11 @@ def _read(read: Callable[[str], Mapping[str, Any]], uri: str) -> Mapping[str, An
         return read(uri)
     except Exception:
         return None
+
+
+def _selected_ids(document: Mapping[str, Any] | None) -> list[str] | None:
+    ids = (document or {}).get("selected_tests")
+    return ids if isinstance(ids, list) and all(isinstance(i, str) for i in ids) else None
 
 
 def _text(value: Any) -> str | None:
