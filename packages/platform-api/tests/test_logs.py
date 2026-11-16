@@ -323,3 +323,13 @@ def test_a_platform_admin_reads_prod_from_the_prod_prefix_only(
 @pytest.mark.parametrize("query", ["&severity=loud", "&since=yesterday", "&until=x"])
 def test_a_malformed_filter_is_refused(api: TestClient, mint: Mint, query: str) -> None:
     assert api.get(LOGS + query, headers=_as(mint, "data-engineer")).status_code == 422
+
+
+def test_each_line_says_which_archive_layout_it_came_from(api: TestClient, store: ObjectStore, mint: Mint) -> None:
+    store.archive(V2_DEV, [_v2("2026-10-30T08:00:00Z", "from the collector")])
+
+    lines = api.get(LOGS + "&pod=dagster-run-8f1c2d4e-x7k2p", headers=_as(mint, "data-engineer")).json()["lines"]
+    both = api.get(LOGS + "&limit=10", headers=_as(mint, "data-engineer")).json()["lines"]
+
+    assert [line["source"] for line in lines] == ["v2"]
+    assert {line["source"] for line in both} == {"v1", "v2"}
