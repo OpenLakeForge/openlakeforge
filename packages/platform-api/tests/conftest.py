@@ -11,6 +11,7 @@ from typing import Any
 
 import jwt
 import pytest
+from _files_fakes import api, audit_store, s3  # noqa: F401 - the files tests' fixtures
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 

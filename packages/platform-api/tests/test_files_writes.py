@@ -6,21 +6,9 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from _files_fakes import BUCKETS, OPS, AuditStore, FakeS3, _as, _base, _client_error, _settings
 from conftest import Mint
 from fastapi.testclient import TestClient
-from test_files import (
-    BUCKETS,
-    OPS,
-    AuditStore,
-    FakeS3,
-    _as,
-    _base,
-    _client_error,
-    _settings,
-    api,  # noqa: F401 - fixtures, shared with the read routes' tests
-    audit_store,  # noqa: F401
-    s3,  # noqa: F401
-)
 
 from openlakeforge_platform_api import file_writes
 from openlakeforge_platform_api.app import create_app
