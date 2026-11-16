@@ -58,6 +58,7 @@ from olf.infra.commands import maintenance as infra_maintenance
 from olf.infra.commands import product as infra_product
 from olf.infra.commands import project as infra_project
 from olf.infra.commands import source as infra_source
+from olf.platform import buckets as platform_buckets
 from olf.platform import commands as platform_commands
 from olf.platform import query as platform_query
 from olf.platform import reads as platform_reads
@@ -197,6 +198,7 @@ app.command("logout")(platform_commands.logout)
 app.add_typer(platform_reads.jobs_app, name="jobs")
 platform_reads.runs_app.command("launch")(platform_writes.runs_launch)
 app.add_typer(platform_reads.runs_app, name="runs")
+app.add_typer(platform_buckets.bucket_app, name="bucket")
 app.command("logs")(platform_reads.logs)
 
 
