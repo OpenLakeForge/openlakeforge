@@ -73,6 +73,12 @@ variable "run_pod_resources" {
   }
 }
 
+variable "max_concurrent_runs" {
+  description = "How many runs the stage's run queue lets execute at once, from release/query-sizes.yaml. Null leaves the queue at the chart's default of no limit."
+  type        = number
+  default     = null
+}
+
 variable "code_locations" {
   description = "Dagster user-code deployments and Python modules exposing Definitions. A merged location saves pods but a load failure affects every domain; split locations isolate load and restart failures at one pod per domain."
   type = list(object({

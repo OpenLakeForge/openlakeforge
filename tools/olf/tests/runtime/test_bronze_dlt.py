@@ -41,3 +41,11 @@ def test_a_stage_that_does_not_set_its_bindings_fails_naming_them(missing: str) 
 def test_whitespace_only_bindings_count_as_unset() -> None:
     with pytest.raises(RuntimeError, match="OPENLAKEFORGE_STAGE"):
         bronze_pipeline("orders", environ={**_STAGE, "OPENLAKEFORGE_STAGE": "  "})
+
+
+def test_dlt_does_not_intercept_signals_so_a_terminated_run_reaches_dagster() -> None:
+    pipeline = bronze_pipeline("orders", environ=_STAGE)
+    other = bronze_pipeline("customers", environ=_STAGE)
+
+    assert pipeline.runtime_config.intercept_signals is False
+    assert other.runtime_config.intercept_signals is False

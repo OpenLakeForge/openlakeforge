@@ -305,34 +305,25 @@ def manifest_key(domain: str, product: str, dagster_run_id: str) -> str:
 
 @dataclass(frozen=True)
 class HealthQualityFields:
-    """The arguments `health.QualityObservation` takes, with the outcome as the string value of its enum."""
+    """The arguments `health.QualityObservation` takes."""
 
-    outcome: str
+    outcome: QualityOutcome
     observed_at: datetime
     blocking: bool
     run: str
     evidence_uri: str | None
 
 
-_HEALTH_OUTCOME = {
-    QualityOutcome.PASSED: "pass",
-    QualityOutcome.WARN: "warn",
-    QualityOutcome.ERROR: "error",
-}
-
-
 def health_quality_fields(result: QualityResult) -> HealthQualityFields | None:
-    """Seam to the health vocabulary (#1116), kept free of an import until that module is on `main`.
+    """Seam to the health vocabulary: `QualityObservation(f.outcome, f.observed_at, f.blocking, f.run, ...)`.
 
-    `None` for `not_run` and `unknown`: health has no outcome for them, and no observation is how it
-    reads a missing one as `unknown` rather than hiding it behind a pass. Once `health.py` lands, the
-    caller builds `QualityObservation(QualityOutcome(f.outcome), f.observed_at, f.blocking, ...)`.
+    `None` for `not_run` and `unknown`: no observation is how a caller keeps a missing outcome out of a
+    pass. A caller that passes such an outcome to `evaluate_quality` anyway gets `unknown` too.
     """
-    outcome = _HEALTH_OUTCOME.get(result.outcome)
-    if outcome is None:
+    if result.outcome in (QualityOutcome.NOT_RUN, QualityOutcome.UNKNOWN):
         return None
     return HealthQualityFields(
-        outcome=outcome,
+        outcome=result.outcome,
         observed_at=result.observed_at,
         # An error that quarantined rows or let the pipeline continue is a warning to health, not a failure.
         blocking=result.pipeline_outcome is PipelineOutcome.BLOCKED,

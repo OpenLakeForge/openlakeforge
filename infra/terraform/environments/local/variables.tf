@@ -53,6 +53,7 @@ variable "query_sizing" {
   type = map(object({
     size                    = string
     workers                 = number
+    max_concurrent_runs     = number
     schedule_on_coordinator = bool
     max_memory              = string
     max_memory_per_node     = string
