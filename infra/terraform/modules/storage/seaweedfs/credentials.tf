@@ -114,6 +114,23 @@ locals {
         for bucket in var.files_credentials.bucket_names : [for action in ["Read", "Write", "List"] : "${action}:${bucket}"]
       ])
     }],
+    # The alert evaluator (ADR 0023, decision 3): its own state and history
+    # under one prefix, and the stages' quality manifests read-only. SeaweedFS
+    # gates overwrite and delete on Write, so the history is tamper-evident
+    # against everyone but this key, not immutable.
+    var.alerts_credentials == null ? [] : [{
+      name      = "openlakeforge-alerts"
+      secret    = var.alerts_credentials.credentials_secret_name
+      namespace = var.alerts_credentials.namespace
+      actions = concat(
+        [for action in ["Read", "Write", "List"] : "${action}:${var.alerts_credentials.ops_bucket_name}/${var.alerts_credentials.prefix}*"],
+        flatten([
+          for prefix in var.alerts_credentials.quality_prefixes : [
+            for action in ["Read", "List"] : "${action}:${var.alerts_credentials.ops_bucket_name}/${prefix}*"
+          ]
+        ]),
+      )
+    }],
   )
 
   # Polaris vends table-scoped credentials by assuming this role through the
