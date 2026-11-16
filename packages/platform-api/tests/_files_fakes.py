@@ -127,13 +127,15 @@ class FakeS3:
         self.aborted.append(UploadId)
         return {}
 
-    def copy_object(self, *, Bucket: str, Key: str, CopySource: dict[str, str]) -> dict[str, Any]:  # noqa: N803
+    def copy_object(  # noqa: N803
+        self, *, Bucket: str, Key: str, CopySource: dict[str, str], IfNoneMatch: str | None = None
+    ) -> dict[str, Any]:
         self._call("copy_object")
         if self.copies_allowed is not None:
             if self.copies_allowed <= 0:
                 raise _client_error("InternalError")
             self.copies_allowed -= 1
-        self.objects[(Bucket, Key)] = self.objects[(CopySource["Bucket"], CopySource["Key"])]
+        self._create(Bucket, Key, *self.objects[(CopySource["Bucket"], CopySource["Key"])][:1], IfNoneMatch)
         return {}
 
     def delete_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
