@@ -64,6 +64,10 @@ locals {
   bootstrap_job_image = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
   # Shared by the audit identity's grant and the API's settings, which must agree.
   platform_api_audit_prefix = "audit/platform-api/"
+  # ADR 0023: the evaluator exists only with a receiver to notify, so Slim gains no resident component by default.
+  alerts_enabled = length(var.observability.alert_receivers) > 0
+  # Shared by the alerts identity's grant and the evaluator's state_base_uri, which must agree.
+  alerts_prefix = "alerts/"
   # Shared by the files identity's grant and the API's settings, which must agree.
   platform_api_file_buckets = {
     for name, binding in local.stage_storage : name => [binding.bronze_bucket_name, binding.silver_bucket_name, binding.gold_bucket_name]
@@ -259,6 +263,13 @@ module "seaweedfs" {
     namespace               = kubernetes_namespace_v1.shared.metadata[0].name
     credentials_secret_name = "platform-api-files-s3-creds"
     bucket_names            = concat(flatten(values(local.platform_api_file_buckets)), [var.ops_bucket_name])
+  } : null
+  alerts_credentials = local.alerts_enabled ? {
+    namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+    credentials_secret_name = "alert-evaluator-s3-creds"
+    ops_bucket_name         = var.ops_bucket_name
+    prefix                  = local.alerts_prefix
+    quality_prefixes        = [for name in sort(keys(local.enabled_stages)) : "activations/${name}/run-artifacts/quality/"]
   } : null
 
   depends_on = [
@@ -750,6 +761,7 @@ locals {
     { for name in ["cert-manager-controller", "cert-manager-cainjector", "cert-manager-webhook", "cert-manager-startupapicheck"] : name => length(module.cert_manager) > 0 },
     { for name in ["oauth2-proxy", "perimeter-cookie-secret"] : name => local.identity_enabled },
     { "platform-api" = length(module.platform_api) > 0 },
+    { "alert-evaluator" = local.alerts_enabled },
     { for name in ["dex", "dex-credentials"] : name => local.identity_dex },
     { for name in ["openmetadata", "opensearch"] : name => local.governance_enabled },
   )

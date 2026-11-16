@@ -71,3 +71,9 @@ output "files_secret_name" {
   value       = var.files_credentials == null ? null : var.files_credentials.credentials_secret_name
   depends_on  = [kubernetes_job_v1.credentials]
 }
+
+output "alerts_secret_name" {
+  description = "Secret holding the alert evaluator's key for its state prefix and the quality manifests, or null when alerts_credentials is."
+  value       = var.alerts_credentials == null ? null : var.alerts_credentials.credentials_secret_name
+  depends_on  = [kubernetes_job_v1.credentials]
+}

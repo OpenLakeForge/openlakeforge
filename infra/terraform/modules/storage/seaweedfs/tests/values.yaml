@@ -1,0 +1,4 @@
+volume:
+  dataDirs:
+    - name: data
+      type: persistentVolumeClaim

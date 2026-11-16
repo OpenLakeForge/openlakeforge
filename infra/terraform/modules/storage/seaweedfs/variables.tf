@@ -147,6 +147,26 @@ variable "log_collector_credentials" {
   }
 }
 
+variable "alerts_credentials" {
+  description = "The alert evaluator's identity (ADR 0023, decision 3): Read, Write and List on one prefix of the ops bucket, where its state and history live, and Read and List on each quality prefix, where the stages write run manifests. Null when no alert receiver is declared."
+  type = object({
+    namespace               = string
+    credentials_secret_name = string
+    ops_bucket_name         = string
+    prefix                  = string
+    quality_prefixes        = list(string)
+  })
+  default = null
+
+  validation {
+    condition = var.alerts_credentials == null || alltrue([
+      for prefix in concat([try(var.alerts_credentials.prefix, "")], try(var.alerts_credentials.quality_prefixes, [])) :
+      endswith(prefix, "/") && !startswith(prefix, "/")
+    ])
+    error_message = "Each alerts prefix is a key prefix ending in '/', so the grant cannot reach a sibling whose name starts the same."
+  }
+}
+
 variable "files_credentials" {
   description = "An identity for the platform API's files explorer (ADR 0021): Read, Write and List on each named bucket, the enabled stages' layer buckets and the ops bucket. Null when the platform API is not deployed."
   type = object({

@@ -47,6 +47,7 @@ workloads:
   perimeter-cookie-secret: {openlakeforge.io/job: perimeter-cookie-secret}
   publish-local-ca: {openlakeforge.io/job: publish-local-ca}
   log-collector: {app.kubernetes.io/name: log-collector}
+  alert-evaluator: {openlakeforge.io/job: alert-evaluator}
   postgresql-credentials: {openlakeforge.io/job: postgresql-credentials}
   openmetadata-role-sync: {openlakeforge.io/job: openmetadata-role-sync}
 flows:
@@ -270,3 +271,18 @@ flows:
     to: {scope: stage}
     ports: [8080] # a person's queries (query_endpoints), with that person's token for Polaris
     tag: T # needs a query through the platform API on a running cluster
+  - id: F38
+    from: {scope: shared, pods: {openlakeforge.io/job: alert-evaluator}}
+    to: {scope: stage}
+    ports: [80] # each stage's Dagster webserver GraphQL API, read-only (ADR 0023); the stage rule is namespace-wide
+    tag: T # needs an evaluation on a running cluster
+  - id: F39
+    from: {scope: shared, pods: {openlakeforge.io/job: alert-evaluator}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs, app.kubernetes.io/component: s3}}
+    ports: [8333] # state and history under alerts/, and the quality manifests, with the key openlakeforge-alerts
+    tag: T # needs an evaluation on a running cluster
+  - id: F40
+    from: {scope: shared, pods: {openlakeforge.io/job: alert-evaluator}}
+    to: {scope: any}
+    ports: [443] # the webhook receivers; NetworkPolicy cannot name a host, so any address, as F28 and F30
+    tag: T # needs a delivery on a running cluster
