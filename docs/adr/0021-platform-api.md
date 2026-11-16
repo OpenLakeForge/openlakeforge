@@ -617,8 +617,10 @@ in the tree: the `openlakeforge-platform-api-files` identity and its Secret in
 `infra/terraform/modules/storage/seaweedfs/credentials.tf`, and
 `OPENLAKEFORGE_FILES_ACCESS_KEY_ID`, `OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY`
 and `file_buckets` in `modules/access/platform-api` and the local environment.
-The aws-poc and azure-poc environments do not wire the files key. Not yet run: a
-files route against a deployed SeaweedFS. Review changed three things: an
+The aws-poc and azure-poc environments do not wire the files key. Run against a
+local Slim deployment (SeaweedFS 4.48): each role's access, uploads up to a 20 MiB
+multipart, a racing upload to a new key (one 201, one 409), folder and file
+renames, the rejected key aliases and the read-only audit prefix. Review changed three things: an
 upload's `overwrite=false` is enforced on the final write with `If-None-Match`,
 keys the store would normalise are refused, and the upload runs its audit and
 S3 calls off the event loop.
