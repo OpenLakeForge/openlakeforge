@@ -171,14 +171,12 @@ def _schedule_library(
     *,
     stages: tuple[str, ...] = ("prod",),
     job_name: str = "order_revenue_pipeline",
-    cron: str = "0 3 * * *",
     status: str = "STOPPED",
     count: int = 1,
 ) -> SimpleNamespace:
     schedule = SimpleNamespace(
-        name="order_revenue_daily",
+        name="order_revenue_schedule",
         job_name=job_name,
-        cron_schedule=cron,
         default_status=SimpleNamespace(value=status),
     )
     return SimpleNamespace(
@@ -192,8 +190,21 @@ def _inventory() -> SimpleNamespace:
     return SimpleNamespace(products=(product,))
 
 
-def test_stage_schedules_accept_a_stopped_daily_scaffold_in_prod_only() -> None:
-    project_code_check._verify_stage_schedules(_inventory(), _schedule_library())
+@pytest.mark.parametrize("stages", [("prod",), ()], ids=["a PROD schedule", "no schedule at all"])
+def test_stage_schedules_accept_any_cadence_or_none_in_prod_only(stages: tuple[str, ...]) -> None:
+    project_code_check._verify_stage_schedules(_inventory(), _schedule_library(stages=stages))
+
+
+def test_stage_schedules_check_the_spec_the_product_module_declares() -> None:
+    seen: list[object] = []
+    library = _schedule_library()
+    build = library.build_stage_schedules
+    library.build_stage_schedules = lambda spec, *, stage: seen.append(spec) or build(spec, stage=stage)
+    declared = SimpleNamespace(cadence="hourly")
+
+    project_code_check._verify_stage_schedules(_inventory(), library, {"order_revenue": declared})
+
+    assert seen and all(spec is declared for spec in seen)
 
 
 @pytest.mark.parametrize(
@@ -201,10 +212,9 @@ def test_stage_schedules_accept_a_stopped_daily_scaffold_in_prod_only() -> None:
     [
         ({"stages": ("dev", "prod")}, "must define no schedule"),
         ({"stages": ("", "prod")}, "must define no schedule"),
-        ({"count": 2}, "exactly one daily schedule"),
+        ({"count": 2}, "at most one schedule"),
         ({"job_name": "hand_written_job"}, "not the descriptor job"),
         ({"status": "RUNNING"}, "must not start a schedule"),
-        ({"cron": "*/5 * * * *"}, "must run once a day"),
     ],
 )
 def test_stage_schedules_reject_anything_a_promotion_could_start(overrides: dict, message: str) -> None:

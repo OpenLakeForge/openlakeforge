@@ -78,7 +78,7 @@ the contract values the runtime reads (`_RUNTIME_ENV` in
 
 | Stage the pod reports | Schedules in the code location |
 | --- | --- |
-| `prod` | One `<product>_daily` per product, every one `STOPPED` |
+| `prod` | At most one schedule per product, every one `STOPPED`: `<product>_daily` by default, `<product>_schedule` when the product declares a `cadence` |
 | `dev`, `uat` | None |
 | Unset or unrecognised | None |
 

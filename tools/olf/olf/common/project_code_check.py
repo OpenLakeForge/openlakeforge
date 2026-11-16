@@ -37,7 +37,6 @@ class _Job(Protocol):
 class _Schedule(Protocol):
     name: str
     job_name: str
-    cron_schedule: str | Sequence[str]
     default_status: object
 
 
@@ -185,7 +184,15 @@ def validate(root: Path) -> None:
     if not all_product_keys <= merged_keys:
         _fail("merged definitions do not contain every product asset")
     _verify_shared_assets(inventory, entities, merged_keys_list)
-    _verify_stage_schedules(inventory, product_dagster_lib)
+    _verify_stage_schedules(
+        inventory,
+        product_dagster_lib,
+        {
+            product.id: spec
+            for product in products
+            if (spec := getattr(import_module(f"lakehouse_code.pipelines.dagster.{product.id}"), "spec", None))
+        },
+    )
     _verify_bronze_dlt_stage_state()
     _verify_bronze_dlt_load_modes()
     Definitions.validate_loadable(merged_defs)
@@ -278,34 +285,35 @@ def _verify_in_process_execution(product: Product, job: _Job) -> None:
         _fail(f"{product.job_name} run config must not set execution; the in-process executor takes none")
 
 
-def _verify_stage_schedules(inventory: LakehouseInventory, library: _ProductDagsterLibrary) -> None:
-    """Require the daily scaffold to exist only where a stage asks for it, and never to start itself.
+def _verify_stage_schedules(
+    inventory: LakehouseInventory, library: _ProductDagsterLibrary, specs: Mapping[str, object] | None = None
+) -> None:
+    """Require a schedule to exist only where a stage asks for it, and never to start itself.
 
     Every stage runs the same immutable revision, so this is the only thing
     standing between a promotion and a recurring production-shaped workload
-    appearing in DEV.
+    appearing in DEV. How often PROD runs, or whether it has a schedule at all,
+    is the product's cadence and not this check's business.
+
+    `specs` holds the `spec` a product's pipeline module declares; a product
+    whose module does not declare one is checked with the default cadence.
     """
     for product in inventory.products:
-        spec = library.ProductDefinitionSpec(domain=product.domain_name, product=product.id)
+        spec = (specs or {}).get(product.id) or library.ProductDefinitionSpec(
+            domain=product.domain_name, product=product.id
+        )
         for stage in ("dev", "uat", ""):
             if library.build_stage_schedules(spec, stage=stage):
                 _fail(f"stage {stage!r} must define no schedule for {product.job_name}")
         schedules = library.build_stage_schedules(spec, stage="prod")
-        if len(schedules) != 1:
-            _fail(f"prod must define exactly one daily schedule for {product.job_name}")
-        schedule = schedules[0]
-        if schedule.job_name != product.job_name:
-            _fail(f"{schedule.name} targets {schedule.job_name}, not the descriptor job {product.job_name}")
-        status = getattr(schedule.default_status, "value", schedule.default_status)
-        if status != "STOPPED":
-            _fail(f"{schedule.name} defaults to {status}; deploying a revision must not start a schedule")
-        _verify_daily_cron(schedule)
-
-
-def _verify_daily_cron(schedule: _Schedule) -> None:
-    fields = str(schedule.cron_schedule).split()
-    if len(fields) != 5 or fields[2:] != ["*", "*", "*"] or not all(field.isdigit() for field in fields[:2]):
-        _fail(f"{schedule.name} must run once a day; got {schedule.cron_schedule!r}")
+        if len(schedules) > 1:
+            _fail(f"prod must define at most one schedule for {product.job_name}")
+        for schedule in schedules:
+            if schedule.job_name != product.job_name:
+                _fail(f"{schedule.name} targets {schedule.job_name}, not the descriptor job {product.job_name}")
+            status = getattr(schedule.default_status, "value", schedule.default_status)
+            if status != "STOPPED":
+                _fail(f"{schedule.name} defaults to {status}; deploying a revision must not start a schedule")
 
 
 def _verify_shared_assets(
