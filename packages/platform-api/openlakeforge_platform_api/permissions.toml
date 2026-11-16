@@ -38,6 +38,17 @@ stages = ["*"]
 role = "data-engineer"
 stages = ["*"]
 
+# Health is computed from the same Dagster reads as list_runs and shows less of them (ids, statuses and times, no
+# tags), so the floor is the same. Read-only and not audited, like the rows above. A deployment without
+# `spec.identity` renders no issuer, so the API cannot start there and nothing here is reachable unauthenticated.
+[operations.get_stage_health]
+role = "data-engineer"
+stages = ["*"]
+
+[operations.list_pipeline_health]
+role = "data-engineer"
+stages = ["*"]
+
 # OpenMetadata decides these by the person's own roles on the forwarded token;
 # the floor is the OpenMetadata route's (`viewer`: every recognised role reads
 # it), so the API refuses no one OpenMetadata would answer.

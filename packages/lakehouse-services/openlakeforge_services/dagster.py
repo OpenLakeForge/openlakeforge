@@ -75,6 +75,16 @@ class DagsterRun:
         )
 
 
+@dataclass(frozen=True)
+class DagsterSchedule:
+    name: str
+    job_name: str
+    # Dagster's own: RUNNING or STOPPED.
+    status: str
+    # Unix seconds of the latest tick that requested or tried to request a run; None before the first.
+    last_tick_at: float | None
+
+
 class DagsterClient:
     def __init__(
         self,
@@ -211,6 +221,44 @@ class DagsterClient:
             # `__ASSET_JOB` and its partitioned variants are Dagster's own, not the project's.
             if not job["name"].startswith("__")
         ]
+
+    def list_schedules(self) -> list[DagsterSchedule]:
+        """Every schedule the loaded code locations define, with its on/off state and latest run-requesting tick."""
+        result = self.graphql(
+            """
+            query Schedules {
+              repositoriesOrError {
+                __typename
+                ... on RepositoryConnection {
+                  nodes {
+                    schedules {
+                      name
+                      pipelineName
+                      scheduleState { status ticks(limit: 1, statuses: [SUCCESS, FAILURE]) { timestamp } }
+                    }
+                  }
+                }
+                ... on PythonError { message }
+              }
+            }
+            """,
+        )["repositoriesOrError"]
+        if result.get("__typename") != "RepositoryConnection":
+            raise ServiceClientError(f"Dagster could not list its schedules: {result.get('message', result)}")
+        schedules = []
+        for repository in result.get("nodes", []):
+            for schedule in repository.get("schedules", []):
+                state = schedule["scheduleState"]
+                ticks = state.get("ticks") or []
+                schedules.append(
+                    DagsterSchedule(
+                        name=schedule["name"],
+                        job_name=schedule["pipelineName"],
+                        status=str(state["status"]),
+                        last_tick_at=float(ticks[0]["timestamp"]) if ticks else None,
+                    )
+                )
+        return schedules
 
     def list_runs(self, *, job_name: str = "", limit: int = 20) -> list[DagsterRun]:
         """The most recent runs, newest first, optionally of one job."""
