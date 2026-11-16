@@ -122,3 +122,62 @@ run "rbac_is_read_only_on_pods_and_namespaces" {
     error_message = "the ClusterRole must be get, list and watch on pods and namespaces only"
   }
 }
+
+# ADR 0022, decision 2: the spool probe is bounded, read-only on the host
+# volume and absent without an image.
+run "no_probe_without_an_image" {
+  command = plan
+
+  assert {
+    condition     = length(kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container) == 1 && length(kubernetes_service_v1.probe) == 0 && output.probe_url == null
+    error_message = "without probe_image the pod holds the collector only"
+  }
+}
+
+run "the_probe_is_bounded_and_reads_the_spool_read_only" {
+  command = plan
+
+  variables {
+    probe_image             = "platform-api:test"
+    probe_image_pull_policy = "Never"
+  }
+
+  assert {
+    condition = (
+      length(kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container) == 2
+      && kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].name == "spool-probe"
+      && kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].resources[0].limits["memory"] == "64Mi"
+      && kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].resources[0].limits["cpu"] == "100m"
+    )
+    error_message = "the probe needs requests and limits"
+  }
+
+  assert {
+    condition = (
+      kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].volume_mount[0].name == "state"
+      && kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].volume_mount[0].read_only == true
+      && length(kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].volume_mount) == 1
+    )
+    error_message = "the probe mounts the state volume read-only and nothing else"
+  }
+
+  assert {
+    condition = (
+      kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].security_context[0].allow_privilege_escalation == false
+      && kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].security_context[0].read_only_root_filesystem == true
+      && kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].security_context[0].capabilities[0].drop[0] == "ALL"
+      && length(kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].env) == 0
+    )
+    error_message = "the probe is unprivileged and holds no credential"
+  }
+
+  assert {
+    condition     = contains(kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].args, "--stage=platform=spool-platform") && contains(kubernetes_daemon_set_v1.collector.spec[0].template[0].spec[0].container[1].args, "--limit=512M")
+    error_message = "the probe watches each route's spool against the same limit the outputs use"
+  }
+
+  assert {
+    condition     = kubernetes_service_v1.probe[0].spec[0].cluster_ip == "None" && output.probe_url == "http://log-collector-probe.olf-system.svc:2021"
+    error_message = "the probe Service is headless, so every node's probe is reachable"
+  }
+}

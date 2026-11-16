@@ -212,6 +212,7 @@ port [D]).
 | F39 | the alert evaluator | SeaweedFS S3 8333 | 8333 | its state and history under `alerts/` and the stages' quality manifests, with its own key `openlakeforge-alerts`: `Read`, `Write` and `List` on `alerts/*`, `Read` and `List` on each stage's `activations/<stage>/run-artifacts/quality/*` and nothing else | T |
 | F40 | the alert evaluator | any address outside the pod and Service ranges | 443 | the webhook receivers, which are HTTPS only; no FQDN selector, so the port on any address, on that Job's pods only, as F28 and F30 | T |
 | F41 | the alert evaluator | the alert e2e's stub receiver (`olf-system`, label `openlakeforge.io/e2e=alert-receiver`, #1173) | 8443 | the receiver's URL is `olf-e2e-alert-receiver.olf-system.svc`; F40 excludes pod and Service ranges, so the stub needs its own row (post-DNAT port), as F29 does for Dex | T; a flow-file row keyed on the label the e2e sets |
+| F42 | the platform API | the log collector's spool probe (`olf-system`, `app.kubernetes.io/name=log-collector`) 2021 | 2021 | the age of the oldest spooled file and the spool's size, per stage ([ADR 0022](0022-pod-log-collection-and-archive-format.md), decision 2), read from every collector pod through the headless Service `log-collector-probe`; the answer is two numbers per stage and no log text | T |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
@@ -628,8 +629,8 @@ stage's `activations/<stage>/logs/v2/` and on `platform/logs/v2/` and nothing el
 `log-collector-s3-creds`, is minted by the SeaweedFS credentials Job, whose Role names it. The same pods reach the API
 server (443 and 6443) for the `kubernetes` filter's pod and namespace lookups. The collector mounts the node's `/var/log`
 read-only and a node directory for its offsets and spool, which `olf-system` admits because no namespace sets a Pod
-Security label [V: no `pod-security.kubernetes.io` label in `infra/`]. It accepts no connection: its health endpoint is
-read by the kubelet (F24).
+Security label [V: no `pod-security.kubernetes.io` label in `infra/`]. Its health endpoint is read by the kubelet (F24); F42 adds the one
+connection it accepts.
 
 F38, F39 and F40 added (#1172, ADR 0023): the alert evaluator, a CronJob in `olf-system` whose pods carry
 `openlakeforge.io/job=alert-evaluator`, reads each stage's Dagster over F38 and the ops bucket over F39 with
@@ -646,3 +647,11 @@ each quality prefix: no Secret, grant or flow was added for it.
 F41 added (#1173, ADR 0023): the alert e2e runs a stub webhook receiver as a pod in `olf-system` for the length of the
 check, labelled `openlakeforge.io/e2e=alert-receiver`, and F41 lets the evaluator's pods reach it on 8443. Like F29, the
 row exists only for the e2e. The stub is not a workload with a policy of its own, and `olf-system` has no default deny, so the e2e creates a temporary NetworkPolicy beside it that admits only the evaluator's pods on 8443 (the harness reads the stub's routes by `kubectl exec` over loopback, which needs no rule) and deletes it with the stub.
+
+F42 added (#1189, ADR 0022): the collector pod gains a second container, `spool-probe`, that serves the S3 output's
+spool age and size on 2021, and the platform API will read it (the next change) through the headless Service `log-collector-probe`. The
+sidecar mounts the collector's state directory read-only, holds no credential and no Kubernetes permission of its own
+(it shares the pod's ServiceAccount token, which is the collector's read of pods and namespaces), and runs unprivileged
+with an empty capability set as the collector does. `olf-system` carries no Pod Security label [V], so it admits the pod
+as it admitted the collector. One row renders both halves: the collector's ingress on 2021 from the platform API's pods and nothing
+else, and the API's egress to the collector's pods.

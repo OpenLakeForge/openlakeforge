@@ -104,3 +104,15 @@ variable "host_state_path" {
   type        = string
   default     = "/var/lib/openlakeforge/log-collector"
 }
+
+variable "probe_image" {
+  description = "Image of the spool probe sidecar: the platform API image, whose openlakeforge_platform_api.spool_probe module serves the spool's age and size (ADR 0022, decision 2). null deploys no sidecar, and the spool signals read as unknown."
+  type        = string
+  default     = null
+}
+
+variable "probe_image_pull_policy" {
+  description = "imagePullPolicy of the probe sidecar; Never for an image olf loaded into kind."
+  type        = string
+  default     = "IfNotPresent"
+}

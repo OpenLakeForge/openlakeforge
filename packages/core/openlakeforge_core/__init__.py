@@ -29,6 +29,14 @@ from .alerts_state import (
     state_from_json,
     state_to_json,
 )
+from .archive_health import (
+    SPOOL_AGE,
+    SPOOL_SIZE,
+    ArchiveThresholds,
+    SpoolObservation,
+    evaluate_spool_age,
+    evaluate_spool_size,
+)
 from .descriptors import (
     SOURCE_API_VERSION,
     SOURCE_KIND,
@@ -99,6 +107,12 @@ from .quality import (
 from .runs import FLOE_FULL_REFRESH_TAG, FULL_REFRESH_SCOPES, FULL_REFRESH_TAG, full_refresh_scope, full_refresh_tags
 
 __all__ = [
+    "SPOOL_AGE",
+    "SPOOL_SIZE",
+    "ArchiveThresholds",
+    "SpoolObservation",
+    "evaluate_spool_age",
+    "evaluate_spool_size",
     "AlertEvent",
     "AlertKind",
     "AlertSeverity",

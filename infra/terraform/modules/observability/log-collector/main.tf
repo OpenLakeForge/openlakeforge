@@ -5,6 +5,10 @@
 locals {
   labels    = { "app.kubernetes.io/name" = var.release_name }
   http_port = 2020
+  # The spool probe sidecar (ADR 0022, decision 2); present only with an image to run it.
+  probe_port    = 2021
+  probe_enabled = var.probe_image != null
+  probe_stages  = [for stage in sort(keys(var.routes)) : "--stage=${stage}=spool-${stage}"]
 
   config = templatefile("${path.module}/templates/fluent-bit.conf.tftpl", {
     routes                = var.routes
@@ -219,6 +223,64 @@ resource "kubernetes_daemon_set_v1" "collector" {
           }
         }
 
+        # Measures the S3 output's spool for the platform API's health route:
+        # the engine's own output metrics never see an upload fail. It mounts
+        # the collector's state volume read-only and holds no credential, so it
+        # adds no host access beyond the collector's. Root, because the spool is
+        # root-owned and the capability set is empty, as the collector's.
+        dynamic "container" {
+          for_each = local.probe_enabled ? [1] : []
+          content {
+            name              = "spool-probe"
+            image             = var.probe_image
+            image_pull_policy = var.probe_image_pull_policy
+            command           = ["python", "-m", "openlakeforge_platform_api.spool_probe"]
+            args              = concat(["--root=/var/fluent-bit", "--limit=${var.spool_limit_size}"], local.probe_stages)
+
+            port {
+              name           = "probe"
+              container_port = local.probe_port
+            }
+
+            volume_mount {
+              name       = "state"
+              mount_path = "/var/fluent-bit"
+              read_only  = true
+            }
+
+            readiness_probe {
+              http_get {
+                path = "/spool"
+                port = "probe"
+              }
+              period_seconds = 10
+            }
+
+            resources {
+              requests = {
+                cpu    = "10m"
+                memory = "32Mi"
+              }
+              limits = {
+                cpu    = "100m"
+                memory = "64Mi"
+              }
+            }
+
+            security_context {
+              run_as_user                = 0
+              read_only_root_filesystem  = true
+              allow_privilege_escalation = false
+              capabilities {
+                drop = ["ALL"]
+              }
+              seccomp_profile {
+                type = "RuntimeDefault"
+              }
+            }
+          }
+        }
+
         volume {
           name = "config"
           config_map {
@@ -245,6 +307,28 @@ resource "kubernetes_daemon_set_v1" "collector" {
           }
         }
       }
+    }
+  }
+}
+
+# One A record per collector pod, so the platform API asks every node's probe.
+# Only the collector's own pods; pods that are not ready are left out.
+resource "kubernetes_service_v1" "probe" {
+  count = local.probe_enabled ? 1 : 0
+
+  metadata {
+    name      = "${var.release_name}-probe"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+
+  spec {
+    cluster_ip = "None"
+    selector   = local.labels
+    port {
+      name        = "probe"
+      port        = local.probe_port
+      target_port = "probe"
     }
   }
 }
