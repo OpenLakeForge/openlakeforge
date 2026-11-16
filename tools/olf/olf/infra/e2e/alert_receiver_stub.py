@@ -79,6 +79,7 @@ def make_handler(receiver: Receiver) -> type[BaseHTTPRequestHandler]:
 if __name__ == "__main__":
     server = HTTPServer(("0.0.0.0", PORT), make_handler(Receiver()))
     tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.minimum_version = ssl.TLSVersion.TLSv1_2
     tls.load_cert_chain("/tls/tls.crt", "/tls/tls.key")
     server.socket = tls.wrap_socket(server.socket, server_side=True)
     server.serve_forever()
