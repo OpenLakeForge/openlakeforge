@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -521,14 +522,19 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
 
         try:
             # A dbt process holds its token for good and Polaris lets it expire, so each generation gets its own.
-            yield from build_by_generation(
-                dependencies,
-                all_tests,
-                build_generation,
-                generation_token,
-                lambda models, tests: failed_nodes_in(target_paths[-1], models, tests),
-                sources=model_sources(manifest, selected),
-                between=None if pause is None else between_generations,
+            yield from _retaining_artifacts_on_failure(
+                context,
+                spec,
+                target_paths,
+                build_by_generation(
+                    dependencies,
+                    all_tests,
+                    build_generation,
+                    generation_token,
+                    lambda models, tests: failed_nodes_in(target_paths[-1], models, tests),
+                    sources=model_sources(manifest, selected),
+                    between=None if pause is None else between_generations,
+                ),
             )
         finally:
             if previous_job_name is None:
@@ -602,6 +608,47 @@ def build_stage_schedules(spec: ProductDefinitionSpec, *, stage: str | None = No
             default_status=DefaultScheduleStatus.STOPPED,
         )
     ]
+
+
+def _retaining_artifacts_on_failure(context, spec: ProductDefinitionSpec, target_paths: list[Path], stream):
+    """Yield `stream`, uploading what dbt left behind if it raises.
+
+    A failed build is the run whose manifest and run_results.json are needed most, and the pod is cleaned up
+    afterwards. The dbt exception is what the caller must see, so a failing upload is logged and never replaces it.
+    """
+    try:
+        yield from stream
+    except Exception:
+        try:
+            if target_paths:
+                _upload_dbt_artifacts(context, spec, merge_run_results(target_paths))
+            if not target_paths or not (target_paths[-1] / "run_results.json").exists():
+                _upload_incomplete_marker(context, spec, len(target_paths))
+        except Exception as upload_error:
+            context.log.error(f"Could not retain dbt artifacts of the failed build: {upload_error!r}")
+        raise
+
+
+def _upload_incomplete_marker(context, spec: ProductDefinitionSpec, invocations: int) -> None:
+    """Tell a reader of the prefix that the absence of run_results.json is a failure, not a missing upload."""
+    base_uri = os.environ.get("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI")
+    if not base_uri:
+        return
+    run_id = getattr(context, "run_id", None) or "unknown"
+    marker = {
+        "status": "artifacts_incomplete",
+        "reason": "the dbt build failed before writing run_results.json",
+        "dagster_run_id": run_id,
+        "dbt_invocations": invocations,
+    }
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "artifacts_incomplete.json"
+        path.write_text(json.dumps(marker))
+        upload_file_to_base_uri(
+            path,
+            base_uri=base_uri,
+            relative_key=f"dbt/{spec.domain}/{spec.product}/{run_id}/artifacts_incomplete.json",
+        )
 
 
 def _upload_dbt_artifacts(context, spec: ProductDefinitionSpec, target_path: Path) -> None:
