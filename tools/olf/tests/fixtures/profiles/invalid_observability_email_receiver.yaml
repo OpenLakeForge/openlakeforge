@@ -1,0 +1,21 @@
+apiVersion: openlakeforge.io/v1beta1
+kind: DeploymentProfile
+
+metadata:
+  name: fixture-observability
+
+spec:
+  provider:
+    type: local
+  preset: slim
+  stages:
+    dev:
+      enabled: true
+  observability:
+    alerts:
+      receivers:
+        - name: on-call
+          type: email
+          secret_ref:
+            name: alert-webhooks
+            key: smtp-url

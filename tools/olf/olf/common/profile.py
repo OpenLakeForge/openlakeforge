@@ -99,12 +99,12 @@ _CAPABILITIES_FIELDS = {"analytics", "governance"}
 # because the archive and metrics adapters each map it onto their own store.
 _OBSERVABILITY_FIELDS = {"logs", "metrics", "grafana", "alerts"}
 _LOGS_FIELDS = {"archive", "search"}
-_ARCHIVE_FIELDS = {"enabled", "retention_days"}
+_ARCHIVE_FIELDS = {"retention_days"}
 _ENABLED_FIELDS = {"enabled"}
 _METRICS_FIELDS = {"enabled", "retention_days"}
 _ALERTS_FIELDS = {"receivers"}
 _RECEIVER_FIELDS = {"name", "type", "secret_ref"}
-_RECEIVER_TYPES = ("webhook", "email", "slack")
+_RECEIVER_TYPES = ("webhook",)
 _SECRET_REF_FIELDS = {"name", "key"}
 DEFAULT_ARCHIVE_RETENTION_DAYS = 30
 DEFAULT_METRICS_RETENTION_DAYS = 7
@@ -367,7 +367,7 @@ class ResolvedObservability:
     def as_dict(self) -> dict[str, object]:
         return {
             "logs": {
-                "archive": {"enabled": True, "retention_days": self.archive_retention_days},
+                "archive": {"retention_days": self.archive_retention_days},
                 "search": {"enabled": self.search_enabled},
             },
             "metrics": {"enabled": self.metrics_enabled, "retention_days": self.metrics_retention_days},
@@ -949,13 +949,15 @@ def _validate_observability(document: object, *, source: str) -> ObservabilitySp
     block = _object(document, _OBSERVABILITY_FIELDS, where=where)
 
     logs = _object(block.get("logs", {}), _LOGS_FIELDS, where=f"{where}.logs")
-    archive = _object(logs.get("archive", {}), _ARCHIVE_FIELDS, where=f"{where}.logs.archive")
-    # The archive is the durable record Slim and Full both promise (#332): turning it off would lose logs silently.
-    if archive.get("enabled", True) is not True:
+    archive_document = logs.get("archive", {})
+    # `enabled` was never released and had one legal value (the archive is always on), so it fails instead of
+    # lingering as a deprecated no-op; the message says what to delete.
+    if isinstance(archive_document, Mapping) and "enabled" in archive_document:
         raise DeploymentProfileError(
-            f"{where}.logs.archive.enabled cannot be false: the log archive is always on in Slim and Full; "
-            "set logs.archive.retention_days to change how long it keeps logs"
+            f"{where}.logs.archive.enabled was removed: the log archive is always on, so delete the field; "
+            "logs.archive.retention_days sets how long it keeps logs"
         )
+    archive = _object(archive_document, _ARCHIVE_FIELDS, where=f"{where}.logs.archive")
     search = _object(logs.get("search", {}), _ENABLED_FIELDS, where=f"{where}.logs.search")
     metrics = _object(block.get("metrics", {}), _METRICS_FIELDS, where=f"{where}.metrics")
     grafana = _object(block.get("grafana", {}), _ENABLED_FIELDS, where=f"{where}.grafana")
