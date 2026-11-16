@@ -31,6 +31,10 @@ locals {
       secret    = var.log_collector_credentials.credentials_secret_name
       namespace = var.log_collector_credentials.namespace
     }],
+    var.alerts_credentials == null ? [] : [{
+      secret    = var.alerts_credentials.credentials_secret_name
+      namespace = var.alerts_credentials.namespace
+    }],
   )
 
   # Every namespace that receives a Secret, with the names it may read.
@@ -113,6 +117,23 @@ locals {
       actions = flatten([
         for bucket in var.files_credentials.bucket_names : [for action in ["Read", "Write", "List"] : "${action}:${bucket}"]
       ])
+    }],
+    # The alert evaluator (ADR 0023, decision 3): its own state and history
+    # under one prefix, and the stages' quality manifests read-only. SeaweedFS
+    # gates overwrite and delete on Write, so the history is tamper-evident
+    # against everyone but this key, not immutable.
+    var.alerts_credentials == null ? [] : [{
+      name      = "openlakeforge-alerts"
+      secret    = var.alerts_credentials.credentials_secret_name
+      namespace = var.alerts_credentials.namespace
+      actions = concat(
+        [for action in ["Read", "Write", "List"] : "${action}:${var.alerts_credentials.ops_bucket_name}/${var.alerts_credentials.prefix}*"],
+        flatten([
+          for prefix in var.alerts_credentials.quality_prefixes : [
+            for action in ["Read", "List"] : "${action}:${var.alerts_credentials.ops_bucket_name}/${prefix}*"
+          ]
+        ]),
+      )
     }],
   )
 
