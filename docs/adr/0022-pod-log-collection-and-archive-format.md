@@ -8,8 +8,9 @@ beside the polling CronJob's v1, in Slim and Full alike, with a write-only key.
 The CronJob and the v1 reader stay the only path the API reads until slices c
 and d land. The three delivery signals of Decision 2 are built (#1189): the probe sidecar,
 the platform API's stage health route that reads it and lists the newest object,
-and the thresholds. Their failure-injection e2e is the remaining part of #1189.
-Not built yet: the lifecycle rule of Decision 6 (`logs_archive_retention` stays reported as unsupported).
+and the thresholds. Their failure-injection e2e (`_log_delivery.py`) is written
+but has not been run on a cluster (see Decision 2), so every [T] item it covers
+stays [T]. Not built yet: the lifecycle rule of Decision 6 (`logs_archive_retention` stays reported as unsupported).
 Every claim marked [T] is still untested: the kind smoke does not run here, and
 slice d (#1123) verifies them on a cluster. Tags used below: **[V]** checked in this
 repository or in the upstream page cited; **[T]** a claim the implementing slice
@@ -150,6 +151,25 @@ at, so a runaway prefix errs towards a stale reading; and a stage whose pods log
 nothing reads like a stalled collector (`unknown` when no object exists in the
 two days, `warning` at 15 minutes, `critical` at 60). The thresholds are
 maintainer-reviewable, as the spool's are.
+
+The failure-injection e2e (#1189, `tools/olf/olf/infra/e2e/_log_delivery.py`,
+two `drill` assertions of the local run) reads the signals as the health route
+does, from the probe through the API server's pod proxy and from a listing of the
+stage's prefix, with the production thresholds. It cuts the route by replacing
+the collector's own NetworkPolicy, `olf-flows-log-collector`, with a copy that
+lacks the S3 egress rule, and puts the original back in a `finally`: policies
+are additive, so an extra policy could not take an allowed flow away. Run 1:
+baseline healthy, then known lines under the cut, then it waits for the spool
+age and the newest object to pass `warning` (up to 40 minutes), asserts bytes
+are spooled and the engine's `s3` failure counters are zero, restores the route
+and waits for every signal to be `healthy` and for the lines to be in the
+archive exactly once. Run 2: fills the spool past `store_dir_limit_size` with
+numbered lines, asserts the size signal turns `critical`, that the spool peak
+stays within one 8M file plus 8M of the limit and that the collector does not
+restart, then records the plugin's messages and which line numbers the archive
+lacks after the restore. Run 2 records and does not assert which data is
+discarded, because the plugin page does not say. The size signal reaches
+`warning` only in run 2 (a few kilobytes never reach half of 512M).
 
 Slice d (#1123) verifies them by failure injection: block the ops-bucket
 endpoint with a NetworkPolicy, write known lines, and assert that the oldest-file
@@ -322,3 +342,7 @@ Decision 2. A spool the probe cannot read is `unknown`, not empty.
 2026-11-16: #1189 (part): the stage health route reads the spool signals from
 every collector pod and lists the newest archive object with the existing log
 reader key (no new identity). The failure-injection e2e follows.
+
+2026-11-16: #1189 (part): the failure-injection e2e is written (not yet run on a
+cluster); `parse_spool_report` moves to `openlakeforge_core` so the e2e and the
+API read the probe's answer with one parser.

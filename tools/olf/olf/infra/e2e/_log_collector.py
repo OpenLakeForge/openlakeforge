@@ -19,6 +19,7 @@ import uuid
 from collections import Counter
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 import boto3
 import yaml
@@ -145,6 +146,14 @@ def await_exactly_once(
 
 @contextlib.contextmanager
 def _archive(cfg: E2EConfig) -> Iterator[LogArchive]:
+    with _s3(cfg) as (client, bucket):
+        stage = cfg.namespace.removeprefix("olf-")
+        yield LogArchive(client, f"s3://{bucket}/activations/{stage}/logs")
+
+
+@contextlib.contextmanager
+def _s3(cfg: E2EConfig) -> Iterator[tuple[Any, str]]:
+    """A client for the ops bucket through the SeaweedFS port-forward, and the bucket's name."""
     if cfg.seaweedfs_local_port is None:
         raise E2EError("the log collector check needs the SeaweedFS local port")
     bucket = load_provider_contracts_or_raise(cfg)["shared"]["ops_storage"]["bucket_name"]
@@ -173,8 +182,7 @@ def _archive(cfg: E2EConfig) -> Iterator[LogArchive]:
             config=Config(s3={"addressing_style": "path"}),
         )
         wait_for_bucket(client, bucket, endpoint)
-        stage = cfg.namespace.removeprefix("olf-")
-        yield LogArchive(client, f"s3://{bucket}/activations/{stage}/logs")
+        yield client, bucket
 
 
 def _run_lines(archive: LogArchive, cfg: E2EConfig, run_id: str, token: str, since: datetime) -> list[int]:

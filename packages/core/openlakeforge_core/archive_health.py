@@ -7,8 +7,10 @@ its oldest file is, and how full it is against `store_dir_limit_size`. Like `hea
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from .health import HealthState, Scope, Signal, service_signal
 
@@ -67,6 +69,27 @@ class SpoolObservation:
             raise ValueError("an unbounded spool has no fraction to judge: the limit must be positive")
         if self.size_bytes < 0 or (self.oldest_file_age is not None and self.oldest_file_age < timedelta(0)):
             raise ValueError("a spool cannot have a negative size or age")
+
+
+def parse_spool_report(payload: Mapping[str, Any]) -> list[SpoolObservation]:
+    """The observations in a probe's answer; a malformed answer raises ValueError, never a guess."""
+    try:
+        observed_at = datetime.fromisoformat(str(payload["observed_at"]))
+        limit = int(payload["limit_bytes"])
+        return [
+            SpoolObservation(
+                stage=str(stage),
+                observed_at=observed_at,
+                oldest_file_age=None if age is None else timedelta(seconds=float(age)),
+                size_bytes=int(values["size_bytes"]),
+                limit_bytes=limit,
+                unreadable=values.get("unreadable") is True,
+            )
+            for stage, values in payload["stages"].items()
+            for age in [values["oldest_file_age_seconds"]]
+        ]
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError("the spool report is malformed") from exc
 
 
 def evaluate_spool_age(

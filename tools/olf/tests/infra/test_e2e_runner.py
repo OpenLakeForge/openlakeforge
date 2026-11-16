@@ -138,7 +138,8 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
                 "namespaces", "jobs", "tables", "serial", "maintenance",
                 "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
                 "perimeter", "break-glass", "latency", "outage",
-                "superset", "openmetadata", "artifacts", "short-lived", "collector-restart", "alerts", "isolation",
+                "superset", "openmetadata", "artifacts", "short-lived", "collector-restart", "delivery", "spool-limit",
+                "alerts", "isolation",
                 "exposure", "rotation",
             ],
         ),
@@ -176,6 +177,8 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "check_network_and_rbac", lambda _cfg: calls.append("network"))
     monkeypatch.setattr(_runner, "check_short_lived_pod_output", lambda _cfg: calls.append("short-lived"))
     monkeypatch.setattr(_runner, "check_collector_restart", lambda _cfg: calls.append("collector-restart"))
+    monkeypatch.setattr(_runner, "check_delivery_signals_follow_an_outage", lambda _cfg: calls.append("delivery"))
+    monkeypatch.setattr(_runner, "check_spool_limit_is_the_loss_point", lambda _cfg: calls.append("spool-limit"))
     monkeypatch.setattr(_runner, "check_portal_lists_routes", lambda _cfg: calls.append("portal"))
     monkeypatch.setattr(_runner, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
     monkeypatch.setattr(_runner, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
@@ -194,7 +197,7 @@ def test_core_checks_skip_every_drill_and_keep_exposure_before_rotation(tmp_path
     cfg = e2e_cfg(tmp_path)
     labels = [a.label for a in _runner.full_assertions(cfg)]
     drills = [a.label for a in _runner.full_assertions(cfg) if a.tier == "drill"]
-    assert len(drills) == 11
+    assert len(drills) == 13
     assert labels.index("identity credential exposure") < labels.index("credential preservation across a redeploy")
     assert labels.index("identity credential exposure") < labels.index("workload secret rotation")
     assert [a.label for a in _runner.full_assertions(e2e_cfg(tmp_path, env="aws")) if a.tier == "drill"] == []
@@ -273,6 +276,8 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "check_ops_artifacts", lambda _cfg: calls.append("artifacts"))
     monkeypatch.setattr(_runner, "check_short_lived_pod_output", lambda _cfg: calls.append("short-lived"))
     monkeypatch.setattr(_runner, "check_collector_restart", lambda _cfg: calls.append("collector-restart"))
+    monkeypatch.setattr(_runner, "check_delivery_signals_follow_an_outage", lambda _cfg: calls.append("delivery"))
+    monkeypatch.setattr(_runner, "check_spool_limit_is_the_loss_point", lambda _cfg: calls.append("spool-limit"))
     monkeypatch.setattr(_runner, "check_alert_delivery", lambda _cfg: calls.append("alerts"))
     monkeypatch.setattr(_runner, "check_stage_isolation", lambda _cfg: calls.append("isolation"))
     monkeypatch.setattr(_runner, "check_secret_exposure", lambda _cfg: calls.append("exposure"))
@@ -285,7 +290,8 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
         "namespaces", "jobs", "tables", "serial", "maintenance",
         "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
         "perimeter", "break-glass", "outage",
-        "artifacts", "short-lived", "collector-restart", "alerts", "isolation", "exposure", "rotation",
+        "artifacts", "short-lived", "collector-restart", "delivery", "spool-limit",
+        "alerts", "isolation", "exposure", "rotation",
     ]
     skipped = "perimeter dashboard latency, Superset dashboards, OpenMetadata governance assets"
     assert f"Skipped e2e assertions: {skipped}" in messages

@@ -47,6 +47,7 @@ from openlakeforge_core import (
     evaluate_spool_age,
     evaluate_spool_size,
     evaluate_workload,
+    parse_spool_report,
     service_signal,
     worst_state,
 )
@@ -54,7 +55,6 @@ from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
 
 from openlakeforge_platform_api.spool_probe import PATH as SPOOL_PATH
-from openlakeforge_platform_api.spool_probe import parse_report
 
 log = logging.getLogger(__name__)
 
@@ -486,7 +486,7 @@ def in_cluster_spool_read(timeout: float) -> SpoolRead:
             try:
                 response = requests.get(f"{parts.scheme}://{host}:{parts.port}{SPOOL_PATH}", timeout=timeout)
                 response.raise_for_status()
-                observations.extend(parse_report(response.json()))
+                observations.extend(parse_spool_report(response.json()))
             except (requests.RequestException, ValueError, json.JSONDecodeError):
                 log.warning("collector spool probe at %s failed", address, exc_info=True)
                 unanswered += 1

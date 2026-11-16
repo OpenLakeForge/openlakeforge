@@ -2,7 +2,8 @@
 
 It runs next to Fluent Bit in the collector pod, reads the shared state volume read-only and serves two numbers per
 stage over HTTP: the age of the oldest file and the bytes held. It writes nothing and holds no credential. The
-platform API reads it (`parse_report`) and classifies the numbers with `openlakeforge_core.archive_health`.
+platform API reads it and classifies the numbers with `openlakeforge_core.archive_health`, which also parses the
+report.
 
 Age is the file's mtime. A spool file the plugin is still appending to looks young, so an outage is seen first by its
 size, then by the files that filled up and stopped changing [T: confirmed by the failure-injection e2e].
@@ -15,12 +16,10 @@ import json
 import re
 import time
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-
-from openlakeforge_core import SpoolObservation
 
 PORT = 2021
 PATH = "/spool"
@@ -85,27 +84,6 @@ def build_report(root: Path, stages: Mapping[str, str], limit_bytes: int, *, now
         "limit_bytes": limit_bytes,
         "stages": report,
     }
-
-
-def parse_report(payload: Mapping[str, Any]) -> list[SpoolObservation]:
-    """The observations in a probe's answer; a malformed answer raises ValueError, never a guess."""
-    try:
-        observed_at = datetime.fromisoformat(str(payload["observed_at"]))
-        limit = int(payload["limit_bytes"])
-        return [
-            SpoolObservation(
-                stage=str(stage),
-                observed_at=observed_at,
-                oldest_file_age=None if age is None else timedelta(seconds=float(age)),
-                size_bytes=int(values["size_bytes"]),
-                limit_bytes=limit,
-                unreadable=values.get("unreadable") is True,
-            )
-            for stage, values in payload["stages"].items()
-            for age in [values["oldest_file_age_seconds"]]
-        ]
-    except (KeyError, TypeError, AttributeError) as exc:
-        raise ValueError("the spool report is malformed") from exc
 
 
 def _handler(root: Path, stages: Mapping[str, str], limit_bytes: int) -> type[BaseHTTPRequestHandler]:
