@@ -184,3 +184,38 @@ def test_blocked_error_is_a_blocking_health_error() -> None:
 @pytest.mark.parametrize("outcome", [QualityOutcome.NOT_RUN, QualityOutcome.UNKNOWN])
 def test_unexecuted_checks_have_no_health_observation(outcome: QualityOutcome) -> None:
     assert health_quality_fields(result(outcome=outcome)) is None
+
+
+@pytest.mark.parametrize("field", ["engine_severity", "check_id"])
+def test_required_string_fields_must_be_strings(field: str) -> None:
+    with pytest.raises(QualityRecordError, match=field):
+        result(**{field: {"rows": [{"email": "a@example.com"}], "password": "hunter2"}})
+
+
+@pytest.mark.parametrize("field", ["domain", "artifact_uri"])
+def test_optional_string_fields_must_be_strings_or_null(field: str) -> None:
+    with pytest.raises(QualityRecordError, match=field):
+        result(**{field: 7})
+
+
+def test_payload_in_engine_severity_is_rejected_on_read() -> None:
+    record = result().to_dict()
+    record["engine_severity"] = {"rows": [{"email": "a@example.com"}], "password": "hunter2"}
+    with pytest.raises(QualityRecordError, match="engine_severity"):
+        QualityResult.from_dict(record)
+
+
+@pytest.mark.parametrize("field", ["domain", "product"])
+def test_manifest_rejects_results_owned_by_another_domain_or_product(field: str) -> None:
+    with pytest.raises(QualityRecordError, match=f"has {field} 'other'"):
+        manifest(result(**{field: "other"}))
+
+
+def test_manifest_accepts_results_without_domain_or_product() -> None:
+    assert len(manifest(result(domain=None, product=None)).results) == 1
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_metrics_are_rejected(value: float) -> None:
+    with pytest.raises(QualityRecordError, match="finite"):
+        result(metrics={"duration_seconds": value})

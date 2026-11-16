@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -48,25 +49,8 @@ class PipelineOutcome(StrEnum):
 # Row payloads, sample values and secrets must never reach the normalized record (#796). The record has no
 # field for them, so the guard is on the way in: a payload smuggled into the JSON or the metrics is refused.
 _FORBIDDEN_KEYS = frozenset(
-    {
-        "row",
-        "rows",
-        "sample",
-        "samples",
-        "sample_values",
-        "value",
-        "values",
-        "payload",
-        "record",
-        "records",
-        "secret",
-        "password",
-        "token",
-        "credential",
-        "credentials",
-        "access_key",
-        "secret_key",
-    }
+    "row rows sample samples sample_values value values payload record records secret password token "
+    "credential credentials access_key secret_key".split()
 )
 
 _SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -122,9 +106,19 @@ class QualityResult:
     metrics: Mapping[str, int | float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # By type, not only emptiness: unhashed fields such as engine_severity would otherwise carry a payload.
         for name in ("engine", "stage", "check_id", "engine_severity", "dagster_run_id"):
-            if not getattr(self, name):
-                raise QualityRecordError(f"a quality result needs a non-empty {name}")
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value:
+                raise QualityRecordError(f"a quality result needs a non-empty string {name}")
+        for name in ("domain", "product", "table", "column", "engine_run_id", "artifact_uri"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, str):
+                raise QualityRecordError(f"{name} must be a string or null, not {type(value).__name__}")
+        if not isinstance(self.observed_at, datetime):
+            raise QualityRecordError("observed_at must be a datetime")
+        if not isinstance(self.outcome, QualityOutcome) or not isinstance(self.pipeline_outcome, PipelineOutcome):
+            raise QualityRecordError("outcome and pipeline_outcome must be enum members")
         if self.observed_at.tzinfo is None:
             raise QualityRecordError("observed_at must be timezone-aware")
         if self.column is not None and self.table is None:
@@ -136,6 +130,8 @@ class QualityResult:
                 raise QualityRecordError(f"metrics key {key!r} could carry row data; only aggregates are allowed")
             if isinstance(value, bool) or not isinstance(value, int | float):
                 raise QualityRecordError(f"metric {key!r} must be a number, not {type(value).__name__}")
+            if not math.isfinite(value):
+                raise QualityRecordError(f"metric {key!r} must be finite, not {value!r}")
         object.__setattr__(self, "metrics", dict(sorted(self.metrics.items())))
 
     @property
@@ -240,6 +236,12 @@ class QualityManifest:
                     f"result {result.check_id!r} belongs to stage {result.stage!r} run {result.dagster_run_id!r}, "
                     f"not this manifest's stage {self.stage!r} run {self.dagster_run_id!r}"
                 )
+            for name in ("domain", "product"):
+                if getattr(result, name) not in (None, getattr(self, name)):
+                    raise QualityRecordError(
+                        f"result {result.check_id!r} has {name} {getattr(result, name)!r}, "
+                        f"not this manifest's {getattr(self, name)!r}"
+                    )
             if result.identity in seen:
                 raise QualityRecordError(f"duplicate quality result for check {result.check_id!r}")
             seen.add(result.identity)
@@ -265,7 +267,7 @@ class QualityManifest:
             "dagster_run_id": self.dagster_run_id,
             "results": [r.to_dict() for r in self.results],
         }
-        return json.dumps(document, indent=2, sort_keys=True) + "\n"
+        return json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n"
 
     @classmethod
     def from_json(cls, text: str) -> QualityManifest:
