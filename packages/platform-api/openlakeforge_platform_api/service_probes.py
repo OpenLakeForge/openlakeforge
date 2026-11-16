@@ -27,6 +27,7 @@ from typing import Any, NamedTuple, Protocol
 from urllib.parse import quote
 
 import requests
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from openlakeforge_core import HealthState, Scope, Signal, WorkloadObservation, evaluate_workload, service_signal
 from openlakeforge_services.base import ServiceClientError
@@ -36,6 +37,8 @@ log = logging.getLogger(__name__)
 
 _SERVICE_ACCOUNT = Path("/var/run/secrets/kubernetes.io/serviceaccount")
 _API_SERVER = "https://kubernetes.default.svc"
+# observe_workloads lists deployments, statefulsets, then pods.
+_CALLS_PER_WORKLOAD_PROBE = 3
 _DAGSTER_QUERY = """
 {
   repositoriesOrError {
@@ -99,6 +102,7 @@ class ServiceProbes:
         ttl: timedelta = timedelta(seconds=60),
         restart_window: timedelta = timedelta(minutes=30),
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        max_workers: int = 10,
     ) -> None:
         self._kube_list = kube_list
         self._http_get_json = http_get_json
@@ -108,13 +112,26 @@ class ServiceProbes:
         self._ttl = ttl
         self._restart_window = restart_window
         self._clock = clock
+        # One pool for the life of this object. A probe stuck in a socket cannot be cancelled and keeps its worker, so
+        # the threads a hung dependency can hold are capped at `max_workers`; probes beyond that queue and read as
+        # "probe timed out" (unknown) until a worker frees up. Size it for the stages probed at once (5 per stage).
+        self._pool = ThreadPoolExecutor(max_workers=max(1, max_workers), thread_name_prefix="service-probe")
 
     @classmethod
     def in_cluster(cls, store: ListableStore | None, **options: Any) -> ServiceProbes:
+        """Probes against the pod's own cluster; every call is bounded by the probe `timeout` (default 5 seconds).
+
+        `store` is the S3 client the object-store probe lists with. This class cannot bound a call made inside
+        boto3, so build the client with `bounded_s3_config(timeout)` (connect and read timeouts no larger than the
+        probe timeout, one attempt); a client with larger timeouts is refused here rather than left to pile up threads.
+        """
+        timeout = options.get("timeout", timedelta(seconds=5))
+        seconds = timeout.total_seconds()
+        _require_bounded_store(store, seconds)
         return cls(
-            kube_list=in_cluster_kube_list(),
+            kube_list=in_cluster_kube_list(seconds),
             http_get_json=_http_get_json,
-            dagster_query=lambda url, query: DagsterClient(url).graphql(query),
+            dagster_query=_dagster_query(seconds),
             store=store,
             **options,
         )
@@ -165,27 +182,23 @@ class ServiceProbes:
             evidence_uri=outcome.evidence_uri,
         )
 
-    def _run(
-        self, checks: list[tuple[str, Callable[[], _Outcome]]]
-    ) -> dict[str, _Outcome]:
-        # A probe stuck in a socket cannot be cancelled, so it is abandoned (wait=False) rather than joined.
-        pool = ThreadPoolExecutor(max_workers=max(1, len(checks)), thread_name_prefix="service-probe")
+    def _run(self, checks: list[tuple[str, Callable[[], _Outcome]]]) -> dict[str, _Outcome]:
+        # A probe stuck in a socket cannot be cancelled, so it is abandoned rather than joined. A probe that never got
+        # a worker is cancelled so it does not run late.
         deadline = monotonic() + self._timeout.total_seconds()
-        futures = {name: pool.submit(check) for name, check in checks}
+        futures = {name: self._pool.submit(check) for name, check in checks}
         results: dict[str, _Outcome] = {}
-        try:
-            for name, future in futures.items():
-                try:
-                    results[name] = future.result(timeout=max(0.0, deadline - monotonic()))
-                except FutureTimeout:
-                    results[name] = _Outcome(HealthState.UNKNOWN, "probe timed out")
-                except ProbeError as exc:
-                    results[name] = _Outcome(HealthState.UNKNOWN, str(exc))
-                except Exception as exc:  # noqa: BLE001 - a probe bug must degrade one signal, not the whole answer
-                    log.warning("service probe %s failed unexpectedly", name, exc_info=True)
-                    results[name] = _Outcome(HealthState.UNKNOWN, f"probe failed: {type(exc).__name__}")
-        finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+        for name, future in futures.items():
+            try:
+                results[name] = future.result(timeout=max(0.0, deadline - monotonic()))
+            except FutureTimeout:
+                future.cancel()
+                results[name] = _Outcome(HealthState.UNKNOWN, "probe timed out")
+            except ProbeError as exc:
+                results[name] = _Outcome(HealthState.UNKNOWN, str(exc))
+            except Exception as exc:  # noqa: BLE001 - a probe bug must degrade one signal, not the whole answer
+                log.warning("service probe %s failed unexpectedly", name, exc_info=True)
+                results[name] = _Outcome(HealthState.UNKNOWN, f"probe failed: {type(exc).__name__}")
         return results
 
     def _workloads(self, targets: StageTargets, component: str, selector: Mapping[str, str]) -> _Outcome:
@@ -206,7 +219,9 @@ class ServiceProbes:
         try:
             data = self._dagster_query(targets.dagster_graphql_url, _DAGSTER_QUERY)
         except (ServiceClientError, requests.RequestException) as exc:
-            raise ProbeError(f"Dagster did not answer: {exc}") from exc
+            # Never the exception text: GraphQL error payloads carry messages and stack extensions.
+            log.warning("Dagster probe failed", exc_info=True)
+            raise ProbeError(f"Dagster did not answer ({_cause(exc)})") from exc
         result = data.get("repositoriesOrError") or {}
         if result.get("__typename") == "PythonError":
             return _Outcome(HealthState.CRITICAL, "Dagster reports an error loading its repositories")
@@ -221,7 +236,8 @@ class ServiceProbes:
         try:
             info = self._http_get_json(f"{targets.trino_url.rstrip('/')}/v1/info", self._timeout.total_seconds())
         except (requests.RequestException, ValueError) as exc:
-            raise ProbeError(f"Trino did not answer: {exc}") from exc
+            log.warning("Trino probe failed", exc_info=True)
+            raise ProbeError(f"Trino did not answer ({_cause(exc)})") from exc
         if info.get("starting") is True:
             return _Outcome(HealthState.WARNING, "Trino is still starting")
         if info.get("starting") is False:
@@ -240,6 +256,46 @@ class ServiceProbes:
         except BotoCoreError as exc:
             raise ProbeError(f"the object store is unreachable: {type(exc).__name__}") from exc
         return _Outcome(HealthState.HEALTHY, "the bucket can be listed")
+
+
+def _cause(exc: BaseException) -> str:
+    """A fixed, body-free description of a failure for a signal reason: the HTTP status, else the exception type."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    return f"HTTP {status}" if isinstance(status, int) else type(exc).__name__
+
+
+def bounded_s3_config(timeout: timedelta) -> Config:
+    """The botocore Config for the object-store client: one attempt, connect and read bounded by the probe timeout."""
+    seconds = timeout.total_seconds()
+    return Config(connect_timeout=seconds, read_timeout=seconds, retries={"max_attempts": 1})
+
+
+def _require_bounded_store(store: ListableStore | None, seconds: float) -> None:
+    config = getattr(getattr(store, "meta", None), "config", None)
+    for name in ("connect_timeout", "read_timeout"):
+        value = getattr(config, name, None)
+        if config is not None and (not isinstance(value, int | float) or value > seconds):
+            raise ValueError(f"the object-store client's {name} must be at most the probe timeout ({seconds}s)")
+
+
+def _dagster_query(timeout: float) -> DagsterQuery:
+    """GraphQL through DagsterClient's `request_json` hook, so the post carries the probe timeout, not its 30s."""
+
+    def query(url: str, document: str) -> Mapping[str, Any]:
+        def post(text: str, variables: Mapping[str, Any] | None) -> Mapping[str, Any]:
+            response = requests.post(
+                url,
+                json={"query": text, "variables": variables or {}},
+                headers={"Accept": "application/json"},
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            return dict(response.json())
+
+        return DagsterClient(url, request_json=post).graphql(document)
+
+    return query
 
 
 def _selector_text(selector: Mapping[str, str]) -> str:
@@ -327,8 +383,13 @@ def _parse_time(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else None
 
 
-def in_cluster_kube_list() -> KubeList:
-    """GET against the API server as the pod's ServiceAccount; a 401 or 403 is a ProbeError, never a guess."""
+def in_cluster_kube_list(timeout: float = 5.0) -> KubeList:
+    """GET against the API server as the pod's ServiceAccount; a 401 or 403 is a ProbeError, never a guess.
+
+    `timeout` is the whole probe's budget. A workload probe makes three sequential calls, so each is bounded to a
+    third of it and the three together fit.
+    """
+    per_call = timeout / _CALLS_PER_WORKLOAD_PROBE
 
     def kube_list(path: str) -> Mapping[str, Any]:
         try:
@@ -338,7 +399,7 @@ def in_cluster_kube_list() -> KubeList:
                 f"{_API_SERVER}{path}",
                 headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
                 verify=str(_SERVICE_ACCOUNT / "ca.crt"),
-                timeout=5,
+                timeout=per_call,
             )
         except (OSError, requests.RequestException) as exc:
             raise ProbeError(f"the Kubernetes API is unreachable: {type(exc).__name__}") from exc

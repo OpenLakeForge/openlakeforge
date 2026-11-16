@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,7 +14,14 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 from openlakeforge_core import HealthState, Signal, SignalKind
 from openlakeforge_services.dagster import DagsterTransientError
 
-from openlakeforge_platform_api.service_probes import ProbeError, ServiceProbes, StageTargets
+from openlakeforge_platform_api import service_probes
+from openlakeforge_platform_api.service_probes import (
+    ProbeError,
+    ServiceProbes,
+    StageTargets,
+    bounded_s3_config,
+    in_cluster_kube_list,
+)
 
 NOW = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
 TTL = timedelta(seconds=60)
@@ -59,8 +67,14 @@ def pod(
 class Cluster:
     """A namespace's controllers and pods, answering the list calls the adapter makes."""
 
-    def __init__(self, controllers: list[dict[str, Any]], pods: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        controllers: list[dict[str, Any]],
+        pods: list[dict[str, Any]],
+        statefulsets: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.controllers = controllers
+        self.statefulsets = statefulsets or []
         self.pods = pods
         self.denied = False
 
@@ -69,9 +83,10 @@ class Cluster:
             raise ProbeError("the Kubernetes API refused the read (HTTP 403)")
         if "/pods" in path:
             return {"items": self.pods}
-        if "/deployments" in path:
+        if "/deployments" in path or "/statefulsets" in path:
             key, value = path.split("labelSelector=")[1].replace("%2F", "/").split("%3D")
-            return {"items": [c for c in self.controllers if c["spec"]["selector"]["matchLabels"].get(key) == value]}
+            source = self.controllers if "/deployments" in path else self.statefulsets
+            return {"items": [c for c in source if c["spec"]["selector"]["matchLabels"].get(key) == value]}
         return {"items": []}
 
 
@@ -272,3 +287,185 @@ def test_dagster_transport_failure_is_unknown() -> None:
 )
 def test_object_store_outcomes(error: Exception | None, expected: HealthState) -> None:
     assert by_component(probes(store=Store(error)).probe(ALL))["object-store.list"].state is expected
+
+
+def test_a_statefulset_is_observed_like_a_deployment() -> None:
+    cluster = Cluster([controller(DAGSTER)], [pod(DAGSTER), pod(TRINO)], statefulsets=[controller(TRINO, ready=0)])
+    assert by_component(probes(cluster).probe(ALL))["trino.workloads"].state is HealthState.CRITICAL
+    healthy = Cluster([controller(DAGSTER)], [pod(DAGSTER), pod(TRINO)], statefulsets=[controller(TRINO)])
+    assert by_component(probes(healthy).probe(ALL))["trino.workloads"].state is HealthState.HEALTHY
+
+
+def test_a_dagster_errors_payload_never_reaches_the_signal_reason() -> None:
+    class Response:
+        def raise_for_status(self) -> None: ...
+
+        def json(self) -> dict[str, Any]:
+            return {"errors": [{"message": "secret_token=abc", "extensions": {"stack": ["secret_token=abc"]}}]}
+
+    seen: dict[str, Any] = {}
+
+    def post(url: str, **kwargs: Any) -> Response:
+        seen.update(kwargs)
+        return Response()
+
+    query = service_probes._dagster_query(2.0)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(service_probes.requests, "post", post)
+        probe = ServiceProbes(
+            kube_list=healthy_cluster(),
+            http_get_json=lambda url, _t: {"starting": False},
+            dagster_query=query,
+            store=Store(),
+            ttl=TTL,
+            clock=lambda: NOW,
+        )
+        signal = by_component(probe.probe(ALL))["dagster.read-api"]
+    assert signal.state is HealthState.UNKNOWN
+    assert "secret_token" not in signal.reason and "abc" not in signal.reason
+    assert signal.reason == "Dagster did not answer (ServiceClientError)"
+    assert seen["timeout"] == 2.0
+
+
+def test_error_text_from_trino_is_not_echoed_either() -> None:
+    def leaky() -> Mapping[str, Any]:
+        raise requests.HTTPError("503 body: secret_token=abc")
+
+    signal = by_component(probes(info=leaky).probe(ALL))["trino.readiness"]
+    assert signal.state is HealthState.UNKNOWN
+    assert "secret_token" not in signal.reason
+
+
+def test_the_dagster_probe_reports_the_http_status_not_the_body() -> None:
+    def refused() -> Mapping[str, Any]:
+        response = requests.Response()
+        response.status_code = 502
+        raise requests.HTTPError("secret_token=abc", response=response)
+
+    assert (
+        by_component(probes(dagster=refused).probe(ALL))["dagster.read-api"].reason
+        == "Dagster did not answer (HTTP 502)"
+    )
+
+
+def test_hung_probes_hold_a_bounded_number_of_threads_across_many_calls() -> None:
+    release = threading.Event()
+    started = 0
+
+    def hang() -> Mapping[str, Any]:
+        nonlocal started
+        started += 1
+        release.wait(5)
+        return {"starting": False}
+
+    hung = ServiceProbes(
+        kube_list=healthy_cluster(),
+        http_get_json=lambda url, _t: hang(),
+        dagster_query=lambda url, query: REPOSITORIES,
+        store=Store(),
+        timeout=timedelta(milliseconds=50),
+        ttl=TTL,
+        clock=lambda: NOW,
+        max_workers=2,
+    )
+    try:
+        for _ in range(5):
+            assert by_component(hung.probe(ALL))["trino.readiness"].state is HealthState.UNKNOWN
+        # Each call's hung probe would be a new thread under a pool-per-call; here workers are reused, so at most 2.
+        assert started <= 2
+    finally:
+        release.set()
+
+
+def test_the_s3_config_and_in_cluster_refuse_an_unbounded_store() -> None:
+    config = bounded_s3_config(timedelta(seconds=5))
+    assert (vars(config)["connect_timeout"], vars(config)["read_timeout"], vars(config)["retries"]) == (
+        5.0,
+        5.0,
+        {"max_attempts": 1},
+    )
+
+    class Meta:
+        def __init__(self, seconds: float) -> None:
+            self.config = bounded_s3_config(timedelta(seconds=seconds))
+
+    class Client(Store):
+        def __init__(self, seconds: float) -> None:
+            super().__init__()
+            self.meta = Meta(seconds)
+
+    ServiceProbes.in_cluster(Client(5))
+    with pytest.raises(ValueError, match="connect_timeout"):
+        ServiceProbes.in_cluster(Client(60))
+
+
+class FakeResponse:
+    def __init__(self, status: int, body: dict[str, Any] | None = None) -> None:
+        self.status_code = status
+        self.ok = status < 400
+        self._body = body or {"items": []}
+
+    def json(self) -> dict[str, Any]:
+        return self._body
+
+
+@pytest.fixture
+def service_account(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    (tmp_path / "token").write_text("tok\n")
+    (tmp_path / "ca.crt").write_text("ca")
+    monkeypatch.setattr(service_probes, "_SERVICE_ACCOUNT", tmp_path)
+    return tmp_path
+
+
+def test_the_kubernetes_client_sends_the_token_and_the_in_cluster_ca_and_reads_only_three_lists(
+    service_account: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def get(url: str, **kwargs: Any) -> FakeResponse:
+        calls.append({"url": url, **kwargs})
+        return FakeResponse(200, {"items": [controller(DAGSTER)]} if "deployments" in url else None)
+
+    monkeypatch.setattr(service_probes.requests, "get", get)
+    kube = in_cluster_kube_list(6.0)
+    service_probes.observe_workloads(kube, "olf-dev", DAGSTER, observed_at=NOW, restart_window=timedelta(minutes=30))
+    prefix = "https://kubernetes.default.svc/"
+    assert [c["url"].removeprefix(prefix).split("?")[0] for c in calls] == [
+        "apis/apps/v1/namespaces/olf-dev/deployments",
+        "apis/apps/v1/namespaces/olf-dev/statefulsets",
+        "api/v1/namespaces/olf-dev/pods",
+    ]
+    assert all(c["verify"] == str(service_account / "ca.crt") for c in calls)
+    assert all(c["headers"]["Authorization"] == "Bearer tok" for c in calls)
+    assert all(c["timeout"] == 2.0 for c in calls)  # three calls fit the 6s budget
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_the_kubernetes_client_turns_a_refused_read_into_unknown(
+    status: int, service_account: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(service_probes.requests, "get", lambda url, **_: FakeResponse(status))
+    probe = ServiceProbes(
+        kube_list=in_cluster_kube_list(),
+        http_get_json=lambda url, _t: {"starting": False},
+        dagster_query=lambda url, query: REPOSITORIES,
+        store=Store(),
+        ttl=TTL,
+        clock=lambda: NOW,
+    )
+    signal = by_component(probe.probe(ALL))["dagster.workloads"]
+    assert signal.state is HealthState.UNKNOWN
+    assert f"HTTP {status}" in signal.reason
+
+
+def test_a_missing_token_file_is_unknown_and_never_calls_the_api(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(service_probes, "_SERVICE_ACCOUNT", tmp_path)
+
+    def get(url: str, **_: Any) -> FakeResponse:
+        raise AssertionError("no token means no request")
+
+    monkeypatch.setattr(service_probes.requests, "get", get)
+    with pytest.raises(ProbeError, match="unreachable"):
+        in_cluster_kube_list()("/api/v1/namespaces/olf-dev/pods")
