@@ -483,7 +483,10 @@ from openlakeforge_runtime.product_dagster import ProductDefinitionSpec, build_p
 
 # No input lists: the dbt and Floe projects already declare them, and a second copy drifts.
 # Pass gold_assets, silver_inputs or bronze_inputs only to override what they declare.
-defs = build_product_definitions(ProductDefinitionSpec(domain="{domain}", product="{product}"))
+# Without a cadence the PROD schedule is daily at 03:00 UTC; set cadence=ProductCadence(cron, timezone) to change it.
+# Keep the spec a module-level name: `olf check project-code` reads it.
+spec = ProductDefinitionSpec(domain="{domain}", product="{product}")
+defs = build_product_definitions(spec)
 '''
 
 
