@@ -14,12 +14,15 @@ from openlakeforge_core import (
     Scope,
     Signal,
     SignalKind,
+    WorkloadObservation,
     evaluate_execution,
     evaluate_expected_run,
     evaluate_latest_success,
     evaluate_quality,
+    evaluate_workload,
     rollup,
     rollup_by_stage,
+    service_signal,
     worst_state,
 )
 
@@ -145,10 +148,12 @@ def test_stale_schedule_observation_is_unknown_not_critical() -> None:
 @pytest.mark.parametrize(
     ("outcome", "blocking", "expected"),
     [
-        (QualityOutcome.PASS, True, HealthState.HEALTHY),
+        (QualityOutcome.PASSED, True, HealthState.HEALTHY),
         (QualityOutcome.WARN, True, HealthState.WARNING),
         (QualityOutcome.ERROR, True, HealthState.CRITICAL),
         (QualityOutcome.ERROR, False, HealthState.WARNING),
+        (QualityOutcome.NOT_RUN, True, HealthState.UNKNOWN),
+        (QualityOutcome.UNKNOWN, True, HealthState.UNKNOWN),
     ],
 )
 def test_quality_outcome_maps_to_state(outcome: QualityOutcome, blocking: bool, expected: HealthState) -> None:
@@ -160,7 +165,7 @@ def test_quality_outcome_maps_to_state(outcome: QualityOutcome, blocking: bool, 
 
 
 def test_stale_quality_result_is_unknown() -> None:
-    quality = QualityObservation(QualityOutcome.PASS, STALE)
+    quality = QualityObservation(QualityOutcome.PASSED, STALE)
     assert evaluate_quality(DEV, quality, now=NOW, max_age=MAX_AGE).state is HealthState.UNKNOWN
 
 
@@ -218,3 +223,44 @@ def test_scope_and_signal_need_a_stage() -> None:
         Scope(stage="")
     with pytest.raises(ValueError, match="stage"):
         Signal(SignalKind.SERVICE, HealthState.HEALTHY, "", "fixture")
+
+
+def _workload(desired: int, ready: int, observed_at: datetime = FRESH, **kwargs: int) -> WorkloadObservation:
+    return WorkloadObservation(desired, ready, observed_at, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("workload", "expected"),
+    [
+        (_workload(2, 2), HealthState.HEALTHY),
+        (_workload(2, 1), HealthState.WARNING),
+        (_workload(2, 0), HealthState.CRITICAL),
+        (_workload(1, 1, unschedulable=1), HealthState.CRITICAL),
+        (_workload(1, 1, crash_looping=1), HealthState.WARNING),
+        (_workload(1, 1, recent_restarts=3), HealthState.WARNING),
+        (_workload(0, 0), HealthState.WARNING),
+        (_workload(1, 1, STALE), HealthState.UNKNOWN),
+        (None, HealthState.UNKNOWN),
+    ],
+)
+def test_workload_state_follows_readiness_restarts_and_age(
+    workload: WorkloadObservation | None, expected: HealthState
+) -> None:
+    signal = evaluate_workload(DEV, "dagster", workload, now=NOW, max_age=MAX_AGE)
+    assert signal.state is expected
+    assert signal.kind is SignalKind.SERVICE
+    assert signal.component == "dagster"
+
+
+def test_service_signal_carries_unknown_and_disabled_states() -> None:
+    unknown = service_signal(DEV, "trino", HealthState.UNKNOWN, "probe timed out", now=NOW, max_age=MAX_AGE)
+    disabled = service_signal(DEV, "trino", HealthState.DISABLED, "not deployed", now=NOW, max_age=MAX_AGE)
+    assert (unknown.state, disabled.state) == (HealthState.UNKNOWN, HealthState.DISABLED)
+    assert unknown.kind is SignalKind.SERVICE and unknown.component == "trino"
+    assert unknown.reason == "probe timed out"
+
+
+def test_service_signal_expires_max_age_after_observation() -> None:
+    signal = service_signal(DEV, "dagster", HealthState.HEALTHY, "ok", now=NOW, max_age=MAX_AGE)
+    assert signal.observed_at == NOW
+    assert signal.expires_at == NOW + MAX_AGE

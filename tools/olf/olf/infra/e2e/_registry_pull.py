@@ -58,6 +58,7 @@ ANONYMOUS_PROBE_TIMEOUT_SECONDS = 20
 CONTAINERD_RESTART_ATTEMPTS = 30
 NODE_READY_TIMEOUT = "120s"
 DOCKER_HUB_LIBRARY = "docker.io/library/"
+PURGE_ATTEMPTS = 3
 
 
 def _pod_spec(item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -171,12 +172,21 @@ def require_private(image: str, *, allow_public: bool) -> None:
     )
 
 
-def image_ids(listing: str, repository: str) -> list[str]:
-    """IDs in `crictl images -o json` output that carry a tag or digest name under `repository`."""
+def _names_image(name: str, repository: str, digest: str) -> bool:
+    """Whether a CRI name refers to the image: under its repository, or any repository at its pinned digest.
+
+    The purge and the check that the purge worked must use this one test: when they differed, a record that kept only
+    another repository's name at the digest was found lingering but never selected for removal (#1144).
+    """
+    return name.startswith((f"{repository}:", f"{repository}@")) or bool(digest and name.endswith(f"@{digest}"))
+
+
+def image_ids(listing: str, repository: str, digest: str = "") -> list[str]:
+    """IDs in `crictl images -o json` output with a name under `repository` or, given `digest`, at that digest."""
     ids = []
     for image in json.loads(listing).get("images", []):
         names = [*(image.get("repoTags") or []), *(image.get("repoDigests") or [])]
-        if any(name.startswith((f"{repository}:", f"{repository}@")) for name in names):
+        if any(_names_image(name, repository, digest) for name in names):
             ids.append(image["id"])
     return ids
 
@@ -194,6 +204,24 @@ def containerd_refs(listing: str) -> dict[str, str]:
 def _bare(name: str) -> str:
     """`name` without the `docker.io/library/` the CRI adds; `ctr` lists the name as `kind load` wrote it."""
     return name.removeprefix(DOCKER_HUB_LIBRARY)
+
+
+def lingering_images(crictl_listing: str, ctr_listing: str, image: str) -> list[str]:
+    """What still holds `image` on a node: CRI records and containerd names under its repository or at its digest.
+
+    The digest is matched too, not only the repository: an image that kept a name from another repository (or only an
+    `import-*` name) is still found by the manifest digest the registry pinned, which is what a pull would reuse.
+    """
+    repository, _, digest = image.partition("@")
+    found = []
+    for record in json.loads(crictl_listing).get("images", []):
+        names = [*(record.get("repoTags") or []), *(record.get("repoDigests") or [])]
+        if any(_names_image(name, repository, digest) for name in names):
+            found.append(f"CRI {record['id']} ({', '.join(names)})")
+    for ref, ref_digest in containerd_refs(ctr_listing).items():
+        if ref.startswith((f"{repository}:", f"{repository}@")) or (digest and ref_digest == digest):
+            found.append(f"containerd {ref}")
+    return found
 
 
 def pod_diagnostics(pods: Sequence[Mapping[str, Any]], events: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -330,7 +358,50 @@ def _restart_containerd(cfg: E2EConfig, docker: Callable[[list[str]], str], node
 
 
 def purge_image(cfg: E2EConfig, image: str) -> None:
-    """Remove `image` (every tag and digest name of it) from every node's containerd and the CRI image store.
+    """Remove the image from every node and prove it is gone from each, retrying a node a bounded number of times.
+
+    `_purge_node` is one pass; the listing afterwards is the proof, because a pass that exits 0 has left the image
+    behind before (#1096). Fails naming the node and digest if a node still holds it after `PURGE_ATTEMPTS` passes.
+    """
+    with _without_host_credentials(cfg) as docker:
+        for node in _nodes(cfg):
+            for attempt in range(1, PURGE_ATTEMPTS + 1):
+                _purge_node(cfg, docker, node.name, image)
+                left = _lingering(docker, node.name, image)
+                if not left:
+                    break
+                log.warn(f"{node.name}: image still present after purge pass {attempt}/{PURGE_ATTEMPTS}: {left}")
+            else:
+                raise E2EError(
+                    f"{node.name}: {image} is still on the node after {PURGE_ATTEMPTS} purge attempts: "
+                    f"{'; '.join(left)}."
+                )
+
+
+def ensure_absent(cfg: E2EConfig, image: str) -> None:
+    """Last look before pods start: purge again on any node that pulled `image` since `purge_image` returned.
+
+    A pod that restarts a container or is scheduled in the gap re-pulls the image, and the run pods then find it in
+    the cache. Cheap when nothing came back: one listing per node.
+    """
+    with _without_host_credentials(cfg) as docker:
+        back = [node.name for node in _nodes(cfg) if _lingering(docker, node.name, image)]
+    if back:
+        log.warn(f"{', '.join(back)}: the image came back after the purge; purging again before the pods start.")
+        purge_image(cfg, image)
+
+
+def _lingering(docker: Callable[[list[str]], str], node: str, image: str) -> list[str]:
+    exec_ = ["exec", node]
+    return lingering_images(
+        docker([*exec_, "crictl", "images", "-o", "json"]),
+        docker([*exec_, "ctr", "--namespace=k8s.io", "images", "ls"]),
+        image,
+    )
+
+
+def _purge_node(cfg: E2EConfig, docker: Callable[[list[str]], str], node: str, image: str) -> None:
+    """One pass removing `image` (every tag and digest name of it) from `node`'s containerd and CRI image store.
 
     Kind-only drill. `kind load` leaves an `import-<date>@sha256:...` name on the image, with a different manifest
     digest than the registry's. `crictl rmi` by ID leaves it (the CRI record still lists it), and kubelet's next pull
@@ -339,44 +410,49 @@ def purge_image(cfg: E2EConfig, image: str) -> None:
 
     So: `crictl rmi` by ID first, while the names exist, so the CRI plugin deletes what it can itself. Whatever the
     record of those IDs still lists afterwards is what keeps the image alive, and exactly those names go to
-    `ctr images rm`; other `import-*` names belong to other images and stay. Then `crictl rmi` again, and only if a
+    `ctr images rm`, together with any containerd name under the repository or at the digest that the CRI listed no
+    record for; other `import-*` names belong to other images and stay. Then `crictl rmi` again, and only if a
     record still lists, a containerd restart, because the CRI cache does not resync when names are removed underneath
-    it with `ctr`. A record that survives even that fails the purge, naming node, ID and names.
+    it with `ctr`. A record that survives even that fails the pass, naming node, ID and names.
     """
-    repository = image.split("@", 1)[0]
+    repository, _, digest = image.partition("@")
     ctr = ["ctr", "--namespace=k8s.io"]
-    with _without_host_credentials(cfg) as docker:
-        for node in _nodes(cfg):
-            exec_ = ["exec", node.name]
+    exec_ = ["exec", node]
 
-            def kept(ids: Sequence[str], exec_: list[str] = exec_) -> dict[str, list[str]]:
-                return records_with_ids(docker([*exec_, "crictl", "images", "-o", "json"]), ids)
+    def kept(ids: Sequence[str]) -> dict[str, list[str]]:
+        return records_with_ids(docker([*exec_, "crictl", "images", "-o", "json"]), ids)
 
-            ids = image_ids(docker([*exec_, "crictl", "images", "-o", "json"]), repository)
-            if ids:
-                docker([*exec_, "crictl", "rmi", *ids])
-            listed = kept(ids)
-            held = {_bare(name): name for name in containerd_refs(docker([*exec_, *ctr, "images", "ls"]))}
-            doomed = sorted({held[_bare(name)] for names in listed.values() for name in names if _bare(name) in held})
-            if doomed:
-                docker([*exec_, *ctr, "images", "rm", "--sync", *doomed])
-            listed = kept(ids) if listed else listed
-            if listed:
-                docker([*exec_, "crictl", "rmi", *listed])
-                listed = kept(ids)
-            if listed:
-                log.warn(f"{node.name}: the CRI record survived crictl rmi; restarting containerd to rebuild it.")
-                _restart_containerd(cfg, docker, node.name)
-                listed = kept(ids)
-            if listed:
-                detail = "; ".join(f"{image_id} ({', '.join(names)})" for image_id, names in listed.items())
-                imports = containerd_refs(docker([*exec_, *ctr, "images", "ls"]))
-                still = ", ".join(name for name in imports if _bare(name).startswith("import-"))
-                raise E2EError(
-                    f"{node.name}: the CRI image record survived crictl rmi and a containerd restart: {detail}. "
-                    f"containerd still lists: {still or 'no import names'}."
-                )
-            log.info(f"{node.name}: removed {len(ids)} cached image(s) and {len(doomed)} containerd name(s).")
+    ids = image_ids(docker([*exec_, "crictl", "images", "-o", "json"]), repository, digest)
+    if ids:
+        docker([*exec_, "crictl", "rmi", *ids])
+    listed = kept(ids)
+    refs = containerd_refs(docker([*exec_, *ctr, "images", "ls"]))
+    held = {_bare(name): name for name in refs}
+    doomed = {held[_bare(name)] for names in listed.values() for name in names if _bare(name) in held}
+    doomed |= {
+        ref
+        for ref, ref_digest in refs.items()
+        if ref.startswith((f"{repository}:", f"{repository}@")) or (digest and ref_digest == digest)
+    }
+    if doomed:
+        docker([*exec_, *ctr, "images", "rm", "--sync", *sorted(doomed)])
+    listed = kept(ids) if listed else listed
+    if listed:
+        docker([*exec_, "crictl", "rmi", *listed])
+        listed = kept(ids)
+    if listed:
+        log.warn(f"{node}: the CRI record survived crictl rmi; restarting containerd to rebuild it.")
+        _restart_containerd(cfg, docker, node)
+        listed = kept(ids)
+    if listed:
+        detail = "; ".join(f"{image_id} ({', '.join(names)})" for image_id, names in listed.items())
+        imports = containerd_refs(docker([*exec_, *ctr, "images", "ls"]))
+        still = ", ".join(name for name in imports if _bare(name).startswith("import-"))
+        raise E2EError(
+            f"{node}: the CRI image record survived crictl rmi and a containerd restart: {detail}. "
+            f"containerd still lists: {still or 'no import names'}."
+        )
+    log.info(f"{node}: removed {len(ids)} cached image(s) and {len(doomed)} containerd name(s).")
 
 
 def _code_location_pods(cfg: E2EConfig) -> list[dict[str, Any]]:
@@ -458,6 +534,7 @@ def _check_run(cfg: E2EConfig, image: str) -> None:
     # with, so only what appears after this point says whether the launcher carries the Secret.
     before = {_identity(item) for item in _workloads(cfg)}
     with dagster_client(cfg) as client:
+        ensure_absent(cfg, image)
         run_id = launch_and_poll(cfg, client, cfg.inventory.products[0].job_name)
     payload = json.loads(
         kubectl(cfg, ["get", "pods", "-n", cfg.namespace, "-l", f"dagster/run-id={run_id}", "-o", "json"], capture=True)
