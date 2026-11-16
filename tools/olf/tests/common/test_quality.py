@@ -172,7 +172,7 @@ def test_manifest_key_refuses_path_traversal() -> None:
 def test_reject_that_quarantined_rows_is_a_non_blocking_health_error() -> None:
     fields = health_quality_fields(result())
     assert fields is not None
-    assert (fields.outcome, fields.blocking, fields.run) == ("error", False, "run-1")
+    assert (fields.outcome, fields.blocking, fields.run) == (QualityOutcome.ERROR, False, "run-1")
     assert fields.evidence_uri == result().artifact_uri
 
 

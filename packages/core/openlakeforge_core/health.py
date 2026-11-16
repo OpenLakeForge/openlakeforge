@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 
+from .quality import QualityOutcome
+
 
 class HealthState(StrEnum):
     HEALTHY = "healthy"
@@ -53,12 +55,6 @@ class ScheduleState(StrEnum):
     ABSENT = "absent"
 
 
-class QualityOutcome(StrEnum):
-    PASS = "pass"
-    WARN = "warn"
-    ERROR = "error"
-
-
 @dataclass(frozen=True)
 class Scope:
     """What a signal is about. `stage` is mandatory so DEV and PROD can never be confused."""
@@ -88,6 +84,8 @@ class Signal:
     observed_at: datetime | None = None
     expires_at: datetime | None = None
     evidence_uri: str | None = None
+    # Which service a SERVICE signal is about ("dagster", "trino", "object-store"); None for pipeline signals.
+    component: str | None = None
 
     def __post_init__(self) -> None:
         if not self.stage:
@@ -125,7 +123,24 @@ class QualityObservation:
     evidence_uri: str | None = None
 
 
-_Observation = RunObservation | ScheduleObservation | QualityObservation
+@dataclass(frozen=True)
+class WorkloadObservation:
+    """What the cluster reports for one component's controllers, summed across them."""
+
+    desired: int
+    ready: int
+    observed_at: datetime
+    # Pods that are Pending because no node fits them, and pods waiting in CrashLoopBackOff.
+    unschedulable: int = 0
+    crash_looping: int = 0
+    # The highest count, on any pod, of container restarts inside a recent window. The observer counts only
+    # restarts whose lastState.terminated.finishedAt is within that window: the cluster's restartCount never
+    # resets, so a lifetime count would keep the workload on WARNING forever.
+    recent_restarts: int = 0
+    evidence_uri: str | None = None
+
+
+_Observation = RunObservation | ScheduleObservation | QualityObservation | WorkloadObservation
 
 
 def evaluate_execution(scope: Scope, run: RunObservation | None, *, now: datetime, max_age: timedelta) -> Signal:
@@ -194,7 +209,10 @@ def evaluate_quality(scope: Scope, quality: QualityObservation | None, *, now: d
         return _missing(SignalKind.QUALITY, scope, max_age)
     if _is_stale(quality, now, max_age):
         return _stale(SignalKind.QUALITY, scope, quality, max_age)
-    if quality.outcome is QualityOutcome.PASS:
+    if quality.outcome in (QualityOutcome.NOT_RUN, QualityOutcome.UNKNOWN):
+        # A check that did not run says nothing about the data, so it must not read as a pass.
+        state, reason = HealthState.UNKNOWN, "quality checks did not report an outcome"
+    elif quality.outcome is QualityOutcome.PASSED:
         state, reason = HealthState.HEALTHY, "quality checks passed"
     elif quality.outcome is QualityOutcome.WARN:
         state, reason = HealthState.WARNING, "quality checks warned"
@@ -203,6 +221,62 @@ def evaluate_quality(scope: Scope, quality: QualityObservation | None, *, now: d
     else:
         state, reason = HealthState.WARNING, "a non-blocking quality check failed"
     return _signal(SignalKind.QUALITY, scope, state, reason, quality, max_age, run=quality.run)
+
+
+def evaluate_workload(
+    scope: Scope,
+    component: str,
+    workload: WorkloadObservation | None,
+    *,
+    now: datetime,
+    max_age: timedelta,
+    restart_warning: int = 3,
+) -> Signal:
+    """Controller readiness. This proves pods exist and are ready, not that the service answers its clients."""
+    _check_clock(now, max_age)
+    if workload is None:
+        return _service(scope, component, HealthState.UNKNOWN, "no observation", None, None, max_age)
+    if _is_stale(workload, now, max_age):
+        return _service(
+            scope,
+            component,
+            HealthState.UNKNOWN,
+            "observation is stale",
+            workload.observed_at,
+            workload.evidence_uri,
+            max_age,
+        )
+    ready = f"{workload.ready}/{workload.desired} pods ready"
+    if workload.desired == 0:
+        state, reason = HealthState.WARNING, "scaled to zero"
+    elif workload.unschedulable:
+        state, reason = HealthState.CRITICAL, f"{ready}; {workload.unschedulable} unschedulable"
+    elif workload.ready == 0:
+        state, reason = HealthState.CRITICAL, ready
+    elif workload.crash_looping:
+        state, reason = HealthState.WARNING, f"{ready}; {workload.crash_looping} crash looping"
+    elif workload.ready < workload.desired:
+        state, reason = HealthState.WARNING, ready
+    elif workload.recent_restarts >= restart_warning:
+        state, reason = HealthState.WARNING, f"{ready}; {workload.recent_restarts} recent restarts"
+    else:
+        state, reason = HealthState.HEALTHY, ready
+    return _service(scope, component, state, reason, workload.observed_at, workload.evidence_uri, max_age)
+
+
+def service_signal(
+    scope: Scope,
+    component: str,
+    state: HealthState,
+    reason: str,
+    *,
+    now: datetime,
+    max_age: timedelta,
+    evidence_uri: str | None = None,
+) -> Signal:
+    """A SERVICE signal observed `now`: UNKNOWN when a probe could not answer, DISABLED for a component that is off."""
+    _check_clock(now, max_age)
+    return _service(scope, component, state, reason, now, evidence_uri, max_age)
 
 
 def worst_state(states: Iterable[HealthState]) -> HealthState:
@@ -248,6 +322,27 @@ def _is_stale(observation: _Observation, now: datetime, max_age: timedelta) -> b
 
 def _stale(kind: SignalKind, scope: Scope, observation: _Observation, max_age: timedelta) -> Signal:
     return _signal(kind, scope, HealthState.UNKNOWN, "observation is stale", observation, max_age)
+
+
+def _service(
+    scope: Scope,
+    component: str,
+    state: HealthState,
+    reason: str,
+    observed_at: datetime | None,
+    evidence_uri: str | None,
+    max_age: timedelta,
+) -> Signal:
+    return Signal(
+        kind=SignalKind.SERVICE,
+        state=state,
+        stage=scope.stage,
+        reason=reason,
+        component=component,
+        observed_at=observed_at,
+        expires_at=observed_at + max_age if observed_at else None,
+        evidence_uri=evidence_uri,
+    )
 
 
 def _signal(

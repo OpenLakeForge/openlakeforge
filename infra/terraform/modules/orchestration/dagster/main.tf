@@ -5,6 +5,17 @@ locals {
   runtime_profile    = coalesce(try(var.catalog_contract.runtime_profile, null), "polaris-rest")
   governance_enabled = try(var.governance_contract.enabled, true)
 
+  # The tag limit and the monitoring settings live in the base values file; only the size-derived limit is set here.
+  run_queue_values = var.max_concurrent_runs == null ? {} : {
+    runCoordinator = {
+      config = {
+        queuedRunCoordinator = {
+          maxConcurrentRuns = var.max_concurrent_runs
+        }
+      }
+    }
+  }
+
   storage_env = concat(
     [
       {

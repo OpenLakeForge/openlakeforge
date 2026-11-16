@@ -75,8 +75,10 @@ resource "kubernetes_deployment_v1" "platform_api" {
       }
 
       spec {
-        # ADR 0021 decision 6: no Kubernetes permission beyond its own mounts.
-        automount_service_account_token = false
+        # ADR 0021 decisions 6 and 7: no Kubernetes permission beyond its own
+        # mounts, unless probe_namespaces names the stage namespaces it may list.
+        service_account_name            = kubernetes_service_account_v1.platform_api.metadata[0].name
+        automount_service_account_token = length(var.probe_namespaces) > 0
 
         container {
           name              = "platform-api"
