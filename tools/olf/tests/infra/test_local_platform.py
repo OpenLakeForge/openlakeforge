@@ -112,6 +112,7 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
 
     assert set(variables) == {
         "profile_name",
+        "observability",
         "bucket_names",
         "ops_bucket_name",
         "shared_namespace",
