@@ -177,7 +177,7 @@ run "the_probe_is_bounded_and_reads_the_spool_read_only" {
   }
 
   assert {
-    condition     = kubernetes_service_v1.probe[0].spec[0].cluster_ip == "None" && output.probe_url == "http://log-collector-probe.olf-system.svc:2021"
-    error_message = "the probe Service is headless, so every node's probe is reachable"
+    condition     = kubernetes_service_v1.probe[0].spec[0].cluster_ip == "None" && kubernetes_service_v1.probe[0].spec[0].publish_not_ready_addresses == true && output.probe_url == "http://log-collector-probe.olf-system.svc:2021"
+    error_message = "the probe Service is headless and publishes not-ready pods, so every collector pod with an address is asked"
   }
 }
