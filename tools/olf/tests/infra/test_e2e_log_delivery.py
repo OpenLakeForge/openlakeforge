@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from openlakeforge_core import HealthState, SpoolObservation
@@ -163,3 +165,46 @@ def test_an_archive_that_never_stops_changing_is_an_error(monkeypatch: pytest.Mo
 
     with pytest.raises(E2EError, match="still changing"):
         _log_delivery.await_stable(lambda: {next(counter)}, settle_seconds=1, timeout_seconds=30)
+
+
+@pytest.mark.parametrize(
+    ("status", "state"),
+    [({}, "running"), ({"active": 1}, "running"), ({"succeeded": 1}, "complete"), ({"failed": 1}, "failed")],
+)
+def test_a_jobs_state_comes_from_its_status(status: dict[str, int], state: str) -> None:
+    assert _log_delivery.job_state({"status": status}) == state
+
+
+def test_the_fill_timeout_grows_with_the_lines_to_write() -> None:
+    per_second = _log_delivery.FILL_LINES_PER_SECOND
+
+    assert _log_delivery.fill_timeout_seconds(100 * per_second) > _log_delivery.fill_timeout_seconds(10 * per_second)
+    assert _log_delivery.fill_timeout_seconds(100 * per_second) >= 200
+
+
+def _jobs(monkeypatch: pytest.MonkeyPatch, *statuses: dict[str, int]) -> None:
+    answers = iter(json.dumps({"status": status}) for status in statuses)
+    monkeypatch.setattr(_log_delivery, "kubectl", lambda cfg, args, **kw: next(answers))
+    monkeypatch.setattr(_log_delivery.time, "sleep", lambda _s: None)
+
+
+def test_the_drill_waits_for_the_emitter_to_finish(monkeypatch: pytest.MonkeyPatch) -> None:
+    _jobs(monkeypatch, {"active": 1}, {"active": 1}, {"succeeded": 1})
+
+    _log_delivery._wait_job_complete(SimpleNamespace(namespace="olf-dev"), "fill", 600)  # type: ignore[arg-type]
+
+
+def test_a_failed_emitter_is_an_error_not_a_smaller_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    _jobs(monkeypatch, {"active": 1}, {"failed": 1})
+
+    with pytest.raises(E2EError, match="failed"):
+        _log_delivery._wait_job_complete(SimpleNamespace(namespace="olf-dev"), "fill", 600)  # type: ignore[arg-type]
+
+
+def test_an_emitter_that_never_finishes_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    _jobs(monkeypatch, *[{"active": 1}] * 10)
+    ticks = iter(range(0, 1000, 100))
+    monkeypatch.setattr(_log_delivery.time, "monotonic", lambda: float(next(ticks)))
+
+    with pytest.raises(E2EError, match="had not finished"):
+        _log_delivery._wait_job_complete(SimpleNamespace(namespace="olf-dev"), "fill", 250)  # type: ignore[arg-type]

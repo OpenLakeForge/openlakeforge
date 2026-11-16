@@ -168,7 +168,8 @@ and waits for every signal to be `healthy` and every spool empty, then for the
 lines to be in the archive exactly once. Run 2: fills the spool past `store_dir_limit_size` with
 numbered lines, asserts the size signal turns `critical`, that the spool peak
 stays within one 8M file plus 8M of the limit and that the collector does not
-restart, then waits for every spool to empty and the archive to stop changing, and
+restart, then waits for the emitter Job to finish (a failed or overdue one is an error, so
+the loss is measured against every planned line), for every spool to empty and the archive to stop changing, and
 records the plugin's messages and which line numbers the archive lacks. Run 2 records and does not assert which data is
 discarded, because the plugin page does not say. The size signal reaches
 `warning` only in run 2 (a few kilobytes never reach half of 512M).

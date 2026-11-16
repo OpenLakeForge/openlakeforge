@@ -417,6 +417,36 @@ def _archived_numbers(cfg: E2EConfig, token: str, since: datetime) -> set[int]:
     return seen
 
 
+def job_state(job: Mapping[str, Any]) -> str:
+    """`complete`, `failed` or `running`, from a Job's status; a failed pod counts, since backoffLimit is 0."""
+    status = job.get("status", {})
+    if status.get("succeeded", 0) >= 1:
+        return "complete"
+    if status.get("failed", 0) >= 1:
+        return "failed"
+    return "running"
+
+
+def fill_timeout_seconds(lines: int) -> float:
+    """Twice the time the emitter needs at its own rate, plus the pod's start-up: slack for a busy node."""
+    return 2 * lines / FILL_LINES_PER_SECOND + 180
+
+
+def _wait_job_complete(cfg: E2EConfig, name: str, timeout_seconds: float) -> None:
+    """Wait for the emitter to finish, so the loss is measured against lines that were all written."""
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        job = json.loads(kubectl(cfg, ["get", "job", name, "-n", cfg.namespace, "-o", "json"], capture=True))
+        state = job_state(job)
+        if state == "complete":
+            return
+        if state == "failed":
+            raise E2EError(f"the fill emitter {name} failed: not every planned line was written")
+        if time.monotonic() >= deadline:
+            raise E2EError(f"the fill emitter {name} had not finished after {timeout_seconds:.0f}s")
+        time.sleep(POLL_SECONDS)
+
+
 def check_spool_limit_is_the_loss_point(cfg: E2EConfig) -> None:
     """Fill the spool past `store_dir_limit_size` during an outage; assert it stays bounded, record what is lost."""
     if not _has_probe(cfg):
@@ -441,7 +471,7 @@ def check_spool_limit_is_the_loss_point(cfg: E2EConfig) -> None:
                 return signals["spool-size"].state is HealthState.CRITICAL
 
             _wait_signals(cfg, full, "the spool to fill past its critical threshold", FILL_TIMEOUT_SECONDS)
-            time.sleep(120)
+            _wait_job_complete(cfg, name, fill_timeout_seconds(lines))
             peak = max([peak, *(o.size_bytes for o in _read_spool(cfg) if o.stage == stage)])
             # One 8M file is in flight when the plugin checks the limit.
             if peak > limit + 16 * 1000**2:
