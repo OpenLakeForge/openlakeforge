@@ -100,6 +100,21 @@ variable "log_reader_credentials" {
   }
 }
 
+variable "quality_reader_credentials" {
+  description = "One read-only identity per stage for the platform API's quality summaries: Read and List on that stage's `activations/<stage>/run-artifacts/quality/` in the ops bucket, nothing else. Empty when the platform API is not deployed."
+  type = map(object({
+    namespace               = string
+    credentials_secret_name = string
+    ops_bucket_name         = string
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for stage in keys(var.quality_reader_credentials) : can(regex("^[a-z0-9][a-z0-9-]*$", stage))])
+    error_message = "A stage name is a plain lowercase name, so the grant's prefix cannot widen past its own stage."
+  }
+}
+
 variable "audit_writer_credentials" {
   description = "A write-only identity for the platform API's audit records (ADR 0021, decision 3): Write on one prefix of the ops bucket, nothing else. Null when the platform API is not deployed."
   type = object({

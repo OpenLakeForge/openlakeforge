@@ -235,6 +235,14 @@ module "seaweedfs" {
     # v1 (the polling archiver) and v2 (the collector) of each stage; never the platform prefix, which no stage's reader may see.
     prefixes = flatten([for prefix in values(local.stage_log_prefixes) : ["${prefix}/k8s/", "${prefix}/v2/"]])
   } : null
+  # One read-only key per stage for its quality manifests (#1186).
+  quality_reader_credentials = local.platform_api_enabled ? {
+    for name in keys(local.enabled_stages) : name => {
+      namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+      credentials_secret_name = "platform-api-quality-reader-${name}-s3-creds"
+      ops_bucket_name         = var.ops_bucket_name
+    }
+  } : {}
   audit_writer_credentials = local.platform_api_enabled ? {
     namespace               = kubernetes_namespace_v1.shared.metadata[0].name
     credentials_secret_name = "platform-api-audit-writer-s3-creds"
@@ -348,6 +356,9 @@ module "platform_api" {
   s3_endpoint_url        = module.seaweedfs.contract.endpoint
   s3_region              = module.seaweedfs.contract.region
   log_reader_secret_name = module.seaweedfs.log_reader_secret_name
+  # Quality summaries (#1186): each stage's manifests, read with its own key.
+  quality_manifests           = { for name in keys(local.enabled_stages) : name => "${local.artifact_base_uri}/activations/${name}/" }
+  quality_reader_secret_names = module.seaweedfs.quality_reader_secret_names
   # Audit records (ADR 0021, decision 3): stored with the write-only key the
   # same Job mints, over the same flow.
   audit_base_uri           = "${local.artifact_base_uri}/${local.platform_api_audit_prefix}"
