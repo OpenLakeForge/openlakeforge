@@ -131,8 +131,11 @@ latest run succeeds; a run still in progress does not resolve it. See
 
 Critical. A running schedule passed its due time plus 15 minutes and no run
 started, which usually means the Dagster scheduler is down. Check the
-scheduler daemon in the stage's Dagster. It resolves when a run starts. If you
-stop the schedule while it is open, it closes without a notification.
+scheduler daemon in the stage's Dagster. It resolves when a run starts.
+Stopping the schedule closes it without a notification only when the product's
+cadence does not declare that schedule running. If the cadence declares it
+running, stopping it leaves `missed_run` open and also opens a
+`schedule_mismatch`; start a run, or change the declaration first.
 
 ### stale_output
 
@@ -172,7 +175,9 @@ Failed evaluations stay visible as Jobs, and each run logs one summary line:
 
 ```bash
 kubectl -n olf-system get jobs -l openlakeforge.io/job=alert-evaluator
-kubectl -n olf-system logs job/<job name>
+JOB=$(kubectl -n olf-system get jobs -l openlakeforge.io/job=alert-evaluator \
+  --sort-by=.metadata.creationTimestamp -o name | tail -n 1)
+kubectl -n olf-system logs "$JOB"
 ```
 
 ## The limit of an in-cluster evaluator
