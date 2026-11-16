@@ -39,12 +39,47 @@ _SHELL_OPERATORS = {"|", "||", "&", "&&", ";", ">", ">>", "<", "(", ")"}
 def skills(
     ctx: typer.Context,
     repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate."),
+    json_output: bool = typer.Option(False, "--json", help="Output JSON instead of human-readable text."),
 ) -> None:
     """Validate agent skill metadata, the `olf` commands they show, and their links."""
-    errors = skill_errors(_root(repo_root), cast(_Command, ctx.find_root().command))
-    if errors:
-        raise typer.Exit(code=fail("\n".join(errors)))
-    typer.echo("Agent skills are valid.")
+    import contextlib
+    import json
+    import sys
+
+    progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
+    try:
+        with progress:
+            errors = skill_errors(_root(repo_root), cast(_Command, ctx.find_root().command))
+    except Exception as exc:
+        if json_output:
+            error_report = {
+                "command": "check skills",
+                "ok": False,
+                "items": [{
+                    "id": "execution_error",
+                    "status": "fail",
+                    "message": str(exc),
+                    "remedy": None,
+                }]
+            }
+            typer.echo(json.dumps(error_report, indent=2))
+            raise typer.Exit(1) from exc
+        else:
+            raise
+
+    if json_output:
+        result = {
+            "command": "check skills",
+            "ok": len(errors) == 0,
+            "items": [{"id": f"skills_error_{i}", "status": "fail", "message": err, "remedy": None} for i, err in enumerate(errors, 1)],
+        }
+        typer.echo(json.dumps(result, indent=2))
+        if errors:
+            raise typer.Exit(1)
+    else:
+        if errors:
+            raise typer.Exit(code=fail("\n".join(errors)))
+        typer.echo("Agent skills are valid.")
 
 
 def skill_errors(root: Path, cli: _Command) -> list[str]:

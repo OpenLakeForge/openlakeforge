@@ -8,8 +8,10 @@ exact code path with the full run instead of duplicating lifecycle logic.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import sys
 from pathlib import Path
 
 import typer
@@ -118,9 +120,13 @@ def plan(
         ),
     ),
     detailed_exitcode: bool = typer.Option(False, "--detailed-exitcode", help="Return 2 when changes are pending."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print the report as JSON on stdout; progress goes to stderr."
+    ),
 ) -> None:
     """Plan Terraform-managed deployment phases without applying them."""
     from olf.common.deployment.errors import DeploymentError
+    from olf.infra.deployment.plan import PlanReport
 
     context = _build_context(
         provider,
@@ -134,11 +140,33 @@ def plan(
     )
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform"))
+
+    progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
     try:
-        changes = engine.plan(resolved_phase)
-    except DeploymentError as exc:
-        raise typer.Exit(code=fail(str(exc))) from exc
-    typer.echo("Terraform changes are pending." if changes else "Terraform reports no changes.")
+        with progress:
+            changes = engine.plan(resolved_phase)
+    except (DeploymentError, OSError) as exc:
+        # Emit JSON error when --json is set
+        if json_output:
+            error_report = {
+                "command": "plan",
+                "ok": False,
+                "phase": resolved_phase.value,
+                "changes_pending": None,  # null, not false - unknown due to error
+                "items": [{
+                    "id": "execution_error",
+                    "status": "fail",
+                    "message": str(exc),
+                    "remedy": None,
+                }]
+            }
+            typer.echo(json.dumps(error_report, indent=2))
+            raise typer.Exit(code=1) from exc
+        else:
+            raise typer.Exit(code=fail(str(exc))) from exc
+
+    report = PlanReport(changes_pending=changes, phase=resolved_phase.value)
+    typer.echo(json.dumps(report.as_dict(), indent=2) if json_output else report.render())
     if changes and detailed_exitcode:
         raise typer.Exit(code=2)
 
@@ -155,6 +183,9 @@ def doctor(
         "", "--project-root", help="Writable project root; defaults to the current directory."
     ),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print the report as JSON on stdout; progress goes to stderr."
+    ),
 ) -> None:
     """Check host tools, source inputs, and provider authentication without mutating deployment state."""
     from olf.common.deployment.errors import DeploymentError
@@ -170,11 +201,31 @@ def doctor(
     )
     engine = _build_engine(context, var_file=var_file)
     resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform", "artifacts"))
+
+    progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
     try:
-        report = engine.doctor(resolved_phase)
-    except DeploymentError as exc:
-        raise typer.Exit(code=fail(str(exc))) from exc
-    typer.echo(report.render())
+        with progress:
+            report = engine.doctor(resolved_phase)
+    except (DeploymentError, OSError) as exc:
+        # Emit JSON error when --json is set, ensure valid JSON on all exits
+        if json_output:
+            error_report = {
+                "command": "doctor",
+                "ok": False,
+                "items": [{
+                    "id": "execution_error",
+                    "status": "fail",
+                    "message": str(exc),
+                    "remedy": None,
+                }]
+            }
+            typer.echo(json.dumps(error_report, indent=2))
+            raise typer.Exit(code=1) from exc
+        else:
+            # fail() prints to stderr AND returns exit code
+            raise typer.Exit(code=fail(str(exc))) from exc
+
+    typer.echo(json.dumps(report.as_dict(), indent=2) if json_output else report.render())
     if not report.ok:
         raise typer.Exit(code=1)
 

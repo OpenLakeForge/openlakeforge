@@ -12,6 +12,7 @@ class CheckResult:
     name: str
     ok: bool
     detail: str = ""
+    remedy: str = ""
 
 
 @dataclass
@@ -31,3 +32,19 @@ class ContractsCheckReport:
             detail = f": {result.detail}" if result.detail else ""
             lines.append(f"[{status}] {result.name}{detail}")
         return "\n".join(lines)
+
+    def as_dict(self) -> dict[str, object]:
+        """Return JSON-serializable dict for --json output."""
+        return {
+            "command": "check_contracts",
+            "ok": self.ok,
+            "items": [
+                {
+                    "id": result.name,
+                    "status": "pass" if result.ok else "fail",
+                    "message": result.detail or result.name,
+                    "remedy": (result.remedy or None) if not result.ok else None,  # normalize "" to None
+                }
+                for result in self.results
+            ],
+        }

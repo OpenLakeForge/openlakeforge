@@ -54,13 +54,52 @@ def is_waived(root: Path, section: str, name: str, today: date) -> bool:
 def security(
     repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate."),
     waived: str = typer.Option("", "--waived", help="SECTION:NAME. Exit 0 only if that entry has an unexpired waiver."),
+    json_output: bool = typer.Option(False, "--json", help="Output JSON instead of human-readable text."),
 ) -> None:
     """Validate the security-scan suppression file."""
+    import contextlib
+    import json
+    import sys
+
     root = _root(repo_root)
     if waived:
         section, _, name = waived.partition(":")
-        raise typer.Exit(code=0 if is_waived(root, section, name, date.today()) else 1)
-    errors = suppression_errors(root, date.today())
-    if errors:
-        raise typer.Exit(code=fail("\n".join(errors)))
-    typer.echo("Security suppressions are owned and unexpired.")
+        is_ok = is_waived(root, section, name, date.today())
+        if json_output:
+            typer.echo(json.dumps({"command": "check security", "ok": is_ok, "waived": {"section": section, "name": name}}, indent=2))
+        raise typer.Exit(code=0 if is_ok else 1)
+
+    progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
+    try:
+        with progress:
+            errors = suppression_errors(root, date.today())
+    except Exception as exc:
+        if json_output:
+            error_report = {
+                "command": "check security",
+                "ok": False,
+                "items": [{
+                    "id": "execution_error",
+                    "status": "fail",
+                    "message": str(exc),
+                    "remedy": None,
+                }]
+            }
+            typer.echo(json.dumps(error_report, indent=2))
+            raise typer.Exit(1) from exc
+        else:
+            raise
+
+    if json_output:
+        result = {
+            "command": "check security",
+            "ok": len(errors) == 0,
+            "items": [{"id": f"security_error_{i}", "status": "fail", "message": err, "remedy": None} for i, err in enumerate(errors, 1)],
+        }
+        typer.echo(json.dumps(result, indent=2))
+        if errors:
+            raise typer.Exit(1)
+    else:
+        if errors:
+            raise typer.Exit(code=fail("\n".join(errors)))
+        typer.echo("Security suppressions are owned and unexpired.")

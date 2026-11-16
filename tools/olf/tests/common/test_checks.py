@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 from pathlib import Path
 
 import pytest
 import typer
+from typer.testing import CliRunner
 
+from olf.cli import app
 from olf.common import dashboard_checks
 from olf.common.commands.checks import _project_code, _shared, _structure
 from olf.common.scaffold import _templates
+
+runner = CliRunner()
 
 
 def test_dashboard_validation_accepts_the_repository_assets() -> None:
@@ -235,3 +240,79 @@ def test_an_unlisted_shell_template_and_a_stale_entry_are_both_rejected() -> Non
         f"shell template has no recorded reason in SHELL_TEMPLATES: {new}",
         f"SHELL_TEMPLATES lists a template that is gone: {gone}",
     ]
+
+
+# JSON output tests for check commands
+
+
+def test_structure_check_json_output_when_passing(tmp_path: Path) -> None:
+    """structure check with --json outputs valid schema when all checks pass."""
+    # Set up valid structure
+    for path in _structure.REQUIRED_PATHS:
+        candidate = tmp_path / path
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        candidate.write_text("required\n")
+    (tmp_path / ".git").mkdir()
+
+    result = runner.invoke(app, ["check", "structure", "--repo-root", str(tmp_path), "--json"])
+
+    assert result.exit_code == 0
+    parsed = json.loads(result.stdout)
+    assert list(parsed.keys()) == ["command", "ok", "items"]
+    assert parsed["command"] == "check structure"
+    assert parsed["ok"] is True
+    assert parsed["items"] == []
+
+
+def test_structure_check_json_output_when_failing(tmp_path: Path) -> None:
+    """structure check with --json outputs errors in items array when checks fail."""
+    (tmp_path / ".git").mkdir()
+    # Missing required paths will cause failures
+
+    result = runner.invoke(app, ["check", "structure", "--repo-root", str(tmp_path), "--json"])
+
+    assert result.exit_code == 1
+    parsed = json.loads(result.stdout)
+    assert parsed["command"] == "check structure"
+    assert parsed["ok"] is False
+    assert len(parsed["items"]) > 0
+    # Check first error has required fields
+    item = parsed["items"][0]
+    assert "id" in item
+    assert item["status"] == "fail"
+    assert "message" in item
+    assert "remedy" in item
+
+
+def test_docs_check_json_output_schema(tmp_path: Path) -> None:
+    """docs check with --json outputs valid schema."""
+    manifest = "sections:\n  - label: Docs\n    items:\n      - docs/README.md\n"
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/navigation.yaml").write_text(manifest)
+    (tmp_path / "docs/README.md").write_text("# Docs\n")
+
+    result = runner.invoke(app, ["check", "docs", "--repo-root", str(tmp_path), "--json"])
+
+    assert result.exit_code == 0
+    parsed = json.loads(result.stdout)
+    assert parsed["command"] == "check docs"
+    assert parsed["ok"] is True
+    assert parsed["items"] == []
+
+
+def test_contracts_check_json_output_has_remedy_field(tmp_path: Path) -> None:
+    """contracts check with --json includes remedy field in items."""
+    # Create minimal valid project structure for contracts check
+    _templates.render_governance_yaml(tmp_path)
+    (tmp_path / "lakehouse_code/products").mkdir(parents=True)
+
+    result = runner.invoke(app, ["check", "contracts", "--repo-root", str(tmp_path), "--json"])
+
+    # May pass or fail depending on validation, but schema should be correct
+    parsed = json.loads(result.stdout)
+    assert "command" in parsed
+    assert "ok" in parsed
+    assert "items" in parsed
+    # If there are items, they should have remedy field
+    for item in parsed["items"]:
+        assert "remedy" in item

@@ -23,52 +23,81 @@ from olf.common.commands.checks._shared import (
 from olf.common.log import fail, warn
 
 
-def dbt(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
+def dbt(
+    repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate."),
+    json_output: bool = typer.Option(False, "--json", help="Output JSON instead of human-readable text."),
+) -> None:
     """Render, resolve, parse, and compile the Gold dbt project."""
+    import contextlib
+    import json
+    import sys
     from olf.common.project import ProjectSpec
 
     root = _root(repo_root)
     project_spec = ProjectSpec(root=root, distribution_root=_distribution_root_for(root))
     from openlakeforge_runtime.dbt.render_profiles import dbt_environment, gold_project_dir, write_profile
 
-    _refuse_per_product_dbt_projects(project_spec.gold_root)
-    project = gold_project_dir(project_spec.gold_root)
-    if project is None:
-        raise typer.Exit(code=fail(f"no Gold dbt project at {project_spec.gold_root / 'dbt_project.yml'}"))
-    cache = _check_cache_root(project_spec.root, project_spec.distribution_root) / "dbt"
-    dependency_key = hashlib.sha256(b"dbt-trino==1.10.2\nopenlineage-dbt==1.45.0").hexdigest()[:16]
-    site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{dependency_key}" / "site"
-    if not (site / ".complete").is_file():
-        site.mkdir(parents=True, exist_ok=True)
-        _uv_pip_install(
-            target=site,
-            requirements=["dbt-trino==1.10.2", "openlineage-dbt==1.45.0"],
-            cwd=project_spec.root,
-        )
-        (site / ".complete").touch()
-    dbt_bin = str(site / "bin/dbt")
-    env = {
-        "PATH": f"{site / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
-        "PYTHONPATH": f"{site}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
-        "AWS_ACCESS_KEY_ID": "openlakeforge",
-        "AWS_SECRET_ACCESS_KEY": "openlakeforge",
-        "AWS_REGION": "us-east-1",
-        "AWS_DEFAULT_REGION": "us-east-1",
-        "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3:8333",
-        "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino",
-        "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
-        "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "iceberg",
-        "OPENLAKEFORGE_DBT_TRINO_USER": "openlakeforge-dbt",
-        "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
-        **dbt_environment(),
-    }
-    # Rendered outside the checkout so the check never leaves a
-    # profiles.yml behind for the next `olf infra project build` (#546).
-    with tempfile.TemporaryDirectory(prefix="olf-dbt-profiles-") as profiles_dir:
-        write_profile(project, output_dir=Path(profiles_dir))
-        _check_project(dbt_bin, project, profiles_dir=profiles_dir, cwd=project_spec.root, env=env)
-    _validate_dbt_relation_contract(project, root=project_spec.root, catalog=env["OPENLAKEFORGE_CATALOG_NAME"])
-    typer.echo("Gold dbt project compiled and its relation contract is valid.")
+    progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
+    try:
+        with progress:
+            _refuse_per_product_dbt_projects(project_spec.gold_root)
+            project = gold_project_dir(project_spec.gold_root)
+            if project is None:
+                raise typer.Exit(code=fail(f"no Gold dbt project at {project_spec.gold_root / 'dbt_project.yml'}"))
+            cache = _check_cache_root(project_spec.root, project_spec.distribution_root) / "dbt"
+            dependency_key = hashlib.sha256(b"dbt-trino==1.10.2\nopenlineage-dbt==1.45.0").hexdigest()[:16]
+            site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{dependency_key}" / "site"
+            if not (site / ".complete").is_file():
+                site.mkdir(parents=True, exist_ok=True)
+                _uv_pip_install(
+                    target=site,
+                    requirements=["dbt-trino==1.10.2", "openlineage-dbt==1.45.0"],
+                    cwd=project_spec.root,
+                )
+                (site / ".complete").touch()
+            dbt_bin = str(site / "bin/dbt")
+            env = {
+                "PATH": f"{site / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
+                "PYTHONPATH": f"{site}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+                "AWS_ACCESS_KEY_ID": "openlakeforge",
+                "AWS_SECRET_ACCESS_KEY": "openlakeforge",
+                "AWS_REGION": "us-east-1",
+                "AWS_DEFAULT_REGION": "us-east-1",
+                "AWS_ENDPOINT_URL_S3": "http://seaweedfs-s3:8333",
+                "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino",
+                "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
+                "OPENLAKEFORGE_QUERY_TRINO_CATALOG": "iceberg",
+                "OPENLAKEFORGE_DBT_TRINO_USER": "openlakeforge-dbt",
+                "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
+                **dbt_environment(),
+            }
+            # Rendered outside the checkout so the check never leaves a
+            # profiles.yml behind for the next `olf infra project build` (#546).
+            with tempfile.TemporaryDirectory(prefix="olf-dbt-profiles-") as profiles_dir:
+                write_profile(project, output_dir=Path(profiles_dir))
+                _check_project(dbt_bin, project, profiles_dir=profiles_dir, cwd=project_spec.root, env=env)
+            _validate_dbt_relation_contract(project, root=project_spec.root, catalog=env["OPENLAKEFORGE_CATALOG_NAME"])
+
+        if json_output:
+            typer.echo(json.dumps({"command": "check dbt", "ok": True, "items": []}, indent=2))
+        else:
+            typer.echo("Gold dbt project compiled and its relation contract is valid.")
+    except Exception as exc:
+        if json_output:
+            error_report = {
+                "command": "check dbt",
+                "ok": False,
+                "items": [{
+                    "id": "execution_error",
+                    "status": "fail",
+                    "message": str(exc),
+                    "remedy": None,
+                }]
+            }
+            typer.echo(json.dumps(error_report, indent=2))
+            raise typer.Exit(1) from exc
+        else:
+            raise
 
 
 def _check_project(dbt_bin: str, project: Path, *, profiles_dir: str, cwd: Path, env: dict[str, str]) -> None:

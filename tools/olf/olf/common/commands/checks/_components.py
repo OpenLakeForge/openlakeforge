@@ -15,13 +15,42 @@ from olf.common.log import fail
 from olf.common.tooling.toolkit import Toolkit
 
 
-def components(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
+def components(
+    repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print the report as JSON on stdout; progress goes to stderr."
+    ),
+) -> None:
     """Validate component catalog pins and release-readiness inputs."""
+    import contextlib
+    import json as json_module
+    import sys
     from olf.common import release
 
     root = _root(repo_root)
-    report = release.run_release_check(root)
-    typer.echo(report.render())
+
+    progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
+    try:
+        with progress:
+            report = release.run_release_check(root)
+    except Exception as exc:
+        if json_output:
+            error_report = {
+                "command": "check components",
+                "ok": False,
+                "items": [{
+                    "id": "execution_error",
+                    "status": "fail",
+                    "message": str(exc),
+                    "remedy": None,
+                }]
+            }
+            typer.echo(json_module.dumps(error_report, indent=2))
+            raise typer.Exit(code=1) from exc
+        else:
+            raise
+
+    typer.echo(json_module.dumps(report.as_dict(), indent=2) if json_output else report.render())
     if not report.ok:
         raise typer.Exit(code=1)
 

@@ -67,12 +67,61 @@ def flow_errors(flows_file: Path, adr_file: Path) -> list[str]:
     return errors
 
 
-def flows(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
+def flows(
+    repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print the report as JSON on stdout; progress goes to stderr."
+    ),
+) -> None:
     """Validate the NetworkPolicy flow file."""
+    import contextlib
+    import json as json_module
+    import sys
+
     root = _root(repo_root)
-    errors = flow_errors(root / FLOWS_PATH, root / ADR_PATH)
-    for error in errors:
-        typer.echo(error)
-    if errors:
-        raise typer.Exit(code=fail(f"{FLOWS_PATH} is invalid"))
-    typer.echo(f"{FLOWS_PATH}: ok")
+
+    progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
+    try:
+        with progress:
+            errors = flow_errors(root / FLOWS_PATH, root / ADR_PATH)
+    except Exception as exc:
+        if json_output:
+            error_report = {
+                "command": "check flows",
+                "ok": False,
+                "items": [{
+                    "id": "execution_error",
+                    "status": "fail",
+                    "message": str(exc),
+                    "remedy": None,
+                }]
+            }
+            typer.echo(json_module.dumps(error_report, indent=2))
+            raise typer.Exit(code=1) from exc
+        else:
+            raise
+
+    if json_output:
+        report = {
+            "command": "check_flows",
+            "ok": len(errors) == 0,
+            "items": [
+                {
+                    "id": f"flows_error_{i}",
+                    "status": "fail",
+                    "message": error,
+                    "remedy": None,
+                }
+                for i, error in enumerate(errors, 1)
+            ]
+        }
+        typer.echo(json_module.dumps(report, indent=2))
+        if errors:
+            raise typer.Exit(code=1)
+    else:
+        # Existing human output - UNCHANGED
+        for error in errors:
+            typer.echo(error)
+        if errors:
+            raise typer.Exit(code=fail(f"{FLOWS_PATH} is invalid"))
+        typer.echo(f"{FLOWS_PATH}: ok")

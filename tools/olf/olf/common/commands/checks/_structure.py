@@ -292,37 +292,90 @@ def _missing_required_paths(root: Path) -> list[str]:
     return [path for path in REQUIRED_PATHS if not (root / path).exists()]
 
 
-def structure(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
+def structure(
+    repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print the report as JSON on stdout; progress goes to stderr."
+    ),
+) -> None:
     """Validate the essential repository skeleton and prohibit shell scripts."""
+    import contextlib
+    import json as json_module
+    import sys
     from olf.common.dashboard_checks import validate_superset_assets
 
     root = _root(repo_root)
-    missing = _missing_required_paths(root)
-    modules_root = root / "infra/terraform/modules"
-    module_errors: list[str] = []
-    if modules_root.is_dir():
-        module_dirs = {path.parent for path in modules_root.rglob("*.tf")}
-        for module in sorted(module_dirs):
-            for filename in ("main.tf", "variables.tf", "outputs.tf"):
-                if not (module / filename).is_file():
-                    module_errors.append(f"Terraform module {module.relative_to(root)} is missing {filename}")
-    tracked = Toolkit.default().runner.run(["git", "ls-files", "-z"], cwd=root).stdout.split("\0")
-    scripts = [root / path for path in tracked if path.endswith(".sh") and (root / path).is_file()]
-    release_workflow_errors = _release_publication_guard_errors(root)
-    template_errors = _shell_template_errors(tracked)
-    if missing or scripts or module_errors or release_workflow_errors or template_errors:
-        details = [
-            *(f"missing required path: {path}" for path in missing),
-            *module_errors,
-            *(f"shell script is forbidden: {path.relative_to(root)}" for path in scripts),
-            *template_errors,
-            *release_workflow_errors,
-        ]
-        raise typer.Exit(code=fail("\n".join(details)))
-    dashboard_errors = validate_superset_assets(root)
-    if dashboard_errors:
-        raise typer.Exit(code=fail("\n".join(dashboard_errors)))
-    typer.echo("Repository structure is valid.")
+
+    # Suppress progress output when producing JSON
+    progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
+
+    try:
+        with progress:
+            missing = _missing_required_paths(root)
+            modules_root = root / "infra/terraform/modules"
+            module_errors: list[str] = []
+            if modules_root.is_dir():
+                module_dirs = {path.parent for path in modules_root.rglob("*.tf")}
+                for module in sorted(module_dirs):
+                    for filename in ("main.tf", "variables.tf", "outputs.tf"):
+                        if not (module / filename).is_file():
+                            module_errors.append(f"Terraform module {module.relative_to(root)} is missing {filename}")
+            tracked = Toolkit.default().runner.run(["git", "ls-files", "-z"], cwd=root).stdout.split("\0")
+            scripts = [root / path for path in tracked if path.endswith(".sh") and (root / path).is_file()]
+            release_workflow_errors = _release_publication_guard_errors(root)
+            template_errors = _shell_template_errors(tracked)
+
+            all_errors = [
+                *(f"missing required path: {path}" for path in missing),
+                *module_errors,
+                *(f"shell script is forbidden: {path.relative_to(root)}" for path in scripts),
+                *template_errors,
+                *release_workflow_errors,
+            ]
+
+            if not all_errors:
+                dashboard_errors = validate_superset_assets(root)
+                all_errors.extend(dashboard_errors)
+    except Exception as exc:
+        if json_output:
+            error_report = {
+                "command": "check structure",
+                "ok": False,
+                "items": [{
+                    "id": "execution_error",
+                    "status": "fail",
+                    "message": str(exc),
+                    "remedy": None,
+                }]
+            }
+            typer.echo(json_module.dumps(error_report, indent=2))
+            raise typer.Exit(code=1) from exc
+        else:
+            raise
+
+    # Branch on output format
+    if json_output:
+        report = {
+            "command": "check_structure",
+            "ok": len(all_errors) == 0,
+            "items": [
+                {
+                    "id": f"structure_error_{i}",
+                    "status": "fail",
+                    "message": error,
+                    "remedy": None,
+                }
+                for i, error in enumerate(all_errors, 1)
+            ]
+        }
+        typer.echo(json_module.dumps(report, indent=2))
+        if all_errors:
+            raise typer.Exit(code=1)
+    else:
+        # Existing human output - UNCHANGED
+        if all_errors:
+            raise typer.Exit(code=fail("\n".join(all_errors)))
+        typer.echo("Repository structure is valid.")
 
 
 # Shell that Terraform renders into a Job or a container hook, by template -> why it stays shell (#562).

@@ -78,9 +78,46 @@ def resource_errors(root: Path) -> list[str]:
     return errors
 
 
-def resources(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
+def resources(
+    repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate."),
+    json_output: bool = typer.Option(False, "--json", help="Output JSON instead of human-readable text."),
+) -> None:
     """Require requests (cpu, memory) and a memory limit on every Terraform container."""
-    errors = resource_errors(_root(repo_root))
-    if errors:
-        raise typer.Exit(code=fail("\n".join(errors)))
-    typer.echo("Container resource checks passed.")
+    import contextlib
+    import json
+    import sys
+
+    progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
+    try:
+        with progress:
+            errors = resource_errors(_root(repo_root))
+    except Exception as exc:
+        if json_output:
+            error_report = {
+                "command": "check resources",
+                "ok": False,
+                "items": [{
+                    "id": "execution_error",
+                    "status": "fail",
+                    "message": str(exc),
+                    "remedy": None,
+                }]
+            }
+            typer.echo(json.dumps(error_report, indent=2))
+            raise typer.Exit(1) from exc
+        else:
+            raise
+
+    if json_output:
+        result = {
+            "command": "check resources",
+            "ok": len(errors) == 0,
+            "items": [{"id": f"resources_error_{i}", "status": "fail", "message": err, "remedy": None} for i, err in enumerate(errors, 1)],
+        }
+        typer.echo(json.dumps(result, indent=2))
+        if errors:
+            raise typer.Exit(1)
+    else:
+        if errors:
+            raise typer.Exit(code=fail("\n".join(errors)))
+        typer.echo("Container resource checks passed.")

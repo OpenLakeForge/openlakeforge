@@ -56,6 +56,17 @@ class ReleaseCheckReport:
             lines.append(f"[{status}] {result.name}{detail}")
         return "\n".join(lines)
 
+    def as_dict(self) -> dict[str, object]:
+        """Return JSON-serializable dict for --json output."""
+        return {
+            "command": "check components",
+            "ok": self.ok,
+            "items": [
+                {"id": r.name, "status": "pass" if r.ok else "fail", "message": r.detail if r.detail else r.name}
+                for r in self.results
+            ],
+        }
+
 
 def load_catalog(catalog_path: str | Path = DEFAULT_CATALOG_PATH) -> dict[str, Any]:
     """Load and minimally validate the component catalog."""

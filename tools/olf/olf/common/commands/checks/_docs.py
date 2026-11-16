@@ -52,12 +52,63 @@ class _Manifest:
     exclude: tuple[str, ...]
 
 
-def docs(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
+def docs(
+    repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print the report as JSON on stdout; progress goes to stderr."
+    ),
+) -> None:
     """Validate the published-docs manifest and every relative docs link."""
-    errors = docs_errors(_root(repo_root))
-    if errors:
-        raise typer.Exit(code=fail("\n".join(errors)))
-    typer.echo("Documentation manifest and links are valid.")
+    import contextlib
+    import json as json_module
+    import sys
+
+    # Suppress progress output when producing JSON
+    progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
+
+    try:
+        with progress:
+            errors = docs_errors(_root(repo_root))
+    except Exception as exc:
+        if json_output:
+            error_report = {
+                "command": "check docs",
+                "ok": False,
+                "items": [{
+                    "id": "execution_error",
+                    "status": "fail",
+                    "message": str(exc),
+                    "remedy": None,
+                }]
+            }
+            typer.echo(json_module.dumps(error_report, indent=2))
+            raise typer.Exit(code=1) from exc
+        else:
+            raise
+
+    # Branch on output format
+    if json_output:
+        report = {
+            "command": "check_docs",
+            "ok": len(errors) == 0,
+            "items": [
+                {
+                    "id": f"docs_error_{i}",
+                    "status": "fail",
+                    "message": error,
+                    "remedy": None,
+                }
+                for i, error in enumerate(errors, 1)
+            ]
+        }
+        typer.echo(json_module.dumps(report, indent=2))
+        if errors:
+            raise typer.Exit(code=1)
+    else:
+        # Existing human output - UNCHANGED
+        if errors:
+            raise typer.Exit(code=fail("\n".join(errors)))
+        typer.echo("Documentation manifest and links are valid.")
 
 
 def docs_errors(root: Path) -> list[str]:
