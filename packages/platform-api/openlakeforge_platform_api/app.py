@@ -6,7 +6,7 @@ import functools
 import os
 import uuid
 from collections.abc import Callable
-from typing import NoReturn
+from typing import NoReturn, cast
 
 import boto3
 import requests
@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 from openlakeforge_services.logs import ObjectStore
 
-from openlakeforge_platform_api import csrf, discovery, files, queries, reads, report_routes, writes
+from openlakeforge_platform_api import csrf, discovery, file_writes, files, queries, reads, report_routes, writes
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.models import Health, WhoAmI
@@ -199,7 +199,7 @@ def _files_store(settings: Settings) -> files.FileStore | None:
     secret_key = os.environ.get(FILES_SECRET_KEY_ENV)
     if not settings.file_buckets or not access_key or not secret_key:
         return None
-    client: files.FileStore = boto3.client(
+    client = boto3.client(
         "s3",
         endpoint_url=settings.s3_endpoint_url,
         region_name=settings.s3_region,
@@ -207,7 +207,8 @@ def _files_store(settings: Settings) -> files.FileStore | None:
         aws_secret_access_key=secret_key,
         config=Config(s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=30, retries={"max_attempts": 2}),
     )
-    return client
+    # boto3-stubs types the client's calls with TypedDicts; the Protocol names only the calls and arguments used.
+    return cast("files.FileStore", client)
 
 
 def create_app(
@@ -324,6 +325,26 @@ def create_app(
             }
         },
     )
+    app.add_api_route(
+        objects_path + "/content",
+        file_writes.upload_object,
+        methods=["PUT"],
+        status_code=201,
+        name="upload_object",
+        # The handler reads the raw body, so FastAPI cannot infer it.
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}},
+            }
+        },
+    )
+    buckets_path = "/api/v1/stages/{stage}/buckets/{bucket}"
+    app.add_api_route(
+        buckets_path + "/folders", file_writes.create_folder, methods=["POST"], status_code=201, name="create_folder"
+    )
+    app.add_api_route(objects_path + "/rename", file_writes.rename_object, methods=["POST"], name="rename_object")
+    app.add_api_route(objects_path + "/delete", file_writes.delete_objects, methods=["POST"], name="delete_objects")
     app.add_api_route("/api/v1/domains", reads.list_domains, methods=["GET"], name="list_domains")
     app.add_api_route("/api/v1/data-products", reads.list_data_products, methods=["GET"], name="list_data_products")
     return app

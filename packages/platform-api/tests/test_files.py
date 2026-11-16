@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -13,7 +14,8 @@ from conftest import ROLE_MAPPING, Mint, bearer
 from fastapi.testclient import TestClient
 
 from openlakeforge_platform_api.app import create_app
-from openlakeforge_platform_api.files import touches_audit_prefix
+from openlakeforge_platform_api.audit import AuditLog
+from openlakeforge_platform_api.files import FILE_OPERATIONS, touches_audit_prefix
 from openlakeforge_platform_api.settings import Settings, SettingsError
 
 WHEN = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
@@ -44,6 +46,89 @@ class FakeS3:
         self.fail: Callable[[], Exception] | None = None
         self.deny_list_buckets = False
         self.bodies: list[Body] = []
+        # The write routes: every call by name, an error to raise per method, and multipart state.
+        self.calls: list[str] = []
+        self.fail_ops: dict[str, Callable[[], Exception]] = {}
+        self.copies_allowed: int | None = None
+        self.uploads: dict[str, list[bytes]] = {}
+        self.part_sizes: list[int] = []
+        self.aborted: list[str] = []
+        self.delete_errors: dict[str, str] = {}
+
+    def _call(self, name: str) -> None:
+        self.calls.append(name)
+        if name in self.fail_ops:
+            raise self.fail_ops[name]()
+
+    def head_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        self._call("head_object")
+        if (Bucket, Key) not in self.objects:
+            raise _client_error("404")
+        return {"ContentLength": len(self.objects[(Bucket, Key)][0])}
+
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes) -> dict[str, Any]:  # noqa: N803
+        self._call("put_object")
+        self.objects[(Bucket, Key)] = (Body, None)
+        return {}
+
+    def create_multipart_upload(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        self._call("create_multipart_upload")
+        upload_id = f"upload-{len(self.uploads) + 1}"
+        self.uploads[upload_id] = []
+        return {"UploadId": upload_id}
+
+    def upload_part(  # noqa: N803
+        self, *, Bucket: str, Key: str, UploadId: str, PartNumber: int, Body: bytes
+    ) -> dict[str, Any]:
+        self._call("upload_part")
+        assert PartNumber == len(self.uploads[UploadId]) + 1
+        self.uploads[UploadId].append(Body)
+        self.part_sizes.append(len(Body))
+        return {"ETag": f"etag-{PartNumber}"}
+
+    def complete_multipart_upload(  # noqa: N803
+        self, *, Bucket: str, Key: str, UploadId: str, MultipartUpload: dict[str, Any]
+    ) -> dict[str, Any]:
+        self._call("complete_multipart_upload")
+        assert [part["PartNumber"] for part in MultipartUpload["Parts"]] == list(
+            range(1, len(self.uploads[UploadId]) + 1)
+        )
+        self.objects[(Bucket, Key)] = (b"".join(self.uploads.pop(UploadId)), None)
+        return {}
+
+    def abort_multipart_upload(self, *, Bucket: str, Key: str, UploadId: str) -> dict[str, Any]:  # noqa: N803
+        self._call("abort_multipart_upload")
+        self.uploads.pop(UploadId, None)
+        self.aborted.append(UploadId)
+        return {}
+
+    def copy_object(self, *, Bucket: str, Key: str, CopySource: dict[str, str]) -> dict[str, Any]:  # noqa: N803
+        self._call("copy_object")
+        if self.copies_allowed is not None:
+            if self.copies_allowed <= 0:
+                raise _client_error("InternalError")
+            self.copies_allowed -= 1
+        self.objects[(Bucket, Key)] = self.objects[(CopySource["Bucket"], CopySource["Key"])]
+        return {}
+
+    def delete_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        self._call("delete_object")
+        self.objects.pop((Bucket, Key), None)
+        return {}
+
+    def delete_objects(self, *, Bucket: str, Delete: dict[str, Any]) -> dict[str, Any]:  # noqa: N803
+        self._call("delete_objects")
+        assert len(Delete["Objects"]) <= 1000
+        errors = []
+        for entry in Delete["Objects"]:
+            if entry["Key"] in self.delete_errors:
+                errors.append({"Key": entry["Key"], "Code": self.delete_errors[entry["Key"]], "Message": "secret"})
+            else:
+                self.objects.pop((Bucket, entry["Key"]), None)
+        return {"Errors": errors}
+
+    def keys(self, bucket: str = "olf-dev-bronze") -> list[str]:
+        return sorted(key for name, key in self.objects if name == bucket)
 
     def put(self, bucket: str, key: str, data: bytes = b"", content_type: str | None = None) -> None:
         self.objects[(bucket, key)] = (data, content_type)
@@ -62,7 +147,7 @@ class FakeS3:
         entries: list[tuple[str, str]] = []  # ("p", prefix) or ("k", key), in listing order
         for key in keys:
             rest = key[len(Prefix) :]
-            if Delimiter in rest:
+            if Delimiter and Delimiter in rest:
                 entry = ("p", Prefix + rest.split(Delimiter)[0] + Delimiter)
                 if entry not in entries:
                     entries.append(entry)
@@ -131,10 +216,33 @@ def _settings(settings: Settings, **extra: Any) -> Settings:
     return Settings.from_mapping({**raw, **extra})
 
 
+class AuditStore:
+    """put_object into a dict, as the audit writer's boto3 client answers it; `down` refuses every write."""
+
+    def __init__(self) -> None:
+        self.records: dict[str, dict[str, Any]] = {}
+        self.down = False
+
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> dict[str, Any]:  # noqa: N803
+        if self.down:
+            raise ConnectionError("seaweedfs refused the connection")
+        self.records[Key] = json.loads(Body)
+        return {}
+
+    def phases(self) -> list[str]:
+        return [record["phase"] for _key, record in sorted(self.records.items())]
+
+
 @pytest.fixture
-def api(settings: Settings, s3: FakeS3) -> TestClient:
+def audit_store() -> AuditStore:
+    return AuditStore()
+
+
+@pytest.fixture
+def api(settings: Settings, s3: FakeS3, audit_store: AuditStore) -> TestClient:
     configured = _settings(settings, audit_base_uri=f"s3://{OPS}/audit/")
-    return TestClient(create_app(configured, files_store=s3))
+    audit = AuditLog(audit_store, configured.audit_base_uri, emit=lambda line: None)
+    return TestClient(create_app(configured, files_store=s3, audit=audit))
 
 
 def _as(mint: Mint, role: str) -> dict[str, str]:
@@ -207,7 +315,7 @@ def test_analyst_and_viewer_reach_no_files_route(api: TestClient, mint: Mint, ro
 
 
 def test_file_capabilities_per_role(api: TestClient, mint: Mint) -> None:
-    read = ["list_buckets", "list_objects", "download_object"]
+    read = list(FILE_OPERATIONS)
 
     admin = api.get("/api/v1/file-capabilities", headers=_as(mint, "platform-admin")).json()
     engineer = api.get("/api/v1/file-capabilities", headers=_as(mint, "data-engineer")).json()

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Health(BaseModel):
@@ -176,3 +176,42 @@ class Objects(BaseModel):
     folders: list[Folder]
     files: list[FileObject]
     next_cursor: str | None
+
+
+class UploadedObject(BaseModel):
+    key: str
+    size: int
+
+
+class CreateFolderRequest(BaseModel):
+    prefix: str
+
+
+class CreatedFolder(BaseModel):
+    prefix: str
+
+
+class RenameRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    # `from` is a Python keyword; the wire name is the contract.
+    source: str = Field(alias="from")
+    target: str = Field(alias="to")
+
+
+class Renamed(BaseModel):
+    moved: int
+
+
+class DeleteRequest(BaseModel):
+    keys: list[str] = Field(min_length=1, max_length=1000)
+
+
+class DeleteError(BaseModel):
+    key: str
+    detail: str
+
+
+class Deleted(BaseModel):
+    deleted: list[str]
+    errors: list[DeleteError]

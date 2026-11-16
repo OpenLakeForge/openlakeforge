@@ -60,6 +60,21 @@ class FileStore(Protocol):
 
     def get_object(self, *, Bucket: str, Key: str) -> Any: ...  # noqa: N803
 
+    # The write routes' calls.
+    def head_object(self, *, Bucket: str, Key: str) -> Any: ...  # noqa: N803
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes) -> Any: ...  # noqa: N803
+    def create_multipart_upload(self, *, Bucket: str, Key: str) -> Any: ...  # noqa: N803
+    def upload_part(  # noqa: N803
+        self, *, Bucket: str, Key: str, UploadId: str, PartNumber: int, Body: bytes
+    ) -> Any: ...
+    def complete_multipart_upload(  # noqa: N803
+        self, *, Bucket: str, Key: str, UploadId: str, MultipartUpload: dict[str, Any]
+    ) -> Any: ...
+    def abort_multipart_upload(self, *, Bucket: str, Key: str, UploadId: str) -> Any: ...  # noqa: N803
+    def copy_object(self, *, Bucket: str, Key: str, CopySource: dict[str, str]) -> Any: ...  # noqa: N803
+    def delete_object(self, *, Bucket: str, Key: str) -> Any: ...  # noqa: N803
+    def delete_objects(self, *, Bucket: str, Delete: dict[str, Any]) -> Any: ...  # noqa: N803
+
 
 def files_store(request: Request) -> FileStore:
     store: FileStore | None = request.app.state.files_store
