@@ -30,10 +30,12 @@ from .alerts_state import (
     state_to_json,
 )
 from .archive_health import (
+    NEWEST_OBJECT,
     SPOOL_AGE,
     SPOOL_SIZE,
     ArchiveThresholds,
     SpoolObservation,
+    evaluate_newest_object,
     evaluate_spool_age,
     evaluate_spool_size,
 )
@@ -107,10 +109,12 @@ from .quality import (
 from .runs import FLOE_FULL_REFRESH_TAG, FULL_REFRESH_SCOPES, FULL_REFRESH_TAG, full_refresh_scope, full_refresh_tags
 
 __all__ = [
+    "NEWEST_OBJECT",
     "SPOOL_AGE",
     "SPOOL_SIZE",
     "ArchiveThresholds",
     "SpoolObservation",
+    "evaluate_newest_object",
     "evaluate_spool_age",
     "evaluate_spool_size",
     "AlertEvent",

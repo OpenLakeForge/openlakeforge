@@ -93,12 +93,16 @@ def _probe(request: Request, stage: str, now: datetime) -> tuple[IntegrationStat
     if prober is None or namespace is None:
         return IntegrationStatus(name="services", status="disabled", reason="no service probes are configured"), []
     buckets = settings.file_buckets.get(stage)
+    archive = settings.log_archives.get(stage)
     targets = StageTargets(
         stage=stage,
         namespace=namespace,
         dagster_graphql_url=settings.dagster_graphql_urls.get(stage),
         trino_url=settings.trino_urls.get(stage),
         bucket=buckets[0] if buckets else None,
+        log_archive_base_uri=archive.base_uri if archive else None,
+        log_archive_namespace=archive.namespace if archive else None,
+        spool_probe_url=settings.log_collector_probe_url,
     )
     try:
         signals: list[Signal] = prober.probe(targets)

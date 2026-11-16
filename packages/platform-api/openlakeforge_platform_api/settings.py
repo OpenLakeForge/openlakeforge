@@ -106,6 +106,9 @@ class Settings:
     # A stage with no namespace is not probed: without the namespace the pod has no token either.
     stage_namespaces: Mapping[str, str] = field(default_factory=dict)
     trino_urls: Mapping[str, str] = field(default_factory=dict)
+    # Base URL of the log collector's spool probes, a headless Service with one address per collector pod (ADR 0022,
+    # decision 2). Without it the spool signals are `disabled`.
+    log_collector_probe_url: str | None = None
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -156,6 +159,7 @@ class Settings:
                 files_max_upload_bytes=int(data.get("files_max_upload_bytes", 1_073_741_824)),
                 stage_namespaces={str(stage): str(ns) for stage, ns in (data.get("stage_namespaces") or {}).items()},
                 trino_urls={str(stage): str(url) for stage, url in (data.get("trino_urls") or {}).items()},
+                log_collector_probe_url=data.get("log_collector_probe_url") or None,
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -230,6 +234,9 @@ class Settings:
         for stage, url in self.trino_urls.items():
             if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).netloc:
                 raise SettingsError(f"trino_urls[{stage!r}] must be an http(s) base URL")
+        probe = urlsplit(self.log_collector_probe_url or "http://x:1")
+        if probe.scheme != "http" or not probe.hostname or probe.port is None:
+            raise SettingsError("log_collector_probe_url must be an http://<host>:<port> base URL")
         stray = sorted(set(self.quality_manifests) - set(self.stages))
         if stray:
             raise SettingsError(f"quality_manifests names stages that are not enabled: {', '.join(stray)}")

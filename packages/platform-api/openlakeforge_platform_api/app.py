@@ -274,6 +274,29 @@ def _probe_store(settings: Settings) -> ListableStore | None:
     )
 
 
+def _archive_probe_store(settings: Settings) -> ListableStore | None:
+    """The S3 client the newest-object probe lists with: the log reader's key, which the archive grant already gives.
+
+    The same identity as `_object_store` (List on each stage's `logs/v2/`), with the probe's bounded timeouts. The
+    collector's own key is write-only and cannot list, so it is not an option; no identity is added for this.
+    """
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if not settings.log_archives or not access_key or not secret_key:
+        return None
+    return cast(
+        ListableStore,
+        boto3.client(
+            "s3",
+            endpoint_url=settings.s3_endpoint_url,
+            region_name=settings.s3_region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            config=bounded_s3_config(PROBE_TIMEOUT).merge(Config(s3={"addressing_style": "path"})),
+        ),
+    )
+
+
 def create_app(
     settings: Settings,
     *,
@@ -291,7 +314,7 @@ def create_app(
     # Built once, here: it owns the probes' thread pool. Only where a stage namespace is configured, which is where
     # the Roles and the ServiceAccount token exist; elsewhere no probe could succeed and none is made.
     owned_probes = (
-        ServiceProbes.in_cluster(_probe_store(settings), timeout=PROBE_TIMEOUT)
+        ServiceProbes.in_cluster(_probe_store(settings), _archive_probe_store(settings), timeout=PROBE_TIMEOUT)
         if service_probes is None and settings.stage_namespaces
         else None
     )

@@ -11,11 +11,17 @@ What each probe proves, and what it does not (the table is ADR 0021, decision 7)
 - `dagster.read-api`: the webserver answers GraphQL with a code location loaded. Not that a run would launch.
 - `trino.readiness`: the coordinator finished starting. Not workers, catalogs or Polaris access.
 - `object-store.list`: the endpoint is reachable and the key may list the bucket. Not that a write is durable.
+- `log-archive.spool-age`, `log-archive.spool-size`: how old the collector's oldest unsent file is and how full its
+  spool is, over every collector pod (ADR 0022, decision 2). Not that an object reached the bucket.
+- `log-archive.newest-object`: the stage's newest archive object, listed with the log reader's key. Covers a
+  collector that is down, which the spool probe cannot see; an idle stage reads the same as a stalled one.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import socket
 import threading
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -25,14 +31,30 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import monotonic
 from typing import Any, NamedTuple, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
-from openlakeforge_core import HealthState, Scope, Signal, WorkloadObservation, evaluate_workload, service_signal
+from openlakeforge_core import (
+    ArchiveThresholds,
+    HealthState,
+    Scope,
+    Signal,
+    SpoolObservation,
+    WorkloadObservation,
+    evaluate_newest_object,
+    evaluate_spool_age,
+    evaluate_spool_size,
+    evaluate_workload,
+    service_signal,
+    worst_state,
+)
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
+
+from openlakeforge_platform_api.spool_probe import PATH as SPOOL_PATH
+from openlakeforge_platform_api.spool_probe import parse_report
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +75,13 @@ _DAGSTER_QUERY = """
 KubeList = Callable[[str], Mapping[str, Any]]
 HttpGetJson = Callable[[str, float], Mapping[str, Any]]
 DagsterQuery = Callable[[str, str], Mapping[str, Any]]
+# What the collector pods' probes answered: the observations, and how many pods did not answer.
+SpoolRead = Callable[[str], tuple[list[SpoolObservation], int]]
+# The newest archive objects listed under a stage's prefix are looked for over this many days: the UTC day of an
+# object is its records' day, so an outage across midnight still shows yesterday's objects.
+ARCHIVE_DAYS = 2
+# A day's prefix holds one object per flush per node, far below this; the cap bounds a probe on a runaway prefix.
+_ARCHIVE_PAGES = 5
 
 
 class ListableStore(Protocol):
@@ -85,6 +114,12 @@ class StageTargets:
     # Label selectors for the controllers of each component, from the chart's own labels.
     dagster_selector: Mapping[str, str] | None = None
     trino_selector: Mapping[str, str] | None = None
+    # The stage's archive: s3://<ops>/activations/<stage>/logs and the namespace it collects. The newest-object probe
+    # lists `<base>/v2/namespace=<namespace>/date=<day>/`.
+    log_archive_base_uri: str | None = None
+    log_archive_namespace: str | None = None
+    # The collector probes' base URL (the headless Service); the spool of this stage is read from every pod.
+    spool_probe_url: str | None = None
 
 
 class StageProber(Protocol):
@@ -107,6 +142,9 @@ class ServiceProbes:
         http_get_json: HttpGetJson,
         dagster_query: DagsterQuery,
         store: ListableStore | None,
+        archive_store: ListableStore | None = None,
+        spool_read: SpoolRead | None = None,
+        archive_thresholds: ArchiveThresholds = ArchiveThresholds(),  # noqa: B008 - frozen
         timeout: timedelta = timedelta(seconds=5),
         ttl: timedelta = timedelta(seconds=60),
         restart_window: timedelta = timedelta(minutes=30),
@@ -118,6 +156,9 @@ class ServiceProbes:
         self._http_get_json = http_get_json
         self._dagster_query = dagster_query
         self._store = store
+        self._archive_store = archive_store
+        self._spool_read = spool_read
+        self._archive_thresholds = archive_thresholds
         self._timeout = timeout
         self._ttl = ttl
         self._restart_window = restart_window
@@ -131,7 +172,9 @@ class ServiceProbes:
         self._pool = ThreadPoolExecutor(max_workers=max(1, max_workers), thread_name_prefix="service-probe")
 
     @classmethod
-    def in_cluster(cls, store: ListableStore | None, **options: Any) -> ServiceProbes:
+    def in_cluster(
+        cls, store: ListableStore | None, archive_store: ListableStore | None = None, **options: Any
+    ) -> ServiceProbes:
         """Probes against the pod's own cluster; every call is bounded by the probe `timeout` (default 5 seconds).
 
         `store` is the S3 client the object-store probe lists with. This class cannot bound a call made inside
@@ -141,11 +184,14 @@ class ServiceProbes:
         timeout = options.get("timeout", timedelta(seconds=5))
         seconds = timeout.total_seconds()
         _require_bounded_store(store, seconds)
+        _require_bounded_store(archive_store, seconds)
         return cls(
             kube_list=in_cluster_kube_list(seconds),
             http_get_json=_http_get_json,
             dagster_query=_dagster_query(seconds),
             store=store,
+            archive_store=archive_store,
+            spool_read=in_cluster_spool_read(seconds),
             **options,
         )
 
@@ -188,6 +234,27 @@ class ServiceProbes:
                 lambda: self._object_store(targets),
             ),
         ]
+        spool = _Once(lambda: self._read_spool(targets))
+        archive_checks: list[tuple[str, bool, Callable[[], _Outcome]]] = [
+            (
+                SPOOL_AGE_COMPONENT,
+                self._spool_enabled(targets),
+                lambda: self._spool_outcome(targets, spool.get(), evaluate_spool_age),
+            ),
+            (
+                SPOOL_SIZE_COMPONENT,
+                self._spool_enabled(targets),
+                lambda: self._spool_outcome(targets, spool.get(), evaluate_spool_size),
+            ),
+            (
+                NEWEST_OBJECT_COMPONENT,
+                targets.log_archive_base_uri is not None
+                and targets.log_archive_namespace is not None
+                and self._archive_store is not None,
+                lambda: self._newest_object(targets),
+            ),
+        ]
+        checks.extend(archive_checks)
         now = self._clock()
         results = self._run([(name, check) for name, enabled, check in checks if enabled])
         signals = []
@@ -272,6 +339,93 @@ class ServiceProbes:
             return _Outcome(HealthState.HEALTHY, "Trino coordinator has finished starting")
         raise ProbeError("Trino's answer did not say whether it is starting")
 
+    def _spool_enabled(self, targets: StageTargets) -> bool:
+        return targets.spool_probe_url is not None and self._spool_read is not None
+
+    def _read_spool(self, targets: StageTargets) -> tuple[list[SpoolObservation], int]:
+        assert self._spool_read is not None and targets.spool_probe_url is not None
+        return self._spool_read(targets.spool_probe_url)
+
+    def _spool_outcome(
+        self,
+        targets: StageTargets,
+        read: tuple[list[SpoolObservation], int] | BaseException,
+        evaluate: Callable[..., Signal],
+    ) -> _Outcome:
+        """The worst of the stage's spool over every collector pod; a pod that did not answer is unknown."""
+        if isinstance(read, BaseException):
+            raise read
+        observations, unanswered = read
+        now = self._clock()
+        mine = [o for o in observations if o.stage == targets.stage]
+        signals = [
+            evaluate(targets.stage, o, now=now, max_age=self._ttl, thresholds=self._archive_thresholds) for o in mine
+        ]
+        if unanswered:
+            noun = "pod" if unanswered == 1 else "pods"
+            signals.append(
+                service_signal(
+                    Scope(stage=targets.stage),
+                    "log-archive",
+                    HealthState.UNKNOWN,
+                    f"{unanswered} collector {noun} did not answer",
+                    now=now,
+                    max_age=self._ttl,
+                )
+            )
+        if not signals:
+            raise ProbeError("no collector pod reported this stage's spool")
+        worst = worst_state(signal.state for signal in signals)
+        reason = next(signal.reason for signal in signals if signal.state is worst)
+        return _Outcome(worst, reason)
+
+    def _newest_object(self, targets: StageTargets) -> _Outcome:
+        assert self._archive_store is not None
+        assert targets.log_archive_base_uri is not None and targets.log_archive_namespace is not None
+        bucket, _, prefix = targets.log_archive_base_uri.removeprefix("s3://").partition("/")
+        now = self._clock()
+        newest: datetime | None = None
+        for back in range(ARCHIVE_DAYS):
+            day = (now - timedelta(days=back)).date().isoformat()
+            listed = self._newest_under(
+                bucket, f"{prefix.strip('/')}/v2/namespace={targets.log_archive_namespace}/date={day}/"
+            )
+            if listed is not None and (newest is None or listed > newest):
+                newest = listed
+        signal = evaluate_newest_object(
+            targets.stage,
+            None if newest is None else max(timedelta(0), now - newest),
+            observed_at=now,
+            now=now,
+            max_age=self._ttl,
+            thresholds=self._archive_thresholds,
+        )
+        return _Outcome(signal.state, signal.reason)
+
+    def _newest_under(self, bucket: str, prefix: str) -> datetime | None:
+        assert self._archive_store is not None
+        newest: datetime | None = None
+        token: str | None = None
+        for _ in range(_ARCHIVE_PAGES):
+            args: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix, "MaxKeys": 1000}
+            if token:
+                args["ContinuationToken"] = token
+            try:
+                page = self._archive_store.list_objects_v2(**args)
+            except ClientError as exc:
+                code = str(exc.response.get("Error", {}).get("Code", ""))
+                raise ProbeError(f"the object store refused the archive listing ({code or 'unknown error'})") from exc
+            except BotoCoreError as exc:
+                raise ProbeError(f"the object store is unreachable: {type(exc).__name__}") from exc
+            for item in page.get("Contents", []):
+                modified = item["LastModified"]
+                if newest is None or modified > newest:
+                    newest = modified
+            token = page.get("NextContinuationToken")
+            if not page.get("IsTruncated") or not token:
+                break
+        return newest
+
     def _object_store(self, targets: StageTargets) -> _Outcome:
         assert self._store is not None and targets.bucket is not None
         try:
@@ -284,6 +438,61 @@ class ServiceProbes:
         except BotoCoreError as exc:
             raise ProbeError(f"the object store is unreachable: {type(exc).__name__}") from exc
         return _Outcome(HealthState.HEALTHY, "the bucket can be listed")
+
+
+SPOOL_AGE_COMPONENT = "log-archive.spool-age"
+SPOOL_SIZE_COMPONENT = "log-archive.spool-size"
+NEWEST_OBJECT_COMPONENT = "log-archive.newest-object"
+
+
+class _Once:
+    """Runs `read` at most once however many checks ask, and hands every one the same answer or the same failure."""
+
+    def __init__(self, read: Callable[[], tuple[list[SpoolObservation], int]]) -> None:
+        self._read = read
+        self._lock = threading.Lock()
+        self._done = False
+        self._value: tuple[list[SpoolObservation], int] | BaseException | None = None
+
+    def get(self) -> tuple[list[SpoolObservation], int] | BaseException:
+        with self._lock:
+            if not self._done:
+                try:
+                    self._value = self._read()
+                except Exception as exc:  # noqa: BLE001 - re-raised by each caller, where it becomes `unknown`
+                    self._value = exc
+                self._done = True
+            assert self._value is not None
+            return self._value
+
+
+def in_cluster_spool_read(timeout: float) -> SpoolRead:
+    """Ask every pod behind the headless probe Service. Each call is bounded by `timeout`; a pod that fails counts."""
+
+    def read(base_url: str) -> tuple[list[SpoolObservation], int]:
+        parts = urlsplit(base_url)
+        try:
+            addresses = sorted(
+                {info[4][0] for info in socket.getaddrinfo(parts.hostname, parts.port, type=socket.SOCK_STREAM)}
+            )
+        except OSError as exc:
+            raise ProbeError(f"the collector probe Service did not resolve: {type(exc).__name__}") from exc
+        if not addresses:
+            raise ProbeError("the collector probe Service has no ready pod")
+        observations: list[SpoolObservation] = []
+        unanswered = 0
+        for address in addresses:
+            host = f"[{address}]" if ":" in str(address) else address
+            try:
+                response = requests.get(f"{parts.scheme}://{host}:{parts.port}{SPOOL_PATH}", timeout=timeout)
+                response.raise_for_status()
+                observations.extend(parse_report(response.json()))
+            except (requests.RequestException, ValueError, json.JSONDecodeError):
+                log.warning("collector spool probe at %s failed", address, exc_info=True)
+                unanswered += 1
+        return observations, unanswered
+
+    return read
 
 
 def _cause(exc: BaseException) -> str:

@@ -155,3 +155,16 @@ run "quality_keys_are_mounted_per_stage" {
     error_message = "the quality key must be mounted under the stage's own variable names"
   }
 }
+
+run "the_collector_probe_url_reaches_the_settings" {
+  command = plan
+
+  variables {
+    log_collector_probe_url = "http://log-collector-probe.olf-system.svc:2021"
+  }
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).log_collector_probe_url == "http://log-collector-probe.olf-system.svc:2021"
+    error_message = "the spool probe URL must reach settings.json"
+  }
+}

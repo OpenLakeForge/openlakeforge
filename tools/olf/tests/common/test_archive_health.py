@@ -7,6 +7,7 @@ from openlakeforge_core import (
     ArchiveThresholds,
     HealthState,
     SpoolObservation,
+    evaluate_newest_object,
     evaluate_spool_age,
     evaluate_spool_size,
 )
@@ -107,3 +108,27 @@ def test_a_spool_the_probe_could_not_read_is_unknown_never_healthy(evaluate) -> 
 
     assert signal.state is HealthState.UNKNOWN
     assert "could not read" in signal.reason
+
+@pytest.mark.parametrize(
+    ("age", "state"),
+    [
+        (timedelta(minutes=2), HealthState.HEALTHY),
+        (timedelta(minutes=15), HealthState.WARNING),
+        (timedelta(minutes=59), HealthState.WARNING),
+        (timedelta(hours=1), HealthState.CRITICAL),
+        (None, HealthState.UNKNOWN),
+    ],
+)
+def test_the_age_of_the_newest_archive_object_sets_the_state(age: timedelta | None, state: HealthState) -> None:
+    signal = evaluate_newest_object("dev", age, observed_at=NOW, now=NOW, max_age=MAX_AGE)
+
+    assert signal.state is state
+    assert signal.component == "log-archive.newest-object"
+
+
+def test_a_stale_newest_object_listing_is_unknown() -> None:
+    signal = evaluate_newest_object(
+        "dev", timedelta(minutes=1), observed_at=NOW - MAX_AGE, now=NOW, max_age=MAX_AGE
+    )
+
+    assert signal.state is HealthState.UNKNOWN
