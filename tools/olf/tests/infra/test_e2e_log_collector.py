@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from olf.infra.e2e import _log_collector
@@ -50,3 +52,32 @@ def test_a_duplicate_that_arrives_after_completion_fails(monkeypatch: pytest.Mon
 
     with pytest.raises(E2EError, match="duplicated 1: 2"):
         _log_collector.await_exactly_once(lambda: next(reads), 2, what="run")
+
+
+def test_the_short_lived_drill_sees_the_pod_before_waiting_for_its_deletion(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The Job controller has not created the pod yet on the first poll: "no pod" must not count as "deleted".
+    monkeypatch.setattr(_log_collector.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(_log_collector, "_start_emitter", lambda *_a, **_k: ("n", "r-1", "tok"))
+    monkeypatch.setattr(_log_collector, "kubectl", lambda *_a, **_k: None)
+    observed = iter([[], [], ["pod-a"], ["pod-a"], []])
+    seen: list[list[str]] = []
+
+    def pods(_cfg: object, _run_id: str) -> list[str]:
+        seen.append(next(observed))
+        return seen[-1]
+
+    monkeypatch.setattr(_log_collector, "_pods_of", pods)
+    monkeypatch.setattr(_log_collector, "_archive", lambda _cfg: _NullArchive())
+    monkeypatch.setattr(_log_collector, "await_exactly_once", lambda *_a, **_k: None)
+
+    _log_collector.check_short_lived_pod_output(SimpleNamespace(namespace="olf-dev"))  # type: ignore[arg-type]
+
+    assert seen == [[], [], ["pod-a"], ["pod-a"], []]
+
+
+class _NullArchive:
+    def __enter__(self) -> object:
+        return object()
+
+    def __exit__(self, *_exc: object) -> None:
+        return None

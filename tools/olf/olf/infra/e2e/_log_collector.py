@@ -257,6 +257,9 @@ def check_short_lived_pod_output(cfg: E2EConfig) -> None:
         cfg, lines=SHORT_LIVED_LINES, interval=0, ttl=SHORT_LIVED_TTL_SECONDS, fail=True
     )
     try:
+        # See the pod first: before the Job controller creates it, "no pod" would pass the deletion wait at once
+        # and the drill would no longer prove the output outlives the pod.
+        _wait_until(lambda: bool(_pods_of(cfg, run_id)), f"the pod of {name} to be created", 120, poll_seconds=1.0)
         _wait_until(lambda: not _pods_of(cfg, run_id), f"the TTL to delete the pod of {name}", 300)
         with _archive(cfg) as archive:
             await_exactly_once(
