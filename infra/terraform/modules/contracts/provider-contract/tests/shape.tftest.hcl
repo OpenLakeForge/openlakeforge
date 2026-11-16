@@ -207,7 +207,7 @@ run "observability_defaults_to_an_archive_only_contract" {
   command = plan
 
   assert {
-    condition     = output.provider_contracts.shared.observability.logs.archive == { enabled = true, retention_days = 30, supported = true }
+    condition     = output.provider_contracts.shared.observability.logs.archive == { enabled = true, retention_days = 30, retention_supported = false, supported = true }
     error_message = "the archive is always enabled and carries its retention"
   }
 
@@ -245,7 +245,7 @@ run "observability_reports_what_the_profile_asks_for_next_to_what_is_supported" 
   }
 
   assert {
-    condition     = output.provider_contracts.shared.observability.logs.archive.retention_days == 90 && output.provider_contracts.shared.observability.metrics == { enabled = true, retention_days = 14, supported = false }
+    condition     = output.provider_contracts.shared.observability.logs.archive.retention_days == 90 && output.provider_contracts.shared.observability.metrics == { enabled = true, retention_days = 14, retention_supported = false, supported = false }
     error_message = "requested retention and metrics reach the contract, with metrics still unsupported"
   }
 
@@ -259,11 +259,16 @@ run "observability_support_is_declared_per_provider" {
   command = plan
 
   variables {
-    observability_support = { logs_archive = true, logs_search = false, metrics = true, grafana = false, alerts = false }
+    observability_support = { logs_archive = true, logs_archive_retention = true, logs_search = false, metrics = true, metrics_retention = true, grafana = false, alerts = false }
   }
 
   assert {
-    condition     = output.provider_contracts.shared.observability.metrics.supported && !output.provider_contracts.shared.observability.grafana.supported
-    error_message = "support is reported per capability"
+    condition = alltrue([
+      output.provider_contracts.shared.observability.metrics.supported,
+      output.provider_contracts.shared.observability.metrics.retention_supported,
+      output.provider_contracts.shared.observability.logs.archive.retention_supported,
+      !output.provider_contracts.shared.observability.grafana.supported,
+    ])
+    error_message = "support, and whether retention is enforced, are reported per capability"
   }
 }

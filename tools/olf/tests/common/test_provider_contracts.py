@@ -260,6 +260,7 @@ def test_observability_capabilities_are_optional_for_a_contract_already_in_state
         (lambda observability: observability["logs"]["archive"].__setitem__("enabled", False), "always enabled"),
         (lambda observability: observability["metrics"].__setitem__("supported", "no"), "must be a boolean"),
         (lambda observability: observability["metrics"].__setitem__("retention_days", 0), "positive integer"),
+        (lambda observability: observability["metrics"].pop("retention_supported"), "retention_supported"),
         (lambda observability: observability["grafana"].__setitem__("url", "x"), "unsupported fields"),
     ],
 )
@@ -270,6 +271,70 @@ def test_observability_capabilities_fail_closed_on_a_malformed_shape(mutate, mat
 
     with pytest.raises(ProviderContractError, match=match):
         parse_provider_contracts(contract, topology)
+
+
+def _receiver_with(field: str, value: object):
+    def mutate(observability: dict) -> None:
+        observability["alerts"]["receivers"] = [{"name": "ops", "type": "slack", field: value}]
+
+    return mutate
+
+
+def _set(path: tuple[str, ...], value: object):
+    def mutate(observability: dict) -> None:
+        target = observability
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+
+    return mutate
+
+
+def _drop(path: tuple[str, ...]):
+    def mutate(observability: dict) -> None:
+        target = observability
+        for key in path[:-1]:
+            target = target[key]
+        del target[path[-1]]
+
+    return mutate
+
+
+_ARCHIVE = ("logs", "archive")
+_RECEIVERS = ("alerts", "receivers")
+_AGREEMENT_CASES = {
+    "valid-receiver": _set(_RECEIVERS, [{"name": "ops", "type": "slack"}]),
+    "receiver-with-secret-ref": _receiver_with("secret_ref", {"name": "s", "key": "k"}),
+    "bare-string-receiver": _set(_RECEIVERS, ["ops"]),
+    "empty-receiver-name": _set(_RECEIVERS, [{"name": "", "type": "slack"}]),
+    "receiver-without-type": _set(_RECEIVERS, [{"name": "ops"}]),
+    "retention-days-on-search": _set(("logs", "search", "retention_days"), 7),
+    "retention-supported-on-grafana": _set(("grafana", "retention_supported"), False),
+    "archive-without-retention-days": _drop((*_ARCHIVE, "retention_days")),
+    "metrics-without-retention-days": _drop(("metrics", "retention_days")),
+    "archive-without-retention-supported": _drop((*_ARCHIVE, "retention_supported")),
+    "non-boolean-retention-supported": _set(("metrics", "retention_supported"), "no"),
+    "archive-disabled": _set((*_ARCHIVE, "enabled"), False),
+    "boolean-retention-days": _set((*_ARCHIVE, "retention_days"), True),
+    "zero-retention-days": _set((*_ARCHIVE, "retention_days"), 0),
+}
+
+
+@pytest.mark.parametrize("mutate", _AGREEMENT_CASES.values(), ids=_AGREEMENT_CASES.keys())
+def test_observability_reader_and_schema_agree(mutate) -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    topology = _topology(contract)
+    mutate(contract["shared"]["observability"])
+
+    try:
+        parse_provider_contracts(contract, topology)
+    except ProviderContractError:
+        reader_accepts = False
+    else:
+        reader_accepts = True
+    schema_accepts = jsonschema.Draft202012Validator(SCHEMA).is_valid(contract)
+
+    assert reader_accepts == schema_accepts
 
 
 def test_v3_contract_rejects_a_missing_capability_binding() -> None:

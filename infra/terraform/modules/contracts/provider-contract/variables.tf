@@ -126,20 +126,24 @@ variable "observability" {
 }
 
 variable "observability_support" {
-  description = "Which observability capabilities this provider can honour today. A capability reported false is advertised as unsupported in the contract, whatever the profile asks for; none of them has an adapter yet."
+  description = "Which observability capabilities this provider can honour today. A capability reported false is advertised as unsupported in the contract, whatever the profile asks for. The two *_retention flags say whether anything applies the requested retention_days to the stored data; they stay false until an adapter does."
   type = object({
-    logs_archive = bool
-    logs_search  = bool
-    metrics      = bool
-    grafana      = bool
-    alerts       = bool
+    logs_archive           = bool
+    logs_archive_retention = bool
+    logs_search            = bool
+    metrics                = bool
+    metrics_retention      = bool
+    grafana                = bool
+    alerts                 = bool
   })
   default = {
-    logs_archive = true
-    logs_search  = false
-    metrics      = false
-    grafana      = false
-    alerts       = false
+    logs_archive           = true
+    logs_archive_retention = false
+    logs_search            = false
+    metrics                = false
+    metrics_retention      = false
+    grafana                = false
+    alerts                 = false
   }
 }
 

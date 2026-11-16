@@ -3,18 +3,30 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from olf.common.deployment.context import DeploymentContext, observability_variables
-from olf.common.profile import DeploymentProfile, Preset, Provider, ProviderSpec, StageName, StageSpec, resolve_topology
+from olf.common.profile import (
+    AlertReceiver,
+    DeploymentProfile,
+    ObservabilitySpec,
+    Preset,
+    Provider,
+    ProviderSpec,
+    SecretRef,
+    StageName,
+    StageSpec,
+    resolve_topology,
+)
 
 
-def _variables(tmp_path: Path, preset: Preset) -> dict[str, object]:
+def _variables(
+    tmp_path: Path, preset: Preset, observability: ObservabilitySpec | None = None
+) -> dict[str, object]:
     profile = DeploymentProfile(
         name="obs",
         provider=ProviderSpec(type=Provider.LOCAL),
         preset=preset,
         stages=(StageSpec(name=StageName.DEV, enabled=True),),
+        observability=observability,
     )
     context = DeploymentContext.local(repo_root=tmp_path, topology=resolve_topology(profile))
     return json.loads(observability_variables(context)["observability"])
@@ -39,6 +51,11 @@ def test_full_differs_from_slim_only_by_metrics(tmp_path: Path) -> None:
     assert full["metrics_enabled"] is True
 
 
-@pytest.mark.parametrize("preset", [Preset.SLIM, Preset.FULL])
-def test_no_secret_reference_reaches_the_input(tmp_path: Path, preset: Preset) -> None:
-    assert "secret" not in json.dumps(_variables(tmp_path, preset))
+def test_no_secret_reference_reaches_the_input(tmp_path: Path) -> None:
+    receiver = AlertReceiver(name="ops", type="slack", secret_ref=SecretRef(name="ops-slack-hook", key="webhook-url"))
+    variables = _variables(tmp_path, Preset.FULL, ObservabilitySpec(alert_receivers=(receiver,)))
+
+    assert variables["alert_receivers"] == [{"name": "ops", "type": "slack"}]
+    serialized = json.dumps(variables)
+    assert "ops-slack-hook" not in serialized
+    assert "webhook-url" not in serialized

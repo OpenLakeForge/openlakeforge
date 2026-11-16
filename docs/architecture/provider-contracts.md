@@ -118,10 +118,10 @@ once #22 slice b lands.
   "ref": "shared/observability",
   "implementation": "observability.object_log_archive",
   "logs": {
-    "archive": {"enabled": true, "retention_days": 30, "supported": true},
+    "archive": {"enabled": true, "retention_days": 30, "retention_supported": false, "supported": true},
     "search": {"enabled": false, "supported": false}
   },
-  "metrics": {"enabled": false, "retention_days": 7, "supported": false},
+  "metrics": {"enabled": false, "retention_days": 7, "retention_supported": false, "supported": false},
   "grafana": {"enabled": false, "supported": false},
   "alerts": {"receivers": [], "supported": false}
 }
@@ -130,8 +130,13 @@ once #22 slice b lands.
 `enabled` is what the profile asks for; `supported` is whether the provider has
 an adapter that can honour it, so a Full profile on any provider reads as
 `metrics.enabled: true, supported: false` until a metrics adapter exists. The
-archive is always enabled. Alert receivers carry a name and a type, never their
-Secret reference. The four capability fields appear together or not at all, so
+archive is always enabled. `retention_days` is the retention the profile asks
+for; `retention_supported` is whether anything applies it to the stored data.
+It is `false` on every provider today, because no lifecycle rule reaches the log
+prefix, so a 90-day archive setting is a request and not a guarantee until #22
+slice b (archive) and #21 (metrics) enforce it. Only the archive and metrics
+carry the two retention fields. Alert receivers carry a name and a type, never
+their Secret reference. The four capability fields appear together or not at all, so
 contracts already in state stay readable.
 
 ### `shared.access`

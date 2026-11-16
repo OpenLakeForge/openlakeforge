@@ -493,24 +493,31 @@ def _check_observability(binding: Mapping[str, Any]) -> None:
         return
     where = "shared.observability"
     logs = _fields(binding["logs"], where=f"{where}.logs", required={"archive", "search"})
+    retained = {"retention_days", "retention_supported"}
     capabilities = {
-        "logs.archive": (logs["archive"], {"retention_days"}),
+        "logs.archive": (logs["archive"], retained),
         "logs.search": (logs["search"], set()),
-        "metrics": (binding["metrics"], {"retention_days"}),
+        "metrics": (binding["metrics"], retained),
         "grafana": (binding["grafana"], set()),
     }
     for name, (value, extra) in capabilities.items():
-        capability = _fields(value, where=f"{where}.{name}", required={"enabled", "supported"}, optional=extra)
-        for flag in ("enabled", "supported"):
-            if not isinstance(capability[flag], bool):
+        capability = _fields(value, where=f"{where}.{name}", required={"enabled", "supported"} | extra)
+        for flag in ("enabled", "supported", "retention_supported"):
+            if flag in capability and not isinstance(capability[flag], bool):
                 raise ProviderContractError(f"{where}.{name}.{flag} must be a boolean")
-        days = capability.get("retention_days")
-        if "retention_days" in extra and (isinstance(days, bool) or not isinstance(days, int) or days < 1):
-            raise ProviderContractError(f"{where}.{name}.retention_days must be a positive integer")
+        if extra:
+            days = capability["retention_days"]
+            if isinstance(days, bool) or not isinstance(days, int) or days < 1:
+                raise ProviderContractError(f"{where}.{name}.retention_days must be a positive integer")
     alerts = _fields(binding["alerts"], where=f"{where}.alerts", required={"receivers", "supported"})
     if not isinstance(alerts["supported"], bool) or not isinstance(alerts["receivers"], list | tuple):
         raise ProviderContractError(f"{where}.alerts must carry a boolean supported and a receivers list")
-    if not logs["archive"]["enabled"]:
+    for index, receiver in enumerate(alerts["receivers"]):
+        fields = _fields(receiver, where=f"{where}.alerts.receivers[{index}]", required={"name", "type"})
+        for key in ("name", "type"):
+            if not isinstance(fields[key], str) or not fields[key]:
+                raise ProviderContractError(f"{where}.alerts.receivers[{index}].{key} must be a non-empty string")
+    if logs["archive"]["enabled"] is not True:
         raise ProviderContractError(f"{where}.logs.archive is always enabled (ADR 0011)")
 
 
