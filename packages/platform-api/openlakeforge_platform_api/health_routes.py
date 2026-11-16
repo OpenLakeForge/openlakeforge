@@ -49,15 +49,24 @@ SERVICE_MAX_AGE = timedelta(seconds=60)
 _SERVICES_ELSEWHERE = IntegrationStatus(
     name="services", status="unavailable", reason="service signals are served by the stage health route"
 )
-_NOT_PROVIDED = [
-    IntegrationStatus(name="quality", status="unavailable", reason="quality summaries are not yet provided"),
-    IntegrationStatus(name="metrics", status="unavailable", reason="no metrics source is connected to the API"),
-]
+_METRICS_NOT_PROVIDED = IntegrationStatus(
+    name="metrics", status="unavailable", reason="no metrics source is connected to the API"
+)
+
+
+def _quality(request: Request, stage: str) -> IntegrationStatus:
+    if request.app.state.quality_readers.get(stage) is None:
+        return IntegrationStatus(
+            name="quality", status="not_provided", reason="no quality manifest reader is configured for this stage"
+        )
+    return IntegrationStatus(name="quality", status="available", reason="read from the stage's quality manifests")
 
 
 def _read(request: Request, stage: str, now: datetime) -> tuple[IntegrationStatus, list[PipelineEvaluation]]:
     configured = request.app.state.settings.dagster_graphql_urls.get(stage)
-    return read_stage_pipelines(_dagster(request, stage) if configured else None, stage, now)
+    return read_stage_pipelines(
+        _dagster(request, stage) if configured else None, stage, now, request.app.state.quality_readers.get(stage)
+    )
 
 
 def _run(run: DagsterRun) -> Run:
@@ -147,7 +156,7 @@ async def get_stage_health(request: Request, stage: str) -> StageHealth:
         evaluated_at=now,
         pipelines=[StagePipelineState(job=pipeline.job, state=pipeline.state.value) for pipeline in pipelines],
         services=[_service(signal) for signal in service_signals],
-        integrations=[dagster, services, *_NOT_PROVIDED],
+        integrations=[dagster, services, _quality(request, stage), _METRICS_NOT_PROVIDED],
     )
 
 
@@ -166,7 +175,7 @@ def list_pipeline_health(request: Request, stage: str) -> PipelinesHealth:
             schedule_grace_seconds=int(SCHEDULE_GRACE.total_seconds()),
             run_window=RUN_WINDOW,
         ),
-        integrations=[dagster, _SERVICES_ELSEWHERE, *_NOT_PROVIDED],
+        integrations=[dagster, _SERVICES_ELSEWHERE, _quality(request, stage), _METRICS_NOT_PROVIDED],
         pipelines=[_pipeline(pipeline, now) for pipeline in pipelines],
     )
 

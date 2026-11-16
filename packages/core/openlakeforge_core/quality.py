@@ -53,7 +53,8 @@ _FORBIDDEN_KEYS = frozenset(
     "credential credentials access_key secret_key".split()
 )
 
-_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+# `\Z`, not `$`: `$` also matches before a trailing newline, which would pass into an object key.
+_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 
 _RECORD_KEYS = frozenset(
     {

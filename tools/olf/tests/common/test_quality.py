@@ -169,6 +169,11 @@ def test_manifest_key_refuses_path_traversal() -> None:
         manifest_key("sales", "../other", "run-1")
 
 
+def test_manifest_key_refuses_a_trailing_newline() -> None:
+    with pytest.raises(QualityRecordError, match="safe path segment"):
+        manifest_key("sales\n", "orders", "run-1")
+
+
 def test_reject_that_quarantined_rows_is_a_non_blocking_health_error() -> None:
     fields = health_quality_fields(result())
     assert fields is not None

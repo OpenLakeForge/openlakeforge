@@ -28,7 +28,7 @@ that points at the retained evidence rather than carrying log text.
 | `latest_success` | Whether a successful run is on record |
 | `expected_run` | The schedule state, the run it expected, and whether it is stopped against its declared cadence |
 | `freshness` | Whether a successful run is on record since the schedule's owed due time (the latest one at least a grace old) |
-| `quality` | A Floe or dbt outcome |
+| `quality` | A Floe or dbt outcome, read from the latest run's quality manifest (see below) |
 | `service` | Controller readiness of a component, or a probe's answer |
 
 ## How unknown is computed
@@ -103,6 +103,31 @@ scheduler emits none. A schedule that is stopped or absent is `disabled`, not
 `critical`, with one exception: a stopped schedule that the product's cadence
 declares running is a `warning` (see below). The last expected run time comes from the schedule input; the
 module does not parse cron.
+
+## Quality signal
+
+When a stage has a quality manifest reader, each product pipeline's latest run
+carries one `quality` signal, scoped like its other signals. It is read from
+`activations/<stage>/run-artifacts/quality/<domain>/<product>/<run>/manifest.json`,
+which every Floe and dbt step of the run rewrites. The domain is the run's
+`openlakeforge/silver-domain` tag and the product is the job name without its
+`_pipeline` suffix; a job with no such tag, a maintenance job for one, gets no
+quality signal.
+
+| Manifest | `quality` |
+| --- | --- |
+| A check with outcome `error` that blocked the pipeline | `critical` |
+| `warn`, or an `error` that only continued or quarantined rows | `warning` |
+| Every check `passed` | `healthy` |
+| No manifest, an unreadable or foreign one, or one older than the run's evidence bound | `unknown` |
+| Some checks `not_run` or `unknown` and the rest `passed` | `unknown` |
+
+The worst check decides, and no table name is used, so a manifest written from
+the baked dbt manifest, which names no table, reads the same as any other. A
+stage without the reader adds no signal and reports the `quality` integration
+as `not_provided`; with it the integration is `available`. The reader's key is
+`Read` and `List` on that stage's `run-artifacts/quality/` prefix only
+(`quality_reader_credentials` in `modules/storage/seaweedfs`).
 
 ## Schedule mismatch
 

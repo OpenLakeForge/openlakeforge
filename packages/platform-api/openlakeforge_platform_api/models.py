@@ -159,7 +159,7 @@ class IntegrationStatus(BaseModel):
     """Whether one source of health is present. `status` is never a health state: an absent source is not green."""
 
     name: Literal["dagster", "services", "quality", "metrics"]
-    status: Literal["available", "disabled", "unavailable"]
+    status: Literal["available", "disabled", "unavailable", "not_provided"]
     reason: str
 
 

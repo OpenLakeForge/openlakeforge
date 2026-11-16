@@ -27,6 +27,7 @@ from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient, DagsterRun, DagsterSchedule
 
 from openlakeforge_platform_api.models import IntegrationStatus
+from openlakeforge_platform_api.quality_health import QualityReader, quality_signal
 from openlakeforge_platform_api.schedules import latest_due, next_due
 
 log = logging.getLogger(__name__)
@@ -142,7 +143,12 @@ def _owed(schedule: DagsterSchedule | None, runs: list[DagsterRun], owed: dateti
 
 
 def _evaluate(
-    stage: str, job: str, runs: list[DagsterRun], schedule: DagsterSchedule | None, now: datetime
+    stage: str,
+    job: str,
+    runs: list[DagsterRun],
+    schedule: DagsterSchedule | None,
+    now: datetime,
+    quality: QualityReader | None = None,
 ) -> PipelineEvaluation:
     scope = Scope(stage=stage, product=job)
     latest = _observation(runs[0]) if runs else None
@@ -166,13 +172,21 @@ def _evaluate(
         evaluate_expected_run(scope, expected, now=now, max_age=SCHEDULE_MAX_AGE, grace=SCHEDULE_GRACE),
         evaluate_freshness(scope, success, _owed(schedule, runs, owed), now=now, grace=SCHEDULE_GRACE, schedule=state),
     ]
+    if quality is not None and runs:
+        # The latest run's manifest whatever its status: a failed run is where the blocking errors are.
+        found = quality_signal(quality, scope, job, runs[0].run_id, runs[0].tags, now=now, max_age=max_age)
+        if found is not None:
+            signals.append(found)
     return PipelineEvaluation(job, runs, schedule, due, signals)
 
 
 def read_stage_pipelines(
-    client: DagsterClient | None, stage: str, now: datetime
+    client: DagsterClient | None, stage: str, now: datetime, quality: QualityReader | None = None
 ) -> tuple[IntegrationStatus, list[PipelineEvaluation]]:
-    """The stage's pipelines, and whether Dagster could be read; an unreadable Dagster yields no pipelines."""
+    """The stage's pipelines, and whether Dagster could be read; an unreadable Dagster yields no pipelines.
+
+    With a `quality` reader each product pipeline with a run also carries a quality signal; without one, none.
+    """
     if client is None:
         absent = IntegrationStatus(name="dagster", status="disabled", reason="no Dagster is configured for this stage")
         return absent, []
@@ -188,5 +202,5 @@ def read_stage_pipelines(
     by_job: dict[str, DagsterSchedule] = {}
     for schedule in sorted(schedules, key=lambda item: item.status == "RUNNING"):
         by_job[schedule.job_name] = schedule
-    pipelines = [_evaluate(stage, job, runs[job], by_job.get(job), now) for job in jobs]
+    pipelines = [_evaluate(stage, job, runs[job], by_job.get(job), now, quality) for job in jobs]
     return IntegrationStatus(name="dagster", status="available", reason="read from Dagster"), pipelines

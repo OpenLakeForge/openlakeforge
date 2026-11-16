@@ -33,8 +33,9 @@ from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.models import Health, WhoAmI
 from openlakeforge_platform_api.permissions import ANONYMOUS, EVERY_STAGE, Permission, PermissionMatrix
+from openlakeforge_platform_api.quality_health import ManifestStore, QualityReader
 from openlakeforge_platform_api.service_probes import ListableStore, ServiceProbes, StageProber, bounded_s3_config
-from openlakeforge_platform_api.settings import QUERY_SIGNING_KEY_ENV, Settings
+from openlakeforge_platform_api.settings import QUERY_SIGNING_KEY_ENV, Settings, quality_key_envs
 from openlakeforge_platform_api.tokens import InvalidToken, IssuerUnavailable, Principal, TokenValidator
 
 SETTINGS_ENV = "OPENLAKEFORGE_PLATFORM_API_SETTINGS"
@@ -206,6 +207,31 @@ def _audit_store(settings: Settings) -> ObjectWriter | None:
     return client
 
 
+def _quality_readers(settings: Settings) -> dict[str, QualityReader]:
+    """One reader per stage that has a manifest prefix and its own read-only key; the others read as not provided.
+
+    A client per stage, never the log reader's: each key is Read and List on its own stage's quality prefix only.
+    """
+    readers: dict[str, QualityReader] = {}
+    for stage, base_uri in settings.quality_manifests.items():
+        key_env, secret_env = quality_key_envs(stage)
+        access_key, secret_key = os.environ.get(key_env), os.environ.get(secret_env)
+        if not access_key or not secret_key:
+            continue
+        client = boto3.client(
+            "s3",
+            endpoint_url=settings.s3_endpoint_url,
+            region_name=settings.s3_region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            config=Config(
+                s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}
+            ),
+        )
+        readers[stage] = QualityReader(cast("ManifestStore", client), base_uri)
+    return readers
+
+
 def _files_store(settings: Settings) -> files.FileStore | None:
     """An S3 client with the files key, or None when no buckets are configured or there is no key.
 
@@ -262,6 +288,7 @@ def create_app(
     files_store: files.FileStore | None = None,
     trino_send: Callable[..., requests.Response] | None = None,
     service_probes: StageProber | None = None,
+    quality_readers: dict[str, QualityReader] | None = None,
 ) -> FastAPI:
     # No interactive docs or OpenAPI route: each would be a route outside the
     # matrix. ADR 0021 decision 5 commits the OpenAPI document under docs/schema.
@@ -294,6 +321,7 @@ def create_app(
     app.state.validator = validator or TokenValidator(settings)
     app.state.object_store = object_store or _object_store(settings)
     app.state.files_store = files_store or _files_store(settings)
+    app.state.quality_readers = _quality_readers(settings) if quality_readers is None else quality_readers
     app.state.audit = audit or AuditLog(_audit_store(settings), settings.audit_base_uri)
     # The HTTP transport for the Trino client; tests inject a fake, and a private CA is the only thing production adds.
     app.state.trino_send = trino_send or functools.partial(requests.request, verify=settings.ca_file or True)

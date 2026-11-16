@@ -460,7 +460,8 @@
             "enum": [
               "available",
               "disabled",
-              "unavailable"
+              "unavailable",
+              "not_provided"
             ],
             "title": "Status",
             "type": "string"

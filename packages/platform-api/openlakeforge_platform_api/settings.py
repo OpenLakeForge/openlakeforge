@@ -65,6 +65,9 @@ class Settings:
     dagster_graphql_urls: Mapping[str, str] = field(default_factory=dict)
     openmetadata_url: str | None = None
     log_archives: Mapping[str, LogArchiveSetting] = field(default_factory=dict)
+    # Each stage's activation prefix, s3://<ops bucket>/activations/<stage>/, where its quality manifests are written
+    # under run-artifacts/quality/. The key that reads them is per stage and comes from the environment.
+    quality_manifests: Mapping[str, str] = field(default_factory=dict)
     s3_endpoint_url: str | None = None
     s3_region: str = "us-east-1"
     # Where audit records are stored, s3://<bucket>/<prefix>/. The write-only key comes from the environment
@@ -126,6 +129,7 @@ class Settings:
                     str(stage): LogArchiveSetting(str(archive["base_uri"]), str(archive["namespace"]))
                     for stage, archive in (data.get("log_archives") or {}).items()
                 },
+                quality_manifests={str(s): str(uri) for s, uri in (data.get("quality_manifests") or {}).items()},
                 s3_endpoint_url=data.get("s3_endpoint_url") or None,
                 s3_region=str(data.get("s3_region") or "us-east-1"),
                 audit_base_uri=data.get("audit_base_uri") or None,
@@ -226,6 +230,12 @@ class Settings:
         for stage, url in self.trino_urls.items():
             if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).netloc:
                 raise SettingsError(f"trino_urls[{stage!r}] must be an http(s) base URL")
+        stray = sorted(set(self.quality_manifests) - set(self.stages))
+        if stray:
+            raise SettingsError(f"quality_manifests names stages that are not enabled: {', '.join(stray)}")
+        for stage, uri in self.quality_manifests.items():
+            if urlsplit(uri).scheme != "s3" or not urlsplit(uri).netloc or not uri.endswith("/"):
+                raise SettingsError(f"quality_manifests[{stage!r}] must be s3://<bucket>/<prefix>/, ending in /")
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")
@@ -239,3 +249,9 @@ QUERY_SIGNING_KEY_ENV = "OPENLAKEFORGE_QUERY_SIGNING_KEY"
 def superset_password_env(stage: str) -> str:
     """The variable holding `stage`'s Superset service-user password; Terraform names it the same way."""
     return "OPENLAKEFORGE_SUPERSET_PASSWORD_" + re.sub(r"[^A-Za-z0-9]", "_", stage).upper()
+
+
+def quality_key_envs(stage: str) -> tuple[str, str]:
+    """The variables holding `stage`'s read-only quality key, access key id then secret; Terraform names them alike."""
+    suffix = re.sub(r"[^A-Za-z0-9]", "_", stage).upper()
+    return f"OPENLAKEFORGE_QUALITY_ACCESS_KEY_ID_{suffix}", f"OPENLAKEFORGE_QUALITY_SECRET_ACCESS_KEY_{suffix}"
