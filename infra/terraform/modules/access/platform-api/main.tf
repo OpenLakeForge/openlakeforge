@@ -29,7 +29,9 @@ locals {
     # Read with the key in log_reader_secret_name, which never enters this file.
     log_archives    = var.log_archives
     s3_endpoint_url = var.s3_endpoint_url
-    s3_region       = var.s3_region
+    # Read per stage with the key in quality_reader_secret_names.
+    quality_manifests = var.quality_manifests
+    s3_region         = var.s3_region
     # Written with the key in audit_writer_secret_name; without it, every
     # operation that changes state answers 503.
     audit_base_uri = var.audit_base_uri
@@ -117,6 +119,27 @@ resource "kubernetes_deployment_v1" "platform_api" {
                 secret_key_ref {
                   name = env.value
                   key  = "password"
+                }
+              }
+            }
+          }
+
+          # Each stage's read-only quality key, under per-stage names boto3 does
+          # not read on its own (openlakeforge_platform_api.settings.quality_key_envs),
+          # so no stage's key can stand in for another's or for the log reader's.
+          dynamic "env" {
+            for_each = merge([
+              for stage, secret in var.quality_reader_secret_names : {
+                "OPENLAKEFORGE_QUALITY_ACCESS_KEY_ID_${upper(replace(stage, "/[^A-Za-z0-9]/", "_"))}"     = [secret, "AWS_ACCESS_KEY_ID"]
+                "OPENLAKEFORGE_QUALITY_SECRET_ACCESS_KEY_${upper(replace(stage, "/[^A-Za-z0-9]/", "_"))}" = [secret, "AWS_SECRET_ACCESS_KEY"]
+              }
+            ]...)
+            content {
+              name = env.key
+              value_from {
+                secret_key_ref {
+                  name = env.value[0]
+                  key  = env.value[1]
                 }
               }
             }

@@ -23,6 +23,7 @@ locals {
       secret    = var.audit_writer_credentials.credentials_secret_name
       namespace = var.audit_writer_credentials.namespace
     }],
+    [for reader in values(var.quality_reader_credentials) : { secret = reader.credentials_secret_name, namespace = reader.namespace }],
     var.files_credentials == null ? [] : [{
       secret    = var.files_credentials.credentials_secret_name
       namespace = var.files_credentials.namespace
@@ -85,6 +86,15 @@ locals {
           for action in ["Read", "List"] : "${action}:${var.log_reader_credentials.ops_bucket_name}/${prefix}*"
         ]
       ])
+    }],
+    # Read and List only, one identity per stage, on that stage's quality
+    # manifests: the key cannot read another stage's, nor anything else of its
+    # own. The prefix ends in `/` so `*` stays under it.
+    [for stage, reader in var.quality_reader_credentials : {
+      name      = "openlakeforge-platform-api-quality-${stage}"
+      secret    = reader.credentials_secret_name
+      namespace = reader.namespace
+      actions   = [for action in ["Read", "List"] : "${action}:${reader.ops_bucket_name}/activations/${stage}/run-artifacts/quality/*"]
     }],
     # Write only, under one prefix: the platform API stores audit records and
     # can neither read nor list them back. SeaweedFS 4.48 also gates overwrite

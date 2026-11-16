@@ -48,6 +48,12 @@ output "log_reader_secret_name" {
   depends_on  = [kubernetes_job_v1.credentials]
 }
 
+output "quality_reader_secret_names" {
+  description = "Each stage's read-only quality key Secret, keyed by stage; empty when quality_reader_credentials is."
+  value       = { for stage, reader in var.quality_reader_credentials : stage => reader.credentials_secret_name }
+  depends_on  = [kubernetes_job_v1.credentials]
+}
+
 output "audit_writer_secret_name" {
   description = "Secret holding the platform API's write-only key for its audit prefix, or null when audit_writer_credentials is."
   value       = var.audit_writer_credentials == null ? null : var.audit_writer_credentials.credentials_secret_name

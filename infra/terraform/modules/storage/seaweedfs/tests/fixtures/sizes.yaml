@@ -1,0 +1,7 @@
+sizes:
+  small:
+    object_store:
+      master: 1Gi
+      filer: 1Gi
+      volume: 1Gi
+      max_volumes: 1
