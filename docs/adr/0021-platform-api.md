@@ -268,11 +268,16 @@ for a footprint-sensitive audience, and the exposure it would avoid is small
 because the grant is read-only and namespaced. What a compromised API gains is
 the names, labels, environment values and status of pods and controllers in
 the stage namespaces; no Secret, log, exec or write. The probe component is
-the fallback if a later signal needs more than this list. The grant exists,
-but `environments/local` does not set `probe_namespaces` yet, so the pod
-mounts no token, and the F20 egress to the API server is not rendered for the
-platform API yet either. #1156 adds both, with the health routes that use
-them.
+the fallback if a later signal needs more than this list. The grant, the
+token and the F20 egress to the API server land together with their caller
+(#1156): `environments/local` sets `probe_namespaces` from the stage namespace
+resources, the pod mounts its token, F20 names the platform API, and the stage
+health route runs the probes. A mounted token or an open egress with no route
+using it would widen a compromised API's reach for nothing. The F20 row is
+static: it is open whenever the platform API is deployed. `environments/local`,
+the only root that deploys it, guarantees the token and the Roles always
+accompany it with a precondition that `probe_namespaces` names at least one
+stage namespace.
 
 | Where | apiGroup | Resources | Verbs |
 | --- | --- | --- | --- |
@@ -287,8 +292,8 @@ deployment without it is as before; it refuses `kube-system` and the API's own
 namespace. Terraform tests assert the exact rules. Restarts are judged over a
 recent window, never the lifetime `restartCount`, which does not reset.
 
-The probes will live in `openlakeforge_platform_api.service_probes`, behind the
-health routes. Each emits a SERVICE `Signal` (`openlakeforge_core.health`) with
+The probes live in `openlakeforge_platform_api.service_probes`, behind the
+stage health route. Each emits a SERVICE `Signal` (`openlakeforge_core.health`) with
 `observed_at` and an expiry. A timeout, transport error or refused permission
 is `unknown`; a component the deployment leaves out is `disabled` and not
 probed. A 200 never counts alone:
@@ -326,12 +331,12 @@ selector that matches nothing is `unknown`, not healthy.
 ## Open items
 
 Items 1 and 2 are settled (decision 1 and History); the numbering of the
-remaining ones is kept. Item 4 is open until #1156 lands.
+remaining ones is kept. Item 4 closed with #1156.
 
 | # | Item | Why it is open |
 | --- | --- | --- |
 | 3 | The narrowest credential per service | Settled for Superset (#670, see History): a non-admin service user, role `olf_platform_api`, can import and export. It must co-own the report assets to overwrite them, and needs data access to export them |
-| 4 | NetworkPolicy for the probes | The API's egress to the Kubernetes API server (F20) has no flow row: it is held back so that it opens together with the token and the routes that use it (decision 7). #1156 adds the F20 row, sets `probe_namespaces` and wires the routes. Trino's coordinator needs none (F36 is not conditional on `person_query`), and F32 and F33 already cover Dagster and the object store |
+| 4 | NetworkPolicy for the probes | Closed (#1156, see History): the F20 row for the API's egress to the API server landed with the token and the routes. Trino's coordinator needed none (F36 is not conditional on `person_query`), and F32 and F33 already cover Dagster and the object store |
 
 ## Build order
 
@@ -578,3 +583,19 @@ token and no caller. `environments/local` does not set `probe_namespaces`
 either. #1156 adds the F20 row and sets `probe_namespaces` (built from the stage
 namespace resources) together with the routes, which closes decision 7's
 condition. Nothing has run against a cluster.
+
+Issue #1156, decision 7 and open item 4: the probe grant, the token and the F20
+egress are wired together with the stage health route that calls them, and open
+item 4 is closed. The F20 row is static, so `environments/local` carries a
+precondition that `probe_namespaces` is non-empty whenever the platform API
+renders; the token and the Roles therefore always accompany the egress. It
+sets `probe_namespaces` from the stage namespace resources, so each Role is created after its namespace; the module
+renders the same map as the settings' `stage_namespaces`, with `trino_urls`
+(each coordinator's base URL, not the statement URL). `GET
+/api/v1/stages/{stage}/health` builds `ServiceProbes` once at startup, runs the
+probes and the Dagster read on worker threads (the probes block for up to their
+5-second timeout), lists the answers as `services` and folds them into the stage
+state. A probe that fails is `unknown`; a stage with no namespace is not probed
+and reports `services` as `disabled`. The object-store probe lists the stage's
+first files bucket with the files key, because the log reader's key is scoped to
+the archive prefixes. Nothing has run against a cluster.

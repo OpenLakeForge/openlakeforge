@@ -253,3 +253,36 @@ run "a_single_stage_deployment_renders_exactly_one_coordinator" {
     error_message = "Slim deploys one coordinator, in olf-dev"
   }
 }
+
+# #1156: the probe grant and its caller are wired together, from the namespace
+# resources. probe_namespaces is built from the resources' own attributes (the
+# reference the network policy and the Superset service users use too), so
+# Terraform creates each Role after its namespace.
+run "service_probes_are_wired_to_each_stage_namespace" {
+  command = plan
+
+  variables {
+    access_tls = "local-ca"
+  }
+
+  assert {
+    condition = jsondecode(module.platform_api[0].settings_json).stage_namespaces == {
+      dev  = "olf-dev"
+      prod = "olf-prod"
+    }
+    error_message = "the API's settings must name each enabled stage's namespace"
+  }
+
+  assert {
+    condition = jsondecode(module.platform_api[0].settings_json).trino_urls == {
+      dev  = "http://trino.olf-dev.svc.cluster.local:8080"
+      prod = "http://trino.olf-prod.svc.cluster.local:8080"
+    }
+    error_message = "the probe needs each coordinator's base URL, not its statement URL"
+  }
+
+  assert {
+    condition     = length(terraform_data.platform_api_probe_grant) == 1
+    error_message = "the F20 egress is static, so the root must check the probe grant accompanies the platform API"
+  }
+}

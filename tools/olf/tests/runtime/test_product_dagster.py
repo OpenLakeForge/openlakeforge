@@ -67,6 +67,23 @@ def test_a_declared_cadence_sets_the_prod_schedule_and_it_is_still_stopped() -> 
     assert build_stage_schedules(spec, stage="dev") == []
 
 
+def test_a_cadence_that_is_enabled_in_prod_gets_a_running_schedule_there_only() -> None:
+    spec = ProductDefinitionSpec(
+        domain="sales", product="revenue", cadence=ProductCadence("0 * * * *", enabled_in_prod=True)
+    )
+
+    (schedule,) = build_stage_schedules(spec, stage="prod")
+
+    assert schedule.default_status == DefaultScheduleStatus.RUNNING
+    for stage in ("dev", "uat", ""):
+        assert build_stage_schedules(spec, stage=stage) == []
+
+
+def test_a_manual_only_cadence_cannot_be_enabled_in_prod() -> None:
+    with pytest.raises(ValueError, match="manual-only"):
+        ProductCadence(cron=None, enabled_in_prod=True)
+
+
 def test_a_manual_cadence_defines_no_schedule_in_prod() -> None:
     spec = ProductDefinitionSpec(domain="sales", product="revenue", cadence=ProductCadence(cron=None))
 

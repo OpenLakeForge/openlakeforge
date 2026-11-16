@@ -227,7 +227,7 @@ def test_slim_with_no_metrics_still_answers_and_never_calls_absent_integrations_
     integrations = {item["name"]: item["status"] for item in stage["integrations"]}
     assert integrations == {
         "dagster": "available",
-        "services": "unavailable",
+        "services": "disabled",
         "quality": "unavailable",
         "metrics": "unavailable",
     }
@@ -249,9 +249,7 @@ def test_a_stale_latest_run_is_unknown_not_healthy(api: TestClient, mint: Mint, 
     assert api.get(STAGE, headers=_as(mint, "data-engineer")).json()["state"] == "unknown"
 
 
-def test_an_unreachable_dagster_is_unknown_and_unavailable_with_no_error_text(
-    settings: Settings, mint: Mint
-) -> None:
+def test_an_unreachable_dagster_is_unknown_and_unavailable_with_no_error_text(settings: Settings, mint: Mint) -> None:
     api = TestClient(create_app(_settings(settings, dagster_graphql_urls={"dev": UNREACHABLE})))
 
     stage = api.get(STAGE, headers=_as(mint, "data-engineer"))

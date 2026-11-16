@@ -92,3 +92,30 @@ run "probe_namespaces_refuse_kube_system" {
 
   expect_failures = [kubernetes_role_v1.probe]
 }
+
+# #1156: the API is told which namespaces to probe only where it holds a token.
+run "settings_name_no_probe_namespace_without_probe_namespaces" {
+  command = plan
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).stage_namespaces == {}
+    error_message = "without probe_namespaces the API must be told of no namespace to probe"
+  }
+}
+
+run "settings_carry_the_probe_namespaces_and_trino_base_urls" {
+  command = plan
+
+  variables {
+    probe_namespaces = { dev = "olf-dev" }
+    trino_urls       = { dev = "http://trino.olf-dev.svc.cluster.local:8080" }
+  }
+
+  assert {
+    condition = (
+      jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).stage_namespaces == { dev = "olf-dev" }
+      && jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).trino_urls == { dev = "http://trino.olf-dev.svc.cluster.local:8080" }
+    )
+    error_message = "the settings must render the namespace map and the Trino base URL per stage"
+  }
+}

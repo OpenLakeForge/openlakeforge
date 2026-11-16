@@ -98,6 +98,11 @@ class Settings:
     file_buckets: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     ops_bucket: str | None = None
     files_max_upload_bytes: int = 1_073_741_824
+    # The service probes (ADR 0021, decision 7): each stage's namespace, which the Roles Terraform grants are bound
+    # to, and its Trino coordinator's base URL (the probe appends /v1/info; query_endpoints holds the statement URL).
+    # A stage with no namespace is not probed: without the namespace the pod has no token either.
+    stage_namespaces: Mapping[str, str] = field(default_factory=dict)
+    trino_urls: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -145,6 +150,8 @@ class Settings:
                 },
                 ops_bucket=data.get("ops_bucket") or None,
                 files_max_upload_bytes=int(data.get("files_max_upload_bytes", 1_073_741_824)),
+                stage_namespaces={str(stage): str(ns) for stage, ns in (data.get("stage_namespaces") or {}).items()},
+                trino_urls={str(stage): str(url) for stage, url in (data.get("trino_urls") or {}).items()},
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -208,6 +215,17 @@ class Settings:
             raise SettingsError(f"file_buckets names stages that are not enabled: {', '.join(stray)}")
         if self.files_max_upload_bytes <= 0:
             raise SettingsError("files_max_upload_bytes must be positive")
+        stray = sorted(set(self.stage_namespaces) - set(self.stages))
+        if stray:
+            raise SettingsError(f"stage_namespaces names stages that are not enabled: {', '.join(stray)}")
+        if not all(self.stage_namespaces.values()):
+            raise SettingsError("stage_namespaces must name a namespace for every stage it lists")
+        stray = sorted(set(self.trino_urls) - set(self.stages))
+        if stray:
+            raise SettingsError(f"trino_urls names stages that are not enabled: {', '.join(stray)}")
+        for stage, url in self.trino_urls.items():
+            if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).netloc:
+                raise SettingsError(f"trino_urls[{stage!r}] must be an http(s) base URL")
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")

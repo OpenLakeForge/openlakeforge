@@ -322,6 +322,7 @@ def test_platform_apply_variables_have_no_aws_region(tmp_path: Path) -> None:
     assert variables["project_code_image_repository"] == _FACTS.project_code_repository
     assert set(variables.keys()) == {
         "profile_name",
+        "observability",
         "bucket_names",
         "ops_bucket_name",
         "shared_namespace",

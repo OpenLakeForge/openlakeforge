@@ -16,6 +16,7 @@ What each probe proves, and what it does not (the table is ADR 0021, decision 7)
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
@@ -86,6 +87,14 @@ class StageTargets:
     trino_selector: Mapping[str, str] | None = None
 
 
+class StageProber(Protocol):
+    """What the health routes need of `ServiceProbes`: a blocking call that returns one signal per component."""
+
+    def probe(self, targets: StageTargets) -> list[Signal]: ...
+
+
+# Each stage read would otherwise fan out to up to nine backend calls; dashboards poll, so reuse a recent answer.
+DEFAULT_PROBE_CACHE_TTL = timedelta(seconds=10)
 DEFAULT_DAGSTER_SELECTOR = {"app.kubernetes.io/name": "dagster"}
 DEFAULT_TRINO_SELECTOR = {"app.kubernetes.io/name": "trino"}
 
@@ -103,6 +112,7 @@ class ServiceProbes:
         restart_window: timedelta = timedelta(minutes=30),
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         max_workers: int = 10,
+        cache_ttl: timedelta = DEFAULT_PROBE_CACHE_TTL,
     ) -> None:
         self._kube_list = kube_list
         self._http_get_json = http_get_json
@@ -112,6 +122,9 @@ class ServiceProbes:
         self._ttl = ttl
         self._restart_window = restart_window
         self._clock = clock
+        self._cache_ttl = cache_ttl
+        self._cache: dict[str, tuple[datetime, list[Signal]]] = {}
+        self._cache_lock = threading.Lock()
         # One pool for the life of this object. A probe stuck in a socket cannot be cancelled and keeps its worker, so
         # the threads a hung dependency can hold are capped at `max_workers`; probes beyond that queue and read as
         # "probe timed out" (unknown) until a worker frees up. Size it for the stages probed at once (5 per stage).
@@ -136,8 +149,23 @@ class ServiceProbes:
             **options,
         )
 
+    def close(self) -> None:
+        """Stop accepting probes. A probe stuck in a socket is abandoned, not joined, so shutdown never waits on one."""
+        self._pool.shutdown(wait=False, cancel_futures=True)
+
     def probe(self, targets: StageTargets) -> list[Signal]:
-        """Signals for one stage; the probes run concurrently and share one timeout."""
+        """Signals for one stage, reused for `cache_ttl`; a probe that raised is never cached."""
+        with self._cache_lock:
+            cached = self._cache.get(targets.stage)
+            if cached and self._clock() - cached[0] < self._cache_ttl:
+                return list(cached[1])
+        signals = self._probe_uncached(targets)
+        with self._cache_lock:
+            self._cache[targets.stage] = (self._clock(), signals)
+        return list(signals)
+
+    def _probe_uncached(self, targets: StageTargets) -> list[Signal]:
+        """The probes run concurrently and share one timeout."""
         scope = Scope(stage=targets.stage)
         checks: list[tuple[str, bool, Callable[[], _Outcome]]] = [
             (

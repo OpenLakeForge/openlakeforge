@@ -365,8 +365,10 @@ Names capabilities, not products: no field selects a metrics or log backend.
 It is platform-wide, not per stage. `olf profile validate` and `olf profile
 resolve` check and print it, and `olf profile resolve --json` reports the
 resolved values as `observability`, including when the block is omitted.
-Nothing deploys from it yet: Terraform does not read these values, so changing
-them changes no running component.
+Terraform reports the resolved values in the provider contract's
+[`shared.observability`](../architecture/provider-contracts.md#sharedobservability),
+but no component acts on them yet, so changing them changes no running
+component.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |

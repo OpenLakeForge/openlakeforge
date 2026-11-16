@@ -165,6 +165,67 @@
         }
       }
     },
+    "observabilityCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "supported"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "supported": {"type": "boolean", "description": "False when this provider has no adapter that can honour the capability, whatever the profile asks for."}
+      }
+    },
+    "observabilityRetainedCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "supported", "retention_days", "retention_supported"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "supported": {"type": "boolean", "description": "False when this provider has no adapter that can honour the capability, whatever the profile asks for."},
+        "retention_days": {"type": "integer", "minimum": 1, "description": "The retention the profile asks for."},
+        "retention_supported": {"type": "boolean", "description": "False while nothing applies retention_days to the stored data."}
+      }
+    },
+    "observabilityBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "implementation"],
+      "dependentRequired": {"logs": ["metrics", "grafana", "alerts"], "metrics": ["logs"], "grafana": ["logs"], "alerts": ["logs"]},
+      "properties": {
+        "ref": {"$ref": "#/definitions/nonEmptyString"},
+        "implementation": {"$ref": "#/definitions/nonEmptyString"},
+        "logs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["archive", "search"],
+          "properties": {
+            "archive": {
+              "allOf": [{"$ref": "#/definitions/observabilityRetainedCapability"}],
+              "properties": {"enabled": {"const": true}}
+            },
+            "search": {"$ref": "#/definitions/observabilityCapability"}
+          }
+        },
+        "metrics": {"$ref": "#/definitions/observabilityRetainedCapability"},
+        "grafana": {"$ref": "#/definitions/observabilityCapability"},
+        "alerts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["receivers", "supported"],
+          "properties": {
+            "supported": {"type": "boolean"},
+            "receivers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "type"],
+                "properties": {"name": {"$ref": "#/definitions/nonEmptyString"}, "type": {"$ref": "#/definitions/nonEmptyString"}}
+              }
+            }
+          }
+        }
+      }
+    },
     "accessBinding": {
       "type": "object",
       "additionalProperties": false,
@@ -246,7 +307,7 @@
         "secrets": {"$ref": "#/definitions/binding"},
         "identity": {"$ref": "#/definitions/identityBinding"},
         "access": {"$ref": "#/definitions/accessBinding"},
-        "observability": {"$ref": "#/definitions/binding"},
+        "observability": {"$ref": "#/definitions/observabilityBinding"},
         "catalog_service": {"$ref": "#/definitions/binding"},
         "governance_service": {"$ref": "#/definitions/binding"},
         "portal": {"$ref": "#/definitions/binding"}
