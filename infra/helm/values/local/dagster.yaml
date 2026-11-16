@@ -36,6 +36,18 @@ dagsterDaemon:
             value:
               applyLimitPerUniqueValue: true
             limit: 1
+  # The overall limit, `maxConcurrentRuns`, is the stage's size: modules/orchestration/dagster sets it from
+  # release/query-sizes.yaml.
+  #
+  # The daemon fails a run whose run pod is gone (evicted, deleted, node lost) on its next poll, and one that
+  # never started after startTimeoutSeconds. Without it such a run stays STARTED for good and holds its queue
+  # slot, and the domain limit above then blocks every later run of that domain. maxRuntimeSeconds (4 hours)
+  # bounds a hung run the same way.
+  runMonitoring:
+    enabled: true
+    startTimeoutSeconds: 300
+    pollIntervalSeconds: 30
+    maxRuntimeSeconds: 14400
   image:
     repository: docker.io/dagster/dagster-celery-k8s
     tag: "1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee"

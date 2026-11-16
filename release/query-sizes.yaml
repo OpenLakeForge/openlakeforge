@@ -25,12 +25,18 @@
 #   default of 150 stopped a 75-table union at 152 stages, #706). Each stage
 #   costs the coordinator scheduling work and memory, so the value follows its
 #   heap: the coordinator keeps the same 2G heap in every size, hence 300.
+# max_concurrent_runs: how many runs the stage's Dagster run queue lets execute
+#   at once (modules/orchestration/dagster). Each run pod runs a dlt extract or a
+#   dbt process and is a Trino client, so the limit follows Trino's capacity:
+#   workers + 2. Provisional like the rest (#328/#329). The per-domain limit in
+#   infra/helm/values/local/dagster.yaml applies on top.
 # coordinator memory_limit: 4Gi for the 2G heap. At 3Gi the kernel OOM-killed
 #   the coordinator under a 41M-row Gold rebuild (#755): direct buffers for
 #   Parquet/S3 I/O, metaspace and thread stacks need more than 1Gi beside the heap.
 sizes:
   small:
     workers: 0
+    max_concurrent_runs: 2
     schedule_on_coordinator: true
     max_memory: 4GB
     max_memory_per_node: 1GB
@@ -44,6 +50,7 @@ sizes:
   # limit) and 1.5 CPU for Trino alone, on top of the rest of the stack.
   medium:
     workers: 2
+    max_concurrent_runs: 4
     schedule_on_coordinator: false
     max_memory: 2GB
     max_memory_per_node: 1GB
@@ -62,6 +69,7 @@ sizes:
   # the limit) and 2.5 CPU for Trino alone, on top of the rest of the stack.
   large:
     workers: 4
+    max_concurrent_runs: 6
     schedule_on_coordinator: false
     max_memory: 4GB
     max_memory_per_node: 1GB

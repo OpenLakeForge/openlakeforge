@@ -8,11 +8,18 @@ import yaml
 
 pytest.importorskip("dagster")
 
-from dagster import DefaultScheduleStatus, materialize  # noqa: E402
+from dagster import (  # noqa: E402
+    DefaultScheduleStatus,
+    Definitions,
+    RetryPolicy,
+    define_asset_job,
+    materialize,
+)
 from openlakeforge_core import FULL_REFRESH_TAG, full_refresh_tags  # noqa: E402
 from openlakeforge_runtime import product_dagster  # noqa: E402
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult  # noqa: E402
 from openlakeforge_runtime.product_dagster import (  # noqa: E402
+    DEFAULT_RETRY_POLICY,
     ProductCadence,
     ProductDefinitionSpec,
     ResolvedProductInputs,
@@ -769,3 +776,79 @@ def test_the_run_queue_admits_one_run_per_silver_domain() -> None:
             "limit": 1,
         }
     ]
+
+
+def _product_defs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **spec_fields) -> Definitions:  # noqa: ANN003
+    monkeypatch.setenv("OPENLAKEFORGE_DBT_PROFILES_DIR", str(tmp_path))
+    spec = ProductDefinitionSpec(domain="sales", product="order_revenue", **spec_fields)
+    return product_dagster.build_product_definitions(spec)
+
+
+def test_a_product_job_retries_its_steps_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (job,) = _product_defs(tmp_path, monkeypatch).jobs
+
+    assert job.op_retry_policy == DEFAULT_RETRY_POLICY
+    assert 0 < DEFAULT_RETRY_POLICY.max_retries <= 3
+    assert DEFAULT_RETRY_POLICY.delay and DEFAULT_RETRY_POLICY.backoff and DEFAULT_RETRY_POLICY.jitter
+
+
+def test_a_product_overrides_or_disables_the_retry_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    custom = RetryPolicy(max_retries=5, delay=1)
+
+    (overridden,) = _product_defs(tmp_path, monkeypatch, retry_policy=custom).jobs
+    (disabled,) = _product_defs(tmp_path, monkeypatch, retry_policy=None).jobs
+
+    assert overridden.op_retry_policy == custom
+    assert disabled.op_retry_policy is None
+
+
+def test_the_gold_step_never_retries_whatever_the_job_default_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (gold,) = _product_defs(tmp_path, monkeypatch, retry_policy=RetryPolicy(max_retries=5)).assets
+
+    assert gold.op.retry_policy.max_retries == 0
+
+
+def test_a_bronze_step_that_fails_once_succeeds_on_retry() -> None:
+    attempts: list[tuple[str, ...]] = []
+
+    def flaky(resources: tuple[str, ...]) -> dict[str, BronzeLoadResult]:
+        attempts.append(resources)
+        if len(attempts) == 1:
+            raise ConnectionError("source reset the connection")
+        return {
+            r: BronzeLoadResult(entity=r, rows=1, uri=f"s3://bronze/shop/{r}.csv", source_file=r) for r in resources
+        }
+
+    source = SourceDefinitionSpec(source="shop", resources=("orders",), bronze_loader=flaky)
+    # The default policy's attempts, without its 30 s wait.
+    policy = RetryPolicy(max_retries=DEFAULT_RETRY_POLICY.max_retries, delay=0.01)
+    job = define_asset_job("bronze", op_retry_policy=policy)
+    defs = Definitions(assets=list(build_source_definitions(source).assets), jobs=[job])
+
+    result = defs.resolve_job_def("bronze").execute_in_process()
+
+    assert result.success
+    assert len(attempts) == 2
+
+
+def _local_dagster_values() -> dict:
+    repo_root = Path(__file__).resolve().parents[4]
+    return yaml.safe_load((repo_root / "infra/helm/values/local/dagster.yaml").read_text(encoding="utf-8"))
+
+
+def test_a_run_whose_pod_is_lost_is_failed_by_the_daemon_within_a_bounded_time() -> None:
+    monitoring = _local_dagster_values()["dagsterDaemon"]["runMonitoring"]
+
+    assert monitoring["enabled"] is True
+    assert monitoring["pollIntervalSeconds"] <= 60
+    assert monitoring["startTimeoutSeconds"] <= 600
+    assert 0 < monitoring["maxRuntimeSeconds"] <= 24 * 3600
+
+
+def test_the_size_derived_run_limit_is_left_to_the_terraform_module() -> None:
+    queue = _local_dagster_values()["dagsterDaemon"]["runCoordinator"]["config"]["queuedRunCoordinator"]
+
+    # The module sets it from release/query-sizes.yaml; a value here would shadow the sized one.
+    assert "maxConcurrentRuns" not in queue

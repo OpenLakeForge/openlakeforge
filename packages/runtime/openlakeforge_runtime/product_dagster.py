@@ -16,12 +16,15 @@ from dagster import (
     AssetKey,
     AssetOut,
     AssetSelection,
+    Backoff,
     DefaultScheduleStatus,
     Definitions,
     Failure,
     Field,
+    Jitter,
     MetadataValue,
     Output,
+    RetryPolicy,
     ScheduleDefinition,
     define_asset_job,
     in_process_executor,
@@ -56,6 +59,7 @@ from openlakeforge_runtime.s3_artifacts import upload_file_to_base_uri
 from openlakeforge_runtime.source_bindings import source_binding_tags
 
 __all__ = [
+    "DEFAULT_RETRY_POLICY",
     "ProductDefinitionSpec",
     "ProductCadence",
     "ResolvedProductInputs",
@@ -102,6 +106,18 @@ _MAINTENANCE_SCHEDULE_CRON = "0 4 * * 0"
 _GOLD_MAINTENANCE_SCHEDULE_CRON = "0 5 * * 0"
 
 
+# Bronze and Silver steps talk to the source, the object store and the catalog, and each fails now and then for a
+# reason the next attempt does not share (a dropped connection, a commit conflict). Two retries, about 30 s then
+# 60 s apart (exponential, jittered so products that failed together do not retry together), ride those out in
+# a couple of minutes; a step that is really broken still fails the run. The delay is a sleep in the run pod, so
+# the run keeps its queue slot meanwhile. A product overrides it through `ProductDefinitionSpec.retry_policy`.
+DEFAULT_RETRY_POLICY = RetryPolicy(max_retries=2, delay=30, backoff=Backoff.EXPONENTIAL, jitter=Jitter.PLUS_MINUS)
+
+# A failed dbt build leaves a half-built generation (the retained run_results of #1132), so the Gold step keeps
+# Dagster's no-retry behaviour whatever default the job carries.
+_NO_RETRY = RetryPolicy(max_retries=0)
+
+
 @dataclass(frozen=True)
 class ProductCadence:
     """When a product's PROD schedule fires; `cron=None` declares the product manual-only.
@@ -135,7 +151,9 @@ class ProductDefinitionSpec:
     - `silver_inputs`: the domain's Silver tables those models read;
     - `bronze_inputs`: the Bronze resource each of `silver_inputs` reads, from
       the domain's Floe entities;
-    - `cadence`: the PROD schedule's cron and timezone; absent means daily at 03:00 UTC.
+    - `cadence`: the PROD schedule's cron and timezone; absent means daily at 03:00 UTC;
+    - `retry_policy`: the retries of the Bronze and Silver steps, `DEFAULT_RETRY_POLICY` unless set;
+      `None` turns them off. The Gold step never retries.
     """
 
     domain: str
@@ -144,6 +162,7 @@ class ProductDefinitionSpec:
     bronze_inputs: tuple[tuple[str, str], ...] | None = None
     gold_assets: tuple[str, ...] | None = None
     cadence: ProductCadence | None = None
+    retry_policy: RetryPolicy | None = DEFAULT_RETRY_POLICY
 
     @property
     def job_name(self) -> str:
@@ -566,6 +585,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         manifest=manifest_path,
         select=spec.dbt_select,
         dagster_dbt_translator=ProductDbtTranslator(),
+        retry_policy=_NO_RETRY,
     )(_dbt_gold_assets)
 
     # The steps run one after another, and the heavy work is elsewhere: Silver's in a Floe Kubernetes Job, Gold's
@@ -583,6 +603,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             ).required_multi_asset_neighbors()
         ),
         executor_def=in_process_executor,
+        op_retry_policy=spec.retry_policy,
         tags={**_bronze_source_binding_tags(inputs), SILVER_DOMAIN_TAG: spec.domain},
     )
 

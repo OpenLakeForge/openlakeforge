@@ -62,10 +62,13 @@ resource "helm_release" "dagster" {
         annotations = var.service_account_annotations
       }
 
-      dagsterDaemon = {
-        env        = local.runtime_env
-        envSecrets = local.runtime_env_secrets
-      }
+      dagsterDaemon = merge(
+        {
+          env        = local.runtime_env
+          envSecrets = local.runtime_env_secrets
+        },
+        local.run_queue_values,
+      )
 
       computeLogManager = {
         type = "S3ComputeLogManager"
