@@ -109,3 +109,57 @@ def test_the_fill_script_writes_numbered_lines_the_reader_can_count() -> None:
     numbers = _log_collector.line_numbers(result.stderr.splitlines(), "tok")
     assert numbers == list(range(1, 2 * _log_delivery.FILL_LINES_PER_SECOND + 1))
     assert len(result.stderr.splitlines()[0]) > _log_delivery.FILL_LINE_PADDING
+
+
+def test_the_probe_is_fetched_from_inside_a_pod_with_the_images_python() -> None:
+    args = _log_delivery.exec_get_args("olf-system", "platform-api-x", "http://10.0.0.7:2021/spool")
+
+    assert args[:5] == ["exec", "platform-api-x", "-n", "olf-system", "--"]
+    assert args[5:7] == ["python", "-c"]
+    assert args[-1] == "http://10.0.0.7:2021/spool"
+    assert "-c" not in args[2:5]
+
+
+def test_the_engine_metrics_are_fetched_from_the_probe_container_over_loopback() -> None:
+    args = _log_delivery.exec_get_args(
+        "olf-system", "log-collector-a", "http://127.0.0.1:2020/x", container="spool-probe"
+    )
+
+    assert args[:6] == ["exec", "log-collector-a", "-n", "olf-system", "-c", "spool-probe"]
+
+
+def test_a_collector_pod_without_an_address_is_an_error() -> None:
+    pods = {"items": [{"metadata": {"name": "a"}, "status": {"podIP": "10.0.0.1"}}, {"metadata": {"name": "b"}}]}
+
+    with pytest.raises(E2EError, match="collector pod b has no IP"):
+        _log_delivery.collector_addresses(pods)
+    assert _log_delivery.collector_addresses({"items": pods["items"][:1]}) == [("a", "10.0.0.1")]
+
+
+def test_the_spool_is_drained_only_when_every_collector_reports_it_empty_and_readable() -> None:
+    empty = _spool("dev", None)
+    held = _spool("dev", timedelta(minutes=2), size=1_000)
+    unreadable = SpoolObservation("dev", NOW, None, 0, LIMIT, unreadable=True)
+
+    assert _log_delivery.spool_drained([empty, empty], "dev")
+    assert not _log_delivery.spool_drained([empty, held], "dev")
+    assert not _log_delivery.spool_drained([empty, unreadable], "dev")
+    assert not _log_delivery.spool_drained([_spool("prod", None)], "dev")
+    assert not _log_delivery.spool_drained([], "dev")
+
+
+def test_the_archive_is_read_until_two_reads_agree(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_log_delivery.time, "sleep", lambda _s: None)
+    reads = iter([{1}, {1, 2}, {1, 2, 3}, {1, 2, 3}, {9}])
+
+    assert _log_delivery.await_stable(lambda: next(reads), settle_seconds=1, timeout_seconds=60) == {1, 2, 3}
+
+
+def test_an_archive_that_never_stops_changing_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_log_delivery.time, "sleep", lambda _s: None)
+    ticks = iter(range(100))
+    monkeypatch.setattr(_log_delivery.time, "monotonic", lambda: next(ticks) * 10.0)
+    counter = iter(range(100))
+
+    with pytest.raises(E2EError, match="still changing"):
+        _log_delivery.await_stable(lambda: {next(counter)}, settle_seconds=1, timeout_seconds=30)

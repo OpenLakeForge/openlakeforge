@@ -155,20 +155,21 @@ maintainer-reviewable, as the spool's are.
 
 The failure-injection e2e (#1189, `tools/olf/olf/infra/e2e/_log_delivery.py`,
 two `drill` assertions of the local run) reads the signals as the health route
-does, from the probe through the API server's pod proxy and from a listing of the
-stage's prefix, with the production thresholds. It cuts the route by replacing
+does, from the probe fetched from a platform API pod (the path F42 admits; the API
+server's pod proxy would be refused) and from a listing of the stage's prefix,
+with the production thresholds. It cuts the route by replacing
 the collector's own NetworkPolicy, `olf-flows-log-collector`, with a copy that
 lacks the S3 egress rule, and puts the original back in a `finally`: policies
 are additive, so an extra policy could not take an allowed flow away. Run 1:
 baseline healthy, then known lines under the cut, then it waits for the spool
 age and the newest object to pass `warning` (up to 40 minutes), asserts bytes
 are spooled and the engine's `s3` failure counters are zero, restores the route
-and waits for every signal to be `healthy` and for the lines to be in the
-archive exactly once. Run 2: fills the spool past `store_dir_limit_size` with
+and waits for every signal to be `healthy` and every spool empty, then for the
+lines to be in the archive exactly once. Run 2: fills the spool past `store_dir_limit_size` with
 numbered lines, asserts the size signal turns `critical`, that the spool peak
 stays within one 8M file plus 8M of the limit and that the collector does not
-restart, then records the plugin's messages and which line numbers the archive
-lacks after the restore. Run 2 records and does not assert which data is
+restart, then waits for every spool to empty and the archive to stop changing, and
+records the plugin's messages and which line numbers the archive lacks. Run 2 records and does not assert which data is
 discarded, because the plugin page does not say. The size signal reaches
 `warning` only in run 2 (a few kilobytes never reach half of 512M).
 

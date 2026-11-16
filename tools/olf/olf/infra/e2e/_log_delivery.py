@@ -13,8 +13,9 @@ engine's error counters at zero. Two drills prove the signals the stage health r
 
 The cut is the collector's own NetworkPolicy with its S3 egress rule removed, not an added policy: policies are
 additive, so a second one could not take the allowed flow away. The signals are read the way the API reads them
-(`openlakeforge_core.archive_health`), from the probe sidecar through the API server's pod proxy and from a listing
-of the stage's archive prefix, so the thresholds under test are the production ones. Local only: it needs the
+(`openlakeforge_core.archive_health`): the probe sidecar is fetched from a platform API pod, which is F42's own path
+(the API server's pod proxy would be refused by the collector's ingress policy), and the newest object comes from a
+listing of the stage's archive prefix, so the thresholds under test are the production ones. Local only: it needs the
 SeaweedFS port-forward and a collector with the probe sidecar, which a profile without the platform API lacks.
 """
 
@@ -50,6 +51,8 @@ from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 POLICY = "olf-flows-log-collector"
 S3_PORT = 8333
 PROBE_PORT = 2021
+SPOOL_PATH = "/spool"
+_FETCH = "import sys,urllib.request;sys.stdout.write(urllib.request.urlopen(sys.argv[1],timeout=10).read().decode())"
 ENGINE_PORT = 2020
 SIGNAL_MAX_AGE = timedelta(seconds=120)
 POLL_SECONDS = 60.0
@@ -57,6 +60,10 @@ POLL_SECONDS = 60.0
 OUTAGE_TIMEOUT_SECONDS = 40 * 60
 DRAIN_TIMEOUT_SECONDS = 30 * 60
 FILL_TIMEOUT_SECONDS = 30 * 60
+# Objects land in the bucket before the spool file is removed, so an empty spool is already complete; this only
+# guards a listing that lags the upload.
+SETTLE_SECONDS = 60.0
+SETTLE_TIMEOUT_SECONDS = 10 * 60
 BASELINE_LINES = 20
 OUTAGE_LINES = 60
 # One awk call writes this many lines a second: fast enough to fill the spool in minutes, slow enough that the
@@ -146,7 +153,29 @@ def _stage(cfg: E2EConfig) -> str:
     return cfg.namespace.removeprefix("olf-")
 
 
-def _pods(cfg: E2EConfig) -> list[str]:
+def collector_addresses(pods_json: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Name and IP of each collector pod. A pod without an IP is an error: the API could not reach it either."""
+    result = []
+    for item in pods_json["items"]:
+        name, ip = item["metadata"]["name"], item.get("status", {}).get("podIP")
+        if not ip:
+            raise E2EError(f"collector pod {name} has no IP yet")
+        result.append((name, ip))
+    return result
+
+
+def exec_get_args(namespace: str, pod: str, url: str, *, container: str | None = None) -> list[str]:
+    """`kubectl exec` arguments that GET `url` from inside `pod` with the image's own python.
+
+    Exec reaches the pod through the kubelet, so a NetworkPolicy never sees it: what the request itself crosses is
+    decided by where it runs. From a platform API pod, a collector's address is F42's own path; from the collector's
+    probe container, localhost is no network flow at all.
+    """
+    target = ["-c", container] if container else []
+    return ["exec", pod, "-n", namespace, *target, "--", "python", "-c", _FETCH, url]
+
+
+def _collector_pods(cfg: E2EConfig) -> list[tuple[str, str]]:
     out = kubectl(
         cfg,
         [
@@ -161,15 +190,19 @@ def _pods(cfg: E2EConfig) -> list[str]:
         ],
         capture=True,
     )
-    return [item["metadata"]["name"] for item in json.loads(out)["items"]]
+    return collector_addresses(json.loads(out))
 
 
-def _proxy(cfg: E2EConfig, pod: str, port: int, path: str) -> str:
-    return kubectl(
+def _api_pod(cfg: E2EConfig) -> str:
+    out = kubectl(
         cfg,
-        ["get", "--raw", f"/api/v1/namespaces/{cfg.platform_namespace}/pods/{pod}:{port}/proxy{path}"],
+        ["get", "pods", "-n", cfg.platform_namespace, "-l", "app.kubernetes.io/name=platform-api", "-o", "name"],
         capture=True,
     )
+    pods = out.split()
+    if not pods:
+        raise E2EError("no platform API pod to read the collector's probe from")
+    return pods[0].removeprefix("pod/")
 
 
 def _has_probe(cfg: E2EConfig) -> bool:
@@ -190,9 +223,14 @@ def _has_probe(cfg: E2EConfig) -> bool:
 
 
 def _read_spool(cfg: E2EConfig) -> list[SpoolObservation]:
+    """Each collector's probe, read from a platform API pod: the source and port F42 admits."""
+    api = _api_pod(cfg)
     observations: list[SpoolObservation] = []
-    for pod in _pods(cfg):
-        observations.extend(parse_spool_report(json.loads(_proxy(cfg, pod, PROBE_PORT, "/spool"))))
+    for _, ip in _collector_pods(cfg):
+        body = kubectl(
+            cfg, exec_get_args(cfg.platform_namespace, api, f"http://{ip}:{PROBE_PORT}{SPOOL_PATH}"), capture=True
+        )
+        observations.extend(parse_spool_report(json.loads(body)))
     return observations
 
 
@@ -268,7 +306,47 @@ def _s3_unreachable(cfg: E2EConfig) -> Iterator[None]:
 
 
 def _engine_failures(cfg: E2EConfig) -> float:
-    return sum(engine_failures(_proxy(cfg, pod, ENGINE_PORT, "/api/v2/metrics/prometheus")) for pod in _pods(cfg))
+    """The engine's counters, read over loopback from the probe container: nothing admits port 2020 but the kubelet."""
+    url = f"http://127.0.0.1:{ENGINE_PORT}/api/v2/metrics/prometheus"
+    return sum(
+        engine_failures(
+            kubectl(cfg, exec_get_args(cfg.platform_namespace, pod, url, container="spool-probe"), capture=True)
+        )
+        for pod, _ in _collector_pods(cfg)
+    )
+
+
+def spool_drained(observations: Iterable[SpoolObservation], stage: str) -> bool:
+    """Whether every collector reports the stage's spool readable and empty; none reporting is not drained."""
+    mine = [o for o in observations if o.stage == stage]
+    return bool(mine) and all(not o.unreadable and o.oldest_file_age is None and o.size_bytes == 0 for o in mine)
+
+
+def _wait_drained(cfg: E2EConfig, timeout_seconds: float) -> None:
+    """Healthy signals are not enough: under half the limit and ten minutes old also reads healthy mid-drain."""
+    stage = _stage(cfg)
+    _wait_signals(
+        cfg,
+        lambda s: (
+            all(signal.state is HealthState.HEALTHY for signal in s.values()) and spool_drained(_read_spool(cfg), stage)
+        ),
+        "the spool to drain and the signals to recover",
+        timeout_seconds,
+    )
+
+
+def await_stable(read: Callable[[], set[int]], *, settle_seconds: float, timeout_seconds: float) -> set[int]:
+    """Read until two reads `settle_seconds` apart agree, so the answer is not one taken mid-upload."""
+    deadline = time.monotonic() + timeout_seconds
+    previous: set[int] | None = None
+    while True:
+        current = read()
+        if current == previous:
+            return current
+        previous = current
+        if time.monotonic() >= deadline:
+            raise E2EError(f"the archive was still changing after {timeout_seconds:.0f}s")
+        time.sleep(settle_seconds)
 
 
 def check_delivery_signals_follow_an_outage(cfg: E2EConfig) -> None:
@@ -311,13 +389,8 @@ def check_delivery_signals_follow_an_outage(cfg: E2EConfig) -> None:
             )
         log.info(f"During the outage {spooled} bytes are spooled and the engine's S3 failure counters stay at zero.")
 
-    drained = _wait_signals(
-        cfg,
-        lambda s: all(signal.state is HealthState.HEALTHY for signal in s.values()),
-        "the spool to drain and the signals to recover",
-        DRAIN_TIMEOUT_SECONDS,
-    )
-    log.info(f"Recovered: {_describe(drained)}")
+    _wait_drained(cfg, DRAIN_TIMEOUT_SECONDS)
+    log.info(f"Recovered: {_describe(_signals(cfg))}")
     with collector._archive(cfg) as archive:  # noqa: SLF001
         collector.await_exactly_once(
             lambda: collector._run_lines(archive, cfg, run_id, token, blocked_at),  # noqa: SLF001
@@ -379,16 +452,15 @@ def check_spool_limit_is_the_loss_point(cfg: E2EConfig) -> None:
             _record_plugin_messages(cfg, started)
         finally:
             kubectl(cfg, ["delete", "job", name, "-n", cfg.namespace, "--ignore-not-found", "--wait=false"])
-    _wait_signals(
-        cfg,
-        lambda s: all(signal.state is HealthState.HEALTHY for signal in s.values()),
-        "the spool to drain and the signals to recover",
-        DRAIN_TIMEOUT_SECONDS,
-    )
+    _wait_drained(cfg, DRAIN_TIMEOUT_SECONDS)
     collector._wait_until(lambda: collector._collector_ready(cfg), "the collector to be Ready", 120)  # noqa: SLF001
     if (restarts := _restarts(cfg)) != restarts_before:
         raise E2EError(f"the collector restarted while the spool filled ({restarts_before} -> {restarts})")
-    seen = _archived_numbers(cfg, token, started)
+    seen = await_stable(
+        lambda: _archived_numbers(cfg, token, started),
+        settle_seconds=SETTLE_SECONDS,
+        timeout_seconds=SETTLE_TIMEOUT_SECONDS,
+    )
     log.info(f"After the limit was hit: {describe_loss(seen, lines)}")
     if not seen:
         raise E2EError("no line written during the fill reached the archive after the outage")
@@ -442,7 +514,7 @@ def _restarts(cfg: E2EConfig) -> int:
 
 def _record_plugin_messages(cfg: E2EConfig, since: datetime) -> None:
     """What the plugin logs at the limit: the ADR leaves this open, so it is recorded, not asserted."""
-    for pod in _pods(cfg):
+    for pod, _ in _collector_pods(cfg):
         text = kubectl(
             cfg,
             ["logs", pod, "-n", cfg.platform_namespace, "-c", "fluent-bit", f"--since-time={since.isoformat()}"],
