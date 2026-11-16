@@ -445,3 +445,8 @@ incident.
 carry `quality_manifests` and it builds one reader per stage on its own
 `openlakeforge-alerts` key, not the platform API's per-stage keys, so no Secret,
 grant or network row was added. No deviation from the decisions above.
+
+2026-11-16: the e2e (`olf/infra/e2e/_alerts.py`, #1173, slice 23-f) runs the evaluator as Jobs made from the CronJob with
+`--state-prefix alerts-e2e/` against a stub receiver, flow F41. Its delivery records are the `-delivery-` objects under
+that prefix's `history/v1/`, not a separate `alerts/deliveries/` prefix. The e2e writes the Floe WARN and ERROR cases as
+manifests for a real run, as the evaluator reads only the manifest. No deviation from the decisions above.

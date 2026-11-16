@@ -286,3 +286,8 @@ flows:
     to: {scope: any}
     ports: [443] # the webhook receivers; NetworkPolicy cannot name a host, so any address, as F28 and F30
     tag: T # needs a delivery on a running cluster
+  - id: F41
+    from: {scope: shared, pods: {openlakeforge.io/job: alert-evaluator}}
+    to: {scope: shared, pods: {openlakeforge.io/e2e: alert-receiver}}
+    ports: [8443] # the stub serves 8443 behind a Service on 443; F40 excludes the pod and Service ranges
+    tag: T # the stub receiver of the alert e2e (#1173); the e2e sets the label
