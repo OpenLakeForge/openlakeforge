@@ -152,7 +152,7 @@ class FakeS3:
         if CopySourceIfMatch is not None and self.etag(*source) != CopySourceIfMatch:
             raise _client_error("PreconditionFailed")
         self._create(Bucket, Key, self.objects[source][0], IfNoneMatch)
-        return {}
+        return {"CopyObjectResult": {"ETag": self.etag(Bucket, Key)}}
 
     def delete_object(self, *, Bucket: str, Key: str, IfMatch: str | None = None) -> dict[str, Any]:  # noqa: N803
         self._call("delete_object")

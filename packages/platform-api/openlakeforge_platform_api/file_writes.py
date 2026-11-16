@@ -135,11 +135,12 @@ def _delete_keys(
 # evaluates the copy's conditions under the destination's write lock (`weed/s3api/s3api_object_handlers_copy.go`) and
 # a delete's If-Match, or a batch entry's ETag, under the source's (`s3api_object_handlers_delete.go`). What is left:
 # the source can still be overwritten between the copy's check and its delete's check, which the delete then refuses
-# (the move is rolled back, nothing is lost); and the destination copy we roll back is removed unconditionally, so a
-# writer that replaced it in that instant loses its write.
-def _copy(store: FileStore, bucket: str, source: str, destination: str, source_etag: str) -> None:
+# (the move is rolled back, nothing is lost). A rollback deletes each copy only while it keeps the ETag the copy
+# gave it, so a writer that replaced a copy keeps its write; the only window left is that delete's own check.
+def _copy(store: FileStore, bucket: str, source: str, destination: str, source_etag: str) -> str:
+    """Copy `source` (while it still has `source_etag`) to a new `destination`; the copy's own ETag."""
     try:
-        store.copy_object(
+        result = store.copy_object(
             Bucket=bucket,
             Key=destination,
             CopySource={"Bucket": bucket, "Key": source},
@@ -152,6 +153,7 @@ def _copy(store: FileStore, bucket: str, source: str, destination: str, source_e
                 status_code=409, detail=f"{destination!r} already exists or {source!r} changed; nothing was moved"
             ) from exc
         raise
+    return str((result.get("CopyObjectResult") or {}).get("ETag", ""))
 
 
 async def _shielded(function: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
@@ -370,23 +372,33 @@ def _move_file(store: FileStore, bucket: str, source: str, destination: str) -> 
         raise
     if _exists(store, bucket, destination):
         raise HTTPException(status_code=409, detail=f"{destination!r} already exists")
-    _copy(store, bucket, source, destination, etag)
+    copy_etag = _copy(store, bucket, source, destination, etag)
     try:
         store.delete_object(Bucket=bucket, Key=source, IfMatch=etag)
     except ClientError as exc:
         if _error_code(exc) not in _PRECONDITION_FAILED:
             raise
-        # Replaced after the copy: the original is the newer file, so it stays and the stale copy goes.
-        _remove_copies(store, bucket, [destination], destination)
+        # Replaced after the copy: the original is the newer file, so it stays and the stale copy goes, unless
+        # someone has replaced that copy too, in which case it is theirs and stays.
+        _remove_copies(store, bucket, {destination: copy_etag}, destination)
         raise HTTPException(status_code=409, detail=f"{source!r} changed during the move; nothing was moved") from exc
     return 1
 
 
-def _remove_copies(store: FileStore, bucket: str, copies: list[str], where: str) -> None:
+def _remove_copies(store: FileStore, bucket: str, copies: dict[str, str], where: str) -> list[str]:
+    """Delete the copies a failed move made, each only while it still has the ETag the copy gave it.
+
+    A copy that has changed since belongs to another writer now: it is left alone, and returned.
+    """
     try:
-        _delete_keys(store, bucket, copies)
+        _deleted, errors = _delete_keys(store, bucket, list(copies), copies)
     except Exception as exc:
         log.warning("the copies under %s/%s were not removed after a failed move: %s", bucket, where, exc)
+        return []
+    left = [error.key for error in errors if error.detail in _PRECONDITION_FAILED]
+    if left:
+        log.warning("%d keys under %s/%s were replaced by someone else and left in place", len(left), bucket, where)
+    return left
 
 
 def _move_folder(store: FileStore, bucket: str, source: str, destination: str) -> int:
@@ -395,12 +407,11 @@ def _move_folder(store: FileStore, bucket: str, source: str, destination: str) -
         raise HTTPException(status_code=404, detail=f"{source!r} does not exist")
     if _any_under(store, bucket, destination):
         raise HTTPException(status_code=409, detail=f"{destination!r} already exists")
-    copied: list[str] = []
+    copied: dict[str, str] = {}
     try:
         for key, etag in etags.items():
             new_key = destination + key[len(source) :]
-            _copy(store, bucket, key, new_key, etag)
-            copied.append(new_key)
+            copied[new_key] = _copy(store, bucket, key, new_key, etag)
     except Exception:
         # The originals are untouched; remove the copies so the destination is not left half-made.
         _remove_copies(store, bucket, copied, destination)
@@ -409,7 +420,8 @@ def _move_folder(store: FileStore, bucket: str, source: str, destination: str) -
     changed = [error.key for error in errors if error.detail in _PRECONDITION_FAILED]
     if changed:
         # Replaced after the copy: those originals are newer and stay, with their stale copies removed.
-        _remove_copies(store, bucket, [destination + key[len(source) :] for key in changed], destination)
+        stale = {destination + key[len(source) :]: copied[destination + key[len(source) :]] for key in changed}
+        _remove_copies(store, bucket, stale, destination)
         raise HTTPException(
             status_code=409,
             detail=f"{len(changed)} keys changed during the move and stay in {source!r}; the rest moved",
