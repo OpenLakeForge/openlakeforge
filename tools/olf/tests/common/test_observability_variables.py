@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from olf.common.deployment.context import DeploymentContext, observability_variables
+from olf.common.deployment.context import (
+    DeploymentContext,
+    alert_receiver_secrets_variables,
+    observability_variables,
+)
 from olf.common.profile import (
     AlertReceiver,
     DeploymentProfile,
@@ -57,3 +61,32 @@ def test_no_secret_reference_reaches_the_input(tmp_path: Path) -> None:
     serialized = json.dumps(variables)
     assert "ops-webhook" not in serialized
     assert "webhook-url" not in serialized
+
+
+def _receiver_context(tmp_path: Path, receivers: tuple[AlertReceiver, ...]) -> DeploymentContext:
+    profile = DeploymentProfile(
+        name="obs",
+        provider=ProviderSpec(type=Provider.LOCAL),
+        preset=Preset.FULL,
+        stages=(StageSpec(name=StageName.DEV, enabled=True),),
+        observability=ObservabilitySpec(alert_receivers=receivers),
+    )
+    return DeploymentContext.local(repo_root=tmp_path, topology=resolve_topology(profile))
+
+
+def test_secret_references_reach_the_local_root_by_name_and_key_only(tmp_path: Path) -> None:
+    receivers = (
+        AlertReceiver(name="ops", type="webhook", secret_ref=SecretRef(name="ops-webhook", key="webhook-url")),
+        AlertReceiver(name="sec", type="webhook", secret_ref=SecretRef(name="sec-webhook", key="url")),
+    )
+
+    variables = alert_receiver_secrets_variables(_receiver_context(tmp_path, receivers))
+
+    assert json.loads(variables["alert_receiver_secrets"]) == {
+        "ops": {"secret_name": "ops-webhook", "key": "webhook-url"},
+        "sec": {"secret_name": "sec-webhook", "key": "url"},
+    }
+
+
+def test_no_receivers_emit_no_secret_variable(tmp_path: Path) -> None:
+    assert alert_receiver_secrets_variables(_receiver_context(tmp_path, ())) == {}

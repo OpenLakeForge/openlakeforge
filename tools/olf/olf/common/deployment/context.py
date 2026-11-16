@@ -72,7 +72,8 @@ def observability_variables(context: DeploymentContext) -> dict[str, str]:
     """The resolved `spec.observability` as the roots' `observability` input.
 
     Alert receivers carry their name, type and effective stages only: the Secret
-    reference stays out of the contract and out of Terraform state (AGENTS.md rule 7).
+    reference stays out of the provider contract, whose shape does not change. It reaches the
+    local root separately, through `alert_receiver_secrets`.
     """
     observability = context.topology.observability
     document = {
@@ -87,6 +88,20 @@ def observability_variables(context: DeploymentContext) -> dict[str, str]:
         ],
     }
     return {"observability": json.dumps(document, sort_keys=True, separators=(",", ":"))}
+
+
+def alert_receiver_secrets_variables(context: DeploymentContext) -> dict[str, str]:
+    """Each receiver's Secret name and key, as the local root's `alert_receiver_secrets` input.
+
+    The reference (name and key, never the value) enters Terraform state, because the evaluator's pod reads the
+    webhook URL through `secretKeyRef`; the value never does (ADR 0023, decision 4). Separate from
+    `observability_variables` so the AWS and Azure roots, which declare no such variable, are not handed one.
+    """
+    receivers = context.topology.observability.alert_receivers
+    if not receivers:
+        return {}
+    secrets = {r.name: {"secret_name": r.secret_ref.name, "key": r.secret_ref.key} for r in receivers}
+    return {"alert_receiver_secrets": json.dumps(secrets, sort_keys=True, separators=(",", ":"))}
 
 
 def query_variables(context: DeploymentContext) -> dict[str, str]:

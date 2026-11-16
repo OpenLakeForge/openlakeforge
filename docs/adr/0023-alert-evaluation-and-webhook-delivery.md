@@ -414,3 +414,8 @@ Proposed above; the maintainer may change any of them.
 ## History
 
 2026-11-16: created for #1167 (slice 23-a of #23).
+
+2026-11-16: the CronJob, the `openlakeforge-alerts` key and flows F38 to F40 built for #1172 (slice 23-e); local
+reports `alerts.supported = true`. The Secret check is `require_alert_receiver_secrets` in
+`tools/olf/olf/infra/deployment/local/platform.py`, an `olf` precondition before the apply. The evaluator's variables are named by receiver position
+(`OPENLAKEFORGE_ALERT_RECEIVER_<n>`), and its state URI is `s3://<ops bucket>/alerts/`. No deviation from the decisions above.

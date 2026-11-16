@@ -68,6 +68,11 @@ locals {
   alerts_enabled = length(var.observability.alert_receivers) > 0
   # Shared by the alerts identity's grant and the evaluator's state_base_uri, which must agree.
   alerts_prefix = "alerts/"
+  # Reached in-cluster over F32 and F38 (ADR 0017), around the perimeter.
+  dagster_graphql_urls = {
+    for name in keys(local.enabled_stages) :
+    name => "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}/graphql"
+  }
   # Shared by the files identity's grant and the API's settings, which must agree.
   platform_api_file_buckets = {
     for name, binding in local.stage_storage : name => [binding.bronze_bucket_name, binding.silver_bucket_name, binding.gold_bucket_name]
@@ -282,6 +287,34 @@ module "log_collector" {
   credentials_secret_name = module.seaweedfs.log_collector_secret_name
 }
 
+# ADR 0023: the alert evaluator, only with a receiver to notify. It runs the
+# platform API image, which olf builds for it even without spec.identity.
+module "alerts" {
+  source = "../../modules/observability/alerts"
+
+  namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+  image                   = var.platform_api_image
+  image_pull_policy       = "Never"
+  stages                  = sort(keys(local.enabled_stages))
+  dagster_graphql_urls    = local.dagster_graphql_urls
+  state_base_uri          = "${local.artifact_base_uri}/${local.alerts_prefix}"
+  s3_endpoint_url         = module.seaweedfs.contract.endpoint
+  s3_region               = module.seaweedfs.contract.region
+  credentials_secret_name = module.seaweedfs.alerts_secret_name
+  # A receiver names the stages it covers; olf resolves an omitted list to every enabled stage.
+  receivers = local.alerts_enabled ? [
+    for receiver in var.observability.alert_receivers : {
+      name        = receiver.name
+      secret_name = var.alert_receiver_secrets[receiver.name].secret_name
+      secret_key  = var.alert_receiver_secrets[receiver.name].key
+      stages      = receiver.stages
+    }
+  ] : []
+  ca_configmap_name     = local.route_tls ? module.in_cluster_resolution[0].ca_configmap_name : null
+  dagster_scheme        = local.route_scheme
+  dagster_host_template = local.access_enabled ? "dagster-{stage}.${local.base_domain}" : null
+}
+
 module "cert_manager" {
   source = "../../modules/access/cert-manager"
   # Also for Trino's internal certificate (ADR 0016), which needs an issuer
@@ -341,11 +374,7 @@ module "platform_api" {
     }
     if local.query_api_enabled
   }
-  # Reached in-cluster over F32 (ADR 0017), around the perimeter.
-  dagster_graphql_urls = {
-    for name in keys(local.enabled_stages) :
-    name => "http://${local.orchestration_contract.service_name}.${local.stage_namespaces[name]}:${local.orchestration_contract.http_port}/graphql"
-  }
+  dagster_graphql_urls = local.dagster_graphql_urls
   # Built from locals the OpenMetadata module is given too, never from its
   # contract, so the API never orders after the governance module: a
   # governance failure must not hold back the API and its other routes.
