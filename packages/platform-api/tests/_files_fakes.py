@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import threading
@@ -80,7 +81,7 @@ class FakeS3:
         self._call("head_object")
         if (Bucket, Key) not in self.objects:
             raise _client_error("404")
-        return {"ContentLength": len(self.objects[(Bucket, Key)][0])}
+        return {"ContentLength": len(self.objects[(Bucket, Key)][0]), "ETag": self.etag(Bucket, Key)}
 
     def put_object(  # noqa: N803
         self, *, Bucket: str, Key: str, Body: bytes, IfNoneMatch: str | None = None
@@ -128,18 +129,29 @@ class FakeS3:
         return {}
 
     def copy_object(  # noqa: N803
-        self, *, Bucket: str, Key: str, CopySource: dict[str, str], IfNoneMatch: str | None = None
+        self,
+        *,
+        Bucket: str,
+        Key: str,
+        CopySource: dict[str, str],
+        IfNoneMatch: str | None = None,
+        CopySourceIfMatch: str | None = None,
     ) -> dict[str, Any]:
         self._call("copy_object")
         if self.copies_allowed is not None:
             if self.copies_allowed <= 0:
                 raise _client_error("InternalError")
             self.copies_allowed -= 1
-        self._create(Bucket, Key, *self.objects[(CopySource["Bucket"], CopySource["Key"])][:1], IfNoneMatch)
+        source = (CopySource["Bucket"], CopySource["Key"])
+        if CopySourceIfMatch is not None and self.etag(*source) != CopySourceIfMatch:
+            raise _client_error("PreconditionFailed")
+        self._create(Bucket, Key, self.objects[source][0], IfNoneMatch)
         return {}
 
-    def delete_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+    def delete_object(self, *, Bucket: str, Key: str, IfMatch: str | None = None) -> dict[str, Any]:  # noqa: N803
         self._call("delete_object")
+        if IfMatch is not None and ((Bucket, Key) not in self.objects or self.etag(Bucket, Key) != IfMatch):
+            raise _client_error("PreconditionFailed")
         self.objects.pop((Bucket, Key), None)
         return {}
 
@@ -148,11 +160,17 @@ class FakeS3:
         assert len(Delete["Objects"]) <= 1000
         errors = []
         for entry in Delete["Objects"]:
-            if entry["Key"] in self.delete_errors:
-                errors.append({"Key": entry["Key"], "Code": self.delete_errors[entry["Key"]], "Message": "secret"})
+            key = entry["Key"]
+            if key in self.delete_errors:
+                errors.append({"Key": key, "Code": self.delete_errors[key], "Message": "secret"})
+            elif "ETag" in entry and ((Bucket, key) not in self.objects or self.etag(Bucket, key) != entry["ETag"]):
+                errors.append({"Key": key, "Code": "PreconditionFailed", "Message": "secret"})
             else:
-                self.objects.pop((Bucket, entry["Key"]), None)
+                self.objects.pop((Bucket, key), None)
         return {"Errors": errors}
+
+    def etag(self, bucket: str, key: str) -> str:
+        return '"' + hashlib.md5(self.objects[(bucket, key)][0], usedforsecurity=False).hexdigest() + '"'
 
     def keys(self, bucket: str = "olf-dev-bronze") -> list[str]:
         return sorted(key for name, key in self.objects if name == bucket)
@@ -186,7 +204,12 @@ class FakeS3:
         result: dict[str, Any] = {
             "CommonPrefixes": [{"Prefix": value} for kind, value in page if kind == "p"],
             "Contents": [
-                {"Key": value, "Size": len(self.objects[(Bucket, value)][0]), "LastModified": WHEN}
+                {
+                    "Key": value,
+                    "Size": len(self.objects[(Bucket, value)][0]),
+                    "LastModified": WHEN,
+                    "ETag": self.etag(Bucket, value),
+                }
                 for kind, value in page
                 if kind == "k"
             ],

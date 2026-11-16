@@ -92,45 +92,65 @@ def _any_under(store: FileStore, bucket: str, prefix: str) -> bool:
     return bool(page.get("Contents"))
 
 
-def _keys_under(store: FileStore, bucket: str, prefix: str, *, cap: int | None = None) -> list[str]:
-    """Every key under `prefix` (the folder's own marker included), 422 once there are more than `cap`."""
-    keys: list[str] = []
+def _etags_under(store: FileStore, bucket: str, prefix: str, *, cap: int | None = None) -> dict[str, str]:
+    """Every key under `prefix` (the folder's own marker included) with its ETag, 422 past `cap` keys."""
+    found: dict[str, str] = {}
     token: str | None = None
     while True:
         args: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix, "Delimiter": "", "MaxKeys": MAX_KEYS}
         if token:
             args["ContinuationToken"] = token
         page = store.list_objects_v2(**args)
-        keys.extend(entry["Key"] for entry in page.get("Contents", []))
-        if cap is not None and len(keys) > cap:
+        found.update({entry["Key"]: str(entry.get("ETag", "")) for entry in page.get("Contents", [])})
+        if cap is not None and len(found) > cap:
             raise HTTPException(status_code=422, detail=f"{prefix!r} holds more than {cap} keys")
         token = page.get("NextContinuationToken") if page.get("IsTruncated") else None
         if not token:
-            return keys
+            return found
 
 
-def _delete_keys(store: FileStore, bucket: str, keys: list[str]) -> tuple[list[str], list[DeleteError]]:
-    """delete_objects in batches of 1000; what S3 reports per key is returned, not raised."""
+def _delete_keys(
+    store: FileStore, bucket: str, keys: list[str], etags: dict[str, str] | None = None
+) -> tuple[list[str], list[DeleteError]]:
+    """delete_objects in batches of 1000; what S3 reports per key is returned, not raised.
+
+    A key with an ETag in `etags` is deleted only while it still has that ETag (`PreconditionFailed` otherwise).
+    """
+    pinned = etags or {}
     deleted: list[str] = []
     errors: list[DeleteError] = []
     for start in range(0, len(keys), MAX_KEYS):
         batch = keys[start : start + MAX_KEYS]
-        result = store.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": key} for key in batch]})
+        objects = [{"Key": key, **({"ETag": pinned[key]} if pinned.get(key) else {})} for key in batch]
+        result = store.delete_objects(Bucket=bucket, Delete={"Objects": objects})
         failed = {entry["Key"]: str(entry.get("Code") or "error") for entry in result.get("Errors", [])}
         errors.extend(DeleteError(key=key, detail=detail) for key, detail in failed.items())
         deleted.extend(key for key in batch if key not in failed)
     return deleted, errors
 
 
-# The existence checks before a move are a courtesy; the copy itself carries If-None-Match: *, which SeaweedFS 4.48
-# evaluates under the destination's write lock (`weed/s3api/s3api_object_handlers_copy.go`), so two moves onto one
-# absent key cannot both succeed, and a refused copy deletes no original.
-def _copy(store: FileStore, bucket: str, source: str, destination: str) -> None:
+# A move is pinned to what was looked at. The existence checks before it are a courtesy; the copy carries
+# If-None-Match: * (the destination must still be absent) and x-amz-copy-source-if-match (the source must still be
+# the object whose ETag was read), and the original is deleted only while it still has that ETag. SeaweedFS 4.48
+# evaluates the copy's conditions under the destination's write lock (`weed/s3api/s3api_object_handlers_copy.go`) and
+# a delete's If-Match, or a batch entry's ETag, under the source's (`s3api_object_handlers_delete.go`). What is left:
+# the source can still be overwritten between the copy's check and its delete's check, which the delete then refuses
+# (the move is rolled back, nothing is lost); and the destination copy we roll back is removed unconditionally, so a
+# writer that replaced it in that instant loses its write.
+def _copy(store: FileStore, bucket: str, source: str, destination: str, source_etag: str) -> None:
     try:
-        store.copy_object(Bucket=bucket, Key=destination, CopySource={"Bucket": bucket, "Key": source}, IfNoneMatch="*")
+        store.copy_object(
+            Bucket=bucket,
+            Key=destination,
+            CopySource={"Bucket": bucket, "Key": source},
+            IfNoneMatch="*",
+            CopySourceIfMatch=source_etag,
+        )
     except ClientError as exc:
         if _error_code(exc) in _PRECONDITION_FAILED:
-            raise HTTPException(status_code=409, detail=f"{destination!r} already exists") from exc
+            raise HTTPException(
+                status_code=409, detail=f"{destination!r} already exists or {source!r} changed; nothing was moved"
+            ) from exc
         raise
 
 
@@ -297,41 +317,64 @@ def rename_object(request: Request, stage: str, bucket: str, body: RenameRequest
 
 
 def _move_file(store: FileStore, bucket: str, source: str, destination: str) -> int:
-    if not _exists(store, bucket, source):
-        raise HTTPException(status_code=404, detail=f"{source!r} does not exist")
+    try:
+        etag = str(store.head_object(Bucket=bucket, Key=source)["ETag"])
+    except ClientError as exc:
+        if _error_code(exc) in _NOT_FOUND:
+            raise HTTPException(status_code=404, detail=f"{source!r} does not exist") from exc
+        raise
     if _exists(store, bucket, destination):
         raise HTTPException(status_code=409, detail=f"{destination!r} already exists")
-    _copy(store, bucket, source, destination)
-    store.delete_object(Bucket=bucket, Key=source)
+    _copy(store, bucket, source, destination, etag)
+    try:
+        store.delete_object(Bucket=bucket, Key=source, IfMatch=etag)
+    except ClientError as exc:
+        if _error_code(exc) not in _PRECONDITION_FAILED:
+            raise
+        # Replaced after the copy: the original is the newer file, so it stays and the stale copy goes.
+        _remove_copies(store, bucket, [destination], destination)
+        raise HTTPException(status_code=409, detail=f"{source!r} changed during the move; nothing was moved") from exc
     return 1
 
 
+def _remove_copies(store: FileStore, bucket: str, copies: list[str], where: str) -> None:
+    try:
+        _delete_keys(store, bucket, copies)
+    except Exception as exc:
+        log.warning("the copies under %s/%s were not removed after a failed move: %s", bucket, where, exc)
+
+
 def _move_folder(store: FileStore, bucket: str, source: str, destination: str) -> int:
-    keys = _keys_under(store, bucket, source, cap=MAX_KEYS)
-    if not keys:
+    etags = _etags_under(store, bucket, source, cap=MAX_KEYS)
+    if not etags:
         raise HTTPException(status_code=404, detail=f"{source!r} does not exist")
     if _any_under(store, bucket, destination):
         raise HTTPException(status_code=409, detail=f"{destination!r} already exists")
     copied: list[str] = []
     try:
-        for key in keys:
+        for key, etag in etags.items():
             new_key = destination + key[len(source) :]
-            _copy(store, bucket, key, new_key)
+            _copy(store, bucket, key, new_key, etag)
             copied.append(new_key)
     except Exception:
         # The originals are untouched; remove the copies so the destination is not left half-made.
-        try:
-            _delete_keys(store, bucket, copied)
-        except Exception as exc:
-            log.warning("the copies under %s/%s were not removed after a failed move: %s", bucket, destination, exc)
+        _remove_copies(store, bucket, copied, destination)
         raise
-    _deleted, errors = _delete_keys(store, bucket, keys)
+    _deleted, errors = _delete_keys(store, bucket, list(etags), etags)
+    changed = [error.key for error in errors if error.detail in _PRECONDITION_FAILED]
+    if changed:
+        # Replaced after the copy: those originals are newer and stay, with their stale copies removed.
+        _remove_copies(store, bucket, [destination + key[len(source) :] for key in changed], destination)
+        raise HTTPException(
+            status_code=409,
+            detail=f"{len(changed)} keys changed during the move and stay in {source!r}; the rest moved",
+        )
     if errors:
         log.warning("%d originals under %s/%s were not deleted after a move", len(errors), bucket, source)
         raise HTTPException(
             status_code=502, detail=f"moved, but {len(errors)} original keys could not be deleted; remove them by hand"
         )
-    return len(keys)
+    return len(etags)
 
 
 def delete_objects(request: Request, stage: str, bucket: str, body: DeleteRequest) -> Deleted:
@@ -347,7 +390,7 @@ def delete_objects(request: Request, stage: str, bucket: str, body: DeleteReques
             for key in keys:
                 if key.endswith("/"):
                     expanded[key] = None
-                    for found in _keys_under(store, bucket, key, cap=MAX_KEYS):
+                    for found in _etags_under(store, bucket, key, cap=MAX_KEYS):
                         expanded[found] = None
                 else:
                     expanded[key] = None
