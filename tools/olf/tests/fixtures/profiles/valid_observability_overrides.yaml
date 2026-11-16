@@ -1,0 +1,31 @@
+apiVersion: openlakeforge.io/v1beta1
+kind: DeploymentProfile
+
+metadata:
+  name: fixture-observability
+
+spec:
+  provider:
+    type: local
+  preset: slim
+  stages:
+    dev:
+      enabled: true
+  observability:
+    logs:
+      archive:
+        retention_days: 90
+      search:
+        enabled: true
+    metrics:
+      enabled: true
+      retention_days: 15
+    grafana:
+      enabled: true
+    alerts:
+      receivers:
+        - name: on-call
+          type: slack
+          secret_ref:
+            name: alert-webhooks
+            key: slack-url

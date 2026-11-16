@@ -572,6 +572,16 @@ def test_deployment_profile_schema_conformance_passes_for_a_valid_profile(tmp_pa
     assert contracts_check.profile_schema_errors(repo_root) == []
 
 
+def test_the_schema_agrees_with_the_parser_on_observability(tmp_path: Path) -> None:
+    repo_root = _repo_with_schemas(tmp_path)
+    for accepted in ("valid_observability_overrides.yaml", "valid_full_metrics_off.yaml"):
+        _write_profile(repo_root, accepted)
+        assert contracts_check.profile_schema_errors(repo_root) == []
+
+    _write_profile(repo_root, "invalid_observability_archive_disabled.yaml")
+    assert contracts_check.profile_schema_errors(repo_root)
+
+
 def test_the_schema_accepts_the_github_issuer_and_rejects_a_hand_written_mapping(tmp_path: Path) -> None:
     repo_root = _repo_with_schemas(tmp_path)
     _write_profile(repo_root, "valid_github_identity.yaml")

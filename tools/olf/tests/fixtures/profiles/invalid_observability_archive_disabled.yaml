@@ -1,0 +1,17 @@
+apiVersion: openlakeforge.io/v1beta1
+kind: DeploymentProfile
+
+metadata:
+  name: fixture-observability
+
+spec:
+  provider:
+    type: local
+  preset: slim
+  stages:
+    dev:
+      enabled: true
+  observability:
+    logs:
+      archive:
+        enabled: false
