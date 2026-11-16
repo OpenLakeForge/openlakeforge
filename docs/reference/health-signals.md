@@ -64,14 +64,19 @@ it is, so a run still inside its grace cannot hide a missed earlier one.
 | No schedule (a manual pipeline), or a stopped one | `disabled`, never stale |
 | A run succeeded at or after the owed due time | `healthy` |
 | No success since the owed due time, but `now` is within its grace | `healthy` |
-| No success since the owed due time plus the grace | `warning` (stale) |
+| No success since the owed due time plus the grace | `critical` (stale) |
 | No successful run in the runs read (the latest 25 per job) | `unknown` |
 | The cron cannot be read, or nothing shows the schedule was on at the owed due time | `unknown` |
 
-Stale is `warning`, not `critical`: a run that never started is already
-`critical` through `expected_run`, and a failed run through `execution`. A
-success counts by the time it ended. The signal carries no `expires_at`, since
-it expires at the next due time, which the module does not know.
+Stale is `critical`, as ADR 0023 has `stale_output` alert as critical: output
+that has not refreshed since its owed due time is a broken promise to its
+consumers. A stale pipeline whose run also failed, or never started, is already
+`critical` through `execution` or `expected_run`; the stage rollup takes the
+worst signal, so that adds no new state, and the alert evaluator suppresses
+`stale_output` while `run_failed` or `missed_run` is open for the same product,
+so one cause notifies once. A success counts by the time it ended. The signal
+carries no `expires_at`, since it expires at the next due time, which the module
+does not know.
 
 ## How critical is computed
 

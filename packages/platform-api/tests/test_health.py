@@ -238,7 +238,7 @@ def test_a_daily_pipeline_whose_latest_run_is_overdue_is_stale(
     dagster.runs = [_run("r1", "SUCCESS", 22 * HOUR)]
     dagster.schedules = [_schedule("RUNNING", 2 * HOUR, tick_age=22 * HOUR)]
 
-    assert _freshness(api, mint)["state"] == "warning"
+    assert _freshness(api, mint)["state"] == "critical"
 
 
 def test_a_due_run_still_inside_its_grace_does_not_hide_the_one_before_it(
@@ -248,7 +248,7 @@ def test_a_due_run_still_inside_its_grace_does_not_hide_the_one_before_it(
     dagster.runs = [_run("r1", "SUCCESS", 49 * HOUR)]
     dagster.schedules = [_schedule("RUNNING", 60, tick_age=49 * HOUR)]
 
-    assert _freshness(api, mint)["state"] == "warning"
+    assert _freshness(api, mint)["state"] == "critical"
 
 
 def test_a_due_run_inside_its_grace_is_not_yet_stale(api: TestClient, mint: Mint, dagster: ScheduledDagster) -> None:
@@ -287,7 +287,7 @@ def test_a_success_older_than_one_cadence_stops_being_evidence(
     (pipeline,) = api.get(PIPELINES, headers=_as(mint, "data-engineer")).json()["pipelines"]
     states = {signal["kind"]: signal["state"] for signal in pipeline["signals"]}
     assert states["latest_success"] == "unknown"
-    assert states["freshness"] == "warning"
+    assert states["freshness"] == "critical"
 
 
 def test_slim_with_no_metrics_still_answers_and_never_calls_absent_integrations_healthy(

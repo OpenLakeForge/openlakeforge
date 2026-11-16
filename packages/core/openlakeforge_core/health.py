@@ -240,7 +240,7 @@ def evaluate_freshness(
     elif now < previous_due + grace:
         state, reason = HealthState.HEALTHY, "the previous due run is within its grace period"
     else:
-        state, reason = HealthState.WARNING, "no run succeeded since the previous due time plus its grace"
+        state, reason = HealthState.CRITICAL, "no run succeeded since the previous due time plus its grace"
     return _signal(SignalKind.FRESHNESS, scope, state, reason, last_success, grace, run=last_success.run, expires=False)
 
 

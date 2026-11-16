@@ -162,9 +162,9 @@ def _freshness(
     [
         (NOW - timedelta(hours=1), NOW - timedelta(hours=2), HealthState.HEALTHY),
         (NOW - timedelta(hours=2), NOW - timedelta(hours=2), HealthState.HEALTHY),
-        (NOW - timedelta(hours=3), NOW - timedelta(hours=2), HealthState.WARNING),
+        (NOW - timedelta(hours=3), NOW - timedelta(hours=2), HealthState.CRITICAL),
         (NOW - timedelta(hours=3), NOW - timedelta(minutes=5), HealthState.HEALTHY),
-        (NOW - timedelta(hours=3), NOW - timedelta(minutes=10), HealthState.WARNING),
+        (NOW - timedelta(hours=3), NOW - timedelta(minutes=10), HealthState.CRITICAL),
         (None, NOW - timedelta(hours=2), HealthState.UNKNOWN),
     ],
 )
