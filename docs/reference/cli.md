@@ -199,6 +199,26 @@ the API refuses, the command says why: an expired or rejected session asks you
 to run `olf login`, and a role below the operation's floor names the role it
 needs.
 
+## Browse and manage bucket files
+
+`olf bucket` works on the files in a stage's lakehouse buckets through the same
+platform API, with the same sign-in. The API decides which stages and buckets
+your role may use; by default that is `dev` for a `data-engineer` and every
+stage for a `platform-admin`. Name a file as `<bucket>/<key>`, and a folder as
+`<bucket>/<prefix>/`. Every command takes `--stage` (default `dev`) and
+`--profile-file` (`-f`); uploads and downloads stream, so a large file is never
+held in memory.
+
+| Command | Does |
+| --- | --- |
+| `olf bucket list` | The stage's buckets; `--json` for the API's JSON |
+| `olf bucket ls <bucket>[/<prefix>/]` | The folders and files directly under a bucket or prefix, every page; `--json` |
+| `olf bucket get <bucket>/<key> [dest]` | Downloads one file; `dest` defaults to `./<file name>` |
+| `olf bucket put <src> <bucket>/<key>` | Uploads one file; a target ending in `/` keeps the file's name. Refuses to replace an existing object unless `--overwrite` |
+| `olf bucket mkdir <bucket>/<prefix>/` | Creates a folder |
+| `olf bucket mv <bucket>/<from> <to>` | Renames a file, or a folder when both keys end in `/`; `<to>` is a key in the same bucket |
+| `olf bucket rm <bucket>/<key>` | Deletes a file, or everything under the prefix when the key ends in `/`. Asks first unless `--yes`; prints each key the API could not delete and exits non-zero |
+
 ## Installation and toolchain
 
 | Command | Does |
