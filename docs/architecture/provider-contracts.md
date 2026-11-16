@@ -130,7 +130,9 @@ once #22 slice b lands.
 `enabled` is what the profile asks for; `supported` is whether the provider has
 an adapter that can honour it, so a Full profile on any provider reads as
 `metrics.enabled: true, supported: false` until a metrics adapter exists. The
-archive is always enabled. `retention_days` is the retention the profile asks
+archive is always enabled. `alerts.supported` is `true` on the local provider,
+whose alert evaluator CronJob notifies webhook receivers ([ADR 0023](../adr/0023-alert-evaluation-and-webhook-delivery.md)),
+and `false` on AWS and Azure; the example above is one without receivers. `retention_days` is the retention the profile asks
 for; `retention_supported` is whether anything applies it to the stored data.
 It is `false` on every provider today, because no lifecycle rule reaches the log
 prefix, so a 90-day archive setting is a request and not a guarantee until #22

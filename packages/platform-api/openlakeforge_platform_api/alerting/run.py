@@ -1,7 +1,9 @@
 """One evaluation: read state, evaluate, write state, deliver, record outcomes, expire (ADR 0023, decision 3).
 
-The state, outbox included, is written before anything is delivered. A crash after that write sends the same
-notification again under the same idempotency key on the next run: at-least-once, never silence. A store that cannot
+The state, outbox included, is written before anything is delivered, and again after every send attempt. A crash
+after the first write sends the same notification again under the same idempotency key on the next run:
+at-least-once, never silence; the per-attempt writes bound that repeat to the one send in flight, so a receiver that
+already has the notification is not sent it again. A store that cannot
 be read or written raises `StoreError` and nothing is delivered, because delivering what cannot be recorded would
 repeat every notification every run.
 """
@@ -9,7 +11,8 @@ repeat every notification every run.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -29,6 +32,10 @@ log = logging.getLogger(__name__)
 HISTORY_SCHEMA = "openlakeforge.alert_history.v1"
 # The Dagster read signal is observed now and judged now; the bound only has to be positive.
 _READ_SIGNAL_MAX_AGE = timedelta(minutes=5)
+# Stops starting sends well inside the CronJob's `active_deadline_seconds` (240, infra/terraform/modules/observability/
+# alerts/main.tf): one send can take about 65 s (`notify.py`), so the last one begun at the budget still ends before
+# the deadline kills the pod. Keep the two in step.
+DELIVERY_BUDGET_SECONDS = 150.0
 
 
 @dataclass(frozen=True)
@@ -46,7 +53,10 @@ def run_once(
     dagster: Mapping[str, DagsterClient],
     notifiers: Mapping[str, Notifier],
     now: datetime,
+    delivery_budget: float = DELIVERY_BUDGET_SECONDS,
+    monotonic: Callable[[], float] = time.monotonic,
 ) -> RunSummary:
+    started = monotonic()
     now = now.astimezone(UTC)
     previous = store.read_state(now)
     # Transitions of the stored state whose history writes did not all land last run: replay them now.
@@ -76,7 +86,10 @@ def run_once(
     _flush_history(store, pending)
 
     delivered = failed = 0
+    out_of_time = False
     for entry in state.outbox:
+        if out_of_time:
+            break
         notification = entry.notification
         routed = {receiver.name for receiver in settings.receivers if receiver.routes(notification.scope.stage)}
         if not routed or routed <= entry.delivered:
@@ -84,6 +97,12 @@ def run_once(
             state = drop_notification(state, notification.id)
             continue
         for name in sorted(routed - entry.delivered):
+            if monotonic() - started >= delivery_budget:
+                # What is left stays queued for the next run. Its `runs` counter was already advanced by this
+                # run's evaluation, so a starved entry still reaches `expire_outbox` rather than waiting forever.
+                log.warning("delivery budget of %.0fs spent; the rest stays queued", delivery_budget)
+                out_of_time = True
+                break
             state = record_attempt(state, notification.id, name)
             result = notifiers[name].send(notification.payload(), delivery_id=notification.id)
             attempt = next(e for e in state.outbox if e.notification.id == notification.id).attempts[name]
@@ -111,6 +130,9 @@ def run_once(
                 failed += 1
             else:
                 failed += 1
+            # Saved per attempt: a pod killed at its deadline keeps what it delivered, so the next run neither
+            # resends it nor lets the outbox stall short of expiry.
+            store.write_state(state, evaluated_at=now)
 
     state, expired = expire_outbox(state)
     for entry in expired:

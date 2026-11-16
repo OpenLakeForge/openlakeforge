@@ -19,6 +19,7 @@ from typing import Any
 from olf.common import log
 from olf.common.deployment.charts import TERRAFORM_VARIABLE_KEY, prepare_chart
 from olf.common.deployment.context import (
+    alert_receiver_secrets_variables,
     bucket_variables,
     observability_variables,
     query_variables,
@@ -108,9 +109,11 @@ def source_egress_variables(config: LocalDeploymentConfig) -> dict[str, str]:
 
 
 def platform_api_variables(config: LocalDeploymentConfig) -> dict[str, str]:
-    """The platform API validates tokens against the issuer, so it is deployed only with spec.identity. The
-    reference is computed, not built, so a plan and the apply after it name the same image."""
-    if config.context.topology.identity is None:
+    """The platform API validates tokens against the issuer, so it is deployed only with spec.identity; the alert
+    evaluator runs the same image and needs no issuer, so alert receivers build it too (the root still deploys the API
+    only with identity). The reference is computed, not built, so a plan and the apply after it name the same image."""
+    topology = config.context.topology
+    if topology.identity is None and not topology.observability.alert_receivers:
         return {}
     from olf.infra.deployment.local import images
 
@@ -239,12 +242,70 @@ def require_github_oauth_secret(
         )
 
 
+def require_alert_receiver_secrets(
+    config: LocalDeploymentConfig,
+    tools: Toolkit,
+    *,
+    env: Mapping[str, str],
+    create_namespace: Callable[[], None],
+) -> None:
+    """The evaluator reads each webhook URL through `secretKeyRef`, so a missing Secret or key would leave its Jobs in
+    CreateContainerConfigError, silently, while nothing alerts. Terraform cannot check it without a data source,
+    which would put the URL into state (ADR 0023, decision 4). Only key names are read, never a value."""
+    receivers = config.context.topology.observability.alert_receivers
+    if not receivers:
+        return
+    namespace = config.context.shared_namespace
+    if not kube_ops.namespace_exists(
+        tools.kubectl, namespace, context=config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env
+    ):
+        create_namespace()
+
+    keys = r'go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}'
+    present: dict[str, set[str] | None] = {}
+    problems: list[str] = []
+    for receiver in receivers:
+        ref = receiver.secret_ref
+        if ref.name not in present:
+            result = tools.kubectl.get(
+                "secret",
+                name=ref.name,
+                namespace=namespace,
+                output=keys,
+                context=config.kube_context,
+                kubeconfig=config.paths.kubeconfig_path,
+                env=env,
+                check=False,
+            )
+            present[ref.name] = set(result.stdout.split()) if result.ok else None
+        found = present[ref.name]
+        command = (
+            f"kubectl -n {namespace} create secret generic {ref.name} --from-literal={ref.key}=<the webhook URL>"
+        )
+        if found is None:
+            problems.append(
+                f"receiver '{receiver.name}': Secret '{ref.name}' is not readable in namespace '{namespace}'. "
+                f"Create it: {command}"
+            )
+        elif ref.key not in found:
+            problems.append(
+                f"receiver '{receiver.name}': Secret '{ref.name}' in namespace '{namespace}' lacks key '{ref.key}' "
+                f"(it has {sorted(found)}). Add it, or recreate the Secret: {command}"
+            )
+    if problems:
+        raise DeploymentPreconditionError(
+            "spec.observability.alerts.receivers reference a Secret the evaluator cannot read (the URL is the "
+            "receiver's credential, so olf never creates it):\n  " + "\n  ".join(problems)
+        )
+
+
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     images = config.images
     return (
         topology_variables(config)
         | query_variables(config.context)
         | observability_variables(config.context)
+        | alert_receiver_secrets_variables(config.context)
         | storage_variables(config.context)
         | {
             "kube_context": config.kube_context,
@@ -794,6 +855,8 @@ def platform_up(
     require_github_oauth_secret(
         config, tools, env=env, create_namespace=_create_shared_namespace, github_app=github_app
     )
+
+    require_alert_receiver_secrets(config, tools, env=env, create_namespace=_create_shared_namespace)
 
     def _apply_once() -> None:
         for namespace in config.context.owned_namespaces:
