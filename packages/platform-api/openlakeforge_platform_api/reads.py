@@ -15,7 +15,8 @@ import zlib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime
+from typing import Literal
 
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Query, Request
@@ -97,9 +98,19 @@ def list_logs(
     hour: int | None = Query(default=None, ge=0, le=23),  # noqa: B008
     pod: str = "",
     container: str = "",
+    component: str = "",
+    product: str = "",
+    run_id: str = "",
+    severity: Literal["debug", "info", "warning", "error", "critical"] | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
     limit: int = Query(default=500, ge=1, le=MAX_LOG_LINES),  # noqa: B008
 ) -> Logs:
-    """The stage's archived pod log lines for a day or one hour of it, oldest archive first."""
+    """The stage's archived pod log lines for a UTC day or one hour of it, oldest first.
+
+    The stage picks the archive, so no filter can reach another stage's. `severity` is a floor read from the
+    line's level token; `component`, `product` and `run_id` match v2 records only.
+    """
     archive = request.app.state.settings.log_archives.get(stage)
     if archive is None:
         raise HTTPException(status_code=404, detail=f"no log archive is configured for stage {stage!r}")
@@ -110,7 +121,20 @@ def list_logs(
     # The store's own message goes to the log: it can name the bucket, the key
     # or the endpoint, none of which the caller needs.
     try:
-        lines = reader.read(archive.namespace, day, hour=hour, pod=pod, container=container, limit=limit)
+        lines = reader.read(
+            archive.namespace,
+            day,
+            hour=hour,
+            pod=pod,
+            container=container,
+            component=component,
+            product=product,
+            run_id=run_id,
+            severity=severity or "",
+            since=since,
+            until=until,
+            limit=limit,
+        )
     except ClientError as exc:
         log.warning("the object store refused the log archive read for stage %s: %s", stage, exc)
         raise HTTPException(status_code=502, detail=f"the object store refused stage {stage!r}'s log archive") from exc

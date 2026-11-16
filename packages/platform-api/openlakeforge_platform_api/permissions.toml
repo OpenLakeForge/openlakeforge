@@ -62,10 +62,13 @@ stages = []
 
 # The log archive is read with the API's own read-only key for the log prefix,
 # so this row decides who reads it. Pod logs carry whatever a run printed, which
-# the Dagster UI's compute logs already show at data-engineer and above.
+# the Dagster UI's compute logs already show at data-engineer and above. A
+# data-engineer reads DEV only (ADR 0022, decision 3): the stage in the path is
+# what picks the archive prefix, so this row is the whole stage boundary.
 [operations.list_logs]
 role = "data-engineer"
 stages = ["*"]
+role_stages = { data-engineer = ["dev"] }
 
 # The first operation that changes state. Dagster checks nothing, so this row is
 # the only control on who launches what. DEV only (#670): a run on another stage
