@@ -82,10 +82,10 @@ def _result(
     )
 
 
-def _store(*results: QualityResult, run_id: str = "run-1") -> FakeBucket:
+def _store(*results: QualityResult, run_id: str = "run-1", complete: bool = True) -> FakeBucket:
     bucket = FakeBucket()
     if results:
-        manifest = QualityManifest("dev", "sales", "orders", run_id, results)
+        manifest = QualityManifest("dev", "sales", "orders", run_id, results, complete=complete)
         bucket.objects[manifest.ops_key] = manifest.to_json().encode()
     return bucket
 
@@ -268,10 +268,10 @@ def _two_runs(*statuses: str) -> list[DagsterRun]:
     return [_run(f"run-{n}", status) for n, status in reversed(list(enumerate(statuses, 1)))]
 
 
-def _states(runs: list[DagsterRun], *manifests: tuple[str, QualityResult]) -> str | None:
+def _states(runs: list[DagsterRun], *manifests: tuple[str, QualityResult], complete: bool = True) -> str | None:
     bucket = FakeBucket()
     for run_id, outcome in manifests:
-        stored = QualityManifest("dev", "sales", "orders", run_id, (outcome,))
+        stored = QualityManifest("dev", "sales", "orders", run_id, (outcome,), complete=complete)
         bucket.objects[stored.ops_key] = stored.to_json().encode()
     _, (pipeline,) = read_stage_pipelines(FakeDagster(runs), "dev", NOW, QualityReader(bucket, BASE))
     found = [signal for signal in pipeline.signals if signal.kind.value == "quality"]
@@ -292,6 +292,16 @@ def test_a_running_run_with_every_check_so_far_passing_is_not_healthy() -> None:
         )
         == "healthy"
     )
+
+
+def test_a_successful_run_with_an_incomplete_passing_manifest_reads_unknown() -> None:
+    silver_only = _result(QualityOutcome.PASSED, run_id="run-2")
+    old = _result(QualityOutcome.PASSED, run_id="run-1")
+
+    assert _states(_two_runs("SUCCESS"), ("run-1", old), complete=False) == "unknown"
+    # A newer success is not walked past to an older complete one.
+    assert _states(_two_runs("SUCCESS", "SUCCESS"), ("run-1", old), ("run-2", silver_only), complete=False) == "unknown"
+    assert _state(_store(_result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED), complete=False)) == "critical"
 
 
 def test_a_failed_run_with_a_silver_only_passing_manifest_is_not_healthy() -> None:
@@ -342,10 +352,10 @@ def test_a_running_retry_does_not_resolve_an_open_quality_incident_and_a_complet
     store = AlertStore(state, "s3://ops/alerts/")
     failed = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
 
-    def evaluate(runs: list[DagsterRun], *results: QualityResult, at: datetime) -> list[str]:
+    def evaluate(runs: list[DagsterRun], *results: QualityResult, at: datetime, complete: bool = True) -> list[str]:
         bucket = FakeBucket()
         for result in results:
-            manifest = QualityManifest("dev", "sales", "orders", result.dagster_run_id, (result,))
+            manifest = QualityManifest("dev", "sales", "orders", result.dagster_run_id, (result,), complete=complete)
             bucket.objects[manifest.ops_key] = manifest.to_json().encode()
         notifier.sent.clear()
         run_once(
@@ -377,6 +387,12 @@ def test_a_running_retry_does_not_resolve_an_open_quality_incident_and_a_complet
     # Still open: the retry failing in dbt does not notify a second time.
     blocked_again = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-2")
     assert evaluate(_two_runs("FAILURE", "FAILURE"), failed, blocked_again, at=NOW + timedelta(minutes=10)) == []
+    # A success whose manifest the run never completed is not a recovery.
+    unfinished = _result(QualityOutcome.PASSED, run_id="run-3")
+    assert (
+        evaluate(_two_runs("FAILURE", "FAILURE", "SUCCESS"), unfinished, at=NOW + timedelta(minutes=12), complete=False)
+        == []
+    )
     passed = _result(QualityOutcome.PASSED, run_id="run-3")
     assert evaluate(_two_runs("FAILURE", "FAILURE", "SUCCESS"), passed, at=NOW + timedelta(minutes=15)) == [
         "resolved:quality"

@@ -1033,6 +1033,28 @@ def test_a_failed_dbt_build_leaves_a_quality_manifest(monkeypatch: pytest.Monkey
     assert read == [f"{_OPS}/run-artifacts/dbt/sales/revenue/r1"]
 
 
+def test_a_manifest_is_complete_only_once_the_dbt_evidence_has_been_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _quality_store(monkeypatch)
+    context = _quality_context("r1", _floe_events(("floe_not_null", True)))
+
+    product_dagster._publish_quality_manifest(context, _SPEC, ("orders",))
+    assert _manifest_of(store, "r1").complete is False
+
+    monkeypatch.setattr(
+        product_dagster,
+        "read_dbt_evidence",
+        lambda *a, **k: DbtRunEvidence(
+            manifest={"metadata": {"project_name": "shop"}, "nodes": {}, "sources": {}}, run_results={"results": []}
+        ),
+    )
+    product_dagster._publish_quality_manifest(context, _SPEC, ("orders",))
+    assert _manifest_of(store, "r1").complete is True
+
+    monkeypatch.setattr(product_dagster, "read_dbt_evidence", lambda *a, **k: None)
+    product_dagster._publish_quality_manifest(context, _SPEC, ("orders",))
+    assert _manifest_of(store, "r1").complete is True
+
+
 def test_two_runs_of_one_product_write_two_objects(monkeypatch: pytest.MonkeyPatch) -> None:
     store = _quality_store(monkeypatch)
     events = _floe_events(("floe_not_null", True))

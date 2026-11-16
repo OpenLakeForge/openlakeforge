@@ -720,6 +720,8 @@ def _publish_quality_manifest(context, spec: ProductDefinitionSpec, silver_input
             product=spec.product,
             dagster_run_id=context.run_id,
             results=tuple(results),
+            # Every product has a dbt step and it runs last, so its evidence being readable is what completes the run.
+            complete=bool(dbt),
         )
         bucket = split_s3_uri(artifact_base)[0]
         manifest = _without_regressions(manifest, _published_manifest(bucket, manifest))
@@ -757,6 +759,7 @@ def _without_regressions(fresh: QualityManifest, published: QualityManifest | No
         product=fresh.product,
         dagster_run_id=fresh.dagster_run_id,
         results=tuple(merged.values()),
+        complete=fresh.complete or published.complete,
     )
 
 

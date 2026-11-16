@@ -50,6 +50,17 @@ def test_record_round_trips_through_json() -> None:
     assert QualityManifest.from_json(original.to_json()) == original
 
 
+def test_a_manifest_is_incomplete_unless_marked_and_the_marker_round_trips() -> None:
+    document = json.loads(manifest(result()).to_json())
+    del document["complete"]
+
+    assert QualityManifest.from_json(json.dumps(document)).complete is False
+    finished = QualityManifest("dev", "sales", "order_revenue", "run-1", (result(),), complete=True)
+    assert QualityManifest.from_json(finished.to_json()).complete is True
+    with pytest.raises(QualityRecordError):
+        QualityManifest.from_json(_manifest_document(complete="yes"))
+
+
 def test_serialization_is_deterministic_whatever_the_input_order() -> None:
     a, b = result(check_id="floe_unique"), result(check_id="floe_not_null")
     assert manifest(a, b).to_json() == manifest(b, a).to_json()

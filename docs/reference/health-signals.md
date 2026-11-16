@@ -120,18 +120,20 @@ quality signal.
 | `warn`, or an `error` that only continued or quarantined rows | `warning` |
 | Every check `passed` | `healthy` |
 | No manifest, an unreadable or foreign one, or one older than the run's evidence bound | `unknown` |
-| Some checks `not_run` or `unknown` and the rest `passed` | `unknown` |
+| Some checks `not_run` or `unknown` and the rest `passed`, or a `complete: false` manifest with every check `passed` | `unknown` |
 
-Only a `SUCCESS` run's manifest can read `healthy`. Any other run (in progress,
-canceled, or failed) may have a partial manifest, because dbt runs after Silver
-and its results are omitted until its evidence is read: a pass in it proves
-nothing. Runs are read newest first. One that did not succeed answers only with
-a `warning` or `critical`, and is otherwise passed over, so a failure between an
-old success and a Silver-only retry still speaks. The first `SUCCESS` run
-answers with its own manifest, and when none is reached the pipeline carries no
-`quality` signal, which leaves an open incident open. A manifest whose `results`
-are malformed (an entry that is not an object, wrong field types) reads
-`unknown` like an unreadable one.
+A manifest carries `complete`, set only by the run's last publish, once dbt's
+evidence has been read; an intermediate publish, or one made after dbt's worker
+died before uploading evidence, leaves it `false` (absent reads `false`). Only a
+`SUCCESS` run's complete manifest can read `healthy`: a pass in an incomplete
+one reads `unknown`, because dbt's results are added last. Runs are read newest
+first. One that did not succeed answers only with a `warning` or `critical`,
+and is otherwise passed over, so a failure between an old success and a
+Silver-only retry still speaks. The first `SUCCESS` run answers with its own
+manifest and the walk stops there, and when none is reached the pipeline
+carries no `quality` signal, which leaves an open incident open. A manifest
+whose `results` are malformed (an entry that is not an object, wrong field
+types) reads `unknown` like an unreadable one.
 
 The worst check decides, and no table name is used, so a manifest written from
 the baked dbt manifest, which names no table, reads the same as any other. A

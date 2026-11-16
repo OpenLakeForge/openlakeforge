@@ -150,10 +150,11 @@ def _quality(
     The manifest is published after every step and omits dbt's results until dbt's evidence is read, so one from a
     run that did not succeed (in progress, canceled, or failed before dbt reported) may lack the checks still to
     come, and a pass in it proves nothing: a retry that has cleared Silver would resolve the incident the previous
-    run's dbt failure opened. Only a successful run's manifest can read `healthy`. Runs are walked newest first: one
-    that did not succeed answers only with a warning or critical, and is otherwise passed over, so a failure between
-    an old success and a Silver-only retry still speaks. The first success answers with its own manifest, and with
-    none reached there is no signal, which leaves an open incident open.
+    run's dbt failure opened. Only a successful run's complete manifest can read `healthy`. Runs are walked newest
+    first: one that did not succeed answers only with a warning or critical, and is otherwise passed over, so a
+    failure between an old success and a Silver-only retry still speaks. The first success answers with its own
+    manifest (`unknown` while that is incomplete) and ends the walk; with none reached there is no signal, which
+    leaves an open incident open.
     """
     for run in runs:
         found = quality_signal(quality, scope, job, run.run_id, run.tags, now=now, max_age=max_age)

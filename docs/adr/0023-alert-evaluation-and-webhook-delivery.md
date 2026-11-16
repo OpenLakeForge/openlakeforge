@@ -420,8 +420,9 @@ Proposed above; the maintainer may change any of them.
 c of #793); the health routes report the quality integration as `available` or
 `not_provided`.
 
-2026-11-16: only a successful run's manifest can read quality `healthy`. Runs
-are read newest first; one that did not succeed (in progress, canceled, or
-failed before dbt reported) answers only with a `warning` or `critical`, so a
-retry's partial manifest cannot resolve the previous run's quality incident,
-even when an older success precedes the failure.
+2026-11-16: quality `healthy` needs a successful run whose manifest is
+`complete`, a flag the run's last publish sets once dbt's evidence is read; a
+pass in an incomplete manifest reads `unknown`. Runs are read newest first: one
+that did not succeed answers only with a `warning` or `critical`, so a retry's
+partial manifest cannot resolve the previous run's quality incident, even when
+an older success precedes the failure.

@@ -1,8 +1,8 @@
 """Quality signal of a pipeline's latest run, read from the run's quality manifest in the ops bucket (ADR 0023).
 
 The manifest is the only input. One signal per pipeline, scoped like its other signals, so the health routes and the
-alert evaluator join it to them: the worst outcome in the manifest wins, and a missing, unreadable, stale or partly
-unreported manifest is `unknown`, never `healthy`. Table identity is not used: a manifest written from the baked dbt
+alert evaluator join it to them: the worst outcome in the manifest wins, and a missing, unreadable, stale,
+incomplete or partly unreported manifest is `unknown`, never `healthy`. Table identity is not used: a manifest written from the baked dbt
 manifest names no table (#1166), and a product-level signal reads the same either way.
 """
 
@@ -132,7 +132,8 @@ def _summarize(scope: Scope, manifest: QualityManifest | None, *, now: datetime,
         signals.append(evaluate_quality(scope, observation, now=now, max_age=max_age))
     if signals:
         worst = worst_state(signal.state for signal in signals)
-        # A check that never reported cannot be averaged into a pass; a failure still stands.
-        if not (worst is HealthState.HEALTHY and unreported):
+        # A check that never reported cannot be averaged into a pass, nor can a manifest the run did not finish
+        # writing (dbt's results are added last); a failure still stands.
+        if not (worst is HealthState.HEALTHY and (unreported or not (manifest and manifest.complete))):
             return next(signal for signal in signals if signal.state is worst)
     return evaluate_quality(scope, None, now=now, max_age=max_age)
