@@ -282,7 +282,12 @@ def check_collector_restart(cfg: E2EConfig) -> None:
     try:
 
         def streamed() -> bool:
-            out = kubectl(cfg, ["logs", f"job/{name}", "-n", cfg.namespace, "--tail=1"], capture=True)
+            try:
+                out = kubectl(cfg, ["logs", f"job/{name}", "-n", cfg.namespace, "--tail=1"], capture=True)
+            except E2EError:
+                # `kubectl logs` gives up after 20 s while the pod is still being scheduled or pulled: on a busy
+                # cluster that is a slow start, not a collector failure, so keep polling within the deadline.
+                return False
             return bool(line_numbers([out], token)) and line_numbers([out], token)[-1] >= KILL_AFTER_LINE
 
         _wait_until(streamed, f"{name} to reach line {KILL_AFTER_LINE}", 180, poll_seconds=2.0)

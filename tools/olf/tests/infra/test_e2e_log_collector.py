@@ -81,3 +81,34 @@ class _NullArchive:
 
     def __exit__(self, *_exc: object) -> None:
         return None
+
+
+def test_a_slow_emitter_start_is_waited_out_not_reported_as_a_collector_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `kubectl logs` fails while the pod is still being scheduled; the drill keeps polling instead of aborting.
+    monkeypatch.setattr(_log_collector.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(_log_collector, "_start_emitter", lambda *_a, **_k: ("n", "r-1", "tok"))
+    monkeypatch.setattr(_log_collector, "_collector_ready", lambda _cfg: True)
+    monkeypatch.setattr(_log_collector, "_archive", lambda _cfg: _NullArchive())
+    monkeypatch.setattr(_log_collector, "await_exactly_once", lambda *_a, **_k: None)
+    log_reads = iter([E2EError("pod not running after 20s"), E2EError("still pending"), "tok line 30 ERROR x"])
+    calls: list[str] = []
+
+    def kubectl(_cfg: object, args: list[str], **_k: object) -> str:
+        calls.append(args[0])
+        if args[0] == "logs":
+            result = next(log_reads)
+            if isinstance(result, Exception):
+                raise result
+            return result
+        return ""
+
+    monkeypatch.setattr(_log_collector, "kubectl", kubectl)
+
+    _log_collector.check_collector_restart(  # type: ignore[arg-type]
+        SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system")
+    )
+
+    assert calls.count("logs") == 3
+    assert "delete" in calls
