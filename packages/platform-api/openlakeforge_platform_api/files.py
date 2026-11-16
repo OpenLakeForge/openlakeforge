@@ -80,6 +80,19 @@ class FileStore(Protocol):
     ) -> Any: ...
     def abort_multipart_upload(self, *, Bucket: str, Key: str, UploadId: str) -> Any: ...  # noqa: N803
 
+    # The folder, rename and delete routes' calls.
+    def copy_object(  # noqa: N803
+        self,
+        *,
+        Bucket: str,
+        Key: str,
+        CopySource: dict[str, str],
+        IfNoneMatch: str = ...,
+        CopySourceIfMatch: str = ...,
+    ) -> Any: ...
+    def delete_object(self, *, Bucket: str, Key: str, IfMatch: str = ...) -> Any: ...  # noqa: N803
+    def delete_objects(self, *, Bucket: str, Delete: dict[str, Any]) -> Any: ...  # noqa: N803
+
 
 def files_store(request: Request) -> FileStore:
     store: FileStore | None = request.app.state.files_store

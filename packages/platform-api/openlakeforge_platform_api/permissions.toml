@@ -146,8 +146,26 @@ role = "data-engineer"
 stages = ["*"]
 role_stages = { data-engineer = ["dev"] }
 
-# The upload route takes the reads' floor and per-role stages; it changes state, so it runs inside the audit.
+# The write routes take the reads' floor and per-role stages; each changes state, so each runs inside the audit.
 [operations.upload_object]
+role = "data-engineer"
+stages = ["*"]
+role_stages = { data-engineer = ["dev"] }
+changes_state = true
+
+[operations.create_folder]
+role = "data-engineer"
+stages = ["*"]
+role_stages = { data-engineer = ["dev"] }
+changes_state = true
+
+[operations.rename_object]
+role = "data-engineer"
+stages = ["*"]
+role_stages = { data-engineer = ["dev"] }
+changes_state = true
+
+[operations.delete_objects]
 role = "data-engineer"
 stages = ["*"]
 role_stages = { data-engineer = ["dev"] }

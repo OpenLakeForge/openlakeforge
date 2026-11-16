@@ -12,7 +12,7 @@ from conftest import Mint
 from fastapi.testclient import TestClient
 
 from openlakeforge_platform_api.app import create_app
-from openlakeforge_platform_api.files import touches_audit_prefix
+from openlakeforge_platform_api.files import FILE_OPERATIONS, touches_audit_prefix
 from openlakeforge_platform_api.settings import Settings
 
 # the role matrix
@@ -45,7 +45,7 @@ def test_analyst_and_viewer_reach_no_files_route(api: TestClient, mint: Mint, ro
 
 
 def test_file_capabilities_per_role(api: TestClient, mint: Mint) -> None:
-    read = ["list_buckets", "list_objects", "download_object", "upload_object"]
+    read = list(FILE_OPERATIONS)
 
     admin = api.get("/api/v1/file-capabilities", headers=_as(mint, "platform-admin")).json()
     engineer = api.get("/api/v1/file-capabilities", headers=_as(mint, "data-engineer")).json()

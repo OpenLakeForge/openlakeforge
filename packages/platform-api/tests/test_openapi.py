@@ -46,7 +46,7 @@ def test_the_document_lists_every_route_the_app_serves(settings: Settings) -> No
     }
 
     assert set(_operations()) == served
-    assert len(served) == 25
+    assert len(served) == 28
 
 
 def test_every_route_answers_with_a_typed_or_declared_body() -> None:

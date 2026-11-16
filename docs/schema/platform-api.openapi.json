@@ -42,6 +42,32 @@
         "title": "Buckets",
         "type": "object"
       },
+      "CreateFolderRequest": {
+        "properties": {
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prefix"
+        ],
+        "title": "CreateFolderRequest",
+        "type": "object"
+      },
+      "CreatedFolder": {
+        "properties": {
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prefix"
+        ],
+        "title": "CreatedFolder",
+        "type": "object"
+      },
       "DataProduct": {
         "properties": {
           "display_name": {
@@ -82,6 +108,66 @@
           "data_products"
         ],
         "title": "DataProducts",
+        "type": "object"
+      },
+      "DeleteError": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "detail"
+        ],
+        "title": "DeleteError",
+        "type": "object"
+      },
+      "DeleteRequest": {
+        "properties": {
+          "keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "title": "DeleteRequest",
+        "type": "object"
+      },
+      "Deleted": {
+        "properties": {
+          "deleted": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deleted",
+            "type": "array"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/DeleteError"
+            },
+            "title": "Errors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "deleted",
+          "errors"
+        ],
+        "title": "Deleted",
         "type": "object"
       },
       "Domain": {
@@ -948,6 +1034,37 @@
         "title": "QuerySubmit",
         "type": "object"
       },
+      "RenameRequest": {
+        "properties": {
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "title": "RenameRequest",
+        "type": "object"
+      },
+      "Renamed": {
+        "properties": {
+          "moved": {
+            "title": "Moved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "moved"
+        ],
+        "title": "Renamed",
+        "type": "object"
+      },
       "Run": {
         "properties": {
           "created_at": {
@@ -1495,6 +1612,65 @@
         "summary": "List Buckets"
       }
     },
+    "/api/v1/stages/{stage}/buckets/{bucket}/folders": {
+      "post": {
+        "description": "Write the zero-byte marker a folder is; 409 when anything is already at or under the prefix.",
+        "operationId": "create_folder_api_v1_stages__stage__buckets__bucket__folders_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "bucket",
+            "required": true,
+            "schema": {
+              "title": "Bucket",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFolderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedFolder"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Folder"
+      }
+    },
     "/api/v1/stages/{stage}/buckets/{bucket}/objects": {
       "get": {
         "description": "One page of the folders and files directly under `prefix`.",
@@ -1716,6 +1892,124 @@
           }
         },
         "summary": "Upload Object"
+      }
+    },
+    "/api/v1/stages/{stage}/buckets/{bucket}/objects/delete": {
+      "post": {
+        "description": "Delete the keys; one ending in `/` takes everything under it. Per-key failures are reported, not raised.",
+        "operationId": "delete_objects_api_v1_stages__stage__buckets__bucket__objects_delete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "bucket",
+            "required": true,
+            "schema": {
+              "title": "Bucket",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Objects"
+      }
+    },
+    "/api/v1/stages/{stage}/buckets/{bucket}/objects/rename": {
+      "post": {
+        "description": "Move a file, or every key under a folder, by copying and then deleting; never over something existing.",
+        "operationId": "rename_object_api_v1_stages__stage__buckets__bucket__objects_rename_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "bucket",
+            "required": true,
+            "schema": {
+              "title": "Bucket",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Renamed"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Object"
       }
     },
     "/api/v1/stages/{stage}/health": {

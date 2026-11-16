@@ -406,6 +406,12 @@ def create_app(
             }
         },
     )
+    buckets_path = "/api/v1/stages/{stage}/buckets/{bucket}"
+    app.add_api_route(
+        buckets_path + "/folders", file_writes.create_folder, methods=["POST"], status_code=201, name="create_folder"
+    )
+    app.add_api_route(objects_path + "/rename", file_writes.rename_object, methods=["POST"], name="rename_object")
+    app.add_api_route(objects_path + "/delete", file_writes.delete_objects, methods=["POST"], name="delete_objects")
     app.add_api_route("/api/v1/domains", reads.list_domains, methods=["GET"], name="list_domains")
     app.add_api_route("/api/v1/data-products", reads.list_data_products, methods=["GET"], name="list_data_products")
     return app
