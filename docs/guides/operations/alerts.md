@@ -19,9 +19,13 @@ the profile declares at least one receiver. The design is
    its value:
 
    ```bash
+   WEBHOOK_URL='https://hooks.example.com/services/...'
    kubectl -n olf-system create secret generic alert-webhooks \
-     --from-literal=webhook-url=<the webhook URL>
+     --from-literal=webhook-url="$WEBHOOK_URL"
    ```
+
+   Keep the URL in single quotes: webhook URLs often contain `&`, which the
+   shell would otherwise treat as a command separator.
 
 2. Declare the receiver in `openlakeforge.yaml`:
 
@@ -62,8 +66,13 @@ Delivery rules:
 
 - The URL must be `https`. A redirect is a rejected delivery and is not
   followed.
-- Each notification is retried up to 3 times in one evaluation, then left
-  queued for the next evaluations, and given up after 12.
+- A connection failure, a timeout, `408`, `429` or a `5xx` response is
+  retried up to 3 times in one evaluation, then left queued for the next
+  evaluations, and given up after 12.
+- Any other `4xx` response (for example `400`, `401`, `403` or `404`) is a
+  rejection: it is recorded and never resent. Fixing the receiver afterwards
+  does not recover that notification, and with no reminders the incident's
+  next notification is its `resolved` or `escalated`.
 - Delivery is at-least-once. Every attempt of one notification carries the same
   `Idempotency-Key: <incident_id>:<event>` header, so a receiver can drop
   repeats.
@@ -143,8 +152,10 @@ quality manifest passes. Thresholds stay in your Floe and dbt configuration.
 ### schedule_mismatch
 
 Warning. A PROD schedule that the product's cadence declares running is
-stopped in Dagster. Start it, or change the declaration. It closes without a
-notification when either changes.
+stopped in Dagster. Start it, or change the declaration. Starting the schedule
+resolves the incident with a `resolved` notification; changing the declaration
+so the schedule is no longer expected to run closes it without a
+notification.
 
 ### stage_unreadable
 
