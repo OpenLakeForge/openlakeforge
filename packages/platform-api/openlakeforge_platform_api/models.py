@@ -64,7 +64,14 @@ class LogLine(BaseModel):
     container: str
     line: str | None
     error: str | None
-    # Which archive layout the line came from; ADR 0022, decision 5 returns both copies when their timestamps differ.
+    # v2 records only; `source` says which archive layout the line came from.
+    stage: str | None = None
+    component: str | None = None
+    domain: str | None = None
+    product: str | None = None
+    run_id: str | None = None
+    stream: str | None = None
+    missing: list[str] | None = None
     source: str | None = None
 
 

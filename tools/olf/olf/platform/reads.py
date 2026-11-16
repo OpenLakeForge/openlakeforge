@@ -123,19 +123,36 @@ def logs(
     hour: int | None = typer.Option(None, "--hour", min=0, max=23, help="Only this hour of the day, UTC."),
     pod: str = typer.Option("", "--pod", help="Only this pod's lines."),
     container: str = typer.Option("", "--container", help="Only this container's lines."),
+    run_id: str = typer.Option("", "--run-id", help="Only the lines of this Dagster run, whatever its pod's name."),
+    product: str = typer.Option("", "--product", help="Only this data product's lines."),
+    component: str = typer.Option("", "--component", help="Only this component's lines, such as floe."),
+    severity: str = typer.Option(
+        "", "--severity", help="Only lines at this level or above: debug, info, warning, error or critical."
+    ),
+    since: str = typer.Option("", "--since", help="Only lines at or after this ISO 8601 time; UTC without an offset."),
+    until: str = typer.Option("", "--until", help="Only lines before this ISO 8601 time; UTC without an offset."),
     limit: int = typer.Option(500, "--limit", min=1, max=5000, help="At most this many lines."),
     as_json: bool = _JSON,
     profile_file: str = _PROFILE,
 ) -> None:
-    """Show a stage's archived pod logs for a day or one hour of it, oldest archive first.
+    """Show a stage's archived pod logs for a day or one hour of it, oldest first.
 
-    The archive is written hourly, so the current hour may not be in it yet.
+    --run-id, --product and --component match records the node collector wrote; the older polling archive
+    carries none of them. The newest lines may not be archived yet.
     """
     # Checked here because the API's own 422 for a bad date carries no message the command could show.
     try:
         when = date.fromisoformat(day) if day else datetime.now(UTC).date()
     except ValueError as exc:
         raise typer.Exit(code=fail(f"--date {day!r} is not a date in YYYY-MM-DD form")) from exc
+    for flag, value in (("--since", since), ("--until", until)):
+        try:
+            if value:
+                datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise typer.Exit(code=fail(f"{flag} {value!r} is not an ISO 8601 time")) from exc
+    if severity and severity not in ("debug", "info", "warning", "error", "critical"):
+        raise typer.Exit(code=fail("--severity is one of debug, info, warning, error or critical"))
     params: dict[str, Any] = {"date": when.isoformat(), "limit": limit}
     if hour is not None:
         params["hour"] = hour
@@ -143,6 +160,16 @@ def logs(
         params["pod"] = pod
     if container:
         params["container"] = container
+    for name, value in (
+        ("run_id", run_id),
+        ("product", product),
+        ("component", component),
+        ("severity", severity),
+        ("since", since),
+        ("until", until),
+    ):
+        if value:
+            params[name] = value
     result = _read(profile_file, stage_path(stage, "logs"), params)
     if as_json:
         typer.echo(json.dumps(result, indent=2))
