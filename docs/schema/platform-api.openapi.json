@@ -385,7 +385,7 @@
         "type": "object"
       },
       "HealthThresholds": {
-        "description": "The `max_age` and `grace` values the signals were evaluated with, in seconds. Provisional.",
+        "description": "The `max_age` and `grace` values the signals were evaluated with, in seconds. Provisional.\n\n`run_max_age_seconds` bounds only a pipeline with no running schedule; a scheduled one has its own cadence.",
         "properties": {
           "run_max_age_seconds": {
             "title": "Run Max Age Seconds",

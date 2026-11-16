@@ -17,6 +17,7 @@ from openlakeforge_core import (
     WorkloadObservation,
     evaluate_execution,
     evaluate_expected_run,
+    evaluate_freshness,
     evaluate_latest_success,
     evaluate_quality,
     evaluate_workload,
@@ -143,6 +144,58 @@ def test_schedule_with_nothing_due_yet_is_healthy() -> None:
 def test_stale_schedule_observation_is_unknown_not_critical() -> None:
     schedule = ScheduleObservation(ScheduleState.RUNNING, STALE, last_expected_at=STALE)
     assert evaluate_expected_run(DEV, schedule, now=NOW, max_age=MAX_AGE, grace=GRACE).state is HealthState.UNKNOWN
+
+
+def _freshness(
+    success_at: datetime | None,
+    due: datetime | None,
+    *,
+    schedule: ScheduleState = ScheduleState.RUNNING,
+    status: RunStatus = RunStatus.SUCCEEDED,
+) -> Signal:
+    last = None if success_at is None else _run(status, success_at)
+    return evaluate_freshness(DEV, last, due, now=NOW, grace=GRACE, schedule=schedule)
+
+
+@pytest.mark.parametrize(
+    ("success_at", "due", "expected"),
+    [
+        (NOW - timedelta(hours=1), NOW - timedelta(hours=2), HealthState.HEALTHY),
+        (NOW - timedelta(hours=2), NOW - timedelta(hours=2), HealthState.HEALTHY),
+        (NOW - timedelta(hours=3), NOW - timedelta(hours=2), HealthState.CRITICAL),
+        (NOW - timedelta(hours=3), NOW - timedelta(minutes=5), HealthState.HEALTHY),
+        (NOW - timedelta(hours=3), NOW - timedelta(minutes=10), HealthState.CRITICAL),
+        (None, NOW - timedelta(hours=2), HealthState.UNKNOWN),
+    ],
+)
+def test_freshness_is_stale_without_a_success_since_the_previous_due_time_plus_grace(
+    success_at: datetime | None, due: datetime, expected: HealthState
+) -> None:
+    signal = _freshness(success_at, due)
+    assert signal.kind is SignalKind.FRESHNESS
+    assert signal.state is expected
+
+
+@pytest.mark.parametrize("schedule", [ScheduleState.STOPPED, ScheduleState.ABSENT])
+def test_freshness_of_a_stopped_or_absent_schedule_is_disabled_never_stale(schedule: ScheduleState) -> None:
+    assert _freshness(NOW - timedelta(days=90), None, schedule=schedule).state is HealthState.DISABLED
+    assert _freshness(None, NOW - timedelta(days=1), schedule=schedule).state is HealthState.DISABLED
+
+
+def test_freshness_without_a_due_time_is_unknown_not_healthy() -> None:
+    assert _freshness(FRESH, None).state is HealthState.UNKNOWN
+
+
+def test_freshness_names_the_run_and_leaves_expiry_to_the_next_evaluation() -> None:
+    signal = _freshness(FRESH, NOW - timedelta(hours=1))
+    assert (signal.run, signal.observed_at, signal.expires_at, signal.stage) == ("run-1", FRESH, None, "dev")
+
+
+def test_freshness_rejects_a_run_that_did_not_succeed_and_naive_times() -> None:
+    with pytest.raises(ValueError, match="did not succeed"):
+        _freshness(FRESH, NOW - timedelta(hours=1), status=RunStatus.FAILED)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _freshness(FRESH, datetime(2026, 11, 16, 10, 0))
 
 
 @pytest.mark.parametrize(

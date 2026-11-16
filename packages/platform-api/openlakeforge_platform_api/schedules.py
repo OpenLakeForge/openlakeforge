@@ -65,3 +65,30 @@ def latest_due(cron: str, timezone: str, now: datetime) -> datetime | None:
                 return best
     except (ValueError, KeyError, OSError, IndexError):
         return None
+
+
+def next_due(cron: str, timezone: str, after: datetime) -> datetime | None:
+    """The first time Dagster fires the schedule strictly after `after`, in UTC; None when the cron or timezone is bad.
+
+    The mirror of `latest_due`, with the same wall-time walk and daylight-saving rules, so the two agree on which
+    instants are fire times.
+    """
+    try:
+        zone = ZoneInfo(timezone)
+        local_after = after.astimezone(zone).replace(tzinfo=None)
+        parts = croniter(cron).expanded
+        hourly = len(parts[1]) == 1 and parts[1][0] == "*"
+        # Start an hour early so a repeated hour is whole, as `latest_due` starts an hour late.
+        start = local_after.replace(second=0, microsecond=0) - timedelta(hours=1)
+        walker = croniter(cron, start)
+        best: datetime | None = None
+        while True:
+            wall: datetime = walker.get_next(datetime)
+            for fired in _fire_times(wall.replace(tzinfo=zone), hourly):
+                instant = fired.astimezone(UTC)
+                if instant > after and (best is None or instant < best):
+                    best = instant
+            if best is not None and wall > local_after + _LOOKBACK:
+                return best
+    except (ValueError, KeyError, OSError, IndexError):
+        return None

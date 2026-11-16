@@ -164,7 +164,10 @@ class HealthSignal(BaseModel):
 
 
 class HealthThresholds(BaseModel):
-    """The `max_age` and `grace` values the signals were evaluated with, in seconds. Provisional."""
+    """The `max_age` and `grace` values the signals were evaluated with, in seconds. Provisional.
+
+    `run_max_age_seconds` bounds only a pipeline with no running schedule; a scheduled one has its own cadence.
+    """
 
     run_max_age_seconds: int
     schedule_max_age_seconds: int
