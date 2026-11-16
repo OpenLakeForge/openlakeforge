@@ -149,6 +149,10 @@ class Cluster:
         self.ghost: dict[str, list[str]] = {}
         self.restart_clears_ghost = True
         self.restarts: list[str] = []
+        # Names containerd lists at the registry digest that the CRI has no record for, and how many `ctr images rm`
+        # calls ignore them before one takes.
+        self.ctr_only: dict[str, list[str]] = {}
+        self.ctr_rm_ignored = 0
         self.calls: list[tuple[str, str]] = []
         self.purge_works = purge_works
         self.pods: dict[str, dict[str, Any]] = {}
@@ -199,6 +203,10 @@ class Cluster:
     def ctr(self, node: str, args: list[str]) -> str:
         if args[0] == "rm":
             self.calls.append(("ctr-rm", node))
+            if self.ctr_rm_ignored and any(name in args for name in self.ctr_only.get(node, [])):
+                self.ctr_rm_ignored -= 1
+                return ""
+            self.ctr_only[node] = [name for name in self.ctr_only.get(node, []) if name not in args]
             removed = [name for name in self.held.get(node, []) if name in args]
             self.held[node] = [name for name in self.held.get(node, []) if name not in args]
             assert self.unrelated not in args, "an import name of another image must not be removed"
@@ -208,7 +216,12 @@ class Cluster:
         names = [f"{REPOSITORY}@sha256:reg"] if IMAGE in self.cache[node] else []
         names += [*self.held.get(node, []), self.unrelated]
         header = "REF TYPE DIGEST SIZE PLATFORMS LABELS"
-        return "\n".join([header, *(f"{n} application/vnd.oci.image.index.v1+json sha256:x 360MiB - -" for n in names)])
+        lines = [f"{n} application/vnd.oci.image.index.v1+json sha256:x 360MiB - -" for n in names]
+        lines += [
+            f"{n} application/vnd.oci.image.index.v1+json {IMAGE.split('@')[1]} 360MiB - -"
+            for n in self.ctr_only.get(node, [])
+        ]
+        return "\n".join([header, *lines])
 
     def kubectl(self, cfg: object, args: list[str], *, capture: bool = False, **_: object) -> str:
         verb = args[0]
@@ -468,3 +481,45 @@ def test_a_run_whose_pods_all_found_a_cache_fails_even_with_several_pods(
 
     with pytest.raises(E2EError, match=r"node w1\): reported the image already present on the node"):
         registry_pull.check(_cfg())
+
+
+def test_a_containerd_name_at_the_digest_that_the_cri_does_not_list_is_removed(cluster: Cluster) -> None:
+    cluster.cache["w1"].clear()
+    cluster.ctr_only = {"w1": [f"{REPOSITORY}:latest"]}
+
+    registry_pull.purge_image(_cfg(), IMAGE)
+
+    assert cluster.ctr_only["w1"] == []
+
+
+def test_a_node_that_keeps_the_image_after_a_pass_is_purged_again(cluster: Cluster) -> None:
+    cluster.cache["w1"].clear()
+    cluster.ctr_only = {"w1": [f"{REPOSITORY}:latest"]}
+    cluster.ctr_rm_ignored = 1
+
+    registry_pull.purge_image(_cfg(), IMAGE)
+
+    assert cluster.ctr_only["w1"] == []
+    assert [call[0] for call in cluster.calls if call[1] == "w1"].count("ctr-rm") == 2
+
+
+def test_a_node_that_still_holds_the_image_after_every_attempt_fails_naming_node_and_digest(cluster: Cluster) -> None:
+    cluster.cache["w1"].clear()
+    cluster.ctr_only = {"w1": [f"{REPOSITORY}:latest"]}
+    cluster.ctr_rm_ignored = 99
+
+    with pytest.raises(E2EError, match=rf"w1: .*sha256:{'a' * 64} is still on the node.*{REPOSITORY}:latest"):
+        registry_pull.purge_image(_cfg(), IMAGE)
+
+
+def test_an_image_pulled_back_after_the_purge_is_removed_again_before_the_run_starts(
+    cluster: Cluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    @contextmanager
+    def dagster(_cfg: object) -> Iterator[None]:
+        cluster.cache["w1"].add(IMAGE)  # a pod restarted its container between the purge and the launch
+        yield None
+
+    monkeypatch.setattr(registry_pull, "dagster_client", dagster)
+
+    registry_pull.check(_cfg())
