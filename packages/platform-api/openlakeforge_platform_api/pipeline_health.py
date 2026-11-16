@@ -146,7 +146,12 @@ def _evaluate(
 ) -> PipelineEvaluation:
     scope = Scope(stage=stage, product=job)
     latest = _observation(runs[0]) if runs else None
-    success = next((_observation(run) for run in runs if run.status == "SUCCESS"), None)
+    # The latest completion, not the newest-created: overlapping runs can finish out of creation order.
+    success = max(
+        (_observation(run) for run in runs if run.status == "SUCCESS"),
+        key=lambda observation: observation.observed_at,
+        default=None,
+    )
     due = latest_due(schedule.cron_schedule, schedule.timezone, now) if schedule else None
     expected = _expected(schedule, runs, due, now)
     owed = _owed_due(schedule, now)

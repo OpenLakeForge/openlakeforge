@@ -105,3 +105,14 @@ def test_the_next_due_time_across_the_clocks_going_back_is_the_later_pass() -> N
 def test_the_next_due_time_of_a_bad_cron_is_none() -> None:
     assert next_due("not a cron", "UTC", _utc(16, 12)) is None
     assert next_due("0 9 * * *", "No/Such_Zone", _utc(16, 12)) is None
+
+
+def test_freshness_reads_the_success_that_finished_last_not_the_newest_created() -> None:
+    # Dagster lists newest-created first. The 10:00 run finished at 10:10; an earlier-created run finished at 11:05,
+    # after the 11:00 due time, so the pipeline is fresh at 11:16.
+    newer = DagsterRun("r2", "orders_job", "SUCCESS", _utc(16, 10, 0).timestamp(), None, _utc(16, 10, 10).timestamp())
+    older = DagsterRun("r1", "orders_job", "SUCCESS", _utc(16, 9, 0).timestamp(), None, _utc(16, 11, 5).timestamp())
+    evaluation = _evaluate("dev", "orders_job", [newer, older], _schedule("0 * * * *"), _utc(16, 11, 16))
+    states = {signal.kind.value: signal.state.value for signal in evaluation.signals}
+
+    assert states["freshness"] == "healthy"

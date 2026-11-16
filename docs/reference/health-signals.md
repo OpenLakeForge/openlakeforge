@@ -80,9 +80,12 @@ Stale is `critical`, as ADR 0023 has `stale_output` alert as critical: output
 that has not refreshed since its owed due time is a broken promise to its
 consumers. A stale pipeline whose run also failed, or never started, is already
 `critical` through `execution` or `expected_run`; the stage rollup takes the
-worst signal, so that adds no new state, and the alert evaluator suppresses
-`stale_output` while `run_failed` or `missed_run` is open for the same product,
-so one cause notifies once. A success counts by the time it ended. The signal
+worst signal, so that adds no new state. Alerting on these signals is planned,
+not built: the design (ADR 0023, #23) has the evaluator suppress a stale-output
+alert while a failed-run or missed-run alert is open for the same product, so one
+cause would notify once. A success counts by the time it ended, and the latest
+completed success is the one read, so overlapping runs that finish out of
+creation order are judged by the one that finished last. The signal
 carries no `expires_at`, since it expires at the next due time, which the module
 does not know.
 
