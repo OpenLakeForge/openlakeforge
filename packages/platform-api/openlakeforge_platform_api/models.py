@@ -64,6 +64,8 @@ class LogLine(BaseModel):
     container: str
     line: str | None
     error: str | None
+    # Which archive layout the line came from; ADR 0022, decision 5 returns both copies when their timestamps differ.
+    source: str | None = None
 
 
 class Logs(BaseModel):

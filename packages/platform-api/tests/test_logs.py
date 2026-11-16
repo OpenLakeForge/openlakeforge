@@ -132,6 +132,7 @@ def test_lines_are_filtered_by_pod_and_limited(api: TestClient, mint: Mint) -> N
                 "container": "main",
                 "line": "started",
                 "error": None,
+                "source": "v1",
             }
         ],
         "truncated": True,
@@ -297,3 +298,13 @@ def test_a_platform_admin_reads_prod_from_the_prod_prefix_only(
 
     assert [line["line"] for line in response.json()["lines"]] == ["prod secret"]
     assert all(prefix.startswith("activations/prod/") for prefix in store.listed)
+
+
+def test_each_line_says_which_archive_layout_it_came_from(api: TestClient, store: ObjectStore, mint: Mint) -> None:
+    store.archive(V2_DEV, [_v2("2026-10-30T08:00:00Z", "from the collector")])
+
+    lines = api.get(LOGS + "&pod=dagster-run-8f1c2d4e-x7k2p", headers=_as(mint, "data-engineer")).json()["lines"]
+    both = api.get(LOGS + "&limit=10", headers=_as(mint, "data-engineer")).json()["lines"]
+
+    assert [line["source"] for line in lines] == ["v2"]
+    assert {line["source"] for line in both} == {"v1", "v2"}
