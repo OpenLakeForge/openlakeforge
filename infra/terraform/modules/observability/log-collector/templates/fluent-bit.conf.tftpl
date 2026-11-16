@@ -1,0 +1,87 @@
+[SERVICE]
+    Flush                       5
+    Grace                       30
+    Log_Level                   info
+    HTTP_Server                 On
+    HTTP_Listen                 0.0.0.0
+    HTTP_Port                   ${http_port}
+    Health_Check                On
+    storage.path                /var/fluent-bit/chunks/
+    storage.sync                normal
+    storage.metrics             On
+    storage.max_chunks_up       ${max_chunks_up}
+    storage.backlog.mem_limit   5M
+%{ for stage, route in routes ~}
+
+# ${stage}: one input per namespace, so the file name picks the route and no record field can.
+[INPUT]
+    Name                        tail
+    Tag                         ${route.namespace}.*
+    Path                        /var/log/containers/*_${route.namespace}_*.log
+    Path_Key                    filepath
+    Offset_Key                  offset
+    multiline.parser            cri
+    DB                          /var/fluent-bit/${stage}.db
+    Read_from_Head              On
+    Refresh_Interval            5
+    Skip_Long_Lines             On
+    Buffer_Max_Size             1M
+    Mem_Buf_Limit               ${mem_buf_limit}
+    storage.type                filesystem
+
+[FILTER]
+    Name                        record_modifier
+    Match                       ${route.namespace}.var.*
+    Record                      stage ${stage}
+
+[FILTER]
+    Name                        kubernetes
+    Match                       ${route.namespace}.var.*
+    Kube_Tag_Prefix             ${route.namespace}.var.log.containers.
+    Merge_Log                   Off
+    Annotations                 Off
+    Labels                      On
+    Use_Kubelet                 Off
+    K8S-Logging.Parser          Off
+    K8S-Logging.Exclude         Off
+
+[FILTER]
+    Name                        lua
+    Match                       ${route.namespace}.var.*
+    script                      /fluent-bit/etc/record.lua
+    call                        build
+    time_as_table               On
+    type_array_key              missing
+
+# The new tag is <namespace>.<UTC date of the record>: the S3 plugin keeps one buffer per tag, so an object holds one date.
+[FILTER]
+    Name                        rewrite_tag
+    Match                       ${route.namespace}.var.*
+    Rule                        $date ^(\d{4}-\d{2}-\d{2})$ ${route.namespace}.$date false
+    Emitter_Name                retag_${stage}
+    Emitter_Storage.type        filesystem
+    Emitter_Mem_Buf_Limit       10M
+
+[FILTER]
+    Name                        record_modifier
+    Match_Regex                 ^${route.namespace}\.\d{4}-\d{2}-\d{2}$
+    Remove_key                  date
+
+[OUTPUT]
+    Name                        s3
+    Match_Regex                 ^${route.namespace}\.\d{4}-\d{2}-\d{2}$
+    bucket                      ${bucket}
+    region                      ${region}
+    endpoint                    ${endpoint}
+    use_put_object              On
+    compression                 gzip
+    total_file_size             8M
+    upload_timeout              5m
+    json_date_key               false
+    s3_key_format               /${route.key_prefix}namespace=$TAG[0]/date=$TAG[1]/${stage}-$UUID.ndjson.gz
+    store_dir                   /var/fluent-bit/spool-${stage}
+    store_dir_limit_size        ${spool_limit_size}
+    retry_exhausted_action      quarantine
+    quarantine_dir_limit_size   ${quarantine_limit_size}
+    storage.total_limit_size    ${chunk_limit_size}
+%{ endfor ~}

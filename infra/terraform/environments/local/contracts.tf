@@ -588,8 +588,10 @@ module "provider_contract" {
   observability_support = {
     logs_archive = true
     # The requested retention is reported, not applied: no lifecycle rule
-    # reaches the log prefix. #22 slice b flips logs_archive_retention and #21
-    # flips metrics_retention once the adapter enforces them.
+    # reaches the log prefix: the collector writes v2 but whether SeaweedFS 4.48
+    # honours lifecycle rules is untested (ADR 0022, decision 6). #22 flips
+    # logs_archive_retention and #21 flips metrics_retention once the adapter
+    # enforces them.
     logs_archive_retention = false
     logs_search            = false
     metrics                = false

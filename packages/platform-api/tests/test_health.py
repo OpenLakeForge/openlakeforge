@@ -64,9 +64,17 @@ def _schedule(
     }
 
 
-def _expected_run(api: TestClient, mint: Mint) -> dict[str, Any]:
+def _signal_of(api: TestClient, mint: Mint, kind: str) -> dict[str, Any]:
     (pipeline,) = api.get(PIPELINES, headers=_as(mint, "data-engineer")).json()["pipelines"]
-    return next(signal for signal in pipeline["signals"] if signal["kind"] == "expected_run")
+    return next(signal for signal in pipeline["signals"] if signal["kind"] == kind)
+
+
+def _expected_run(api: TestClient, mint: Mint) -> dict[str, Any]:
+    return _signal_of(api, mint, "expected_run")
+
+
+def _freshness(api: TestClient, mint: Mint) -> dict[str, Any]:
+    return _signal_of(api, mint, "freshness")
 
 
 @pytest.fixture
@@ -213,6 +221,73 @@ def test_a_cron_that_cannot_be_read_is_unknown_not_healthy(
     dagster.schedules = [{**_schedule("RUNNING", 2 * HOUR), "cronSchedule": "['0 1 * * *', '0 2 * * *']"}]
 
     assert _expected_run(api, mint)["state"] == "unknown"
+
+
+def test_a_daily_pipeline_with_a_success_since_the_previous_due_time_is_fresh(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 2 * HOUR, tick_age=2 * HOUR)]
+
+    assert _freshness(api, mint)["state"] == "healthy"
+
+
+def test_a_daily_pipeline_whose_latest_run_is_overdue_is_stale(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", 22 * HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 2 * HOUR, tick_age=22 * HOUR)]
+
+    assert _freshness(api, mint)["state"] == "critical"
+
+
+def test_a_due_run_still_inside_its_grace_does_not_hide_the_one_before_it(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    # The latest due time was a minute ago (within grace), but yesterday's due run never succeeded either.
+    dagster.runs = [_run("r1", "SUCCESS", 49 * HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 60, tick_age=49 * HOUR)]
+
+    assert _freshness(api, mint)["state"] == "critical"
+
+
+def test_a_due_run_inside_its_grace_is_not_yet_stale(api: TestClient, mint: Mint, dagster: ScheduledDagster) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", 24 * HOUR + 60)]
+    dagster.schedules = [_schedule("RUNNING", 60, tick_age=24 * HOUR)]
+
+    assert _freshness(api, mint)["state"] == "healthy"
+
+
+@pytest.mark.parametrize("status", ["STOPPED", None])
+def test_a_stopped_or_manual_pipeline_is_disabled_never_stale(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster, status: str | None
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", 30 * 24 * HOUR)]
+    dagster.schedules = [] if status is None else [_schedule(status, 2 * HOUR)]
+
+    assert _freshness(api, mint)["state"] == "disabled"
+
+
+def test_a_schedule_not_shown_to_be_on_gives_unknown_freshness(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", 30 * HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 2 * HOUR)]
+
+    assert _freshness(api, mint)["state"] == "unknown"
+
+
+def test_a_success_older_than_one_cadence_stops_being_evidence(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    # Six days old is inside the old seven-day bound, but a daily pipeline's own bound is one day plus the grace.
+    dagster.runs = [_run("r1", "SUCCESS", 6 * 24 * HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 2 * HOUR, started_age=30 * 24 * HOUR)]
+
+    (pipeline,) = api.get(PIPELINES, headers=_as(mint, "data-engineer")).json()["pipelines"]
+    states = {signal["kind"]: signal["state"] for signal in pipeline["signals"]}
+    assert states["latest_success"] == "unknown"
+    assert states["freshness"] == "critical"
 
 
 def test_slim_with_no_metrics_still_answers_and_never_calls_absent_integrations_healthy(

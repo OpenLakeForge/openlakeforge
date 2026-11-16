@@ -48,6 +48,7 @@ _OPENMETADATA_SERVER_IMAGE = "docker.getcollate.io/openmetadata/server:1.13.6"
 
 _ALWAYS = (
     "seaweedfs",
+    "fluent_bit",
     "traefik",
     "cert_manager_controller",
     "cert_manager_webhook",

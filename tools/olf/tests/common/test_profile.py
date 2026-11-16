@@ -1118,9 +1118,12 @@ def test_stage_query_size_is_rejected_like_the_spec_level_one(size: str) -> None
     assert str(stage_exc.value).replace("spec.stages.dev.query", "spec.query") == str(spec_exc.value)
 
 
-def _observability_document(preset: str = "slim", **observability: object) -> dict:
+def _observability_document(
+    preset: str = "slim", enabled_stages: tuple[str, ...] = ("dev",), **observability: object
+) -> dict:
     document = _load_fixture("valid_slim_local.yaml")
     document["spec"]["preset"] = preset
+    document["spec"]["stages"] = {name: {"enabled": True} for name in enabled_stages}
     if observability:
         document["spec"]["observability"] = observability
     return document
@@ -1162,7 +1165,12 @@ def test_observability_explicit_values_win_over_the_preset() -> None:
         "grafana": {"enabled": True},
         "alerts": {
             "receivers": [
-                {"name": "on-call", "type": "webhook", "secret_ref": {"name": "alert-webhooks", "key": "webhook-url"}}
+                {
+                    "name": "on-call",
+                    "type": "webhook",
+                    "secret_ref": {"name": "alert-webhooks", "key": "webhook-url"},
+                    "stages": ["dev"],
+                }
             ]
         },
     }
@@ -1224,3 +1232,34 @@ def test_invalid_observability_fails_with_the_offending_path(observability: dict
         validate_deployment_profile(_observability_document(**observability))
 
     assert path in str(exc.value)
+
+
+def _receiver_stages(enabled_stages: tuple[str, ...], **receiver: object) -> list[str]:
+    document = _observability_document(enabled_stages=enabled_stages, alerts={"receivers": [{**_RECEIVER, **receiver}]})
+    return _resolved_observability(document)["alerts"]["receivers"][0]["stages"]
+
+
+def test_a_receiver_without_stages_resolves_to_every_enabled_stage() -> None:
+    assert _receiver_stages(("dev",)) == ["dev"]
+    assert _receiver_stages(("dev", "prod")) == ["dev", "prod"]
+
+
+def test_a_receiver_keeps_the_stages_it_lists() -> None:
+    assert _receiver_stages(("dev", "uat", "prod"), stages=["prod"]) == ["prod"]
+
+
+@pytest.mark.parametrize(
+    "stages",
+    [[], ["prod", "prod"], ["staging"], ["uat"], "prod"],
+    ids=["empty", "duplicate", "unknown", "disabled", "not-a-list"],
+)
+def test_invalid_receiver_stages_fail_with_the_offending_path(stages: object) -> None:
+    document = _observability_document(
+        alerts={"receivers": [{**_RECEIVER, "stages": ["dev"]}, {**_RECEIVER, "name": "b", "stages": stages}]}
+    )
+    document["spec"]["stages"]["prod"] = {"enabled": True}
+
+    with pytest.raises(DeploymentProfileError) as exc:
+        validate_deployment_profile(document)
+
+    assert "spec.observability.alerts.receivers[1].stages" in str(exc.value)
