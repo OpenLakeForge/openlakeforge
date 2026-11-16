@@ -90,7 +90,10 @@ def test_every_route_that_is_not_a_get_is_marked_as_changing_state_and_so_audite
     [
         ({"role": "viewer", "stages": [], "changes_state": "yes"}, "changes_state must be true or false"),
         ({"role": "anonymous", "stages": [], "changes_state": True}, "anonymous operation cannot change state"),
-        ({"role": "viewer", "stages": [], "audited": True}, "keys other than role, stages and changes_state"),
+        (
+            {"role": "viewer", "stages": [], "audited": True},
+            "keys other than role, stages, changes_state and role_stages",
+        ),
     ],
 )
 def test_a_malformed_changes_state_row_stops_the_matrix_loading(row: dict[str, object], message: str) -> None:
@@ -197,3 +200,56 @@ def test_a_role_outside_precedence_is_never_allowed() -> None:
     assert not matrix.allows("probe", "owner")
     assert not matrix.allows("probe", None)
     assert not matrix.allows("unknown", "platform-admin")
+
+
+def _limited(role_stages: object, stages: list[str] | None = None) -> dict[str, dict[str, object]]:
+    row = {"role": "data-engineer", "stages": ["*"] if stages is None else stages, "role_stages": role_stages}
+    return {"probe": row}
+
+
+@pytest.mark.parametrize(
+    ("operations", "message"),
+    [
+        (_limited({"owner": ["dev"]}), "not in"),
+        (_limited({"analyst": ["dev"]}), "below the 'data-engineer' floor"),
+        (_limited({"data-engineer": []}), "non-empty list"),
+        (_limited({"data-engineer": [""]}), "non-empty list"),
+        (_limited({"data-engineer": "dev"}), "non-empty list"),
+        (_limited({"data-engineer": ["dev"]}, stages=[]), "names a stage"),
+        (_limited(["dev"]), "table of role"),
+    ],
+)
+def test_a_malformed_role_stages_refuses_to_load(operations: dict[str, dict[str, object]], message: str) -> None:
+    with pytest.raises(PermissionMatrixError, match=message):
+        PermissionMatrix.from_mapping({"operations": operations}, PRECEDENCE)
+
+
+def test_a_role_is_limited_to_its_stages_and_the_roles_above_it_are_not() -> None:
+    matrix = PermissionMatrix.from_mapping({"operations": _limited({"data-engineer": ["dev"]})}, PRECEDENCE)
+
+    assert matrix.allows("probe", "data-engineer", "dev")
+    assert not matrix.allows("probe", "data-engineer", "prod")
+    assert matrix.allows("probe", "platform-admin", "prod")
+    assert not matrix.allows("probe", "analyst", "dev")
+
+
+def test_a_role_limited_to_every_stage_keeps_them_all() -> None:
+    matrix = PermissionMatrix.from_mapping({"operations": _limited({"data-engineer": ["*"]})}, PRECEDENCE)
+
+    assert matrix.allows("probe", "data-engineer", "prod")
+
+
+def test_a_refusal_for_a_limited_role_names_the_stages_it_may_use(settings: Settings, mint: Mint) -> None:
+    row: dict[str, object] = {
+        "role": "data-engineer",
+        "stages": ["*"],
+        "role_stages": {"data-engineer": ["dev", "uat"]},
+    }
+    client = TestClient(_app(settings, {"stage_probe": row}))
+
+    refused = client.get("/api/v1/stages/prod/probe", headers=_token(mint, "data-engineer"))
+
+    assert refused.status_code == 403
+    assert refused.json() == {"detail": "role 'data-engineer' may perform 'stage_probe' only on stages: dev, uat"}
+    assert client.get("/api/v1/stages/dev/probe", headers=_token(mint, "data-engineer")).status_code == 200
+    assert client.get("/api/v1/stages/prod/probe", headers=_token(mint, "platform-admin")).status_code == 200
