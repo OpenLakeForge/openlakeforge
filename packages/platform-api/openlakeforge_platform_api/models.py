@@ -6,6 +6,7 @@ a client sees the same bytes, and a reordering here is a visible change.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -140,6 +141,79 @@ class DataProduct(BaseModel):
 
 class DataProducts(BaseModel):
     data_products: list[DataProduct]
+
+
+HealthStateName = Literal["healthy", "warning", "critical", "unknown", "disabled"]
+
+
+class IntegrationStatus(BaseModel):
+    """Whether one source of health is present. `status` is never a health state: an absent source is not green."""
+
+    name: Literal["dagster", "services", "quality", "metrics"]
+    status: Literal["available", "disabled", "unavailable"]
+    reason: str
+
+
+class HealthSignal(BaseModel):
+    kind: Literal["execution", "latest_success", "expected_run", "freshness", "quality", "service"]
+    state: HealthStateName
+    reason: str
+    run: str | None
+    observed_at: datetime | None
+    expires_at: datetime | None
+
+
+class HealthThresholds(BaseModel):
+    """The `max_age` and `grace` values the signals were evaluated with, in seconds. Provisional."""
+
+    run_max_age_seconds: int
+    schedule_max_age_seconds: int
+    schedule_grace_seconds: int
+    run_window: int
+
+
+class StagePipelineState(BaseModel):
+    job: str
+    state: HealthStateName
+
+
+class StageHealth(BaseModel):
+    stage: str
+    state: HealthStateName
+    evaluated_at: datetime
+    pipelines: list[StagePipelineState]
+    integrations: list[IntegrationStatus]
+
+
+class PipelineSchedule(BaseModel):
+    name: str | None
+    status: Literal["running", "stopped", "absent"]
+    last_expected_at: datetime | None
+
+
+class PipelineFreshness(BaseModel):
+    last_success_at: datetime | None
+    age_seconds: int | None
+
+
+class PipelineHealth(BaseModel):
+    job: str
+    state: HealthStateName
+    latest_run: Run | None
+    last_success: Run | None
+    # Failed runs among the `run_window` most recent; a missed run is the `expected_run` signal.
+    failed_runs: int
+    schedule: PipelineSchedule
+    freshness: PipelineFreshness
+    signals: list[HealthSignal]
+
+
+class PipelinesHealth(BaseModel):
+    stage: str
+    evaluated_at: datetime
+    thresholds: HealthThresholds
+    integrations: list[IntegrationStatus]
+    pipelines: list[PipelineHealth]
 
 
 class FileStageCapability(BaseModel):

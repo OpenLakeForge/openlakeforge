@@ -222,6 +222,111 @@
         "title": "Health",
         "type": "object"
       },
+      "HealthSignal": {
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "kind": {
+            "enum": [
+              "execution",
+              "latest_success",
+              "expected_run",
+              "freshness",
+              "quality",
+              "service"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run"
+          },
+          "state": {
+            "enum": [
+              "healthy",
+              "warning",
+              "critical",
+              "unknown",
+              "disabled"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "state",
+          "reason",
+          "run",
+          "observed_at",
+          "expires_at"
+        ],
+        "title": "HealthSignal",
+        "type": "object"
+      },
+      "HealthThresholds": {
+        "description": "The `max_age` and `grace` values the signals were evaluated with, in seconds. Provisional.",
+        "properties": {
+          "run_max_age_seconds": {
+            "title": "Run Max Age Seconds",
+            "type": "integer"
+          },
+          "run_window": {
+            "title": "Run Window",
+            "type": "integer"
+          },
+          "schedule_grace_seconds": {
+            "title": "Schedule Grace Seconds",
+            "type": "integer"
+          },
+          "schedule_max_age_seconds": {
+            "title": "Schedule Max Age Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_max_age_seconds",
+          "schedule_max_age_seconds",
+          "schedule_grace_seconds",
+          "run_window"
+        ],
+        "title": "HealthThresholds",
+        "type": "object"
+      },
       "ImportedReports": {
         "properties": {
           "dashboards": {
@@ -246,6 +351,41 @@
           "request_id"
         ],
         "title": "ImportedReports",
+        "type": "object"
+      },
+      "IntegrationStatus": {
+        "description": "Whether one source of health is present. `status` is never a health state: an absent source is not green.",
+        "properties": {
+          "name": {
+            "enum": [
+              "dagster",
+              "services",
+              "quality",
+              "metrics"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "available",
+              "disabled",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "reason"
+        ],
+        "title": "IntegrationStatus",
         "type": "object"
       },
       "Job": {
@@ -448,6 +588,189 @@
           "next_cursor"
         ],
         "title": "Objects",
+        "type": "object"
+      },
+      "PipelineFreshness": {
+        "properties": {
+          "age_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Seconds"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          }
+        },
+        "required": [
+          "last_success_at",
+          "age_seconds"
+        ],
+        "title": "PipelineFreshness",
+        "type": "object"
+      },
+      "PipelineHealth": {
+        "properties": {
+          "failed_runs": {
+            "title": "Failed Runs",
+            "type": "integer"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/PipelineFreshness"
+          },
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "last_success": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Run"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Run"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/PipelineSchedule"
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/HealthSignal"
+            },
+            "title": "Signals",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "healthy",
+              "warning",
+              "critical",
+              "unknown",
+              "disabled"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "state",
+          "latest_run",
+          "last_success",
+          "failed_runs",
+          "schedule",
+          "freshness",
+          "signals"
+        ],
+        "title": "PipelineHealth",
+        "type": "object"
+      },
+      "PipelineSchedule": {
+        "properties": {
+          "last_expected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Expected At"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "stopped",
+              "absent"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "last_expected_at"
+        ],
+        "title": "PipelineSchedule",
+        "type": "object"
+      },
+      "PipelinesHealth": {
+        "properties": {
+          "evaluated_at": {
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "integrations": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationStatus"
+            },
+            "title": "Integrations",
+            "type": "array"
+          },
+          "pipelines": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineHealth"
+            },
+            "title": "Pipelines",
+            "type": "array"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "thresholds": {
+            "$ref": "#/components/schemas/HealthThresholds"
+          }
+        },
+        "required": [
+          "stage",
+          "evaluated_at",
+          "thresholds",
+          "integrations",
+          "pipelines"
+        ],
+        "title": "PipelinesHealth",
         "type": "object"
       },
       "QueryCapabilities": {
@@ -733,6 +1056,78 @@
           "next_cursor"
         ],
         "title": "Schemas",
+        "type": "object"
+      },
+      "StageHealth": {
+        "properties": {
+          "evaluated_at": {
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "integrations": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationStatus"
+            },
+            "title": "Integrations",
+            "type": "array"
+          },
+          "pipelines": {
+            "items": {
+              "$ref": "#/components/schemas/StagePipelineState"
+            },
+            "title": "Pipelines",
+            "type": "array"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "healthy",
+              "warning",
+              "critical",
+              "unknown",
+              "disabled"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "state",
+          "evaluated_at",
+          "pipelines",
+          "integrations"
+        ],
+        "title": "StageHealth",
+        "type": "object"
+      },
+      "StagePipelineState": {
+        "properties": {
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "healthy",
+              "warning",
+              "critical",
+              "unknown",
+              "disabled"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "state"
+        ],
+        "title": "StagePipelineState",
         "type": "object"
       },
       "Table": {
@@ -1161,6 +1556,86 @@
           }
         },
         "summary": "Download Object"
+      }
+    },
+    "/api/v1/stages/{stage}/health": {
+      "get": {
+        "description": "A rollup of the stage's pipeline signals. Integrations that give none are listed, never counted as healthy.",
+        "operationId": "get_stage_health_api_v1_stages__stage__health_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StageHealth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Stage Health"
+      }
+    },
+    "/api/v1/stages/{stage}/health/pipelines": {
+      "get": {
+        "description": "Each Dagster job's latest run, last success, failed runs, schedule and freshness.",
+        "operationId": "list_pipeline_health_api_v1_stages__stage__health_pipelines_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelinesHealth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Pipeline Health"
       }
     },
     "/api/v1/stages/{stage}/jobs": {

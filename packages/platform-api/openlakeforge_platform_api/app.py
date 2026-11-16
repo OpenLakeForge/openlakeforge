@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 from openlakeforge_services.logs import ObjectStore
 
-from openlakeforge_platform_api import csrf, discovery, files, queries, reads, report_routes, writes
+from openlakeforge_platform_api import csrf, discovery, files, health_routes, queries, reads, report_routes, writes
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.models import Health, WhoAmI
@@ -249,6 +249,15 @@ def create_app(
         "/api/v1/stages/{stage}/runs", writes.launch_run, methods=["POST"], status_code=202, name="launch_run"
     )
     app.add_api_route("/api/v1/stages/{stage}/runs/{run_id}", reads.get_run, methods=["GET"], name="get_run")
+    app.add_api_route(
+        "/api/v1/stages/{stage}/health", health_routes.get_stage_health, methods=["GET"], name="get_stage_health"
+    )
+    app.add_api_route(
+        "/api/v1/stages/{stage}/health/pipelines",
+        health_routes.list_pipeline_health,
+        methods=["GET"],
+        name="list_pipeline_health",
+    )
     app.add_api_route("/api/v1/stages/{stage}/logs", reads.list_logs, methods=["GET"], name="list_logs")
     app.add_api_route(
         "/api/v1/stages/{stage}/reports",

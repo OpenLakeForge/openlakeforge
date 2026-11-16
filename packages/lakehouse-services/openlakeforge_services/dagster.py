@@ -75,6 +75,24 @@ class DagsterRun:
         )
 
 
+@dataclass(frozen=True)
+class DagsterSchedule:
+    name: str
+    job_name: str
+    # Dagster's own: RUNNING or STOPPED.
+    status: str
+    # Dagster's `cronSchedule` is a single cron string, or the repr of a list when a schedule has several.
+    cron_schedule: str
+    # IANA name; Dagster reports UTC for a schedule that sets none.
+    timezone: str
+    # Unix seconds the schedule was switched on. None for a schedule that is on by default in code and was never
+    # toggled: Dagster stores no start time for it.
+    started_at: float | None
+    # Unix seconds of the latest tick that requested or tried to request a run; None before the first. Evidence that
+    # the scheduler ran, never when a run is due.
+    last_tick_at: float | None
+
+
 class DagsterClient:
     def __init__(
         self,
@@ -211,6 +229,54 @@ class DagsterClient:
             # `__ASSET_JOB` and its partitioned variants are Dagster's own, not the project's.
             if not job["name"].startswith("__")
         ]
+
+    def list_schedules(self) -> list[DagsterSchedule]:
+        """Every schedule the loaded code locations define, with its on/off state and latest run-requesting tick."""
+        result = self.graphql(
+            """
+            query Schedules {
+              repositoriesOrError {
+                __typename
+                ... on RepositoryConnection {
+                  nodes {
+                    schedules {
+                      name
+                      pipelineName
+                      cronSchedule
+                      executionTimezone
+                      scheduleState {
+                        status
+                        typeSpecificData { __typename ... on ScheduleData { startTimestamp } }
+                        ticks(limit: 1, statuses: [SUCCESS, FAILURE]) { timestamp }
+                      }
+                    }
+                  }
+                }
+                ... on PythonError { message }
+              }
+            }
+            """,
+        )["repositoriesOrError"]
+        if result.get("__typename") != "RepositoryConnection":
+            raise ServiceClientError(f"Dagster could not list its schedules: {result.get('message', result)}")
+        schedules = []
+        for repository in result.get("nodes", []):
+            for schedule in repository.get("schedules", []):
+                state = schedule["scheduleState"]
+                ticks = state.get("ticks") or []
+                started_at = (state.get("typeSpecificData") or {}).get("startTimestamp")
+                schedules.append(
+                    DagsterSchedule(
+                        name=schedule["name"],
+                        job_name=schedule["pipelineName"],
+                        status=str(state["status"]),
+                        cron_schedule=str(schedule["cronSchedule"]),
+                        timezone=str(schedule.get("executionTimezone") or "UTC"),
+                        started_at=float(started_at) if started_at is not None else None,
+                        last_tick_at=float(ticks[0]["timestamp"]) if ticks else None,
+                    )
+                )
+        return schedules
 
     def list_runs(self, *, job_name: str = "", limit: int = 20) -> list[DagsterRun]:
         """The most recent runs, newest first, optionally of one job."""

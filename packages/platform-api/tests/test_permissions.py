@@ -57,6 +57,8 @@ def test_the_shipped_app_serves_only_its_routes(settings: Settings) -> None:
         ("/api/v1/stages/{stage}/buckets", "GET"),
         ("/api/v1/stages/{stage}/buckets/{bucket}/objects", "GET"),
         ("/api/v1/stages/{stage}/buckets/{bucket}/objects/content", "GET"),
+        ("/api/v1/stages/{stage}/health", "GET"),
+        ("/api/v1/stages/{stage}/health/pipelines", "GET"),
         ("/api/v1/stages/{stage}/jobs", "GET"),
         ("/api/v1/stages/{stage}/logs", "GET"),
         ("/api/v1/stages/{stage}/queries", "POST"),
