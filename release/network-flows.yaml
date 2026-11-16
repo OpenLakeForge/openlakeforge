@@ -244,6 +244,11 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     ports: [8585] # domains and data products, with the caller's token forwarded (openmetadata_url)
     tag: T # needs a platform API read on a running cluster
+  - id: F20
+    from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
+    to: {scope: apiserver}
+    ports: [443, 6443] # the service probes list pods, Deployments and StatefulSets in the stage namespaces (probe_namespaces); the token is mounted only with it
+    tag: T # needs a health read on a running cluster; DNAT order is unconfirmed, as for the other F20 rows
   - id: F35
     from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
     to: {scope: stage}

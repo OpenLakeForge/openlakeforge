@@ -268,9 +268,8 @@ for a footprint-sensitive audience, and the exposure it would avoid is small
 because the grant is read-only and namespaced. What a compromised API gains is
 the names, labels, environment values and status of pods and controllers in
 the stage namespaces; no Secret, log, exec or write. The probe component is
-the fallback if a later signal needs more than this list. The grant is defined
-in the module but not wired: no environment passes `probe_namespaces` until the
-adapter that uses the token lands.
+the fallback if a later signal needs more than this list. `environments/local`
+passes each stage namespace as `probe_namespaces`.
 
 | Where | apiGroup | Resources | Verbs |
 | --- | --- | --- | --- |
@@ -323,13 +322,12 @@ selector that matches nothing is `unknown`, not healthy.
 
 ## Open items
 
-Items 1 and 2 are settled (decision 1 and History); the numbering of the
-remaining ones is kept.
+Items 1, 2 and 4 are settled (decision 1, decision 7 and History); the
+numbering of the remaining ones is kept.
 
 | # | Item | Why it is open |
 | --- | --- | --- |
 | 3 | The narrowest credential per service | Settled for Superset (#670, see History): a non-admin service user, role `olf_platform_api`, can import and export. It must co-own the report assets to overwrite them, and needs data access to export them |
-| 4 | NetworkPolicy for the probes | The API's egress to the Kubernetes API server and to Trino's coordinator without `person_query` (F36 exists only with it) has no flow row in ADR 0017. Add them before the health routes call the probes; F32 and F33 already cover Dagster and the object store |
 
 ## Build order
 
@@ -564,7 +562,13 @@ not the release, so a release bump does not change it.
 Issue #1126, decision 7: platform health reads the cluster through a Role per
 stage namespace for the API's own ServiceAccount (`list` on pods, deployments
 and statefulsets), not through a probe component. Decision 6's "no Kubernetes
-permission" now has this one exception. The grant is defined but not wired:
-`environments/local` passes no `probe_namespaces`, so the pod mounts no token,
-until the probe adapter, the health routes (#1127) and the ADR 0017 rows (open
-item 4) land together. Nothing has run against a cluster.
+permission" now has this one exception. The adapter
+(`openlakeforge_platform_api.service_probes`) landed first, still unwired.
+
+Issue #1126, wiring: `environments/local` passes each stage namespace as
+`probe_namespaces`, so the pod now mounts its ServiceAccount token. Open item 4
+is settled: ADR 0017 gains an F20 row for the API's egress to the Kubernetes API
+server and an RBAC inventory row for the Role; Trino needed none, because F36's
+8080 row was never conditional on `person_query`, and F32 and F33 cover Dagster
+and the object store. The health routes (#1127) are the only caller still
+missing. Nothing has run against a cluster.
