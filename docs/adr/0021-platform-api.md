@@ -239,13 +239,21 @@ For those calls it therefore:
   `CompleteMultipartUpload` carries `If-None-Match: *`, which SeaweedFS 4.48
   evaluates under the object's write lock (`weed/s3api/s3api_object_handlers_put.go`,
   `weed/s3api/filer_multipart.go`), so two uploads racing for a new key have one
-  winner. S3 has no atomic rename,
-  so a rename copies and then deletes, and a folder moves or deletes at most 1000
-  keys (422 above that): a folder rename removes the copies it made if one
-  fails, a delete reports each key's outcome instead of failing as a whole, and
-  nothing here is atomic across keys. Rename refuses an existing key or prefix
-  (409) after looking; unlike an upload, that check and the copy are not one
-  step. The buckets come from `file_buckets` and `ops_bucket` in the settings,
+  winner. S3 has no atomic rename, so a rename copies and then deletes, and a
+  folder moves or deletes at most 1000 keys (422 above that). Each object write
+  is conditional, so no single key can be silently overwritten: the copy
+  carries `If-None-Match: *` for the destination and `x-amz-copy-source-if-match`
+  with the ETag the rename read from the source, the original is deleted with
+  `If-Match` (per-key ETags in the batch delete of a folder), and a failed move
+  removes the copies it made with each copy's own ETag, leaving any a different
+  writer has since replaced. A source that changed during the move stays, with
+  409. Only the multi-key folder move is not atomic: a failure midway leaves the
+  keys already deleted moved and the rest in place, and a delete reports each
+  key's outcome instead of failing as a whole. The existence look before a
+  rename or a new folder is a courtesy; a folder is created by a plain `PutObject`
+  of its marker, so two requests for the same new folder can both succeed. A
+  request cancelled during an upload closes its audit record as `succeeded` if
+  the final write had landed and as `failed` otherwise. The buckets come from `file_buckets` and `ops_bucket` in the settings,
   which the local environment's Terraform renders from each stage's bucket
   bindings (`infra/terraform/environments/local/main.tf`), so no name is
   hardcoded; without them or without the key every files route answers 503, as
