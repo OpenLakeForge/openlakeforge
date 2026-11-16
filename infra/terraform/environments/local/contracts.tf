@@ -582,7 +582,7 @@ module "provider_contract" {
   foundation_kube_context = local.foundation_contract.kube_context
 
   observability = var.observability
-  # Archive only: no adapter implements search, metrics, Grafana or alerting yet.
+  # Archive and webhook alerting (ADR 0023) only: no adapter implements search, metrics or Grafana yet.
   # #22 slice b flips these as each one lands, so a Full profile that asks for
   # metrics reads as requested-but-unsupported rather than as working.
   observability_support = {
@@ -597,7 +597,7 @@ module "provider_contract" {
     metrics                = false
     metrics_retention      = false
     grafana                = false
-    alerts                 = false
+    alerts                 = true
   }
 
   implementations = {

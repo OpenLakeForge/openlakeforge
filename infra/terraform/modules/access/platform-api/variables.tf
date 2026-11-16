@@ -135,6 +135,18 @@ variable "log_reader_secret_name" {
   default     = null
 }
 
+variable "quality_manifests" {
+  description = "Each stage's activation prefix, s3://<ops bucket>/activations/<stage>/, whose run-artifacts/quality/ holds its quality manifests. A stage without both an entry here and a key in quality_reader_secret_names reports the quality integration as not provided. The API refuses to start on a stage outside `stages`."
+  type        = map(string)
+  default     = {}
+}
+
+variable "quality_reader_secret_names" {
+  description = "Each stage's Secret in `namespace` holding its read-only key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) for the stage's quality prefix, keyed by stage."
+  type        = map(string)
+  default     = {}
+}
+
 variable "audit_base_uri" {
   description = "Where the API stores audit records, s3://<bucket>/<prefix>/ (ADR 0021, decision 3). Null leaves every operation that changes state answering 503."
   type        = string

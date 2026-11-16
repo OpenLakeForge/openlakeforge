@@ -23,6 +23,7 @@ locals {
       secret    = var.audit_writer_credentials.credentials_secret_name
       namespace = var.audit_writer_credentials.namespace
     }],
+    [for reader in values(var.quality_reader_credentials) : { secret = reader.credentials_secret_name, namespace = reader.namespace }],
     var.files_credentials == null ? [] : [{
       secret    = var.files_credentials.credentials_secret_name
       namespace = var.files_credentials.namespace
@@ -30,6 +31,10 @@ locals {
     var.log_collector_credentials == null ? [] : [{
       secret    = var.log_collector_credentials.credentials_secret_name
       namespace = var.log_collector_credentials.namespace
+    }],
+    var.alerts_credentials == null ? [] : [{
+      secret    = var.alerts_credentials.credentials_secret_name
+      namespace = var.alerts_credentials.namespace
     }],
   )
 
@@ -82,6 +87,15 @@ locals {
         ]
       ])
     }],
+    # Read and List only, one identity per stage, on that stage's quality
+    # manifests: the key cannot read another stage's, nor anything else of its
+    # own. The prefix ends in `/` so `*` stays under it.
+    [for stage, reader in var.quality_reader_credentials : {
+      name      = "openlakeforge-platform-api-quality-${stage}"
+      secret    = reader.credentials_secret_name
+      namespace = reader.namespace
+      actions   = [for action in ["Read", "List"] : "${action}:${reader.ops_bucket_name}/activations/${stage}/run-artifacts/quality/*"]
+    }],
     # Write only, under one prefix: the platform API stores audit records and
     # can neither read nor list them back. SeaweedFS 4.48 also gates overwrite
     # and delete on Write (weed/s3api/s3api_server.go), so this is not
@@ -113,6 +127,23 @@ locals {
       actions = flatten([
         for bucket in var.files_credentials.bucket_names : [for action in ["Read", "Write", "List"] : "${action}:${bucket}"]
       ])
+    }],
+    # The alert evaluator (ADR 0023, decision 3): its own state and history
+    # under one prefix, and the stages' quality manifests read-only. SeaweedFS
+    # gates overwrite and delete on Write, so the history is tamper-evident
+    # against everyone but this key, not immutable.
+    var.alerts_credentials == null ? [] : [{
+      name      = "openlakeforge-alerts"
+      secret    = var.alerts_credentials.credentials_secret_name
+      namespace = var.alerts_credentials.namespace
+      actions = concat(
+        [for action in ["Read", "Write", "List"] : "${action}:${var.alerts_credentials.ops_bucket_name}/${var.alerts_credentials.prefix}*"],
+        flatten([
+          for prefix in var.alerts_credentials.quality_prefixes : [
+            for action in ["Read", "List"] : "${action}:${var.alerts_credentials.ops_bucket_name}/${prefix}*"
+          ]
+        ]),
+      )
     }],
   )
 

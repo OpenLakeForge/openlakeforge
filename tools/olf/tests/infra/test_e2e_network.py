@@ -114,8 +114,10 @@ def test_the_seaweedfs_job_may_read_the_platform_api_keys_and_no_other_name() ->
         "seaweedfs-s3-auth",
         "platform-api-log-reader-s3-creds",
         "platform-api-audit-writer-s3-creds",
+        "platform-api-quality-reader-dev-s3-creds",
         "platform-api-files-s3-creds",
         "log-collector-s3-creds",
+        "alert-evaluator-s3-creds",
     ]
     assert not _grants([_rule(["secrets"], ["get"], names)], sa)
     assert _grants([_rule(["secrets"], ["get"], ["platform-api-other-creds"])], sa)

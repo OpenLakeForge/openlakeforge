@@ -10,10 +10,12 @@ import argparse
 import logging
 import os
 import sys
+import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import boto3
+import certifi
 from botocore.config import Config
 from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.notify import Notifier, WebhookNotifier, quiet_transport_logs
@@ -79,13 +81,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+def combined_ca_bundle(local_ca: str, directory: str | None = None) -> str:
+    """A bundle of the public roots plus the cluster's CA, written to a fresh file; returns its path.
+
+    `requests` replaces its trust store with `verify=<file>` instead of adding to it, so passing the cluster CA
+    alone would make every public webhook (Slack, ...) fail TLS. The CA mount is read-only, hence the temp dir.
+    """
+    with open(certifi.where(), encoding="ascii") as public, open(local_ca, encoding="ascii") as local:
+        bundle = public.read().rstrip("\n") + "\n" + local.read().rstrip("\n") + "\n"
+    handle, path = tempfile.mkstemp(prefix="ca-bundle-", suffix=".pem", dir=directory)
+    with os.fdopen(handle, "w", encoding="ascii") as out:
+        out.write(bundle)
+    return path
+
+
 def _notifiers(settings: EvaluatorSettings) -> dict[str, Notifier]:
+    ca_file = combined_ca_bundle(settings.ca_file) if settings.ca_file else None
     notifiers: dict[str, Notifier] = {}
     for receiver in settings.receivers:
         url = os.environ.get(receiver.url_env)
         if not url:
             raise SettingsError(f"receiver {receiver.name!r}: {receiver.url_env} is not set")
-        notifiers[receiver.name] = WebhookNotifier(receiver.name, url, ca_file=settings.ca_file)
+        notifiers[receiver.name] = WebhookNotifier(receiver.name, url, ca_file=ca_file)
     return notifiers
 
 

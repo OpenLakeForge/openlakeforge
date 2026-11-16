@@ -1104,3 +1104,67 @@ def test_source_egress_reaches_the_root_only_for_enabled_stages_that_declare_por
 
     # uat is disabled in this topology, so its ports never reach the root.
     assert json.loads(variables["stage_source_egress_ports"]) == {"dev": [443, 5432]}
+
+
+def _receivers_config(tmp_path: Path, *refs: tuple[str, str, str]):  # noqa: ANN202
+    from dataclasses import replace
+
+    from olf.common.profile import AlertReceiver, ResolvedObservability, SecretRef
+
+    receivers = tuple(
+        AlertReceiver(name=name, type="webhook", secret_ref=SecretRef(name=secret, key=key))
+        for name, secret, key in refs
+    )
+    topology = _topology(analytics=False)
+    return _config(tmp_path, topology=replace(topology, observability=ResolvedObservability(alert_receivers=receivers)))
+
+
+def test_receivers_build_the_platform_api_image_without_an_issuer(tmp_path: Path) -> None:
+    from olf.infra.deployment.local import images
+
+    config = _receivers_config(tmp_path, ("ops", "ops-webhook", "url"))
+
+    assert platform.platform_api_variables(config) == {"platform_api_image": images.platform_api_image(config)}
+    assert json.loads(platform.platform_apply_variables(config)["alert_receiver_secrets"]) == {
+        "ops": {"secret_name": "ops-webhook", "key": "url"}
+    }
+    assert platform.platform_api_variables(_config(tmp_path)) == {}
+    assert "alert_receiver_secrets" not in platform.platform_apply_variables(_config(tmp_path))
+
+
+def test_complete_receiver_secrets_pass_and_one_read_serves_a_shared_secret(tmp_path: Path) -> None:
+    config = _receivers_config(tmp_path, ("ops", "hooks", "ops-url"), ("sec", "hooks", "sec-url"))
+    runner = _SecretRunner(keys="ops-url\nsec-url\n")
+
+    platform.require_alert_receiver_secrets(config, _toolkit(runner), env={}, create_namespace=lambda: None)
+
+    assert sum("secret" in call.argv for call in runner.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("runner", "match", "made"),
+    [
+        (_SecretRunner(keys=None, stderr="NotFound"), "Secret 'ops-webhook' is not readable", []),
+        (_SecretRunner(keys="other\n"), r"lacks key 'url' \(it has \['other'\]\)", []),
+        (_SecretRunner(namespace=False, keys=None), "is not readable", ["namespace"]),
+    ],
+)
+def test_a_missing_receiver_secret_or_key_fails_the_deploy_before_apply(
+    tmp_path: Path, runner: RecordingRunner, match: str, made: list[str]
+) -> None:
+    config = _receivers_config(tmp_path, ("ops", "ops-webhook", "url"))
+    got: list[str] = []
+
+    with pytest.raises(DeploymentPreconditionError, match=match) as error:
+        platform.require_alert_receiver_secrets(
+            config, _toolkit(runner), env={}, create_namespace=lambda: got.append("namespace")
+        )
+
+    assert got == made
+    assert "kubectl -n olf-system create secret generic ops-webhook --from-literal=url=" in str(error.value)
+
+
+def test_no_receivers_means_no_secret_check(tmp_path: Path) -> None:
+    runner = _SecretRunner(namespace=False)
+    platform.require_alert_receiver_secrets(_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: None)
+    assert runner.calls == []

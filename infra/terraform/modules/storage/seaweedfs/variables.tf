@@ -100,6 +100,21 @@ variable "log_reader_credentials" {
   }
 }
 
+variable "quality_reader_credentials" {
+  description = "One read-only identity per stage for the platform API's quality summaries: Read and List on that stage's `activations/<stage>/run-artifacts/quality/` in the ops bucket, nothing else. Empty when the platform API is not deployed."
+  type = map(object({
+    namespace               = string
+    credentials_secret_name = string
+    ops_bucket_name         = string
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for stage in keys(var.quality_reader_credentials) : can(regex("^[a-z0-9][a-z0-9-]*$", stage))])
+    error_message = "A stage name is a plain lowercase name, so the grant's prefix cannot widen past its own stage."
+  }
+}
+
 variable "audit_writer_credentials" {
   description = "A write-only identity for the platform API's audit records (ADR 0021, decision 3): Write on one prefix of the ops bucket, nothing else. Null when the platform API is not deployed."
   type = object({
@@ -129,6 +144,26 @@ variable "log_collector_credentials" {
   validation {
     condition     = var.log_collector_credentials == null || alltrue([for prefix in try(var.log_collector_credentials.prefixes, []) : endswith(prefix, "/") && !startswith(prefix, "/")])
     error_message = "Each collector prefix is a key prefix ending in '/', so the grant cannot reach a sibling whose name starts the same."
+  }
+}
+
+variable "alerts_credentials" {
+  description = "The alert evaluator's identity (ADR 0023, decision 3): Read, Write and List on one prefix of the ops bucket, where its state and history live, and Read and List on each quality prefix, where the stages write run manifests. Null when no alert receiver is declared."
+  type = object({
+    namespace               = string
+    credentials_secret_name = string
+    ops_bucket_name         = string
+    prefix                  = string
+    quality_prefixes        = list(string)
+  })
+  default = null
+
+  validation {
+    condition = var.alerts_credentials == null || alltrue([
+      for prefix in concat([try(var.alerts_credentials.prefix, "")], try(var.alerts_credentials.quality_prefixes, [])) :
+      endswith(prefix, "/") && !startswith(prefix, "/")
+    ])
+    error_message = "Each alerts prefix is a key prefix ending in '/', so the grant cannot reach a sibling whose name starts the same."
   }
 }
 

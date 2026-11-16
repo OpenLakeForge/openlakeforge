@@ -128,3 +128,30 @@ run "no_internal_issuer_url_keeps_discovery" {
     error_message = "jwks_url must be unset without an internal issuer URL"
   }
 }
+
+# #1186: each stage's quality key is mounted under its own names, and the
+# settings carry the prefix it reads.
+run "quality_keys_are_mounted_per_stage" {
+  command = plan
+
+  variables {
+    quality_manifests           = { dev = "s3://ops/activations/dev/" }
+    quality_reader_secret_names = { dev = "platform-api-quality-reader-dev-s3-creds" }
+  }
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).quality_manifests == { dev = "s3://ops/activations/dev/" }
+    error_message = "the stage's quality prefix must reach settings.json"
+  }
+
+  assert {
+    condition = (
+      { for env in kubernetes_deployment_v1.platform_api.spec[0].template[0].spec[0].container[0].env : env.name => env.value_from[0].secret_key_ref[0].name }
+      == {
+        OPENLAKEFORGE_QUALITY_ACCESS_KEY_ID_DEV     = "platform-api-quality-reader-dev-s3-creds"
+        OPENLAKEFORGE_QUALITY_SECRET_ACCESS_KEY_DEV = "platform-api-quality-reader-dev-s3-creds"
+      }
+    )
+    error_message = "the quality key must be mounted under the stage's own variable names"
+  }
+}

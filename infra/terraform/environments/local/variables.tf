@@ -33,6 +33,15 @@ variable "observability" {
   default = {}
 }
 
+variable "alert_receiver_secrets" {
+  description = "Alert receiver name -> the Secret and key in the shared namespace that hold its webhook URL, rendered by olf from spec.observability.alerts.receivers. Kept out of `observability`, and so out of the provider contract: the reference (never the value) enters state because the evaluator's pod takes the URL through secretKeyRef. The Secret is created out-of-band and olf fails the deploy when it is missing (ADR 0023, decision 4)."
+  type = map(object({
+    secret_name = string
+    key         = string
+  }))
+  default = {}
+}
+
 variable "stages" {
   description = "Resolved deployment topology: one entry per stage the resolver knows about, with its enabled flag and capabilities. Disabled stages stay in the map so the root can report what an apply would remove."
   type = map(object({
