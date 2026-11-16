@@ -37,14 +37,16 @@ def get(instance: sessions.Instance, path: str, params: Mapping[str, Any] | None
 def put_stream(instance: sessions.Instance, path: str, params: Mapping[str, Any], source: BinaryIO, size: int) -> Any:
     """A state-changing call whose body is a file, sent from the open file so it is never held in memory; never
     retried, like `post`. The length is stated up front because a chunked body is what the API's size cap cannot
-    refuse early."""
+    refuse early. An empty file goes as empty bytes: Requests cannot size an empty file object, so it would add
+    `Transfer-Encoding: chunked` beside the stated length, and two framings for one body is what a strict server
+    refuses or waits on."""
     return _send(
         instance,
         "PUT",
         path,
         content_type="application/octet-stream",
         params=dict(params),
-        data=source,
+        data=source if size else b"",
         headers={"Content-Length": str(size)},
     )
 

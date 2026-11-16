@@ -36,6 +36,9 @@ class FakeAPI:
         class Handler(BaseHTTPRequestHandler):
             def handle_any(self) -> None:
                 url = urlsplit(self.path)
+                if "Transfer-Encoding" in self.headers and "Content-Length" in self.headers:
+                    self.send_error(400, "both Content-Length and Transfer-Encoding")
+                    return
                 length = int(self.headers.get("Content-Length") or 0)
                 outer.requests.append(
                     {
@@ -197,6 +200,18 @@ def test_put_streams_the_file_with_its_length(fake: FakeAPI, tmp_path: Path) -> 
     assert request["length"] == 5
     assert request["body"] == b"id\n1\n"
     assert "acme-dev-bronze/in/orders.csv (5 B)" in result.stdout
+
+
+def test_put_sends_an_empty_file_without_a_chunked_body(fake: FakeAPI, tmp_path: Path) -> None:
+    src = tmp_path / "empty.csv"
+    src.write_bytes(b"")
+    fake.routes[("PUT", f"{BASE}/{BUCKET}/objects/content")] = (201, {"key": "in/empty.csv", "size": 0})
+
+    result = _olf("put", str(src), f"{BUCKET}/in/")
+
+    assert result.exit_code == 0, result.output
+    assert fake.requests[0]["length"] == 0
+    assert fake.requests[0]["body"] == b""
 
 
 def test_put_to_a_key_with_overwrite(fake: FakeAPI, tmp_path: Path) -> None:
