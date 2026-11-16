@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 from openlakeforge_services.logs import ObjectStore
 
-from openlakeforge_platform_api import csrf, discovery, queries, reads, report_routes, writes
+from openlakeforge_platform_api import csrf, discovery, files, queries, reads, report_routes, writes
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.models import Health, WhoAmI
@@ -29,6 +29,9 @@ DEFAULT_SETTINGS_PATH = "/config/settings.json"
 # The write-only audit key, mounted from its own Secret under names boto3 does not read on its own.
 AUDIT_ACCESS_KEY_ENV = "OPENLAKEFORGE_AUDIT_ACCESS_KEY_ID"
 AUDIT_SECRET_KEY_ENV = "OPENLAKEFORGE_AUDIT_SECRET_ACCESS_KEY"
+# The files explorer's key: read, list, write and delete on the stage buckets, and nothing else.
+FILES_ACCESS_KEY_ENV = "OPENLAKEFORGE_FILES_ACCESS_KEY_ID"
+FILES_SECRET_KEY_ENV = "OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY"
 
 _BINARY_ZIP: dict[str, object] = {
     "description": "A stage-neutral assets bundle.",
@@ -187,6 +190,26 @@ def _audit_store(settings: Settings) -> ObjectWriter | None:
     return client
 
 
+def _files_store(settings: Settings) -> files.FileStore | None:
+    """An S3 client with the files key, or None when no buckets are configured or there is no key.
+
+    Its own client, never the log reader's or the audit writer's: the identity is separate and so is its grant.
+    """
+    access_key = os.environ.get(FILES_ACCESS_KEY_ENV)
+    secret_key = os.environ.get(FILES_SECRET_KEY_ENV)
+    if not settings.file_buckets or not access_key or not secret_key:
+        return None
+    client: files.FileStore = boto3.client(
+        "s3",
+        endpoint_url=settings.s3_endpoint_url,
+        region_name=settings.s3_region,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=Config(s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=30, retries={"max_attempts": 2}),
+    )
+    return client
+
+
 def create_app(
     settings: Settings,
     *,
@@ -194,6 +217,7 @@ def create_app(
     validator: TokenValidator | None = None,
     object_store: ObjectStore | None = None,
     audit: AuditLog | None = None,
+    files_store: files.FileStore | None = None,
     trino_send: Callable[..., requests.Response] | None = None,
 ) -> FastAPI:
     # No interactive docs or OpenAPI route: each would be a route outside the
@@ -210,6 +234,7 @@ def create_app(
     app.state.permissions = permissions or PermissionMatrix.packaged(settings.precedence)
     app.state.validator = validator or TokenValidator(settings)
     app.state.object_store = object_store or _object_store(settings)
+    app.state.files_store = files_store or _files_store(settings)
     app.state.audit = audit or AuditLog(_audit_store(settings), settings.audit_base_uri)
     # The HTTP transport for the Trino client; tests inject a fake, and a private CA is the only thing production adds.
     app.state.trino_send = trino_send or functools.partial(requests.request, verify=settings.ca_file or True)
@@ -279,6 +304,23 @@ def create_app(
                         }
                     },
                 },
+            }
+        },
+    )
+    app.add_api_route("/api/v1/file-capabilities", files.file_capabilities, methods=["GET"], name="file_capabilities")
+    app.add_api_route("/api/v1/stages/{stage}/buckets", files.list_buckets, methods=["GET"], name="list_buckets")
+    objects_path = "/api/v1/stages/{stage}/buckets/{bucket}/objects"
+    app.add_api_route(objects_path, files.list_objects, methods=["GET"], name="list_objects")
+    app.add_api_route(
+        objects_path + "/content",
+        files.download_object,
+        methods=["GET"],
+        name="download_object",
+        response_class=StreamingResponse,
+        responses={
+            200: {
+                "description": "The object's bytes, as an attachment.",
+                "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}},
             }
         },
     )
