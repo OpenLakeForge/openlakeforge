@@ -81,7 +81,15 @@ class DagsterSchedule:
     job_name: str
     # Dagster's own: RUNNING or STOPPED.
     status: str
-    # Unix seconds of the latest tick that requested or tried to request a run; None before the first.
+    # Dagster's `cronSchedule` is a single cron string, or the repr of a list when a schedule has several.
+    cron_schedule: str
+    # IANA name; Dagster reports UTC for a schedule that sets none.
+    timezone: str
+    # Unix seconds the schedule was switched on. None for a schedule that is on by default in code and was never
+    # toggled: Dagster stores no start time for it.
+    started_at: float | None
+    # Unix seconds of the latest tick that requested or tried to request a run; None before the first. Evidence that
+    # the scheduler ran, never when a run is due.
     last_tick_at: float | None
 
 
@@ -234,7 +242,13 @@ class DagsterClient:
                     schedules {
                       name
                       pipelineName
-                      scheduleState { status ticks(limit: 1, statuses: [SUCCESS, FAILURE]) { timestamp } }
+                      cronSchedule
+                      executionTimezone
+                      scheduleState {
+                        status
+                        typeSpecificData { __typename ... on ScheduleData { startTimestamp } }
+                        ticks(limit: 1, statuses: [SUCCESS, FAILURE]) { timestamp }
+                      }
                     }
                   }
                 }
@@ -250,11 +264,15 @@ class DagsterClient:
             for schedule in repository.get("schedules", []):
                 state = schedule["scheduleState"]
                 ticks = state.get("ticks") or []
+                started_at = (state.get("typeSpecificData") or {}).get("startTimestamp")
                 schedules.append(
                     DagsterSchedule(
                         name=schedule["name"],
                         job_name=schedule["pipelineName"],
                         status=str(state["status"]),
+                        cron_schedule=str(schedule["cronSchedule"]),
+                        timezone=str(schedule.get("executionTimezone") or "UTC"),
+                        started_at=float(started_at) if started_at is not None else None,
                         last_tick_at=float(ticks[0]["timestamp"]) if ticks else None,
                     )
                 )

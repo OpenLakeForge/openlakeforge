@@ -50,9 +50,24 @@ def test_list_jobs_names_each_jobs_location_and_leaves_out_dagsters_own() -> Non
     ]
 
 
-def test_list_schedules_reads_state_and_the_latest_run_requesting_tick() -> None:
-    schedule = {"name": "sales_daily", "pipelineName": "sales_pipeline"}
-    running = {"status": "RUNNING", "ticks": [{"timestamp": 1700000000.0}]}
+def test_list_schedules_reads_state_cron_timezone_start_and_the_latest_run_requesting_tick() -> None:
+    schedule = {
+        "name": "sales_daily",
+        "pipelineName": "sales_pipeline",
+        "cronSchedule": "0 6 * * *",
+        "executionTimezone": "Europe/Berlin",
+    }
+    running = {
+        "status": "RUNNING",
+        "typeSpecificData": {"__typename": "ScheduleData", "startTimestamp": 1699000000.0},
+        "ticks": [{"timestamp": 1700000000.0}],
+    }
+    # A schedule that is on by default in code carries no start time.
+    stopped = {
+        "status": "STOPPED",
+        "typeSpecificData": {"__typename": "ScheduleData", "startTimestamp": None},
+        "ticks": [],
+    }
     client = _client(
         {
             "repositoriesOrError": {
@@ -61,7 +76,7 @@ def test_list_schedules_reads_state_and_the_latest_run_requesting_tick() -> None
                     {
                         "schedules": [
                             {**schedule, "scheduleState": running},
-                            {**schedule, "name": "new", "scheduleState": {"status": "STOPPED", "ticks": []}},
+                            {**schedule, "name": "new", "executionTimezone": None, "scheduleState": stopped},
                         ]
                     }
                 ],
@@ -70,8 +85,10 @@ def test_list_schedules_reads_state_and_the_latest_run_requesting_tick() -> None
     )
 
     assert client.list_schedules() == [
-        DagsterSchedule("sales_daily", "sales_pipeline", "RUNNING", 1700000000.0),
-        DagsterSchedule("new", "sales_pipeline", "STOPPED", None),
+        DagsterSchedule(
+            "sales_daily", "sales_pipeline", "RUNNING", "0 6 * * *", "Europe/Berlin", 1699000000.0, 1700000000.0
+        ),
+        DagsterSchedule("new", "sales_pipeline", "STOPPED", "0 6 * * *", "UTC", None, None),
     ]
 
 

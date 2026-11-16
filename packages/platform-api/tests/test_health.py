@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -43,9 +44,29 @@ class ScheduledDagster(FakeDagster):
         return super().answer(query, variables)
 
 
-def _schedule(status: str, tick_age: float | None) -> dict[str, Any]:
+def _schedule(
+    status: str, due_age: float, *, tick_age: float | None = None, started_age: float | None = None
+) -> dict[str, Any]:
+    """A daily schedule whose latest due time was `due_age` seconds ago, whatever its ticks say."""
+    due = datetime.fromtimestamp(NOW - due_age, UTC)
     ticks = [] if tick_age is None else [{"timestamp": NOW - tick_age}]
-    return {"name": "orders_daily", "pipelineName": "orders_job", "scheduleState": {"status": status, "ticks": ticks}}
+    started = None if started_age is None else NOW - started_age
+    return {
+        "name": "orders_daily",
+        "pipelineName": "orders_job",
+        "cronSchedule": f"{due.minute} {due.hour} * * *",
+        "executionTimezone": "UTC",
+        "scheduleState": {
+            "status": status,
+            "typeSpecificData": {"__typename": "ScheduleData", "startTimestamp": started},
+            "ticks": ticks,
+        },
+    }
+
+
+def _expected_run(api: TestClient, mint: Mint) -> dict[str, Any]:
+    (pipeline,) = api.get(PIPELINES, headers=_as(mint, "data-engineer")).json()["pipelines"]
+    return next(signal for signal in pipeline["signals"] if signal["kind"] == "expected_run")
 
 
 @pytest.fixture
@@ -90,7 +111,7 @@ def test_a_healthy_scheduled_pipeline_reports_its_runs_and_freshness(
     api: TestClient, mint: Mint, dagster: ScheduledDagster
 ) -> None:
     dagster.runs = [_run("r2", "SUCCESS", HOUR), _run("r1", "FAILURE", 5 * HOUR)]
-    dagster.schedules = [_schedule("RUNNING", 1.5 * HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 2 * HOUR, tick_age=2 * HOUR)]
 
     body = api.get(PIPELINES, headers=_as(mint, "data-engineer")).json()
 
@@ -116,22 +137,89 @@ def test_a_failed_latest_run_is_critical_and_rolls_up_to_the_stage(
     assert stage["pipelines"] == [{"job": "orders_job", "state": "critical"}]
 
 
-def test_a_due_run_that_never_started_is_critical(api: TestClient, mint: Mint, dagster: ScheduledDagster) -> None:
+def test_a_stopped_scheduler_after_yesterdays_run_is_critical_once_todays_run_is_overdue(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    # The daemon stopped after yesterday's run: its last tick is yesterday's, and the webserver still answers.
+    dagster.runs = [_run("r1", "SUCCESS", 22 * HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 2 * HOUR, tick_age=22 * HOUR)]
+
+    assert _expected_run(api, mint)["state"] == "critical"
+    stage = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
+    assert stage["state"] == "critical"
+    assert stage["pipelines"] == [{"job": "orders_job", "state": "critical"}]
+
+
+def test_a_schedule_within_its_grace_period_is_not_yet_critical(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", 24 * HOUR + 60)]
+    dagster.schedules = [_schedule("RUNNING", 60, tick_age=24 * HOUR)]
+
+    assert _expected_run(api, mint)["state"] == "healthy"
+
+
+def test_a_running_schedule_that_never_ticked_is_unknown_not_healthy(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    # No tick and no start time: nothing shows the schedule was on when its run came due.
     dagster.runs = [_run("r1", "SUCCESS", 30 * HOUR)]
     dagster.schedules = [_schedule("RUNNING", 2 * HOUR)]
 
-    (pipeline,) = api.get(PIPELINES, headers=_as(mint, "data-engineer")).json()["pipelines"]
+    assert _expected_run(api, mint)["state"] == "unknown"
+    assert api.get(STAGE, headers=_as(mint, "data-engineer")).json()["state"] != "healthy"
 
-    expected = next(signal for signal in pipeline["signals"] if signal["kind"] == "expected_run")
-    assert expected["state"] == "critical"
-    assert pipeline["state"] == "critical"
+
+def test_a_schedule_known_to_be_on_that_never_ticked_is_critical(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", 30 * HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 2 * HOUR, started_age=3 * 24 * HOUR)]
+
+    assert _expected_run(api, mint)["state"] == "critical"
+
+
+def test_a_run_before_the_schedule_was_switched_on_is_not_expected(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", 30 * HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 2 * HOUR, started_age=HOUR)]
+
+    assert _expected_run(api, mint)["state"] == "healthy"
+
+
+def test_a_run_started_after_the_latest_due_time_is_healthy(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [_run("r2", "SUCCESS", HOUR), _run("r1", "SUCCESS", 25 * HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 2 * HOUR, tick_age=2 * HOUR)]
+
+    assert _expected_run(api, mint)["state"] == "healthy"
+
+
+def test_a_stopped_schedule_is_disabled_whatever_its_cron_says(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", 30 * HOUR)]
+    dagster.schedules = [_schedule("STOPPED", 2 * HOUR)]
+
+    assert _expected_run(api, mint)["state"] == "disabled"
+
+
+def test_a_cron_that_cannot_be_read_is_unknown_not_healthy(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", HOUR)]
+    dagster.schedules = [{**_schedule("RUNNING", 2 * HOUR), "cronSchedule": "['0 1 * * *', '0 2 * * *']"}]
+
+    assert _expected_run(api, mint)["state"] == "unknown"
 
 
 def test_slim_with_no_metrics_still_answers_and_never_calls_absent_integrations_healthy(
     api: TestClient, mint: Mint, dagster: ScheduledDagster
 ) -> None:
     dagster.runs = [_run("r1", "SUCCESS", HOUR)]
-    dagster.schedules = [_schedule("STOPPED", None)]
+    dagster.schedules = [_schedule("STOPPED", 2 * HOUR)]
 
     stage = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
 

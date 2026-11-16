@@ -41,6 +41,7 @@ from openlakeforge_platform_api.models import (
     StagePipelineState,
 )
 from openlakeforge_platform_api.reads import _dagster
+from openlakeforge_platform_api.schedules import latest_due
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +73,8 @@ class _Pipeline:
     job: str
     runs: list[DagsterRun]
     schedule: DagsterSchedule | None
+    # When the schedule's cron last came due; None without a schedule or when its cron cannot be read.
+    due: datetime | None
     signals: list[Signal]
 
     @property
@@ -91,28 +94,48 @@ def _observation(run: DagsterRun) -> RunObservation:
     )
 
 
+def _expected(
+    schedule: DagsterSchedule | None, runs: list[DagsterRun], due: datetime | None, now: datetime
+) -> ScheduleObservation | None:
+    """The schedule as the expected-run rule reads it; None, which reads `unknown`, when nothing can be said.
+
+    The due time comes from the cron, never from a tick: a stopped scheduler daemon leaves no tick behind, and a
+    due time taken from the last tick would stay on the last day it ran.
+    """
+    if schedule is None:
+        return ScheduleObservation(ScheduleState.ABSENT, now)
+    if schedule.status != "RUNNING":
+        return ScheduleObservation(ScheduleState.STOPPED, now)
+    if due is None:
+        return None
+    # Any run counts, a manual one included: Dagster does not say which run a tick requested.
+    last_run = _at(runs[0].created_at) if runs else None
+    if schedule.started_at is not None:
+        # An occurrence before the schedule was switched on was never expected.
+        if due < _at(schedule.started_at):
+            return ScheduleObservation(ScheduleState.RUNNING, now, last_run_started_at=last_run)
+    elif schedule.last_tick_at is None and now >= due + SCHEDULE_GRACE and not (last_run and last_run >= due):
+        # Dagster stores no start time for a schedule that is on by default in code. With no tick either, nothing
+        # shows the schedule was on at its due time (it may have been deployed after it), so a missing run is not
+        # evidence: `unknown`, never `healthy`.
+        return None
+    return ScheduleObservation(ScheduleState.RUNNING, now, last_expected_at=due, last_run_started_at=last_run)
+
+
 def _evaluate(
     stage: str, job: str, runs: list[DagsterRun], schedule: DagsterSchedule | None, now: datetime
 ) -> _Pipeline:
     scope = Scope(stage=stage, product=job)
     latest = _observation(runs[0]) if runs else None
     success = next((_observation(run) for run in runs if run.status == "SUCCESS"), None)
-    if schedule is None:
-        expected = ScheduleObservation(ScheduleState.ABSENT, now)
-    else:
-        expected = ScheduleObservation(
-            ScheduleState.RUNNING if schedule.status == "RUNNING" else ScheduleState.STOPPED,
-            now,
-            last_expected_at=_at(schedule.last_tick_at) if schedule.last_tick_at is not None else None,
-            # Any run counts, a manual one included: Dagster does not say which run a tick requested.
-            last_run_started_at=_at(runs[0].created_at) if runs else None,
-        )
+    due = latest_due(schedule.cron_schedule, schedule.timezone, now) if schedule else None
+    expected = _expected(schedule, runs, due, now)
     signals = [
         evaluate_execution(scope, latest, now=now, max_age=RUN_MAX_AGE),
         evaluate_latest_success(scope, success, now=now, max_age=RUN_MAX_AGE),
         evaluate_expected_run(scope, expected, now=now, max_age=SCHEDULE_MAX_AGE, grace=SCHEDULE_GRACE),
     ]
-    return _Pipeline(job, runs, schedule, signals)
+    return _Pipeline(job, runs, schedule, due, signals)
 
 
 def _read(request: Request, stage: str, now: datetime) -> tuple[IntegrationStatus, list[_Pipeline]]:
@@ -199,7 +222,7 @@ def _pipeline(pipeline: _Pipeline, now: datetime) -> PipelineHealth:
         schedule=PipelineSchedule(
             name=schedule.name if schedule else None,
             status="absent" if schedule is None else ("running" if schedule.status == "RUNNING" else "stopped"),
-            last_expected_at=_at(schedule.last_tick_at) if schedule and schedule.last_tick_at is not None else None,
+            last_expected_at=pipeline.due,
         ),
         freshness=PipelineFreshness(
             last_success_at=success_at, age_seconds=int((now - success_at).total_seconds()) if success_at else None
