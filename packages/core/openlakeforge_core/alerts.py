@@ -356,7 +356,10 @@ def _observe(signal: Signal) -> list[_Observed]:
             if kind is not AlertKind.STAGE_UNREADABLE:
                 # A state this kind does not alert on (a canceled run, a freshness warning) says nothing either way.
                 continue
-            # A Dagster that answered, even degraded, is not unreadable: it must still restart the counter.
+            # A Dagster that answered, even degraded (no code location loaded, a repository-loading error), is
+            # readable: for this condition the answer is a recovery observation, which restarts the counter and
+            # resolves an open incident. An UNKNOWN pipeline read beside it still wins (see `_rank`).
+            health = HealthState.HEALTHY
         elif health is HealthState.HEALTHY and signal.reason not in _RECOVERY_REASONS.get(kind, {signal.reason}):
             health = HealthState.UNKNOWN
         if (
