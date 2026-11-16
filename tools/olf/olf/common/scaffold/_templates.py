@@ -500,7 +500,8 @@ from openlakeforge_runtime.product_dagster import ProductDefinitionSpec, build_p
 # No input lists: the dbt and Floe projects already declare them, and a second copy drifts.
 # Pass gold_assets, silver_inputs or bronze_inputs only to override what they declare.
 # Without a cadence the PROD schedule is daily at 03:00 UTC; set cadence=ProductCadence(cron, timezone) to change it.
-# Bronze and Silver steps retry twice by default; set retry_policy=RetryPolicy(...) (or None) to change that.
+# Silver and Gold never retry. A Bronze source retries a transient network error 3 times by default; set
+# bronze_retry_attempts (0 turns it off) on its SourceDefinitionSpec.
 # Keep the spec a module-level name: `olf check project-code` reads it.
 spec = ProductDefinitionSpec(domain="{domain}", product="{product}")
 defs = build_product_definitions(spec)

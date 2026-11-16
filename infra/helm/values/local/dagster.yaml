@@ -39,10 +39,10 @@ dagsterDaemon:
   # The overall limit, `maxConcurrentRuns`, is the stage's size: modules/orchestration/dagster sets it from
   # release/query-sizes.yaml.
   #
-  # The daemon fails a run whose run pod is gone (evicted, deleted, node lost) on its next poll, and one that
-  # never started after startTimeoutSeconds. Without it such a run stays STARTED for good and holds its queue
-  # slot, and the domain limit above then blocks every later run of that domain. maxRuntimeSeconds (4 hours)
-  # bounds a hung run the same way.
+  # Run monitoring is on in the chart (startTimeoutSeconds 300, pollIntervalSeconds 120): the daemon fails a run
+  # whose run pod is gone (evicted, deleted, node lost) on a poll, so the run releases its queue slot and the
+  # domain limit above does not block every later run of that domain. This sets pollIntervalSeconds to 30, to
+  # find a lost run sooner, and adds maxRuntimeSeconds (4 hours), which terminates a hung run.
   runMonitoring:
     enabled: true
     startTimeoutSeconds: 300

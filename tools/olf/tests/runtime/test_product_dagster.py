@@ -11,15 +11,16 @@ pytest.importorskip("dagster")
 from dagster import (  # noqa: E402
     DefaultScheduleStatus,
     Definitions,
-    RetryPolicy,
+    Failure,
+    asset,
     define_asset_job,
+    in_process_executor,
     materialize,
 )
 from openlakeforge_core import FULL_REFRESH_TAG, full_refresh_tags  # noqa: E402
 from openlakeforge_runtime import product_dagster  # noqa: E402
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult  # noqa: E402
 from openlakeforge_runtime.product_dagster import (  # noqa: E402
-    DEFAULT_RETRY_POLICY,
     ProductCadence,
     ProductDefinitionSpec,
     ResolvedProductInputs,
@@ -784,33 +785,17 @@ def _product_defs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **spec_fields
     return product_dagster.build_product_definitions(spec)
 
 
-def test_a_product_job_retries_its_steps_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    (job,) = _product_defs(tmp_path, monkeypatch).jobs
+def test_a_product_job_carries_no_dagster_retry_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    defs = _product_defs(tmp_path, monkeypatch)
+    (job,) = defs.jobs
 
-    assert job.op_retry_policy == DEFAULT_RETRY_POLICY
-    assert 0 < DEFAULT_RETRY_POLICY.max_retries <= 3
-    assert DEFAULT_RETRY_POLICY.delay and DEFAULT_RETRY_POLICY.backoff and DEFAULT_RETRY_POLICY.jitter
-
-
-def test_a_product_overrides_or_disables_the_retry_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    custom = RetryPolicy(max_retries=5, delay=1)
-
-    (overridden,) = _product_defs(tmp_path, monkeypatch, retry_policy=custom).jobs
-    (disabled,) = _product_defs(tmp_path, monkeypatch, retry_policy=None).jobs
-
-    assert overridden.op_retry_policy == custom
-    assert disabled.op_retry_policy is None
+    # A policy would make Dagster restart a step a terminated run interrupted, instead of stopping the run.
+    assert job.op_retry_policy is None
+    assert all(gold.op.retry_policy is None for gold in defs.assets)
 
 
-def test_the_gold_step_never_retries_whatever_the_job_default_is(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (gold,) = _product_defs(tmp_path, monkeypatch, retry_policy=RetryPolicy(max_retries=5)).assets
-
-    assert gold.op.retry_policy.max_retries == 0
-
-
-def test_a_bronze_step_that_fails_once_succeeds_on_retry() -> None:
+def test_a_bronze_load_failing_transiently_succeeds_on_a_later_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("openlakeforge_runtime.bronze_retry.time.sleep", lambda _s: None)
     attempts: list[tuple[str, ...]] = []
 
     def flaky(resources: tuple[str, ...]) -> dict[str, BronzeLoadResult]:
@@ -822,15 +807,40 @@ def test_a_bronze_step_that_fails_once_succeeds_on_retry() -> None:
         }
 
     source = SourceDefinitionSpec(source="shop", resources=("orders",), bronze_loader=flaky)
-    # The default policy's attempts, without its 30 s wait.
-    policy = RetryPolicy(max_retries=DEFAULT_RETRY_POLICY.max_retries, delay=0.01)
-    job = define_asset_job("bronze", op_retry_policy=policy)
-    defs = Definitions(assets=list(build_source_definitions(source).assets), jobs=[job])
+    defs = Definitions(assets=list(build_source_definitions(source).assets), jobs=[define_asset_job("bronze")])
 
-    result = defs.resolve_job_def("bronze").execute_in_process()
-
-    assert result.success
+    assert defs.resolve_job_def("bronze").execute_in_process().success
     assert len(attempts) == 2
+
+
+def test_a_bronze_load_is_not_retried_when_the_source_turns_retries_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("openlakeforge_runtime.bronze_retry.time.sleep", lambda _s: None)
+    attempts: list[int] = []
+
+    def down(_resources: tuple[str, ...]) -> dict[str, BronzeLoadResult]:
+        attempts.append(1)
+        raise ConnectionError("down")
+
+    source = SourceDefinitionSpec(source="shop", resources=("orders",), bronze_loader=down, bronze_retry_attempts=0)
+    defs = Definitions(assets=list(build_source_definitions(source).assets), jobs=[define_asset_job("bronze")])
+
+    assert not defs.resolve_job_def("bronze").execute_in_process(raise_on_error=False).success
+    assert len(attempts) == 1
+
+
+def test_a_silver_style_failure_runs_once_in_a_product_style_job() -> None:
+    runs: list[int] = []
+
+    @asset
+    def silver_like() -> None:
+        runs.append(1)
+        raise Failure("floe contract failure")
+
+    job = define_asset_job("product", executor_def=in_process_executor)
+    defs = Definitions(assets=[silver_like], jobs=[job])
+
+    assert not defs.resolve_job_def("product").execute_in_process(raise_on_error=False).success
+    assert len(runs) == 1
 
 
 def _local_dagster_values() -> dict:
