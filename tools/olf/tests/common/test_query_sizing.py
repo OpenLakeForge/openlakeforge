@@ -44,6 +44,13 @@ def test_every_size_lifts_the_stage_limit_past_a_75_table_gold_query(size: Size)
     assert load_query_sizing(E2E_REPO_ROOT, size).max_stage_count >= 2 * 75 + 2
 
 
+def test_a_larger_size_admits_more_runs_at_once() -> None:
+    sizes = (Size.SMALL, Size.MEDIUM, Size.LARGE)
+    runs = [load_query_sizing(E2E_REPO_ROOT, size).max_concurrent_runs for size in sizes]
+
+    assert runs == [2, 4, 6]
+
+
 def test_each_size_adds_workers_the_coordinator_stops_scheduling_on() -> None:
     sizing = {size: load_query_sizing(E2E_REPO_ROOT, size) for size in Size}
 
@@ -85,6 +92,8 @@ def _write_sizes(root: Path, mutate) -> Path:  # noqa: ANN001
         (Size.SMALL, lambda sizes: sizes["small"].update(schedule_on_coordinator=False), "must schedule queries"),
         (Size.MEDIUM, lambda sizes: sizes["medium"].update(workers=-1), "non-negative integer"),
         (Size.MEDIUM, lambda sizes: sizes["medium"].update(replicas=3), "unknown field"),
+        (Size.MEDIUM, lambda sizes: sizes["medium"].pop("max_concurrent_runs"), "max_concurrent_runs must be a pos"),
+        (Size.MEDIUM, lambda sizes: sizes["medium"].update(max_concurrent_runs=0), "max_concurrent_runs must be a pos"),
         (Size.MEDIUM, lambda sizes: sizes["medium"].pop("max_stage_count"), "max_stage_count must be a positive"),
         (Size.MEDIUM, lambda sizes: sizes["medium"].update(max_stage_count=0), "max_stage_count must be a positive"),
         (Size.MEDIUM, lambda sizes: sizes["medium"]["worker"].pop("heap"), "must set exactly"),
@@ -118,6 +127,7 @@ def test_the_root_receives_each_stages_size_as_one_typed_variable(tmp_path: Path
     sizing = json.loads(variables["query_sizing"])["dev"]
     assert (sizing["size"], sizing["workers"]) == ("medium", 2)
     assert sizing["max_stage_count"] == 300
+    assert sizing["max_concurrent_runs"] == 4
     assert sizing["worker"] == {"heap": "2G", "cpu_request": "500m", "memory_request": "2Gi", "memory_limit": "3Gi"}
 
 

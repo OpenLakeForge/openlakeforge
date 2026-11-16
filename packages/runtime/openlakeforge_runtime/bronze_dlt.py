@@ -72,7 +72,7 @@ def bronze_pipeline(
     # dlt's default layout, `<resource>/<load_id>.<file_id>.<ext>`, sorts batches
     # oldest first. Floe orders pending files by URI and, for a key that repeats
     # across them, merges the latest file's row, so a layout must keep that order.
-    return dlt.pipeline(
+    pipeline = dlt.pipeline(
         pipeline_name=f"{stage}__{source}",
         pipelines_dir=tempfile.mkdtemp(prefix=f"olf-dlt-{source}-"),
         destination=dlt.destinations.filesystem(
@@ -81,6 +81,13 @@ def bronze_pipeline(
         ),
         dataset_name=source,
     )
+    # dlt wraps normalize and load in `signals.intercepted_signals()`, which replaces Dagster's SIGTERM handler
+    # and clears its own flag on exit. A transient error raised in that window would then be retried by
+    # `call_with_transient_retry` while the run is meant to stop, so leave the signal to Dagster, which raises
+    # `DagsterExecutionInterruptedError`. Set on this pipeline's config: dlt 1.29.0 has no constructor argument for
+    # it, and `RUNTIME__INTERCEPT_SIGNALS` in the environment would leak into every other dlt pipeline in the process.
+    pipeline.config.runtime.intercept_signals = False
+    return pipeline
 
 
 def load_dlt_source(

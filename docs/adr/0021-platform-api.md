@@ -320,8 +320,52 @@ Deployment and recovery stay infra and never go through the platform API:
 `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`,
 `auth`, `secrets rotate`, `k8s`, `project build|deploy|image`, `diagnostics
 collect`, `e2e`. The platform API has no Kubernetes or cloud permission beyond
-reading its own mounted Secrets, so `platform-admin` in the UI still grants no
-cluster rights (ADR 0020).
+reading its own mounted Secrets and the read-only listing in decision 7, so
+`platform-admin` in the UI still grants no cluster rights (ADR 0020).
+
+### 7. Platform health reads the cluster through a namespaced Role
+
+Health (#798) needs desired against ready pods, restarts and unschedulable
+state. Two ways to get it were weighed: a probe component with its own
+identity, or a Role for the API's own ServiceAccount. The Role is chosen: a
+second Deployment is a second image, pin, NetworkPolicy and failure to explain
+for a footprint-sensitive audience, and the exposure it would avoid is small
+because the grant is read-only and namespaced. What a compromised API gains is
+the names, labels, environment values and status of pods and controllers in
+the stage namespaces; no Secret, log, exec or write. The probe component is
+the fallback if a later signal needs more than this list. The grant is defined
+in the module but not wired: no environment passes `probe_namespaces` until the
+adapter that uses the token lands.
+
+| Where | apiGroup | Resources | Verbs |
+| --- | --- | --- | --- |
+| Each stage namespace, as a `Role` and `RoleBinding` | core | `pods` | `list` |
+| Each stage namespace | `apps` | `deployments`, `statefulsets` | `list` |
+
+Nothing else: no `ClusterRole`, no `get` or `watch`, nothing in `olf-system`
+(the object store is probed over S3, not through Kubernetes), no `secrets`,
+`pods/log`, `pods/exec` or `events`. The module's `probe_namespaces` creates
+the Roles and mounts the ServiceAccount token only when it is non-empty, so a
+deployment without it is as before; it refuses `kube-system` and the API's own
+namespace. Terraform tests assert the exact rules. Restarts are judged over a
+recent window, never the lifetime `restartCount`, which does not reset.
+
+The probes will live in `openlakeforge_platform_api.service_probes`, behind the
+health routes. Each emits a SERVICE `Signal` (`openlakeforge_core.health`) with
+`observed_at` and an expiry. A timeout, transport error or refused permission
+is `unknown`; a component the deployment leaves out is `disabled` and not
+probed. A 200 never counts alone:
+
+| Probe | Proves | Does not prove |
+| --- | --- | --- |
+| `*.workloads` | pods ready, schedulable, not crash looping, restarts below 3 | that the service answers |
+| `dagster.read-api` | the webserver answers GraphQL and a code location is loaded | that a run would launch |
+| `trino.readiness` | the coordinator finished starting (`/v1/info`) | workers, catalogs, Polaris |
+| `object-store.list` | the endpoint is reachable and the key may list the bucket | that a write is durable |
+
+The controllers of Dagster and Trino are found by label
+(`app.kubernetes.io/name=dagster` and `=trino`, overridable per stage); a
+selector that matches nothing is `unknown`, not healthy.
 
 ## Consequences
 
@@ -345,11 +389,12 @@ cluster rights (ADR 0020).
 ## Open items
 
 Items 1 and 2 are settled (decision 1 and History); the numbering of the
-remaining one is kept.
+remaining ones is kept.
 
 | # | Item | Why it is open |
 | --- | --- | --- |
 | 3 | The narrowest credential per service | Settled for Superset (#670, see History): a non-admin service user, role `olf_platform_api`, can import and export. It must co-own the report assets to overwrite them, and needs data access to export them |
+| 4 | NetworkPolicy for the probes | The API's egress to the Kubernetes API server and to Trino's coordinator without `person_query` (F36 exists only with it) has no flow row in ADR 0017. Add them before the health routes call the probes; F32 and F33 already cover Dagster and the object store |
 
 ## Build order
 
@@ -596,3 +641,11 @@ fails when it differs from the app, naming the regeneration command
 (`cd packages/platform-api && uv run --locked python -m
 `openlakeforge_platform_api.openapi`). Its `version` is the path version (`v1`),
 not the release, so a release bump does not change it.
+
+Issue #1126, decision 7: platform health reads the cluster through a Role per
+stage namespace for the API's own ServiceAccount (`list` on pods, deployments
+and statefulsets), not through a probe component. Decision 6's "no Kubernetes
+permission" now has this one exception. The grant is defined but not wired:
+`environments/local` passes no `probe_namespaces`, so the pod mounts no token,
+until the probe adapter, the health routes (#1127) and the ADR 0017 rows (open
+item 4) land together. Nothing has run against a cluster.

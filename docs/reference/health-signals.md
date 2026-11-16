@@ -34,7 +34,8 @@ that points at the retained evidence rather than carrying log text.
 
 An observation is usable for `max_age` after `observed_at`. A missing
 observation, or one at least `max_age` old, gives `unknown` for every kind,
-whatever the old observation said. A failed fetch is therefore never green.
+whatever the old observation said. A quality outcome of `not_run` or `unknown`
+gives `unknown` too. A failed fetch is therefore never green.
 `max_age` has no default; the caller sets it from how often it observes.
 
 ## How critical is computed
