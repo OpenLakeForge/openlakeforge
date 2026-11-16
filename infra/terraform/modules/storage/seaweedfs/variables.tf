@@ -116,6 +116,22 @@ variable "audit_writer_credentials" {
   }
 }
 
+variable "log_collector_credentials" {
+  description = "A write-only identity for the log collector (ADR 0022, decision 3): Write on each v2 archive prefix of the ops bucket, no Read, no List. Null when the collector is not deployed."
+  type = object({
+    namespace               = string
+    credentials_secret_name = string
+    ops_bucket_name         = string
+    prefixes                = list(string)
+  })
+  default = null
+
+  validation {
+    condition     = var.log_collector_credentials == null || alltrue([for prefix in try(var.log_collector_credentials.prefixes, []) : endswith(prefix, "/") && !startswith(prefix, "/")])
+    error_message = "Each collector prefix is a key prefix ending in '/', so the grant cannot reach a sibling whose name starts the same."
+  }
+}
+
 variable "files_credentials" {
   description = "An identity for the platform API's files explorer (ADR 0021): Read, Write and List on each named bucket, the enabled stages' layer buckets and the ops bucket. Null when the platform API is not deployed."
   type = object({

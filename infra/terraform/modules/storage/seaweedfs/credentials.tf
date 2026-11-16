@@ -27,6 +27,10 @@ locals {
       secret    = var.files_credentials.credentials_secret_name
       namespace = var.files_credentials.namespace
     }],
+    var.log_collector_credentials == null ? [] : [{
+      secret    = var.log_collector_credentials.credentials_secret_name
+      namespace = var.log_collector_credentials.namespace
+    }],
   )
 
   # Every namespace that receives a Secret, with the names it may read.
@@ -87,6 +91,16 @@ locals {
       secret    = var.audit_writer_credentials.credentials_secret_name
       namespace = var.audit_writer_credentials.namespace
       actions   = ["Write:${var.audit_writer_credentials.ops_bucket_name}/${var.audit_writer_credentials.prefix}*"]
+    }],
+    # Write only, on each v2 archive prefix: the log collector (ADR 0022) puts
+    # objects and can neither read nor list them. As with the audit key,
+    # SeaweedFS 4.48 gates overwrite and delete on Write, so the archive is not
+    # append-only.
+    var.log_collector_credentials == null ? [] : [{
+      name      = "openlakeforge-log-collector"
+      secret    = var.log_collector_credentials.credentials_secret_name
+      namespace = var.log_collector_credentials.namespace
+      actions   = [for prefix in var.log_collector_credentials.prefixes : "Write:${var.log_collector_credentials.ops_bucket_name}/${prefix}*"]
     }],
     # Read, Write and List on whole buckets: the platform API's files explorer
     # (ADR 0021) browses and edits the layer buckets and the ops bucket. SeaweedFS

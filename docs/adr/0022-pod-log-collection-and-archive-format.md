@@ -2,12 +2,14 @@
 
 ## Status
 
-Decided, **not built**. Nothing in `infra/`, `tools/olf` or `packages/` changes
-with this record: the polling CronJob and the v1 archive stay the only pod log
-path until the slices under "Build order" land. What binds today is the
-direction: continuous node-level collection with Fluent Bit, no Loki, one
-archive format (v2) beside the v1 one the readers already know, and routing
-that never consults pod metadata. Tags used below: **[V]** checked in this
+Decided; slice b is built. The Fluent Bit DaemonSet
+(`infra/terraform/modules/observability/log-collector`) writes archive format v2
+beside the polling CronJob's v1, in Slim and Full alike, with a write-only key.
+The CronJob and the v1 reader stay the only path the API reads until slices c
+and d land. Not built yet: the delivery signals of Decision 2 and the lifecycle
+rule of Decision 6 (`logs_archive_retention` stays reported as unsupported).
+Every claim marked [T] is still untested: the kind smoke does not run here, and
+slice d (#1123) verifies them on a cluster. Tags used below: **[V]** checked in this
 repository or in the upstream page cited; **[T]** a claim the implementing slice
 must test before relying on it.
 
@@ -220,6 +222,20 @@ SeaweedFS 4.48 honours bucket lifecycle rules is [T].
 
 ## Build order
 
+Slice b as built deviates from the sketches above in four places, all inside the
+decisions: the tag is `<namespace>.<date>` and the `Match_Regex` of each stage's
+output names the namespace, so one tag carries the namespace and date as
+Decision 4 says; a Lua filter builds the record from the file name (`Path_Key`),
+the CRI timestamp (`time_as_table`, nanoseconds) and the filter's labels, and
+writes a fresh table so a workload's own keys cannot enter it; an absent label is
+left out and named in `missing` rather than written as `null`; the offsets, engine
+chunks and S3 spool sit on a `hostPath` under `/var/lib/openlakeforge/log-collector`,
+bounded by `store_dir_limit_size` (512M) and `storage.total_limit_size` (256M) per
+stage, so a replaced pod keeps its offsets. Whether the `cri` multiline parser sets
+the event time from the CRI timestamp, whether `Offset_Key` is the offset of the
+line, and whether the S3 plugin creates `store_dir` itself are [T]. `olf-system`
+admits the `hostPath` mounts: no namespace carries a Pod Security label [V].
+
 | Slice | Content | Updates |
 | --- | --- | --- |
 | b | Terraform module and Helm values for the DaemonSet, the namespace map, the write-only S3 identity, NetworkPolicy flows (kube-apiserver, S3 8333), the catalog digest, failure-injection tests, per-size overhead. Whether `olf-system`'s Pod Security level admits a `hostPath` mount is [T] | ADR 0017 flow table and RBAC inventory |
@@ -239,3 +255,7 @@ SeaweedFS 4.48 honours bucket lifecycle rules is [T].
 ## History
 
 2026-11-16: created for #1120 (slice a of #22).
+
+2026-11-16: slice b (#1121) built the collector module, the write-only identity,
+the catalog pin (`fluent_bit`, index digest read from Docker Hub for 5.2.0) and
+the F37 flows; Status and Build order updated, no decision changed.
