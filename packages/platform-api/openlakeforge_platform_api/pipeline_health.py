@@ -27,7 +27,7 @@ from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient, DagsterRun, DagsterSchedule
 
 from openlakeforge_platform_api.models import IntegrationStatus
-from openlakeforge_platform_api.schedules import latest_due
+from openlakeforge_platform_api.schedules import latest_due, next_due
 
 log = logging.getLogger(__name__)
 
@@ -103,28 +103,35 @@ def _expected(
     return ScheduleObservation(ScheduleState.RUNNING, now, last_expected_at=due, last_run_started_at=last_run)
 
 
-def _previous_due(schedule: DagsterSchedule | None, due: datetime | None) -> datetime | None:
-    """The due time before `due`, from the cron alone; None where the schedule is not running."""
-    if schedule is None or schedule.status != "RUNNING" or due is None:
-        return None
-    return latest_due(schedule.cron_schedule, schedule.timezone, due - timedelta(seconds=1))
+def _owed_due(schedule: DagsterSchedule | None, now: datetime) -> datetime | None:
+    """The latest due time at or before `now - SCHEDULE_GRACE`, from the cron alone: the run that should have succeeded.
 
-
-def _owed(
-    schedule: DagsterSchedule | None,
-    runs: list[DagsterRun],
-    due: datetime | None,
-    previous: datetime | None,
-    now: datetime,
-) -> datetime | None:
-    """The due time whose run should already have succeeded: the latest one once its grace has elapsed.
-
-    None, which reads `unknown`, when the schedule cannot be shown to have been on at that time, for the reason given
-    in `_expected`.
+    Taken straight from the cron rather than stepped back from the latest due time, so a schedule that fires more
+    often than the grace (every minute, every five) still owes a run: stepping back one occurrence lands inside the
+    grace again. None where the schedule is not running or its cron cannot be read.
     """
-    if due is None:
+    if schedule is None or schedule.status != "RUNNING":
         return None
-    owed = due if now >= due + SCHEDULE_GRACE else previous
+    return latest_due(schedule.cron_schedule, schedule.timezone, now - SCHEDULE_GRACE)
+
+
+def _evidence_bound(schedule: DagsterSchedule | None, owed: datetime | None) -> timedelta:
+    """How long a run stays evidence: the gap from the owed due time to the next one, plus the grace.
+
+    A success stays valid until the next due time after it, so a weekday cron's Friday success is still evidence on
+    Saturday and Sunday. Without a running schedule, or when the cron cannot be read, the provisional seven days.
+    """
+    if schedule is None or owed is None:
+        return RUN_MAX_AGE
+    following = next_due(schedule.cron_schedule, schedule.timezone, owed)
+    return following - owed + SCHEDULE_GRACE if following else RUN_MAX_AGE
+
+
+def _owed(schedule: DagsterSchedule | None, runs: list[DagsterRun], owed: datetime | None) -> datetime | None:
+    """`owed` when the schedule can be shown to have been on at that time, for the reason given in `_expected`.
+
+    None, which reads `unknown`, otherwise.
+    """
     if owed is None or schedule is None:
         return None
     if schedule.started_at is not None:
@@ -142,9 +149,8 @@ def _evaluate(
     success = next((_observation(run) for run in runs if run.status == "SUCCESS"), None)
     due = latest_due(schedule.cron_schedule, schedule.timezone, now) if schedule else None
     expected = _expected(schedule, runs, due, now)
-    previous = _previous_due(schedule, due)
-    # One cadence plus the grace: a run older than that predates the previous due time, so it is no longer evidence.
-    max_age = due - previous + SCHEDULE_GRACE if due and previous else RUN_MAX_AGE
+    owed = _owed_due(schedule, now)
+    max_age = _evidence_bound(schedule, owed)
     if schedule is None:
         state = ScheduleState.ABSENT
     else:
@@ -153,9 +159,7 @@ def _evaluate(
         evaluate_execution(scope, latest, now=now, max_age=max_age),
         evaluate_latest_success(scope, success, now=now, max_age=max_age),
         evaluate_expected_run(scope, expected, now=now, max_age=SCHEDULE_MAX_AGE, grace=SCHEDULE_GRACE),
-        evaluate_freshness(
-            scope, success, _owed(schedule, runs, due, previous, now), now=now, grace=SCHEDULE_GRACE, schedule=state
-        ),
+        evaluate_freshness(scope, success, _owed(schedule, runs, owed), now=now, grace=SCHEDULE_GRACE, schedule=state),
     ]
     return PipelineEvaluation(job, runs, schedule, due, signals)
 

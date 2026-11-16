@@ -27,7 +27,7 @@ that points at the retained evidence rather than carrying log text.
 | `execution` | Status of the latest run |
 | `latest_success` | Whether a successful run is on record |
 | `expected_run` | The schedule state and the run it expected |
-| `freshness` | Whether a successful run is on record since the schedule's previous due time plus its grace |
+| `freshness` | Whether a successful run is on record since the schedule's owed due time (the latest one at least a grace old) |
 | `quality` | A Floe or dbt outcome |
 | `service` | Controller readiness of a component, or a probe's answer |
 
@@ -43,9 +43,14 @@ gives `unknown` too. A failed fetch is therefore never green.
 its `unknown` cases are listed below.
 
 For a pipeline with a running schedule the platform API sets `max_age` for
-`execution` and `latest_success` to one cadence (the gap between the latest due
-time and the one before it) plus the grace. A pipeline with no running schedule
-keeps the provisional seven days (`RUN_MAX_AGE`, #1127).
+`execution` and `latest_success` to the gap from the owed due time (defined
+below) to the next due time after it, plus the grace, both read from the cron.
+A success therefore stays evidence until the next due time after it plus the
+grace: a `0 9 * * 1-5` pipeline's Friday success is still evidence on Saturday
+and Sunday (the bound is 72 hours and 15 minutes at Friday's owed due time),
+and a daily one's is 24 hours and 15 minutes. A pipeline with no running
+schedule, or whose cron cannot be read, keeps the provisional seven days
+(`RUN_MAX_AGE`, #1127).
 
 ## How freshness is computed
 
@@ -54,17 +59,20 @@ threshold: an SLA is #921 (v0.7.5), so the only bound is the schedule's cron.
 `evaluate_freshness` takes the latest successful run, the due time whose run is
 owed, `now`, the grace and the schedule state.
 
-The platform API derives the owed due time from `latest_due` (croniter in the
-schedule's timezone, never from Dagster ticks). Once `now` is at least the latest
-due time plus the grace, that due time is owed; before then the due time before
-it is, so a run still inside its grace cannot hide a missed earlier one.
+The platform API derives the owed due time as the latest due time at or before
+`now` minus the grace (`latest_due`: croniter in the schedule's timezone with
+Dagster's daylight-saving rules, never from Dagster ticks). It is computed
+directly from the cron, not by stepping back one occurrence, so a schedule that
+fires more often than the grace (`* * * * *`, `*/5 * * * *`) owes the run due a
+grace ago and reads stale once its runs stop. A due time still inside its grace
+is never owed, so it cannot hide a missed earlier one. The next due time after
+it comes from `next_due`, the same walk run forward.
 
 | Observation | State |
 | --- | --- |
 | No schedule (a manual pipeline), or a stopped one | `disabled`, never stale |
 | A run succeeded at or after the owed due time | `healthy` |
-| No success since the owed due time, but `now` is within its grace | `healthy` |
-| No success since the owed due time plus the grace | `critical` (stale) |
+| No success since the owed due time (its grace has elapsed by construction) | `critical` (stale) |
 | No successful run in the runs read (the latest 25 per job) | `unknown` |
 | The cron cannot be read, or nothing shows the schedule was on at the owed due time | `unknown` |
 
