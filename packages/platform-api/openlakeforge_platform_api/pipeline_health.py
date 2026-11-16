@@ -19,6 +19,7 @@ from openlakeforge_core.health import (
     Signal,
     evaluate_execution,
     evaluate_expected_run,
+    evaluate_freshness,
     evaluate_latest_success,
     rollup,
 )
@@ -30,8 +31,8 @@ from openlakeforge_platform_api.schedules import latest_due
 
 log = logging.getLogger(__name__)
 
-# Provisional (#1127): a daily product schedule leaves a day of slack and a weekly one still reads healthy. A manual
-# pipeline untouched for longer reads `unknown`, which is the honest answer about it.
+# Provisional (#1127), and only for a pipeline with no running schedule: a manual pipeline untouched for longer reads
+# `unknown`, which is the honest answer about it. A scheduled pipeline's bound is its own cadence (`_run_max_age`).
 RUN_MAX_AGE = timedelta(days=7)
 # The schedule is read as it is evaluated, so its max_age only matters to the evaluator's contract.
 SCHEDULE_MAX_AGE = timedelta(minutes=5)
@@ -102,6 +103,37 @@ def _expected(
     return ScheduleObservation(ScheduleState.RUNNING, now, last_expected_at=due, last_run_started_at=last_run)
 
 
+def _previous_due(schedule: DagsterSchedule | None, due: datetime | None) -> datetime | None:
+    """The due time before `due`, from the cron alone; None where the schedule is not running."""
+    if schedule is None or schedule.status != "RUNNING" or due is None:
+        return None
+    return latest_due(schedule.cron_schedule, schedule.timezone, due - timedelta(seconds=1))
+
+
+def _owed(
+    schedule: DagsterSchedule | None,
+    runs: list[DagsterRun],
+    due: datetime | None,
+    previous: datetime | None,
+    now: datetime,
+) -> datetime | None:
+    """The due time whose run should already have succeeded: the latest one once its grace has elapsed.
+
+    None, which reads `unknown`, when the schedule cannot be shown to have been on at that time, for the reason given
+    in `_expected`.
+    """
+    if due is None:
+        return None
+    owed = due if now >= due + SCHEDULE_GRACE else previous
+    if owed is None or schedule is None:
+        return None
+    if schedule.started_at is not None:
+        return owed if owed >= at(schedule.started_at) else None
+    if schedule.last_tick_at is None and not (runs and at(runs[0].created_at) >= owed):
+        return None
+    return owed
+
+
 def _evaluate(
     stage: str, job: str, runs: list[DagsterRun], schedule: DagsterSchedule | None, now: datetime
 ) -> PipelineEvaluation:
@@ -110,10 +142,20 @@ def _evaluate(
     success = next((_observation(run) for run in runs if run.status == "SUCCESS"), None)
     due = latest_due(schedule.cron_schedule, schedule.timezone, now) if schedule else None
     expected = _expected(schedule, runs, due, now)
+    previous = _previous_due(schedule, due)
+    # One cadence plus the grace: a run older than that predates the previous due time, so it is no longer evidence.
+    max_age = due - previous + SCHEDULE_GRACE if due and previous else RUN_MAX_AGE
+    if schedule is None:
+        state = ScheduleState.ABSENT
+    else:
+        state = ScheduleState.RUNNING if schedule.status == "RUNNING" else ScheduleState.STOPPED
     signals = [
-        evaluate_execution(scope, latest, now=now, max_age=RUN_MAX_AGE),
-        evaluate_latest_success(scope, success, now=now, max_age=RUN_MAX_AGE),
+        evaluate_execution(scope, latest, now=now, max_age=max_age),
+        evaluate_latest_success(scope, success, now=now, max_age=max_age),
         evaluate_expected_run(scope, expected, now=now, max_age=SCHEDULE_MAX_AGE, grace=SCHEDULE_GRACE),
+        evaluate_freshness(
+            scope, success, _owed(schedule, runs, due, previous, now), now=now, grace=SCHEDULE_GRACE, schedule=state
+        ),
     ]
     return PipelineEvaluation(job, runs, schedule, due, signals)
 
