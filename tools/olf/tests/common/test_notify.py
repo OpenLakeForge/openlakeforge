@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import http.server
+import io
 import ipaddress
 import logging
 import ssl
@@ -12,6 +13,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
+import requests
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -185,3 +187,37 @@ def test_importing_the_notifier_leaves_other_clients_logging_alone() -> None:
         "assert len(pool.filters) == 1"
     )
     subprocess.run([sys.executable, "-c", probe], check=True)
+
+
+def _headers(**values: str) -> requests.Response:
+    response = requests.Response()
+    response.headers.update(values)
+    return response
+
+
+def test_retry_after_accepts_seconds_and_http_dates() -> None:
+    now = datetime.datetime(2026, 11, 16, 12, 0, 0, tzinfo=datetime.UTC)
+    clock = lambda: now  # noqa: E731
+    assert notify._retry_after(_headers(**{"Retry-After": "3"}), clock) == 3.0
+    assert notify._retry_after(_headers(**{"Retry-After": "Mon, 16 Nov 2026 12:00:05 GMT"}), clock) == 5.0
+    assert notify._retry_after(_headers(**{"Retry-After": "Mon, 16 Nov 2026 11:00:00 GMT"}), clock) == 0.0
+    assert notify._retry_after(_headers(**{"Retry-After": "Mon, 16 Nov 2026 13:00:00 GMT"}), clock) == (
+        notify.RETRY_AFTER_MAX_SECONDS
+    )
+    assert notify._retry_after(_headers(**{"Retry-After": "soon"}), clock) == 0.0
+    assert notify._retry_after(_headers(), clock) == 0.0
+
+
+def test_the_response_body_is_never_downloaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_post(url: str, **kwargs: object) -> requests.Response:
+        calls.append(kwargs)
+        response = requests.Response()
+        response.status_code = 200
+        response.raw = io.BytesIO(b"never read")
+        return response
+
+    monkeypatch.setattr(notify.requests, "post", fake_post)
+    assert WebhookNotifier("ops", "https://receiver.invalid/hook").send({}, delivery_id="d").status == "delivered"
+    assert calls[0]["stream"] is True

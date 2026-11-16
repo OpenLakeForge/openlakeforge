@@ -13,6 +13,8 @@ import random
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
 
@@ -112,6 +114,9 @@ class WebhookNotifier:
                     timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
                     allow_redirects=False,
                     verify=self.ca_file or True,
+                    # Only the status and headers matter: never read the body, which a receiver could make
+                    # arbitrarily large or slow and so break the bound on one `send`.
+                    stream=True,
                 )
             except requests.RequestException:
                 # The exception text carries the URL, so it is neither logged nor chained.
@@ -138,9 +143,19 @@ class WebhookNotifier:
         return max(ceiling / 2 + self.jitter(ceiling / 2), retry_after)
 
 
-def _retry_after(response: requests.Response) -> float:
-    try:
-        seconds = float(response.headers.get("Retry-After", "0"))
-    except ValueError:
+def _retry_after(response: requests.Response, now: Callable[[], datetime] = lambda: datetime.now(UTC)) -> float:
+    """`Retry-After` as delay-seconds or an HTTP-date (RFC 9110), as a non-negative delay capped at the maximum."""
+    value = response.headers.get("Retry-After", "").strip()
+    if not value:
         return 0.0
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            when = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        seconds = (when - now()).total_seconds()
     return min(max(seconds, 0.0), RETRY_AFTER_MAX_SECONDS)
