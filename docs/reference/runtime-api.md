@@ -56,13 +56,23 @@ and sets the PROD schedule, named `<product>_schedule`.
 `ProductCadence(cron=None)` declares a product with no schedule. DEV and UAT
 never get one.
 
-`enabled_in_prod` decides whether the PROD schedule runs. `False` ships it
-`STOPPED`, and switching it on is then a decision in the Dagster UI. `True`
-ships it `RUNNING`, so deploying the revision to PROD starts it. `cron=None`
-with `enabled_in_prod=True` raises `ValueError`. Keep the spec in a
-module-level `spec` name so `olf check project-code` checks the cadence the
-product declares: it accepts a `RUNNING` schedule only when `enabled_in_prod`
-is `True`.
+`enabled_in_prod` sets the PROD schedule's default status. `False` ships it
+`STOPPED`; `True` ships it `RUNNING`, so deploying the revision to PROD starts
+it. `cron=None` with `enabled_in_prod=True` raises `ValueError`. It is a
+default, not a lock: a status someone sets in the Dagster UI is stored in the
+stage's metadata database and wins over the code until it is reset with
+Dagster's "reset to default schedule status" action. A schedule switched on in
+the UI keeps running when Git says off, and one switched on and then off in the
+UI stays off when `enabled_in_prod=True` is deployed later. The health
+cross-check (#1148) is meant to flag such a mismatch.
+
+Keep the spec in a module-level `spec` name: `olf check project-code` fails a
+product module that calls `build_product_definitions` without one. It loads the
+code location's schedules for each stage and fails on any in DEV, UAT or an
+unset stage, and on any in PROD other than the product's cadence schedule (job,
+cron and default status as the cadence declares) and the maintenance
+schedules. A `RUNNING` default is accepted only when `enabled_in_prod` is
+`True`.
 
 ```python
 spec = ProductDefinitionSpec(

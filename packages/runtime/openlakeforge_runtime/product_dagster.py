@@ -108,9 +108,10 @@ class ProductCadence:
     """When a product's PROD schedule fires; `cron=None` declares the product manual-only.
 
     A cadence does not switch the schedule on by itself: it ships `STOPPED` unless `enabled_in_prod` is set. The
-    flag lives here, in Git, so the repository records whether PROD is meant to run and a stopped schedule can be
-    told apart from a broken one. Dagster rejects an invalid cron or timezone when the definitions load, which
-    fails `olf check project-code`.
+    flag sets the schedule's default status, so the repository records whether PROD is meant to run. It is not a
+    lock: a status set in the Dagster UI overrides it until it is reset with Dagster's "reset to default schedule
+    status" action, so the health cross-check (#1148) should flag a mismatch.
+    Dagster rejects an invalid cron or timezone when the definitions load, which fails `olf check project-code`.
     """
 
     cron: str | None = _DAILY_SCHEDULE_CRON

@@ -87,9 +87,11 @@ stops holding. DEV and UAT define no schedule at all, so the production-shaped
 daily job is not present to be switched on by mistake against the DEV catalog.
 The PROD schedules default to `STOPPED`, so deploying or promoting a revision
 starts no run unless the product's cadence declares `enabled_in_prod=True` in
-Git; otherwise enabling one is a deliberate act in the Dagster UI, and
-Dagster keeps that choice in the stage's own metadata database, which is not
-part of the revision.
+Git; otherwise enabling one is a deliberate act in the Dagster UI. The flag
+sets the schedule's default only: Dagster keeps a status set in the UI in the
+stage's own metadata database, which is not part of the revision, and that
+status overrides the code until it is reset with "reset to default schedule
+status". The health cross-check (#1148) is meant to flag a mismatch.
 
 Asset keys are identical in every stage regardless: the stage is a runtime and
 catalog boundary, never part of an asset's identity.
