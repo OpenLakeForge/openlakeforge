@@ -96,6 +96,12 @@ variable "dagster_graphql_urls" {
   default     = {}
 }
 
+variable "trino_urls" {
+  description = "Each enabled stage's Trino coordinator base URL, keyed by stage (not the statement URL): the service probe asks it for /v1/info. The API refuses to start on a key outside `stages`."
+  type        = map(string)
+  default     = {}
+}
+
 variable "openmetadata_url" {
   description = "OpenMetadata's in-cluster base URL, which the API forwards each caller's token to. Null when governance is not deployed."
   type        = string

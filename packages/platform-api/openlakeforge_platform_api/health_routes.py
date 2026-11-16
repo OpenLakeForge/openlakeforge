@@ -7,11 +7,13 @@ runs routes' floor (permissions.toml). A read that fails or returns nothing is `
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from openlakeforge_core.health import (
     HealthState,
     RunObservation,
@@ -24,6 +26,7 @@ from openlakeforge_core.health import (
     evaluate_expected_run,
     evaluate_latest_success,
     rollup,
+    service_signal,
 )
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterRun, DagsterSchedule
@@ -37,11 +40,13 @@ from openlakeforge_platform_api.models import (
     PipelineSchedule,
     PipelinesHealth,
     Run,
+    ServiceHealth,
     StageHealth,
     StagePipelineState,
 )
 from openlakeforge_platform_api.reads import _dagster
 from openlakeforge_platform_api.schedules import latest_due
+from openlakeforge_platform_api.service_probes import StageTargets
 
 log = logging.getLogger(__name__)
 
@@ -61,8 +66,12 @@ _RUN_STATUS = {
     "CANCELED": RunStatus.CANCELED,
     "CANCELING": RunStatus.CANCELED,
 }
+# A service signal outlives one evaluation by this long, so a consumer can tell a stale answer from a fresh one.
+SERVICE_MAX_AGE = timedelta(seconds=60)
+_SERVICES_ELSEWHERE = IntegrationStatus(
+    name="services", status="unavailable", reason="service signals are served by the stage health route"
+)
 _NOT_PROVIDED = [
-    IntegrationStatus(name="services", status="unavailable", reason="service probes are not yet provided"),
     IntegrationStatus(name="quality", status="unavailable", reason="quality summaries are not yet provided"),
     IntegrationStatus(name="metrics", status="unavailable", reason="no metrics source is connected to the API"),
 ]
@@ -176,16 +185,78 @@ def _signal(signal: Signal) -> HealthSignal:
     )
 
 
-def get_stage_health(request: Request, stage: str) -> StageHealth:
-    """A rollup of the stage's pipeline signals. Integrations that give none are listed, never counted as healthy."""
+def _probe(request: Request, stage: str, now: datetime) -> tuple[IntegrationStatus, list[Signal]]:
+    """The stage's service signals. Blocks for up to the probes' timeout, so it only ever runs on a worker thread."""
+    settings = request.app.state.settings
+    prober = request.app.state.service_probes
+    namespace = settings.stage_namespaces.get(stage)
+    if prober is None or namespace is None:
+        return IntegrationStatus(name="services", status="disabled", reason="no service probes are configured"), []
+    buckets = settings.file_buckets.get(stage)
+    targets = StageTargets(
+        stage=stage,
+        namespace=namespace,
+        dagster_graphql_url=settings.dagster_graphql_urls.get(stage),
+        trino_url=settings.trino_urls.get(stage),
+        bucket=buckets[0] if buckets else None,
+    )
+    try:
+        signals: list[Signal] = prober.probe(targets)
+    except Exception:  # noqa: BLE001 - a probe that could not look must read unknown, never fail the whole answer
+        log.warning("service probes for stage %s failed", stage, exc_info=True)
+        failed = service_signal(
+            Scope(stage=stage),
+            "service-probes",
+            HealthState.UNKNOWN,
+            "the service probes failed",
+            now=now,
+            max_age=SERVICE_MAX_AGE,
+        )
+        return IntegrationStatus(name="services", status="unavailable", reason="service probes failed"), [failed]
+    return IntegrationStatus(name="services", status="available", reason="probed in the stage namespace"), signals
+
+
+def _service(signal: Signal) -> ServiceHealth:
+    return ServiceHealth(
+        component=signal.component or "unknown",
+        state=signal.state.value,
+        reason=signal.reason,
+        observed_at=signal.observed_at,
+        expires_at=signal.expires_at,
+    )
+
+
+async def get_stage_health(request: Request, stage: str) -> StageHealth:
+    """A rollup of the stage's pipeline and service signals. Integrations that give none are never healthy.
+
+    Both reads block (Dagster's HTTP, and the probes for up to their timeout), so each runs on a worker thread,
+    together: the event loop keeps serving other requests, and the stage answers in the slower read's time.
+    """
     now = datetime.now(UTC)
-    dagster, pipelines = _read(request, stage, now)
+    (dagster, pipelines), (services, service_signals) = await asyncio.gather(
+        run_in_threadpool(_read, request, stage, now), run_in_threadpool(_probe, request, stage, now)
+    )
+    signals = [signal for pipeline in pipelines for signal in pipeline.signals] + service_signals
+    if dagster.status == "unavailable":
+        # No pipelines means no signal: without this a configured Dagster that cannot be read would drop out of the
+        # rollup and a stage with passing service probes would read healthy.
+        signals.append(
+            service_signal(
+                Scope(stage=stage),
+                "dagster.pipelines",
+                HealthState.UNKNOWN,
+                "Dagster could not be read",
+                now=now,
+                max_age=SERVICE_MAX_AGE,
+            )
+        )
     return StageHealth(
         stage=stage,
-        state=rollup(signal for pipeline in pipelines for signal in pipeline.signals).value,
+        state=rollup(signals).value,
         evaluated_at=now,
         pipelines=[StagePipelineState(job=pipeline.job, state=pipeline.state.value) for pipeline in pipelines],
-        integrations=[dagster, *_NOT_PROVIDED],
+        services=[_service(signal) for signal in service_signals],
+        integrations=[dagster, services, *_NOT_PROVIDED],
     )
 
 
@@ -204,7 +275,7 @@ def list_pipeline_health(request: Request, stage: str) -> PipelinesHealth:
             schedule_grace_seconds=int(SCHEDULE_GRACE.total_seconds()),
             run_window=RUN_WINDOW,
         ),
-        integrations=[dagster, *_NOT_PROVIDED],
+        integrations=[dagster, _SERVICES_ELSEWHERE, *_NOT_PROVIDED],
         pipelines=[_pipeline(pipeline, now) for pipeline in pipelines],
     )
 

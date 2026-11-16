@@ -20,7 +20,12 @@ locals {
     # Read endpoints (ADR 0021, build step 3); a service left out is answered
     # as not configured rather than refusing the API's start.
     dagster_graphql_urls = var.dagster_graphql_urls
-    openmetadata_url     = var.openmetadata_url
+    # The service probes (ADR 0021, decision 7): the namespaces the Roles in
+    # probe_rbac.tf are bound to, and each stage's Trino coordinator base URL.
+    # A stage not in probe_namespaces is not probed.
+    stage_namespaces = var.probe_namespaces
+    trino_urls       = var.trino_urls
+    openmetadata_url = var.openmetadata_url
     # Read with the key in log_reader_secret_name, which never enters this file.
     log_archives    = var.log_archives
     s3_endpoint_url = var.s3_endpoint_url
