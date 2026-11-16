@@ -304,9 +304,6 @@ module "platform_api" {
     }
     if local.query_api_enabled
   }
-  # The stage namespaces the service probes may list (ADR 0021, decision 7),
-  # read over F20. Never olf-system: the object store is probed over S3.
-  probe_namespaces = local.stage_namespaces
   # Reached in-cluster over F32 (ADR 0017), around the perimeter.
   dagster_graphql_urls = {
     for name in keys(local.enabled_stages) :

@@ -268,8 +268,11 @@ for a footprint-sensitive audience, and the exposure it would avoid is small
 because the grant is read-only and namespaced. What a compromised API gains is
 the names, labels, environment values and status of pods and controllers in
 the stage namespaces; no Secret, log, exec or write. The probe component is
-the fallback if a later signal needs more than this list. `environments/local`
-passes each stage namespace as `probe_namespaces`.
+the fallback if a later signal needs more than this list. The grant and its
+network flows exist, but `environments/local` does not set `probe_namespaces`
+yet, so the pod mounts no token. The token stays unmounted until the health
+routes call the probes; #1156 wires `probe_namespaces` together with the
+routes.
 
 | Where | apiGroup | Resources | Verbs |
 | --- | --- | --- | --- |
@@ -323,7 +326,8 @@ selector that matches nothing is `unknown`, not healthy.
 ## Open items
 
 Items 1, 2 and 4 are settled (decision 1, decision 7 and History); the
-numbering of the remaining ones is kept.
+numbering of the remaining ones is kept. Item 4's flow rows landed; the token
+that uses them is still unwired (decision 7, #1156).
 
 | # | Item | Why it is open |
 | --- | --- | --- |
@@ -565,10 +569,13 @@ and statefulsets), not through a probe component. Decision 6's "no Kubernetes
 permission" now has this one exception. The adapter
 (`openlakeforge_platform_api.service_probes`) landed first, still unwired.
 
-Issue #1126, wiring: `environments/local` passes each stage namespace as
-`probe_namespaces`, so the pod now mounts its ServiceAccount token. Open item 4
-is settled: ADR 0017 gains an F20 row for the API's egress to the Kubernetes API
-server and an RBAC inventory row for the Role; Trino needed none, because F36's
-8080 row was never conditional on `person_query`, and F32 and F33 cover Dagster
-and the object store. The health routes (#1127) are the only caller still
-missing. Nothing has run against a cluster.
+Issue #1126, flows: open item 4 is settled. ADR 0017 gains an F20 row for the
+API's egress to the Kubernetes API server and an RBAC inventory row for the
+Role; Trino needed none, because F36's 8080 row was never conditional on
+`person_query`, and F32 and F33 cover Dagster and the object store.
+`environments/local` does **not** set `probe_namespaces` yet: the token stays
+unmounted until the health routes call the probes, as decision 7 required. The
+F20 row is rendered for the platform API before then, an egress allowance for
+a pod that holds no credential. #1156 wires `probe_namespaces` (built from the
+stage namespace resources) together with the routes. Nothing has run against a
+cluster.
