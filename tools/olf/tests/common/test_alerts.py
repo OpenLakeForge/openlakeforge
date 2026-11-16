@@ -227,9 +227,32 @@ def test_stage_unreadable_opens_after_three_consecutive_unknown_reads(component:
 
     state, notifications = _run(state, [unknown], 20)
     assert notifications == []
-    state, notifications = _run(state, [_dagster(HealthState.HEALTHY, component=component)], 25)
+    state, notifications = _run(state, [_dagster(HealthState.HEALTHY)], 25)
     assert _events(notifications) == [AlertEvent.RESOLVED]
     assert state.unknown_counts == {}
+
+
+def test_failed_pipeline_reads_followed_by_good_ones_resolve_the_single_incident() -> None:
+    failed = [_dagster(HealthState.UNKNOWN, component=DAGSTER_PIPELINES), _dagster(HealthState.HEALTHY)]
+    state, sent = _replay([failed] * UNREADABLE_THRESHOLD)
+    assert [(n.event, n.kind) for n in sent] == [(AlertEvent.OPENED, AlertKind.STAGE_UNREADABLE)]
+
+    state, notifications = _run(state, failed, 20)
+    assert (notifications, len(state.firing())) == ([], 1)
+    # The pipelines component is absent after a successful read; the healthy read-api alone must resolve.
+    for minutes in (25, 30):
+        state, notifications = _run(state, [_dagster(HealthState.HEALTHY)], minutes)
+        sent.extend(notifications)
+    assert _events(sent) == [AlertEvent.OPENED, AlertEvent.RESOLVED]
+    assert (state.incidents, state.unknown_counts) == ((), {})
+
+
+def test_read_api_and_pipelines_unknowns_share_one_incident_and_counter() -> None:
+    both = [_dagster(HealthState.UNKNOWN), _dagster(HealthState.UNKNOWN, component=DAGSTER_PIPELINES)]
+    pipelines = [_dagster(HealthState.UNKNOWN, component=DAGSTER_PIPELINES)]
+    state, sent = _replay([both, [_dagster(HealthState.UNKNOWN)], pipelines])
+    assert _events(sent) == [AlertEvent.OPENED]
+    assert len(state.firing()) == 1
 
 
 def test_dagster_workloads_are_not_an_unreadable_stage() -> None:
@@ -251,7 +274,7 @@ def test_unknowns_that_are_not_consecutive_never_open_stage_unreadable(between: 
     unknown = [_dagster(HealthState.UNKNOWN)]
     state, sent = _replay([unknown, unknown, between, unknown, unknown])
     assert (state.incidents, sent) == ((), [])
-    assert state.unknown_counts == {"dev:dagster.read-api": 2}
+    assert state.unknown_counts == {"dev": 2}
 
 
 def test_unreadable_counters_are_per_stage_and_dropped_outside_the_active_stages() -> None:
@@ -375,6 +398,13 @@ def test_open_incidents_outside_the_active_scopes_resolve_silently() -> None:
 
     unknown = [_dagster(HealthState.UNKNOWN, "qa")]
     assert evaluate(AlertState(), unknown, _at(0), active_stages={"dev"}).state.unknown_counts == {}
+
+
+def test_a_table_qualified_active_scope_keeps_its_incident() -> None:
+    scope = Scope("dev", "sales", "orders", "silver.orders")
+    state, _ = _run(AlertState(), [_failed(scope)], 0)
+    result = evaluate(state, [], _at(5), active_scopes={scope}, active_stages={"dev"})
+    assert (result.events, len(result.state.firing())) == ([], 1)
 
 
 def test_state_keeps_open_incidents_only_and_the_outbox_ages() -> None:

@@ -26,6 +26,11 @@ FINGERPRINT_VERSION = "1"
 UNREADABLE_THRESHOLD = 3
 # The SERVICE components that mean "Dagster could not be read". `dagster.workloads` is pod readiness, not
 # readability, so it is deliberately absent.
+# `dagster.read-api` is reported on every read, healthy or not. `dagster.pipelines` is reported only when the
+# pipeline read fails and is simply absent after a good one, so it can raise an incident but never clear one.
+# `stage_unreadable` is therefore one incident per stage, fed by both: the stage counts as unreadable while
+# either is UNKNOWN, and as readable again on the first evaluation with a non-UNKNOWN `dagster.read-api` and
+# no UNKNOWN `dagster.pipelines`.
 DAGSTER_READ_API = "dagster.read-api"
 DAGSTER_PIPELINES = "dagster.pipelines"
 UNREADABLE_COMPONENTS = frozenset({DAGSTER_READ_API, DAGSTER_PIPELINES})
@@ -335,6 +340,9 @@ def _classify(signals: Iterable[Signal]) -> dict[str, _Observed]:
 
 
 def _rank(item: _Observed) -> tuple[int, int]:
+    if item.kind is AlertKind.STAGE_UNREADABLE and item.health is HealthState.UNKNOWN:
+        # Either read being unknown keeps the stage unreadable, even beside a degraded answer from the other.
+        return 4, 0
     return _PRECEDENCE[item.health], 1 if item.severity is AlertSeverity.CRITICAL else 0
 
 
@@ -351,7 +359,14 @@ def _observe(signal: Signal) -> list[_Observed]:
             # A Dagster that answered, even degraded, is not unreadable: it must still restart the counter.
         elif health is HealthState.HEALTHY and signal.reason not in _RECOVERY_REASONS.get(kind, {signal.reason}):
             health = HealthState.UNKNOWN
-        component = signal.component if kind is AlertKind.STAGE_UNREADABLE else None
+        if (
+            kind is AlertKind.STAGE_UNREADABLE
+            and signal.component == DAGSTER_PIPELINES
+            and health is not HealthState.UNKNOWN
+        ):
+            # Only a failed pipeline read means anything; it is never evidence that the stage is readable.
+            continue
+        component = None
         observed.append(
             _Observed(
                 kind=kind,
@@ -398,15 +413,19 @@ def _severity_of(kind: AlertKind, state: HealthState) -> AlertSeverity | None:
 
 
 def _unreadable_key(item: _Observed) -> str:
-    return f"{item.scope.stage}:{item.component}"
+    return item.scope.stage
 
 
 def _is_active(scope: Scope, stages: Collection[str] | None, scopes: Collection[Scope] | None) -> bool:
     if stages is not None and scope.stage not in stages:
         return False
     if scopes is not None and scope.product is not None:
-        return replace(scope, table=None) in scopes
+        return _scope_key(scope) in {_scope_key(candidate) for candidate in scopes}
     return True
+
+
+def _scope_key(scope: Scope) -> tuple[str, str | None, str | None]:
+    return scope.stage, scope.domain, scope.product
 
 
 def _has_cause(incidents: Iterable[Incident], scope: Scope) -> bool:
