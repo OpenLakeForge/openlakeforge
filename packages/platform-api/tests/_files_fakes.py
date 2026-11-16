@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,8 @@ if TYPE_CHECKING:
 WHEN = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 BUCKETS = {"dev": ["olf-dev-bronze", "olf-dev-silver"], "uat": ["olf-uat-bronze"], "prod": ["olf-prod-bronze"]}
 OPS = "olf-ops"
+DEV = "olf-dev-bronze"
+OCTET = {"Content-Type": "application/octet-stream"}
 
 
 class Body:
@@ -50,6 +53,9 @@ class FakeS3:
         # The write routes: every call by name, an error to raise per method, and multipart state.
         self.calls: list[str] = []
         self.fail_ops: dict[str, Callable[[], Exception]] = {}
+        # Code to run when a call starts, to let another writer in between a route's check and its write.
+        self.hooks: dict[str, Callable[[], None]] = {}
+        self.lock = threading.Lock()
         self.copies_allowed: int | None = None
         self.uploads: dict[str, list[bytes]] = {}
         self.part_sizes: list[int] = []
@@ -58,8 +64,17 @@ class FakeS3:
 
     def _call(self, name: str) -> None:
         self.calls.append(name)
+        if name in self.hooks:
+            self.hooks[name]()
         if name in self.fail_ops:
             raise self.fail_ops[name]()
+
+    def _create(self, bucket: str, key: str, data: bytes, if_none_match: str | None) -> None:
+        """Store `data`; with `If-None-Match: *` the check and the write are one atomic step, as S3 makes them."""
+        with self.lock:
+            if if_none_match == "*" and (bucket, key) in self.objects:
+                raise _client_error("PreconditionFailed")
+            self.objects[(bucket, key)] = (data, None)
 
     def head_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
         self._call("head_object")
@@ -67,9 +82,11 @@ class FakeS3:
             raise _client_error("404")
         return {"ContentLength": len(self.objects[(Bucket, Key)][0])}
 
-    def put_object(self, *, Bucket: str, Key: str, Body: bytes) -> dict[str, Any]:  # noqa: N803
+    def put_object(  # noqa: N803
+        self, *, Bucket: str, Key: str, Body: bytes, IfNoneMatch: str | None = None
+    ) -> dict[str, Any]:
         self._call("put_object")
-        self.objects[(Bucket, Key)] = (Body, None)
+        self._create(Bucket, Key, Body, IfNoneMatch)
         return {}
 
     def create_multipart_upload(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
@@ -88,13 +105,20 @@ class FakeS3:
         return {"ETag": f"etag-{PartNumber}"}
 
     def complete_multipart_upload(  # noqa: N803
-        self, *, Bucket: str, Key: str, UploadId: str, MultipartUpload: dict[str, Any]
+        self,
+        *,
+        Bucket: str,
+        Key: str,
+        UploadId: str,
+        MultipartUpload: dict[str, Any],
+        IfNoneMatch: str | None = None,
     ) -> dict[str, Any]:
         self._call("complete_multipart_upload")
         assert [part["PartNumber"] for part in MultipartUpload["Parts"]] == list(
             range(1, len(self.uploads[UploadId]) + 1)
         )
-        self.objects[(Bucket, Key)] = (b"".join(self.uploads.pop(UploadId)), None)
+        self._create(Bucket, Key, b"".join(self.uploads[UploadId]), IfNoneMatch)
+        del self.uploads[UploadId]
         return {}
 
     def abort_multipart_upload(self, *, Bucket: str, Key: str, UploadId: str) -> dict[str, Any]:  # noqa: N803
@@ -223,10 +247,18 @@ class AuditStore:
     def __init__(self) -> None:
         self.records: dict[str, dict[str, Any]] = {}
         self.down = False
+        # A test that sets `hold` parks the first write on it, so a request can be seen to wait on the store
+        # while others are served; `parked` is set once a write is waiting, `stalled` if the wait ran out.
+        self.hold: threading.Event | None = None
+        self.parked = threading.Event()
+        self.stalled = False
 
     def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> dict[str, Any]:  # noqa: N803
         if self.down:
             raise ConnectionError("seaweedfs refused the connection")
+        if self.hold is not None and not self.parked.is_set():
+            self.parked.set()
+            self.stalled = not self.hold.wait(timeout=10)
         self.records[Key] = json.loads(Body)
         return {}
 
@@ -255,3 +287,9 @@ def _as(mint: Mint, role: str) -> dict[str, str]:
 
 def _base(stage: str = "dev", bucket: str = "olf-dev-bronze") -> str:
     return f"/api/v1/stages/{stage}/buckets/{bucket}/objects"
+
+
+def _client(settings: Settings, s3: FakeS3, audit_store: AuditStore, **extra: Any) -> TestClient:
+    configured = _settings(settings, **{"audit_base_uri": f"s3://{OPS}/audit/", **extra})
+    audit = AuditLog(audit_store, configured.audit_base_uri, emit=lambda line: None)
+    return TestClient(create_app(configured, files_store=s3, audit=audit))

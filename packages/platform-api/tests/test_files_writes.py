@@ -1,4 +1,4 @@
-"""The files explorer's write routes: roles, CSRF, upload paths, folders, rename, delete, the audit prefix and audit."""
+"""The files explorer's folder, rename and delete routes: roles, CSRF, the audit prefix and the audit record."""
 
 from __future__ import annotations
 
@@ -6,17 +6,12 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from _files_fakes import BUCKETS, OPS, AuditStore, FakeS3, _as, _base, _client_error, _settings
+from _files_fakes import BUCKETS, DEV, OCTET, OPS, AuditStore, FakeS3, _as, _base, _client
 from conftest import Mint
 from fastapi.testclient import TestClient
 
-from openlakeforge_platform_api import file_writes
-from openlakeforge_platform_api.app import create_app
-from openlakeforge_platform_api.audit import AuditLog
 from openlakeforge_platform_api.settings import Settings
 
-OCTET = {"Content-Type": "application/octet-stream"}
-DEV = "olf-dev-bronze"
 # An object each stage's first bucket already holds, for the routes that need one to exist.
 EXISTING = {"olf-dev-bronze": "readme.txt", "olf-uat-bronze": "u.txt", "olf-prod-bronze": "p.txt", OPS: "notes.txt"}
 Send = Callable[..., Any]
@@ -24,13 +19,6 @@ Send = Callable[..., Any]
 
 def _buckets(stage: str, bucket: str) -> str:
     return f"/api/v1/stages/{stage}/buckets/{bucket}"
-
-
-def upload(api: TestClient, headers: dict[str, str], stage: str = "dev", bucket: str = DEV, **kw: Any) -> Any:
-    query = kw.pop("query", "key=new.bin")
-    return api.put(
-        f"{_base(stage, bucket)}/content?{query}", content=kw.pop("content", b"hello"), headers={**headers, **OCTET}
-    )
 
 
 def folder(api: TestClient, headers: dict[str, str], stage: str = "dev", bucket: str = DEV, **kw: Any) -> Any:
@@ -49,18 +37,11 @@ def delete(api: TestClient, headers: dict[str, str], stage: str = "dev", bucket:
 
 
 ROUTES: dict[str, Send] = {
-    "upload_object": upload,
     "create_folder": folder,
     "rename_object": rename,
     "delete_objects": delete,
 }
 ALL = pytest.mark.parametrize("operation", list(ROUTES))
-
-
-def _client(settings: Settings, s3: FakeS3, audit_store: AuditStore, **extra: Any) -> TestClient:
-    configured = _settings(settings, **{"audit_base_uri": f"s3://{OPS}/audit/", **extra})
-    audit = AuditLog(audit_store, configured.audit_base_uri, emit=lambda line: None)
-    return TestClient(create_app(configured, files_store=s3, audit=audit))
 
 
 # roles
@@ -122,13 +103,6 @@ def test_a_cross_origin_write_is_refused(api: TestClient, s3: FakeS3, mint: Mint
     assert s3.calls == []
 
 
-def test_upload_refuses_a_json_body(api: TestClient, mint: Mint) -> None:
-    response = api.put(f"{_base()}/content?key=new.bin", json={"a": 1}, headers=_as(mint, "platform-admin"))
-
-    assert response.status_code == 403
-    assert response.json()["detail"] == "a request body must be application/octet-stream"
-
-
 @pytest.mark.parametrize("path", ["/folders", "/objects/rename", "/objects/delete"])
 def test_the_json_routes_refuse_an_octet_stream_body(api: TestClient, mint: Mint, path: str) -> None:
     response = api.post(
@@ -137,115 +111,6 @@ def test_the_json_routes_refuse_an_octet_stream_body(api: TestClient, mint: Mint
 
     assert response.status_code == 403
     assert response.json()["detail"] == "a request body must be application/json"
-
-
-# upload
-
-
-def test_a_small_upload_is_one_put(api: TestClient, s3: FakeS3, mint: Mint, audit_store: AuditStore) -> None:
-    response = upload(api, _as(mint, "data-engineer"), content=b"hello")
-
-    assert response.status_code == 201
-    assert response.json() == {"key": "new.bin", "size": 5}
-    assert s3.objects[(DEV, "new.bin")][0] == b"hello"
-    assert "create_multipart_upload" not in s3.calls
-    assert audit_store.phases() == ["attempted", "succeeded"]
-
-
-def test_a_large_upload_is_multipart_in_parts(
-    api: TestClient, s3: FakeS3, mint: Mint, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(file_writes, "PART_BYTES", 4)
-
-    response = upload(api, _as(mint, "data-engineer"), content=b"0123456789")
-
-    assert response.status_code == 201 and response.json()["size"] == 10
-    assert s3.part_sizes == [4, 4, 2]
-    assert s3.objects[(DEV, "new.bin")][0] == b"0123456789"
-    assert "put_object" not in s3.calls and s3.aborted == []
-
-
-def test_a_body_that_is_an_exact_number_of_parts_has_no_empty_last_part(
-    api: TestClient, s3: FakeS3, mint: Mint, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(file_writes, "PART_BYTES", 4)
-
-    assert upload(api, _as(mint, "data-engineer"), content=b"01234567").status_code == 201
-    assert s3.part_sizes == [4, 4]
-
-
-def test_a_multipart_upload_is_aborted_when_a_part_fails(
-    api: TestClient, s3: FakeS3, mint: Mint, audit_store: AuditStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(file_writes, "PART_BYTES", 4)
-    s3.fail_ops["upload_part"] = lambda: _client_error("InternalError")
-
-    response = upload(api, _as(mint, "data-engineer"), content=b"0123456789")
-
-    assert response.status_code == 502
-    assert s3.aborted == ["upload-1"] and s3.uploads == {}
-    assert (DEV, "new.bin") not in s3.objects
-    assert audit_store.phases() == ["attempted", "failed"]
-
-
-@pytest.mark.parametrize(("declared", "detail"), [(20, "shorter"), (6, "longer")])
-def test_a_body_that_disagrees_with_its_content_length_is_refused_and_aborted(
-    api: TestClient, s3: FakeS3, mint: Mint, monkeypatch: pytest.MonkeyPatch, declared: int, detail: str
-) -> None:
-    monkeypatch.setattr(file_writes, "PART_BYTES", 4)
-    headers = {**_as(mint, "data-engineer"), "Content-Length": str(declared)}
-
-    response = upload(api, headers, content=b"0123456789")
-
-    assert response.status_code == 400 and detail in response.json()["detail"]
-    assert s3.aborted == ["upload-1"] and (DEV, "new.bin") not in s3.objects
-
-
-def test_an_upload_without_a_content_length_is_411(api: TestClient, s3: FakeS3, mint: Mint) -> None:
-    response = api.put(
-        f"{_base()}/content?key=new.bin",
-        content=iter([b"ab", b"cd"]),
-        headers={**_as(mint, "data-engineer"), **OCTET},
-    )
-
-    assert response.status_code == 411
-    assert s3.calls == []
-
-
-def test_an_upload_over_the_cap_is_413_before_anything_is_done(
-    settings: Settings, s3: FakeS3, audit_store: AuditStore, mint: Mint
-) -> None:
-    api = _client(settings, s3, audit_store, files_max_upload_bytes=10)
-
-    assert upload(api, _as(mint, "data-engineer"), content=b"0123456789").status_code == 201
-    response = upload(api, _as(mint, "data-engineer"), query="key=big.bin", content=b"0123456789a")
-
-    assert response.status_code == 413
-    assert (DEV, "big.bin") not in s3.objects
-    assert audit_store.phases() == ["attempted", "succeeded"]  # only the first upload
-
-
-def test_an_existing_object_is_409_unless_overwrite_is_true(api: TestClient, s3: FakeS3, mint: Mint) -> None:
-    headers = _as(mint, "data-engineer")
-
-    refused = upload(api, headers, query="key=readme.txt", content=b"new")
-    replaced = upload(api, headers, query="key=readme.txt&overwrite=true", content=b"new")
-
-    assert refused.status_code == 409
-    assert replaced.status_code == 201
-    assert s3.objects[(DEV, "readme.txt")][0] == b"new"
-
-
-@pytest.mark.parametrize("key", ["folder/", "../x", "/x", "a/../b", "a%00b"])
-def test_an_upload_key_must_be_a_file_key(api: TestClient, s3: FakeS3, mint: Mint, key: str) -> None:
-    response = upload(api, _as(mint, "data-engineer"), query=f"key={key}")
-
-    assert response.status_code == 422
-    assert s3.calls == []
-
-
-def test_an_upload_to_a_bucket_of_another_stage_is_404(api: TestClient, mint: Mint) -> None:
-    assert upload(api, _as(mint, "data-engineer"), bucket="olf-uat-bronze").status_code == 404
 
 
 # folders
@@ -403,8 +268,6 @@ def test_per_key_errors_are_reported_not_raised(api: TestClient, s3: FakeS3, min
 
 AUDIT_KEY = "audit/date=2026-11-01/r.json"
 PLATFORM_ADMIN_ON_OPS = {
-    "upload": lambda api, h: upload(api, h, bucket=OPS, query="key=audit/x.json"),
-    "upload over a record": lambda api, h: upload(api, h, bucket=OPS, query=f"key={AUDIT_KEY}&overwrite=true"),
     "folder under": lambda api, h: folder(api, h, bucket=OPS, prefix="audit/sub/"),
     "folder is the prefix": lambda api, h: folder(api, h, bucket=OPS, prefix="audit/"),
     "rename from": lambda api, h: rename(api, h, bucket=OPS, source=AUDIT_KEY, target="elsewhere.json"),
@@ -430,6 +293,28 @@ def test_nothing_may_write_to_the_audit_prefix(
     assert audit_store.phases() == ["refused"]
 
 
+ALIASES_OF_THE_AUDIT_PREFIX = ["audit//platform-api/x", "audit\\platform-api\\x", "./audit/x"]
+ALIAS_ATTEMPTS = {
+    "folder": lambda api, h, alias: folder(api, h, bucket=OPS, prefix=alias + "/"),
+    "rename from": lambda api, h, alias: rename(api, h, bucket=OPS, source=alias, target="elsewhere.json"),
+    "rename into": lambda api, h, alias: rename(api, h, bucket=OPS, source="notes.txt", target=alias),
+    "delete": lambda api, h, alias: delete(api, h, bucket=OPS, keys=[alias]),
+}
+
+
+@pytest.mark.parametrize("alias", ALIASES_OF_THE_AUDIT_PREFIX)
+@pytest.mark.parametrize("attempt", list(ALIAS_ATTEMPTS))
+def test_an_alias_of_the_audit_prefix_is_not_a_key(
+    api: TestClient, s3: FakeS3, mint: Mint, attempt: str, alias: str
+) -> None:
+    before = dict(s3.objects)
+
+    response = ALIAS_ATTEMPTS[attempt](api, _as(mint, "platform-admin"), alias)
+
+    assert response.status_code == 422
+    assert s3.objects == before and s3.calls == []
+
+
 @pytest.mark.parametrize("operation", ["rename", "delete"])
 def test_a_parent_folder_of_a_nested_audit_prefix_is_refused(
     settings: Settings, s3: FakeS3, audit_store: AuditStore, mint: Mint, operation: str
@@ -444,12 +329,6 @@ def test_a_parent_folder_of_a_nested_audit_prefix_is_refused(
 
     assert response.status_code == 403
     assert not {"copy_object", "delete_object", "delete_objects"} & set(s3.calls)
-
-
-def test_the_rest_of_the_ops_bucket_is_writable_by_platform_admin_only(api: TestClient, s3: FakeS3, mint: Mint) -> None:
-    assert upload(api, _as(mint, "platform-admin"), bucket=OPS, query="key=notes.txt").status_code == 201
-    assert upload(api, _as(mint, "data-engineer"), bucket=OPS, query="key=notes2.txt").status_code == 404
-    assert (OPS, "notes2.txt") not in s3.objects
 
 
 # the audit record
