@@ -307,6 +307,11 @@ _AGREEMENT_CASES = {
     "receiver-with-secret-ref": _receiver_with("secret_ref", {"name": "s", "key": "k"}),
     "bare-string-receiver": _set(_RECEIVERS, ["ops"]),
     "empty-receiver-name": _set(_RECEIVERS, [{"name": "", "type": "slack"}]),
+    "receiver-with-stages": _receiver_with("stages", ["dev", "prod"]),
+    "receiver-with-empty-stages": _receiver_with("stages", []),
+    "receiver-with-string-stages": _receiver_with("stages", "dev"),
+    "receiver-with-non-string-stage": _receiver_with("stages", ["dev", 1]),
+    "receiver-with-empty-stage-name": _receiver_with("stages", [""]),
     "receiver-without-type": _set(_RECEIVERS, [{"name": "ops"}]),
     "retention-days-on-search": _set(("logs", "search", "retention_days"), 7),
     "retention-supported-on-grafana": _set(("grafana", "retention_supported"), False),
@@ -335,6 +340,28 @@ def test_observability_reader_and_schema_agree(mutate) -> None:
     schema_accepts = jsonschema.Draft202012Validator(SCHEMA).is_valid(contract)
 
     assert reader_accepts == schema_accepts
+
+
+@pytest.mark.parametrize("stages", [["dev", "prod"], [], None], ids=["listed", "empty", "absent"])
+def test_alert_receiver_stages_are_optional(stages) -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    receiver = {"name": "ops", "type": "slack"}
+    if stages is not None:
+        receiver["stages"] = stages
+    contract["shared"]["observability"]["alerts"]["receivers"] = [receiver]
+
+    parse_provider_contracts(contract, _topology(contract))
+
+
+@pytest.mark.parametrize("stages", ["dev", ["dev", 1], [""], {"dev": True}])
+def test_alert_receiver_stages_must_be_a_list_of_non_empty_strings(stages) -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    contract["shared"]["observability"]["alerts"]["receivers"] = [{"name": "ops", "type": "slack", "stages": stages}]
+
+    with pytest.raises(
+        ProviderContractError, match=r"alerts\.receivers\[0\]\.stages must be a list of non-empty strings"
+    ):
+        parse_provider_contracts(contract, _topology(contract))
 
 
 def test_v3_contract_rejects_a_missing_capability_binding() -> None:
@@ -388,7 +415,9 @@ def test_aws_bucket_names_are_not_held_to_the_derived_rule() -> None:
     for stage, suffix in (("dev", "legacy"), ("uat", "ab12cd34"), ("prod", "ab12cd34")):
         for layer in ("bronze", "silver", "gold"):
             bucket = f"acme-poc-{stage}-{layer}-{suffix}"
-            contract["stages"][stage]["storage"][layer].update(physical_id=bucket, bucket_name=bucket, uri=f"s3://{bucket}")
+            contract["stages"][stage]["storage"][layer].update(
+                physical_id=bucket, bucket_name=bucket, uri=f"s3://{bucket}"
+            )
 
     parse_provider_contracts(contract, topology)
 
@@ -1718,13 +1747,17 @@ def test_identity_oidc_accepts_every_adapter_fixture(name: str) -> None:
     contract = _oidc_contract(name)
     shared = contract["shared"]["identity"]
     # Dex serves `github`; any other adapter needs an external spec.
-    external = _GITHUB_IDENTITY if name == "dex" else {
-        "issuer": "external",
-        "issuer_url": shared["issuer_url"],
-        "role_claim": shared["role_claim"],
-        "role_mapping": shared["role_mapping"],
-        "client_ids": {n: c["client_id"] for n, c in shared["clients"].items()},
-    }
+    external = (
+        _GITHUB_IDENTITY
+        if name == "dex"
+        else {
+            "issuer": "external",
+            "issuer_url": shared["issuer_url"],
+            "role_claim": shared["role_claim"],
+            "role_mapping": shared["role_mapping"],
+            "client_ids": {n: c["client_id"] for n, c in shared["clients"].items()},
+        }
+    )
     parsed = parse_provider_contracts(contract, _topology(contract, external))
 
     # Conformance: every issuer satisfies the same consumer-facing surface.
@@ -2046,8 +2079,11 @@ def test_a_stage_query_carries_no_trino_tls_or_password_fields(field: dict[str, 
 def test_artifact_registry_keeps_the_existing_binding_fields() -> None:
     document = _fixture("local-provider-contracts-v3.json")
     document["shared"]["artifact_registry"].update(
-        endpoint="https://registry.example.org", bucket_name="bucket", artifact_base_uri="s3://bucket",
-        access_mode="private", local_upload_access_mode="private",
+        endpoint="https://registry.example.org",
+        bucket_name="bucket",
+        artifact_base_uri="s3://bucket",
+        access_mode="private",
+        local_upload_access_mode="private",
     )
 
     jsonschema.validate(document, SCHEMA)
@@ -2067,8 +2103,15 @@ def test_artifact_registry_can_offer_a_provider_owned_repository(repository: str
 
 @pytest.mark.parametrize(
     "repository",
-    ["", "https://registry.example.org/code", "registry.example.org/code:latest",
-     "registry.example.org/code@sha256:" + "a" * 64, "user:password@registry.example.org/code", "team/code", 42],
+    [
+        "",
+        "https://registry.example.org/code",
+        "registry.example.org/code:latest",
+        "registry.example.org/code@sha256:" + "a" * 64,
+        "user:password@registry.example.org/code",
+        "team/code",
+        42,
+    ],
 )
 def test_artifact_registry_rejects_an_ambiguous_or_credentialed_repository(repository: object) -> None:
     document = _fixture("local-provider-contracts-v3.json")

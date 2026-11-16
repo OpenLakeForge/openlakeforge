@@ -240,7 +240,7 @@ run "observability_reports_what_the_profile_asks_for_next_to_what_is_supported" 
       archive_retention_days = 90
       metrics_enabled        = true
       metrics_retention_days = 14
-      alert_receivers        = [{ name = "ops", type = "slack" }]
+      alert_receivers        = [{ name = "ops", type = "slack", stages = ["dev"] }]
     }
   }
 
@@ -250,8 +250,8 @@ run "observability_reports_what_the_profile_asks_for_next_to_what_is_supported" 
   }
 
   assert {
-    condition     = length(output.provider_contracts.shared.observability.alerts.receivers) == 1 && output.provider_contracts.shared.observability.alerts.receivers[0].name == "ops" && output.provider_contracts.shared.observability.alerts.receivers[0].type == "slack"
-    error_message = "alert receivers carry their name and type only"
+    condition     = length(output.provider_contracts.shared.observability.alerts.receivers) == 1 && output.provider_contracts.shared.observability.alerts.receivers[0].name == "ops" && output.provider_contracts.shared.observability.alerts.receivers[0].type == "slack" && output.provider_contracts.shared.observability.alerts.receivers[0].stages[0] == "dev" && length(output.provider_contracts.shared.observability.alerts.receivers[0].stages) == 1
+    error_message = "alert receivers carry their name, type and stages only"
   }
 }
 
