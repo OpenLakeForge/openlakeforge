@@ -165,6 +165,18 @@ def test_a_restart_reloads_the_state_and_sends_no_duplicate() -> None:
     assert len(notifier.sent) == 1
 
 
+def test_history_is_written_before_the_state_so_a_failed_state_write_loses_no_transition() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    bucket.failing_writes = ("alerts/state/",)
+
+    with pytest.raises(StoreError):
+        _evaluate(_settings(A), bucket, dagster, {"ops": notifier})
+
+    events = [r for r in bucket.under("alerts/history/v1/").values() if r["record"] != "delivery"]
+    assert len(events) == 1
+    assert notifier.sent == []
+
+
 def test_a_store_outage_delivers_nothing() -> None:
     bucket, notifier = FakeBucket(), FakeNotifier()
     bucket.down = True

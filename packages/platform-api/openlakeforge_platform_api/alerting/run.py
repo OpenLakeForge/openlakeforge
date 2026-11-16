@@ -59,9 +59,13 @@ def run_once(
         active_scopes=scopes,
     )
     state = evaluation.state
-    store.write_state(state)
+    # History first: its keys are deterministic, so a rewrite after a failed state write overwrites rather than
+    # duplicates, while history written after the state would be lost for good on a crash in between (a silent
+    # resolve has no outbox entry to recover it from). A failure here leaves the state as it was, so the next run
+    # sees the same transitions again.
     for event in evaluation.events:
         store.write_history(now, f"{event.incident.id}-{event.event.value}", _event_record(event))
+    store.write_state(state)
 
     delivered = failed = 0
     for entry in state.outbox:
