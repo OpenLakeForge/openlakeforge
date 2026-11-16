@@ -645,4 +645,4 @@ each quality prefix: no Secret, grant or flow was added for it.
 
 F41 added (#1173, ADR 0023): the alert e2e runs a stub webhook receiver as a pod in `olf-system` for the length of the
 check, labelled `openlakeforge.io/e2e=alert-receiver`, and F41 lets the evaluator's pods reach it on 8443. Like F29, the
-row exists only for the e2e; the stub is not a workload with a policy of its own.
+row exists only for the e2e. The stub is not a workload with a policy of its own, and `olf-system` has no default deny, so the e2e creates a temporary NetworkPolicy beside it that admits only the evaluator's pods on 8443 (the harness reads the stub's routes by `kubectl exec` over loopback, which needs no rule) and deletes it with the stub.

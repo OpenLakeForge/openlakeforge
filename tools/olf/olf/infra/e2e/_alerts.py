@@ -55,6 +55,7 @@ RECEIVER_REF_NAME, RECEIVER_KEY = "olf-e2e-alert-receiver", "webhook-url"
 EVALUATOR = "alert-evaluator"  # the CronJob's name (modules/observability/alerts)
 # Inside the evaluator key's `alerts/*` grant; the real evaluator writes only `state/` and `history/` there.
 STATE_PREFIX = "alerts/e2e/"
+HARNESS_FIELD = "_idempotency_key"  # added by `payloads` from the recorded header; the only non-payload key
 RECEIVER_ENV_PREFIX = "OPENLAKEFORGE_ALERT_RECEIVER_"  # modules/observability/alerts: one variable per receiver
 E2E_MOUNT = "/e2e"  # where the Job's own settings and CA are mounted
 SETTINGS_CONFIGMAP = f"{STUB_NAME}-settings"
@@ -77,6 +78,31 @@ TERMINAL = {"SUCCESS", "FAILURE", "CANCELED"}
 
 def stub_host(cfg: E2EConfig) -> str:
     return f"{STUB_NAME}.{cfg.platform_namespace}.svc"
+
+
+def stub_network_policy(namespace: str) -> dict[str, Any]:
+    """Ingress to the stub on 8443 from the evaluator's pods only.
+
+    The stub's `/_records` and `/_status` routes have no authentication, and `olf-system` has no default deny, so
+    without this any pod there could read or steer them. The harness reaches those routes by `kubectl exec` into the
+    stub (loopback, which a NetworkPolicy does not see), so it needs no rule.
+    """
+    label_key, label_value = LABEL.split("=")
+    return {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {"name": STUB_NAME, "namespace": namespace},
+        "spec": {
+            "podSelector": {"matchLabels": {label_key: label_value}},
+            "policyTypes": ["Ingress"],
+            "ingress": [
+                {
+                    "from": [{"podSelector": {"matchLabels": {"openlakeforge.io/job": EVALUATOR}}}],
+                    "ports": [{"protocol": "TCP", "port": 8443}],
+                }
+            ],
+        },
+    }
 
 
 def sole_receiver_is_the_stub(cronjob: Mapping[str, Any]) -> bool:
@@ -148,7 +174,9 @@ def payloads(records: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     found = []
     for record in records:
         body = json.loads(record["body"])
-        body["_idempotency_key"] = record["headers"].get("idempotency-key", "")
+        if HARNESS_FIELD in body:
+            raise E2EError(f"the payload itself carries the harness field {HARNESS_FIELD!r}")
+        body[HARNESS_FIELD] = record["headers"].get("idempotency-key", "")
         found.append(body)
     return found
 
@@ -172,7 +200,7 @@ def expected_run_link(routes: Mapping[str, str], stage: str, run_id: str) -> str
 
 def payload_problems(payload: Mapping[str, Any], *, link: str | None, secrets: Mapping[str, str]) -> list[str]:
     """Why a payload breaks the contract: a field off the allowlist, a wrong or missing link, or a Secret value."""
-    body = {key: value for key, value in payload.items() if not key.startswith("_")}
+    body = {key: value for key, value in payload.items() if key != HARNESS_FIELD}
     problems = [f"unlisted field {key!r}" for key in sorted(set(body) - PAYLOAD_FIELDS)]
     links = body.get("links", {})
     problems += [f"unlisted link {key!r}" for key in sorted(set(links) - LINK_FIELDS)]
@@ -508,12 +536,19 @@ def alert_receiver(cfg: E2EConfig) -> Iterator[str]:
     def remove() -> None:
         kubectl(
             cfg,
-            ["delete", f"pod/{STUB_NAME}", f"service/{STUB_NAME}", f"certificate/{STUB_NAME}"]
+            [
+                "delete",
+                f"pod/{STUB_NAME}",
+                f"networkpolicy/{STUB_NAME}",
+                f"service/{STUB_NAME}",
+                f"certificate/{STUB_NAME}",
+            ]
             + [f"secret/{STUB_NAME}-tls", f"configmap/{SETTINGS_CONFIGMAP}", "-n", namespace, "--ignore-not-found"],
         )
 
     remove()
     try:
+        kubectl(cfg, ["apply", "-f", "-"], input_text=json.dumps(stub_network_policy(namespace)))
         kubectl(cfg, ["apply", "-f", "-"], input_text=json.dumps(certificate))
         kubectl(cfg, ["wait", "--for=condition=Ready", f"certificate/{STUB_NAME}", "-n", namespace, "--timeout=120s"])
         run = ["run", STUB_NAME, "-n", namespace, "--restart=Never", f"--image={image}", f"--labels={LABEL}"]

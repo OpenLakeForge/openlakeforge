@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
 import threading
@@ -138,6 +139,39 @@ def test_job_outcome(status: dict, outcome: str | None) -> None:
 
 def _record(**body: object) -> dict:
     return {"headers": {"idempotency-key": "k"}, "body": json.dumps(body)}
+
+
+def test_a_stub_policy_admits_only_the_evaluator_on_the_stubs_port() -> None:
+    policy = _alerts.stub_network_policy("olf-system")
+    label_key, label_value = _alerts.LABEL.split("=")
+    spec = policy["spec"]
+    assert policy["metadata"] == {"name": _alerts.STUB_NAME, "namespace": "olf-system"}
+    assert spec["podSelector"] == {"matchLabels": {label_key: label_value}}
+    assert spec["policyTypes"] == ["Ingress"]
+    (rule,) = spec["ingress"]
+    assert rule["from"] == [{"podSelector": {"matchLabels": {"openlakeforge.io/job": _alerts.EVALUATOR}}}]
+    assert rule["ports"] == [{"protocol": "TCP", "port": alert_receiver_stub.PORT}]
+
+
+def test_the_evaluation_job_pods_carry_the_label_the_stub_policy_admits() -> None:
+    cronjob = copy.deepcopy(CRONJOB)
+    cronjob["spec"]["jobTemplate"]["spec"]["template"]["metadata"] = {
+        "labels": {"openlakeforge.io/job": "alert-evaluator"}
+    }
+    pod = _alerts.evaluation_job(cronjob, "j", now=None, state_prefix="p/")["spec"]["template"]["metadata"]["labels"]
+    assert pod == {"openlakeforge.io/job": _alerts.EVALUATOR}
+    tf = (ROOT / "infra/terraform/modules/observability/alerts/main.tf").read_text()
+    assert '"openlakeforge.io/job" = "alert-evaluator"' in tf
+
+
+def test_an_underscore_field_in_the_real_payload_is_still_checked() -> None:
+    body = {"schema": "s", "_credentials": "hunter2-hunter2-hunter2", "links": {}}
+    (found,) = _alerts.payloads([_record(**body)])
+    problems = _alerts.payload_problems(found, link=None, secrets={"a secret": "hunter2-hunter2-hunter2"})
+    assert "unlisted field '_credentials'" in problems
+    assert any("a secret" in p for p in problems)
+    with pytest.raises(E2EError, match="harness field"):
+        _alerts.payloads([_record(_idempotency_key="forged")])
 
 
 def test_exactly_one_names_what_was_missing_or_repeated() -> None:
