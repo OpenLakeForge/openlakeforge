@@ -114,8 +114,8 @@ or a file: the platform API already reads Dagster, Trino and the object store
 as `SERVICE` signals (`service_probes.py`), so a fourth HTTP read fits that
 shape; a node-level exporter would be one more workload to deploy, and a file
 would need a reader on every node. A headless Service, `log-collector-probe`,
-gives the API one address per collector pod, and the API takes the worst signal
-over the pods (F42 in ADR 0017 opens that one port).
+gives the API one address per collector pod, and the API asks the pods together, each within 60% of the probe timeout, and takes the worst signal
+over the pods (`critical` and `warning` outrank `unknown`, so a silent pod never hides a reachable one's reading) (F42 in ADR 0017 opens that one port).
 
 | Property | Value |
 | --- | --- |

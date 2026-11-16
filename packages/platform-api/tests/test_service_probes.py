@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -698,3 +699,46 @@ def test_a_collector_pod_that_does_not_answer_is_counted_and_makes_the_spool_unk
     assert signals["log-archive.spool-age"].state is HealthState.UNKNOWN
     assert signals["log-archive.spool-size"].state is HealthState.UNKNOWN
     assert "did not answer" in signals["log-archive.spool-age"].reason
+
+
+def test_a_collector_that_hangs_does_not_cost_the_reachable_ones_their_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release = threading.Event()
+    critical = {
+        "observed_at": NOW.isoformat(),
+        "limit_bytes": 512_000_000,
+        "stages": {"dev": {"oldest_file_age_seconds": 3000.0, "size_bytes": 500_000_000}},
+    }
+
+    class Answer:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, Any]:
+            return critical
+
+    def get(url: str, timeout: Any) -> Answer:
+        if "10.0.0.1" in url:
+            release.wait(10)
+            raise requests.ConnectTimeout("hung")
+        return Answer()
+
+    def resolve(host: str | None, port: int | None, **_: Any) -> list[Any]:
+        return [(2, 1, 6, "", ("10.0.0.1", port)), (2, 1, 6, "", ("10.0.0.2", port))]
+
+    monkeypatch.setattr(service_probes.socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(service_probes.requests, "get", get)
+    outer = timedelta(seconds=2)
+    started = time.monotonic()
+    try:
+        signals = by_component(
+            probes(spool_read=service_probes.in_cluster_spool_read(outer.total_seconds()), timeout=outer).probe(ALL)
+        )
+    finally:
+        release.set()
+    elapsed = time.monotonic() - started
+
+    assert signals["log-archive.spool-age"].state is HealthState.CRITICAL
+    assert signals["log-archive.spool-size"].state is HealthState.CRITICAL
+    assert elapsed < outer.total_seconds()
