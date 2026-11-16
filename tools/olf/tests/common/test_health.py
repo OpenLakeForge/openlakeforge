@@ -109,6 +109,23 @@ def test_stopped_or_absent_schedule_is_disabled_even_with_a_run_overdue(state: S
     assert signal.state is HealthState.DISABLED
 
 
+@pytest.mark.parametrize(
+    ("state", "declared", "expected"),
+    [
+        (ScheduleState.STOPPED, True, HealthState.WARNING),
+        (ScheduleState.STOPPED, False, HealthState.DISABLED),
+        (ScheduleState.RUNNING, True, HealthState.HEALTHY),
+        (ScheduleState.RUNNING, False, HealthState.HEALTHY),
+        (ScheduleState.ABSENT, True, HealthState.DISABLED),
+    ],
+)
+def test_declared_and_actual_schedule_state_combinations(
+    state: ScheduleState, declared: bool, expected: HealthState
+) -> None:
+    schedule = ScheduleObservation(state, FRESH, declared_running=declared)
+    assert evaluate_expected_run(DEV, schedule, now=NOW, max_age=MAX_AGE, grace=GRACE).state is expected
+
+
 def test_missed_expected_run_is_critical_without_any_failure_event() -> None:
     schedule = ScheduleObservation(ScheduleState.RUNNING, FRESH, last_expected_at=NOW - timedelta(minutes=30))
     signal = evaluate_expected_run(DEV, schedule, now=NOW, max_age=MAX_AGE, grace=GRACE)

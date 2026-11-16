@@ -91,6 +91,9 @@ class DagsterSchedule:
     # Unix seconds of the latest tick that requested or tried to request a run; None before the first. Evidence that
     # the scheduler ran, never when a run is due.
     last_tick_at: float | None
+    # What the code location declares, as opposed to `status`, which the UI toggle or an earlier toggle may have
+    # overridden: RUNNING or STOPPED. Defaulted so a caller that does not read it sees a schedule declared off.
+    default_status: str = "STOPPED"
 
 
 class DagsterClient:
@@ -244,6 +247,7 @@ class DagsterClient:
                       pipelineName
                       cronSchedule
                       executionTimezone
+                      defaultStatus
                       scheduleState {
                         status
                         typeSpecificData { __typename ... on ScheduleData { startTimestamp } }
@@ -274,6 +278,7 @@ class DagsterClient:
                         timezone=str(schedule.get("executionTimezone") or "UTC"),
                         started_at=float(started_at) if started_at is not None else None,
                         last_tick_at=float(ticks[0]["timestamp"]) if ticks else None,
+                        default_status=str(schedule["defaultStatus"]),
                     )
                 )
         return schedules

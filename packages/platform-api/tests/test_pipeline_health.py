@@ -18,11 +18,12 @@ def _utc(day: int, hour: int, minute: int = 0, second: int = 0) -> datetime:
     return datetime(2026, 11, day, hour, minute, second, tzinfo=UTC)
 
 
-def _schedule(cron: str) -> DagsterSchedule:
+def _schedule(cron: str, *, status: str = "RUNNING", default_status: str = "STOPPED") -> DagsterSchedule:
     return DagsterSchedule(
         name="orders",
         job_name="orders_job",
-        status="RUNNING",
+        status=status,
+        default_status=default_status,
         cron_schedule=cron,
         timezone="UTC",
         started_at=ON_SINCE,
@@ -116,3 +117,24 @@ def test_freshness_reads_the_success_that_finished_last_not_the_newest_created()
     states = {signal.kind.value: signal.state.value for signal in evaluation.signals}
 
     assert states["freshness"] == "healthy"
+
+
+@pytest.mark.parametrize(
+    ("status", "default_status", "expected"),
+    [
+        ("STOPPED", "RUNNING", "warning"),
+        ("STOPPED", "STOPPED", "disabled"),
+        ("RUNNING", "RUNNING", "healthy"),
+        ("RUNNING", "STOPPED", "healthy"),
+    ],
+)
+def test_expected_run_compares_the_schedule_with_its_declared_status(
+    status: str, default_status: str, expected: str
+) -> None:
+    now = _utc(16, 9, 5)
+    schedule = _schedule("0 9 * * *", status=status, default_status=default_status)
+    run = DagsterRun("r1", "orders_job", "SUCCESS", _utc(16, 9).timestamp(), None, _utc(16, 9, 2).timestamp())
+    evaluation = _evaluate("prod", "orders_job", [run], schedule, now)
+    states = {signal.kind.value: signal.state.value for signal in evaluation.signals}
+
+    assert states["expected_run"] == expected

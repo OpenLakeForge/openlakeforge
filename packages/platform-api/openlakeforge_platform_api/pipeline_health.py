@@ -86,7 +86,7 @@ def _expected(
     if schedule is None:
         return ScheduleObservation(ScheduleState.ABSENT, now)
     if schedule.status != "RUNNING":
-        return ScheduleObservation(ScheduleState.STOPPED, now)
+        return ScheduleObservation(ScheduleState.STOPPED, now, declared_running=schedule.default_status == "RUNNING")
     if due is None:
         return None
     # Any run counts, a manual one included: Dagster does not say which run a tick requested.
