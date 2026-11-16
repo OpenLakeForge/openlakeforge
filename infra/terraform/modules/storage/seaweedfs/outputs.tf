@@ -53,3 +53,9 @@ output "audit_writer_secret_name" {
   value       = var.audit_writer_credentials == null ? null : var.audit_writer_credentials.credentials_secret_name
   depends_on  = [kubernetes_job_v1.credentials]
 }
+
+output "files_secret_name" {
+  description = "Secret holding the platform API's files explorer key, or null when files_credentials is."
+  value       = var.files_credentials == null ? null : var.files_credentials.credentials_secret_name
+  depends_on  = [kubernetes_job_v1.credentials]
+}
