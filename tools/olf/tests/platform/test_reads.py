@@ -33,6 +33,7 @@ def _token() -> str:
     # Minted per test: a module-level token is signed at collection and expires before a slow full run reaches it.
     return _jwt({"exp": int(time.time()) + 300, "email": "ada@example.com", "groups": ["acme:data-engineers"]})
 
+
 RUN = {
     "run_id": "6c1f3a5e-0000-4000-8000-000000000001",
     "job_name": "orders_job",
@@ -349,6 +350,36 @@ def test_logs_passes_the_window_and_filters(fake: FakeAPI) -> None:
     assert fake.requests[0]["query"] == {
         "date": ["2026-10-30"], "hour": ["0"], "pod": ["run-1"], "container": ["main"], "limit": ["50"],
     }  # fmt: skip
+
+
+def test_logs_passes_the_run_scoped_filters(fake: FakeAPI) -> None:
+    result = _olf(
+        "logs", "--date", "2026-10-30", "--run-id", "r1", "--product", "sales", "--component", "floe",
+        "--severity", "error", "--since", "2026-10-30T09:00:00", "--until", "2026-10-30T10:00:00+00:00",
+    )  # fmt: skip
+
+    assert result.exit_code == 0, result.output
+    assert fake.requests[0]["query"] == {
+        "date": ["2026-10-30"], "limit": ["500"], "run_id": ["r1"], "product": ["sales"], "component": ["floe"],
+        "severity": ["error"], "since": ["2026-10-30T09:00:00"], "until": ["2026-10-30T10:00:00+00:00"],
+    }  # fmt: skip
+
+
+@pytest.mark.parametrize(("flag", "value"), [("--severity", "loud"), ("--since", "noon"), ("--until", "x")])
+def test_logs_refuses_a_filter_the_api_would_reject_without_a_message(fake: FakeAPI, flag: str, value: str) -> None:
+    result = _olf("logs", flag, value)
+
+    assert result.exit_code == 1
+    assert fake.requests == []
+
+
+def test_logs_shows_the_api_refusal_for_a_stage_the_role_may_not_read(fake: FakeAPI) -> None:
+    fake.refuse(403, "role 'data-engineer' may not perform 'list_logs' on stage 'prod'")
+
+    result = _olf("logs", "--stage", "prod")
+
+    assert result.exit_code == 1
+    assert "may not perform 'list_logs' on stage 'prod'" in result.stderr
 
 
 def test_logs_reads_today_in_utc_by_default(fake: FakeAPI) -> None:

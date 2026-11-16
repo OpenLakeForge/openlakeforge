@@ -132,6 +132,14 @@ def test_lines_are_filtered_by_pod_and_limited(api: TestClient, mint: Mint) -> N
                 "container": "main",
                 "line": "started",
                 "error": None,
+                "stage": None,
+                "component": None,
+                "domain": None,
+                "product": None,
+                "run_id": None,
+                "stream": None,
+                "missing": None,
+                "source": "v1",
             }
         ],
         "truncated": True,
@@ -265,6 +273,19 @@ def _v2(time: str, message: str, namespace: str = "olf-dev", **fields: Any) -> d
 V2_DEV = "activations/dev/logs/v2/namespace=olf-dev/date=2026-10-30/dev-4f1b.ndjson.gz"
 
 
+def test_v2_lines_are_found_by_run_without_the_pod_name_and_deduplicated(
+    api: TestClient, store: ObjectStore, mint: Mint
+) -> None:
+    replay = _v2("2026-10-30T09:00:02Z", "ERROR contract violated", run_id="r1", component="floe")
+    store.archive(V2_DEV, [_v2("2026-10-30T09:00:01Z", "INFO other run", run_id="r2"), replay, replay])
+
+    body = api.get(LOGS + "&run_id=r1&severity=error", headers=_as(mint, "data-engineer")).json()
+
+    assert [(line["line"], line["run_id"], line["source"], line["missing"]) for line in body["lines"]] == [
+        ("ERROR contract violated", "r1", "v2", ["product"])
+    ]
+
+
 @pytest.fixture
 def two_stages(settings: Settings, store: ObjectStore) -> TestClient:
     store.archive(
@@ -297,3 +318,8 @@ def test_a_platform_admin_reads_prod_from_the_prod_prefix_only(
 
     assert [line["line"] for line in response.json()["lines"]] == ["prod secret"]
     assert all(prefix.startswith("activations/prod/") for prefix in store.listed)
+
+
+@pytest.mark.parametrize("query", ["&severity=loud", "&since=yesterday", "&until=x"])
+def test_a_malformed_filter_is_refused(api: TestClient, mint: Mint, query: str) -> None:
+    assert api.get(LOGS + query, headers=_as(mint, "data-engineer")).status_code == 422
