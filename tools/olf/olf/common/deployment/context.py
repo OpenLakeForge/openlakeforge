@@ -71,8 +71,8 @@ def topology_variables(context: DeploymentContext) -> dict[str, str]:
 def observability_variables(context: DeploymentContext) -> dict[str, str]:
     """The resolved `spec.observability` as the roots' `observability` input.
 
-    Alert receivers carry their name and type only: the Secret reference stays
-    out of the contract and out of Terraform state (AGENTS.md rule 7).
+    Alert receivers carry their name, type and effective stages only: the Secret
+    reference stays out of the contract and out of Terraform state (AGENTS.md rule 7).
     """
     observability = context.topology.observability
     document = {
@@ -81,7 +81,10 @@ def observability_variables(context: DeploymentContext) -> dict[str, str]:
         "metrics_enabled": observability.metrics_enabled,
         "metrics_retention_days": observability.metrics_retention_days,
         "grafana_enabled": observability.grafana_enabled,
-        "alert_receivers": [{"name": r.name, "type": r.type} for r in observability.alert_receivers],
+        "alert_receivers": [
+            {"name": r.name, "type": r.type, "stages": [stage.value for stage in r.stages or ()]}
+            for r in observability.alert_receivers
+        ],
     }
     return {"observability": json.dumps(document, sort_keys=True, separators=(",", ":"))}
 
@@ -446,9 +449,7 @@ class DeploymentContext:
         resolved_distribution_root = (
             Path(distribution_root).resolve() if distribution_root is not None else resolved_repo_root
         )
-        resolved_work_root = (
-            Path(work_root).resolve() / scope if work_root is not None else resolved_repo_root / ".tmp"
-        )
+        resolved_work_root = Path(work_root).resolve() / scope if work_root is not None else resolved_repo_root / ".tmp"
         resolved_state_root = (Path(state_root).resolve() / scope) if state_root is not None else resolved_repo_root
         resolved_cache_root = Path(cache_root).resolve() if cache_root is not None else resolved_work_root
         helm_root = resolved_work_root / "helm" / scope

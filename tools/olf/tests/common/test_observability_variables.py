@@ -18,9 +18,7 @@ from olf.common.profile import (
 )
 
 
-def _variables(
-    tmp_path: Path, preset: Preset, observability: ObservabilitySpec | None = None
-) -> dict[str, object]:
+def _variables(tmp_path: Path, preset: Preset, observability: ObservabilitySpec | None = None) -> dict[str, object]:
     profile = DeploymentProfile(
         name="obs",
         provider=ProviderSpec(type=Provider.LOCAL),
@@ -55,7 +53,7 @@ def test_no_secret_reference_reaches_the_input(tmp_path: Path) -> None:
     receiver = AlertReceiver(name="ops", type="webhook", secret_ref=SecretRef(name="ops-webhook", key="webhook-url"))
     variables = _variables(tmp_path, Preset.FULL, ObservabilitySpec(alert_receivers=(receiver,)))
 
-    assert variables["alert_receivers"] == [{"name": "ops", "type": "webhook"}]
+    assert variables["alert_receivers"] == [{"name": "ops", "type": "webhook", "stages": ["dev"]}]
     serialized = json.dumps(variables)
     assert "ops-webhook" not in serialized
     assert "webhook-url" not in serialized

@@ -578,7 +578,11 @@ def test_the_schema_agrees_with_the_parser_on_observability(tmp_path: Path) -> N
         _write_profile(repo_root, accepted)
         assert contracts_check.profile_schema_errors(repo_root) == []
 
-    for rejected in ("invalid_observability_archive_disabled.yaml", "invalid_observability_email_receiver.yaml"):
+    for rejected in (
+        "invalid_observability_archive_disabled.yaml",
+        "invalid_observability_email_receiver.yaml",
+        "invalid_observability_receiver_stages_duplicate.yaml",
+    ):
         _write_profile(repo_root, rejected)
         assert contracts_check.profile_schema_errors(repo_root)
 
