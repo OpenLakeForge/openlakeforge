@@ -261,6 +261,40 @@ def test_a_folder_key_overwritten_before_the_delete_stays_and_the_rest_moves(
     assert (DEV, "src/a.txt") not in s3.objects and s3.objects[(DEV, "dst/a.txt")][0] == b"a"
 
 
+def test_a_rollback_leaves_a_copy_that_someone_else_has_replaced(api: TestClient, s3: FakeS3, mint: Mint) -> None:
+    def overwrite_both() -> None:
+        s3.put(DEV, "readme.txt", b"newer")
+        s3.put(DEV, "moved.txt", b"theirs")
+
+    s3.hooks["delete_object"] = overwrite_both
+
+    response = rename(api, _as(mint, "data-engineer"), source="readme.txt", target="moved.txt")
+
+    assert response.status_code == 409
+    assert s3.objects[(DEV, "readme.txt")][0] == b"newer"
+    assert s3.objects[(DEV, "moved.txt")][0] == b"theirs"
+
+
+def test_a_folder_rollback_leaves_copies_that_someone_else_has_replaced(
+    api: TestClient, s3: FakeS3, mint: Mint
+) -> None:
+    s3.put(DEV, "src/a.txt", b"a")
+    s3.put(DEV, "src/b.txt", b"b")
+
+    def overwrite_b_on_both_sides() -> None:
+        s3.put(DEV, "src/b.txt", b"newer")
+        s3.put(DEV, "dst/b.txt", b"theirs")
+
+    s3.hooks["delete_objects"] = overwrite_b_on_both_sides
+
+    response = rename(api, _as(mint, "data-engineer"), source="src/", target="dst/")
+
+    assert response.status_code == 409
+    assert s3.objects[(DEV, "src/b.txt")][0] == b"newer"
+    assert s3.objects[(DEV, "dst/b.txt")][0] == b"theirs"
+    assert s3.objects[(DEV, "dst/a.txt")][0] == b"a"
+
+
 def test_a_failed_copy_removes_the_copies_already_made(
     api: TestClient, s3: FakeS3, mint: Mint, audit_store: AuditStore
 ) -> None:

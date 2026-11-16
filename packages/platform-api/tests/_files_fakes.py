@@ -29,14 +29,20 @@ OCTET = {"Content-Type": "application/octet-stream"}
 
 
 class Body:
+    """A streaming body that, like botocore's, is read in bounded pieces; an unbounded read fails the test."""
+
     def __init__(self, data: bytes) -> None:
         self._io = io.BytesIO(data)
         self.closed = False
-        self.chunk_sizes: list[int] = []
+        self.largest_read = 0
+
+    def read(self, amt: int | None = None) -> bytes:
+        assert amt is not None and amt > 0, "the whole object must not be read into memory at once"
+        self.largest_read = max(self.largest_read, amt)
+        return self._io.read(amt)
 
     def iter_chunks(self, size: int) -> Iterator[bytes]:
-        self.chunk_sizes.append(size)
-        while chunk := self._io.read(size):
+        while chunk := self.read(size):
             yield chunk
 
     def close(self) -> None:
@@ -146,7 +152,7 @@ class FakeS3:
         if CopySourceIfMatch is not None and self.etag(*source) != CopySourceIfMatch:
             raise _client_error("PreconditionFailed")
         self._create(Bucket, Key, self.objects[source][0], IfNoneMatch)
-        return {}
+        return {"CopyObjectResult": {"ETag": self.etag(Bucket, Key)}}
 
     def delete_object(self, *, Bucket: str, Key: str, IfMatch: str | None = None) -> dict[str, Any]:  # noqa: N803
         self._call("delete_object")

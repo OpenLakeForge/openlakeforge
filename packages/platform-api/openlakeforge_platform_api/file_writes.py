@@ -135,11 +135,12 @@ def _delete_keys(
 # evaluates the copy's conditions under the destination's write lock (`weed/s3api/s3api_object_handlers_copy.go`) and
 # a delete's If-Match, or a batch entry's ETag, under the source's (`s3api_object_handlers_delete.go`). What is left:
 # the source can still be overwritten between the copy's check and its delete's check, which the delete then refuses
-# (the move is rolled back, nothing is lost); and the destination copy we roll back is removed unconditionally, so a
-# writer that replaced it in that instant loses its write.
-def _copy(store: FileStore, bucket: str, source: str, destination: str, source_etag: str) -> None:
+# (the move is rolled back, nothing is lost). A rollback deletes each copy only while it keeps the ETag the copy
+# gave it, so a writer that replaced a copy keeps its write; the only window left is that delete's own check.
+def _copy(store: FileStore, bucket: str, source: str, destination: str, source_etag: str) -> str:
+    """Copy `source` (while it still has `source_etag`) to a new `destination`; the copy's own ETag."""
     try:
-        store.copy_object(
+        result = store.copy_object(
             Bucket=bucket,
             Key=destination,
             CopySource={"Bucket": bucket, "Key": source},
@@ -152,6 +153,7 @@ def _copy(store: FileStore, bucket: str, source: str, destination: str, source_e
                 status_code=409, detail=f"{destination!r} already exists or {source!r} changed; nothing was moved"
             ) from exc
         raise
+    return str((result.get("CopyObjectResult") or {}).get("ETag", ""))
 
 
 async def _shielded(function: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
@@ -166,6 +168,22 @@ async def _audited_off_the_loop(request: Request, *, stage: str, target: dict[st
     outcome = await run_in_threadpool(manager.__enter__)
     try:
         yield outcome
+    except asyncio.CancelledError:
+        # `audited` only closes the record on an Exception; a cancelled request would leave "attempted" alone. The
+        # object is known to have landed when the final write marked the outcome, so say that, else say cancelled.
+        landed = bool(outcome.result)
+        closing = record(
+            request,
+            "succeeded" if landed else "failed",
+            stage=stage,
+            target=target,
+            result=outcome.result if landed else None,
+            status=None if landed else 499,
+            detail="" if landed else "the request was cancelled",
+        )
+        audit: AuditLog = request.app.state.audit
+        await _shielded(audit.write_best_effort, closing)
+        raise
     except BaseException as exc:
         if not await _shielded(manager.__exit__, type(exc), exc, exc.__traceback__):
             raise
@@ -201,8 +219,7 @@ async def upload_object(
         with s3_errors():
             if not overwrite and await run_in_threadpool(_exists, store, bucket, key):
                 raise _already_exists(key)
-            await _stream_to_s3(request, store, bucket, key, length, overwrite=overwrite)
-        outcome.result["size"] = str(length)
+            await _stream_to_s3(request, store, bucket, key, length, outcome, overwrite=overwrite)
     return UploadedObject(key=key, size=length)
 
 
@@ -210,8 +227,28 @@ def _already_exists(key: str) -> HTTPException:
     return HTTPException(status_code=409, detail=f"{key!r} already exists; pass overwrite=true to replace it")
 
 
+def _finished_by(outcome: Outcome, length: int, final_write: Callable[..., Any], **kwargs: Any) -> None:
+    """Run the upload's last S3 call and, in the same worker thread, note that it landed.
+
+    A request cancelled while that call is in flight cannot tell whether it returned; this marker can, so the
+    cancelled upload's audit record says what happened to the object.
+    """
+    final_write(**kwargs)
+    outcome.result["size"] = str(length)
+
+
+async def _final_write(outcome: Outcome, length: int, call: Callable[..., Any], **kwargs: Any) -> None:
+    """`_finished_by` on a worker thread; a cancelled request waits for the call to end before it unwinds."""
+    task = asyncio.ensure_future(run_in_threadpool(_finished_by, outcome, length, call, **kwargs))
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await asyncio.wait([task])
+        raise
+
+
 async def _stream_to_s3(
-    request: Request, store: FileStore, bucket: str, key: str, length: int, *, overwrite: bool
+    request: Request, store: FileStore, bucket: str, key: str, length: int, outcome: Outcome, *, overwrite: bool
 ) -> None:
     # The check above is only a courtesy: another upload can land between it and the final write. Without
     # overwrite, the final write itself (PutObject, or CompleteMultipartUpload) carries If-None-Match: *, which
@@ -250,7 +287,9 @@ async def _stream_to_s3(
             if upload_id is not None:
                 if buffer:
                     await send_part()
-                await run_in_threadpool(
+                await _final_write(
+                    outcome,
+                    length,
                     store.complete_multipart_upload,
                     Bucket=bucket,
                     Key=key,
@@ -259,7 +298,15 @@ async def _stream_to_s3(
                     **conditions,
                 )
             else:
-                await run_in_threadpool(store.put_object, Bucket=bucket, Key=key, Body=bytes(buffer), **conditions)
+                await _final_write(
+                    outcome,
+                    length,
+                    store.put_object,
+                    Bucket=bucket,
+                    Key=key,
+                    Body=bytes(buffer),
+                    **conditions,
+                )
         except ClientError as exc:
             if _error_code(exc) in _PRECONDITION_FAILED:
                 raise _already_exists(key) from exc
@@ -325,23 +372,33 @@ def _move_file(store: FileStore, bucket: str, source: str, destination: str) -> 
         raise
     if _exists(store, bucket, destination):
         raise HTTPException(status_code=409, detail=f"{destination!r} already exists")
-    _copy(store, bucket, source, destination, etag)
+    copy_etag = _copy(store, bucket, source, destination, etag)
     try:
         store.delete_object(Bucket=bucket, Key=source, IfMatch=etag)
     except ClientError as exc:
         if _error_code(exc) not in _PRECONDITION_FAILED:
             raise
-        # Replaced after the copy: the original is the newer file, so it stays and the stale copy goes.
-        _remove_copies(store, bucket, [destination], destination)
+        # Replaced after the copy: the original is the newer file, so it stays and the stale copy goes, unless
+        # someone has replaced that copy too, in which case it is theirs and stays.
+        _remove_copies(store, bucket, {destination: copy_etag}, destination)
         raise HTTPException(status_code=409, detail=f"{source!r} changed during the move; nothing was moved") from exc
     return 1
 
 
-def _remove_copies(store: FileStore, bucket: str, copies: list[str], where: str) -> None:
+def _remove_copies(store: FileStore, bucket: str, copies: dict[str, str], where: str) -> list[str]:
+    """Delete the copies a failed move made, each only while it still has the ETag the copy gave it.
+
+    A copy that has changed since belongs to another writer now: it is left alone, and returned.
+    """
     try:
-        _delete_keys(store, bucket, copies)
+        _deleted, errors = _delete_keys(store, bucket, list(copies), copies)
     except Exception as exc:
         log.warning("the copies under %s/%s were not removed after a failed move: %s", bucket, where, exc)
+        return []
+    left = [error.key for error in errors if error.detail in _PRECONDITION_FAILED]
+    if left:
+        log.warning("%d keys under %s/%s were replaced by someone else and left in place", len(left), bucket, where)
+    return left
 
 
 def _move_folder(store: FileStore, bucket: str, source: str, destination: str) -> int:
@@ -350,12 +407,11 @@ def _move_folder(store: FileStore, bucket: str, source: str, destination: str) -
         raise HTTPException(status_code=404, detail=f"{source!r} does not exist")
     if _any_under(store, bucket, destination):
         raise HTTPException(status_code=409, detail=f"{destination!r} already exists")
-    copied: list[str] = []
+    copied: dict[str, str] = {}
     try:
         for key, etag in etags.items():
             new_key = destination + key[len(source) :]
-            _copy(store, bucket, key, new_key, etag)
-            copied.append(new_key)
+            copied[new_key] = _copy(store, bucket, key, new_key, etag)
     except Exception:
         # The originals are untouched; remove the copies so the destination is not left half-made.
         _remove_copies(store, bucket, copied, destination)
@@ -364,7 +420,8 @@ def _move_folder(store: FileStore, bucket: str, source: str, destination: str) -
     changed = [error.key for error in errors if error.detail in _PRECONDITION_FAILED]
     if changed:
         # Replaced after the copy: those originals are newer and stay, with their stale copies removed.
-        _remove_copies(store, bucket, [destination + key[len(source) :] for key in changed], destination)
+        stale = {destination + key[len(source) :]: copied[destination + key[len(source) :]] for key in changed}
+        _remove_copies(store, bucket, stale, destination)
         raise HTTPException(
             status_code=409,
             detail=f"{len(changed)} keys changed during the move and stay in {source!r}; the rest moved",
