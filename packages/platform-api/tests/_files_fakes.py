@@ -56,9 +56,11 @@ class FakeS3:
         # Code to run when a call starts, to let another writer in between a route's check and its write.
         self.hooks: dict[str, Callable[[], None]] = {}
         self.lock = threading.Lock()
+        self.copies_allowed: int | None = None
         self.uploads: dict[str, list[bytes]] = {}
         self.part_sizes: list[int] = []
         self.aborted: list[str] = []
+        self.delete_errors: dict[str, str] = {}
 
     def _call(self, name: str) -> None:
         self.calls.append(name)
@@ -124,6 +126,34 @@ class FakeS3:
         self.uploads.pop(UploadId, None)
         self.aborted.append(UploadId)
         return {}
+
+    def copy_object(self, *, Bucket: str, Key: str, CopySource: dict[str, str]) -> dict[str, Any]:  # noqa: N803
+        self._call("copy_object")
+        if self.copies_allowed is not None:
+            if self.copies_allowed <= 0:
+                raise _client_error("InternalError")
+            self.copies_allowed -= 1
+        self.objects[(Bucket, Key)] = self.objects[(CopySource["Bucket"], CopySource["Key"])]
+        return {}
+
+    def delete_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        self._call("delete_object")
+        self.objects.pop((Bucket, Key), None)
+        return {}
+
+    def delete_objects(self, *, Bucket: str, Delete: dict[str, Any]) -> dict[str, Any]:  # noqa: N803
+        self._call("delete_objects")
+        assert len(Delete["Objects"]) <= 1000
+        errors = []
+        for entry in Delete["Objects"]:
+            if entry["Key"] in self.delete_errors:
+                errors.append({"Key": entry["Key"], "Code": self.delete_errors[entry["Key"]], "Message": "secret"})
+            else:
+                self.objects.pop((Bucket, entry["Key"]), None)
+        return {"Errors": errors}
+
+    def keys(self, bucket: str = "olf-dev-bronze") -> list[str]:
+        return sorted(key for name, key in self.objects if name == bucket)
 
     def put(self, bucket: str, key: str, data: bytes = b"", content_type: str | None = None) -> None:
         self.objects[(bucket, key)] = (data, content_type)
