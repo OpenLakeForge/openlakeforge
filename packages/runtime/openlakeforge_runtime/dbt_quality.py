@@ -15,6 +15,9 @@ selected. The caller passes `selected_tests`, the unique ids `dbt_build.dbt_test
 no result is `not_run` when other tests have results, and `unknown` when none has or the build failed: then we
 cannot tell whether it ran. Without `selected_tests`, a test with no result produces no record rather than a guess.
 
+A test with status `fail` or `error` blocks the pipeline. `engine_run_id` is left empty: the merged file holds one
+invocation's metadata, not that of the generation a test ran in.
+
 Only `failures` and the execution time are copied. `message` can quote row values and is never read.
 """
 
@@ -104,8 +107,6 @@ def dbt_quality_manifest(
         for r in run_results.get("results", [])
         if isinstance(r, Mapping) and isinstance(r.get("unique_id"), str)
     }
-    metadata = run_results.get("metadata")
-    engine_run_id = _text(metadata.get("invocation_id")) if isinstance(metadata, Mapping) else None
     build_failed = evidence.incomplete_marker is not None
     records: list[QualityResult] = []
     for unique_id, test in _tests(evidence.manifest).items():
@@ -115,7 +116,7 @@ def dbt_quality_manifest(
                 continue
             outcome, pipeline = _missing(has_results=bool(results_by_id), build_failed=build_failed)
         else:
-            outcome, pipeline = _classify(result.get("status"), test, build_failed=build_failed)
+            outcome, pipeline = _classify(result.get("status"), test)
         table = _table(evidence.manifest, test)
         records.append(
             QualityResult(
@@ -131,7 +132,9 @@ def dbt_quality_manifest(
                 pipeline_outcome=pipeline,
                 observed_at=observed_at,
                 dagster_run_id=dagster_run_id,
-                engine_run_id=engine_run_id,
+                # merge_run_results folds every generation's results into the last invocation's file and keeps
+                # only that invocation's metadata, so its id would be wrong for tests of earlier generations.
+                engine_run_id=None,
                 artifact_uri=evidence.artifact_uri,
                 metrics=_metrics(result or {}),
             )
@@ -141,7 +144,7 @@ def dbt_quality_manifest(
     )
 
 
-def _classify(status: Any, test: Mapping[str, Any], *, build_failed: bool) -> tuple[QualityOutcome, PipelineOutcome]:
+def _classify(status: Any, test: Mapping[str, Any]) -> tuple[QualityOutcome, PipelineOutcome]:
     if status == "pass":
         return QualityOutcome.PASSED, PipelineOutcome.CONTINUED
     if status == "warn":
@@ -154,9 +157,10 @@ def _classify(status: Any, test: Mapping[str, Any], *, build_failed: bool) -> tu
         blocked = (_severity(test) or "").lower() == "error"
         return QualityOutcome.ERROR, PipelineOutcome.BLOCKED if blocked else PipelineOutcome.UNKNOWN
     if status == "error":
-        # The test's own SQL failed, which says nothing about the data. Only the incomplete marker proves the
-        # Dagster build raised, so only it makes this a block.
-        return QualityOutcome.ERROR, PipelineOutcome.BLOCKED if build_failed else PipelineOutcome.UNKNOWN
+        # dbt_build.failed_nodes_in treats `error` like `fail`: build_by_generation blocks the test's dependents
+        # and raises, and dbt exits non-zero. The marker is only written when an invocation produced no
+        # run_results.json, so its absence says nothing about whether the build stopped.
+        return QualityOutcome.ERROR, PipelineOutcome.BLOCKED
     if status == "skipped":
         return QualityOutcome.NOT_RUN, PipelineOutcome.UNKNOWN
     return QualityOutcome.UNKNOWN, PipelineOutcome.UNKNOWN

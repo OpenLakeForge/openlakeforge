@@ -137,7 +137,7 @@ def test_each_status_maps_to_outcome_and_pipeline_outcome() -> None:
         "not_null_orders_id": (QualityOutcome.PASSED, PipelineOutcome.CONTINUED),
         "warn_orders_total": (QualityOutcome.WARN, PipelineOutcome.CONTINUED),
         "fail_orders_status": (QualityOutcome.ERROR, PipelineOutcome.BLOCKED),
-        "error_orders_region": (QualityOutcome.ERROR, PipelineOutcome.UNKNOWN),
+        "error_orders_region": (QualityOutcome.ERROR, PipelineOutcome.BLOCKED),
         "skipped_orders_note": (QualityOutcome.NOT_RUN, PipelineOutcome.UNKNOWN),
     }
     assert records["warn_orders_total"].engine_severity == "warn"
@@ -157,11 +157,21 @@ def test_a_record_names_the_table_and_column_from_the_manifest_and_carries_only_
         "order_revenue",
         "run-1",
     )
-    assert record.engine_run_id == "inv-1"
+    assert record.engine_run_id is None
     assert dict(record.metrics) == {"failures": 3, "execution_time_seconds": 2.5}
     assert (
         "jane@example.com" not in build(DbtRunEvidence(manifest(fail), run_results(result(fail, "fail", 3)))).to_json()
     )
+
+
+def test_an_errored_test_blocks_without_an_incomplete_marker() -> None:
+    errored = dbt_test("error_orders_region", column="region")
+
+    record = by_check(build(DbtRunEvidence(manifest(errored), run_results(result(errored, "error", None)))))[
+        "error_orders_region"
+    ]
+
+    assert (record.outcome, record.pipeline_outcome) == (QualityOutcome.ERROR, PipelineOutcome.BLOCKED)
 
 
 def test_a_failed_test_of_severity_warn_is_not_claimed_to_block() -> None:
