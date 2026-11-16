@@ -92,6 +92,12 @@ class Settings:
     query_export_max_rows: int = 100_000
     query_timeout_seconds: float = 30.0
     query_wait_seconds: float = 5.0
+    # The files explorer: each stage's buckets in display order, the ops bucket only a platform-admin sees, and the
+    # largest upload accepted. The key comes from the environment (OPENLAKEFORGE_FILES_ACCESS_KEY_ID and
+    # OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY); without it or without buckets every files route answers 503.
+    file_buckets: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    ops_bucket: str | None = None
+    files_max_upload_bytes: int = 1_073_741_824
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -133,6 +139,12 @@ class Settings:
                 query_export_max_rows=int(data.get("query_export_max_rows", 100_000)),
                 query_timeout_seconds=float(data.get("query_timeout_seconds", 30.0)),
                 query_wait_seconds=float(data.get("query_wait_seconds", 5.0)),
+                file_buckets={
+                    str(stage): tuple(str(bucket) for bucket in buckets)
+                    for stage, buckets in (data.get("file_buckets") or {}).items()
+                },
+                ops_bucket=data.get("ops_bucket") or None,
+                files_max_upload_bytes=int(data.get("files_max_upload_bytes", 1_073_741_824)),
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -191,6 +203,11 @@ class Settings:
             raise SettingsError("query_page_rows, query_export_max_rows and query_timeout_seconds must be positive")
         if self.query_wait_seconds < 0:
             raise SettingsError("query_wait_seconds cannot be negative")
+        stray = sorted(set(self.file_buckets) - set(self.stages))
+        if stray:
+            raise SettingsError(f"file_buckets names stages that are not enabled: {', '.join(stray)}")
+        if self.files_max_upload_bytes <= 0:
+            raise SettingsError("files_max_upload_bytes must be positive")
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")
