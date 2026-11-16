@@ -188,6 +188,8 @@ what it may launch.
 | `olf runs show <run-id>` | One run's status, times and tags | `data-engineer` |
 | `olf runs launch <job>` | Launches the job as you, on `dev` only; the API stores an audit record first and launches nothing if it cannot | `data-engineer` |
 | `olf logs` | The stage's archived pod log lines for a day (`--date`, default today in UTC) or one `--hour`; `--pod`, `--container`, `--limit` 1 to 5000 (default 500) | `data-engineer` on `dev`; `platform-admin` on every stage |
+| `olf health <stage>` | The stage's health: its state, each service's state and reason, each pipeline's state; `unknown` and `disabled` print as themselves, never as healthy | `data-engineer` |
+| `olf pipelines health <stage>` | Each pipeline's state and the reason behind it | `data-engineer` |
 | `olf domain list` | Governance domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |
 | `olf product list` | Data products and their domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |
 | `olf report import <dir>` | Imports one report directory into the stage's Superset, on `dev` only, overwriting the assets it carries. Only `metadata.yaml`, `datasets/`, `charts/` and `dashboards/` are sent, at most 500 files, 2 MiB each and 10 MiB in all; datasets use the stage's existing connections, and every schema they read must already be granted by the artifacts phase | `data-engineer` |
@@ -198,6 +200,17 @@ Each but `report export` takes `--json` to print the API's JSON instead of a tab
 the API refuses, the command says why: an expired or rejected session asks you
 to run `olf login`, and a role below the operation's floor names the role it
 needs.
+
+### Health exit codes
+
+`olf health` and `olf pipelines health` print what the API evaluated and
+evaluate nothing themselves; `--json` prints the API's response unchanged.
+The stage is a positional argument, not `--stage`.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | `olf health`: the stage is `healthy`, `warning` or `disabled`. `olf pipelines health`: no pipeline is `critical` or `unknown` |
+| `1` | `olf health`: the stage is `critical` or `unknown`. `olf pipelines health`: a pipeline is. Also any failure to get an answer, such as an unreachable API, a refused session or a stage the deployment does not enable |
 
 ## Browse and manage bucket files
 

@@ -27,32 +27,85 @@ that points at the retained evidence rather than carrying log text.
 | `execution` | Status of the latest run |
 | `latest_success` | Whether a successful run is on record |
 | `expected_run` | The schedule state and the run it expected |
+| `freshness` | Whether a successful run is on record since the schedule's owed due time (the latest one at least a grace old) |
 | `quality` | A Floe or dbt outcome |
-| `freshness`, `service` | In the vocabulary; an evaluator for each comes with its consumer |
+| `service` | Controller readiness of a component, or a probe's answer |
 
 ## How unknown is computed
 
 An observation is usable for `max_age` after `observed_at`. A missing
-observation, or one at least `max_age` old, gives `unknown` for every kind,
+observation, or one at least `max_age` old, gives `unknown` for `execution`,
+`latest_success`, `expected_run`, `quality` and workload `service` signals,
 whatever the old observation said. A quality outcome of `not_run` or `unknown`
 gives `unknown` too. A failed fetch is therefore never green.
 `max_age` has no default; the caller sets it from how often it observes.
+`freshness` takes no `max_age`, because its bound is the schedule's cadence;
+its `unknown` cases are listed below.
+
+For a pipeline with a running schedule the platform API sets `max_age` for
+`execution` and `latest_success` to the gap from the owed due time (defined
+below) to the next due time after it, plus the grace, both read from the cron.
+A success therefore stays evidence until the next due time after it plus the
+grace: a `0 9 * * 1-5` pipeline's Friday success is still evidence on Saturday
+and Sunday (the bound is 72 hours and 15 minutes at Friday's owed due time),
+and a daily one's is 24 hours and 15 minutes. A pipeline with no running
+schedule, or whose cron cannot be read, keeps the provisional seven days
+(`RUN_MAX_AGE`, #1127).
+
+## How freshness is computed
+
+Freshness asks whether the pipeline kept its own cadence. It invents no
+threshold: an SLA is #921 (v0.7.5), so the only bound is the schedule's cron.
+`evaluate_freshness` takes the latest successful run, the due time whose run is
+owed, `now`, the grace and the schedule state.
+
+The platform API derives the owed due time as the latest due time at or before
+`now` minus the grace (`latest_due`: croniter in the schedule's timezone with
+Dagster's daylight-saving rules, never from Dagster ticks). It is computed
+directly from the cron, not by stepping back one occurrence, so a schedule that
+fires more often than the grace (`* * * * *`, `*/5 * * * *`) owes the run due a
+grace ago and reads stale once its runs stop. A due time still inside its grace
+is never owed, so it cannot hide a missed earlier one. The next due time after
+it comes from `next_due`, the same walk run forward.
+
+| Observation | State |
+| --- | --- |
+| No schedule (a manual pipeline), or a stopped one | `disabled`, never stale |
+| A run succeeded at or after the owed due time | `healthy` |
+| No success since the owed due time (its grace has elapsed by construction) | `critical` (stale) |
+| No successful run in the runs read (the latest 25 per job) | `unknown` |
+| The cron cannot be read, or nothing shows the schedule was on at the owed due time | `unknown` |
+
+Stale is `critical`, as ADR 0023 has `stale_output` alert as critical: output
+that has not refreshed since its owed due time is a broken promise to its
+consumers. A stale pipeline whose run also failed, or never started, is already
+`critical` through `execution` or `expected_run`; the stage rollup takes the
+worst signal, so that adds no new state. Alerting on these signals is planned,
+not built: the design (ADR 0023, #23) has the evaluator suppress a stale-output
+alert while a failed-run or missed-run alert is open for the same product, so one
+cause would notify once. A success counts by the time it ended, and the latest
+completed success is the one read, so overlapping runs that finish out of
+creation order are judged by the one that finished last. The signal
+carries no `expires_at`, since it expires at the next due time, which the module
+does not know.
 
 ## How critical is computed
 
 | Observation | State |
 | --- | --- |
 | Latest run failed | `critical` |
-| Schedule running, a run was due more than the grace period ago, and no run started since | `critical` |
+| Schedule running, a run was due at least the grace period ago, and no run started since | `critical` |
 | Quality ERROR that blocks the pipeline | `critical` |
+| A component with no ready pod, or with an unschedulable pod | `critical` |
 
 A missed run is critical without any failure event, because a stopped
 scheduler emits none. A schedule that is stopped or absent is `disabled`, not
 `critical`. The last expected run time comes from the schedule input; the
 module does not parse cron.
 
-Other outcomes: a canceled run and a quality WARN or non-blocking ERROR give
-`warning`; a run in progress and a passing check give `healthy`.
+Other outcomes: a canceled run, a quality WARN or non-blocking ERROR, and a
+component that is scaled to zero, partly ready, crash looping or restarting
+repeatedly give `warning`; a run in progress and a passing check give `healthy`.
 
 ## Rollup
 
