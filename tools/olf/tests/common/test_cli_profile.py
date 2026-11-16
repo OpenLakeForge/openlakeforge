@@ -150,3 +150,40 @@ def test_profile_validate_notes_preview_providers_only(tmp_path: Path) -> None:
     assert "preview" not in local.output
     assert azure.exit_code == 0
     assert "preview" in azure.output
+
+
+def test_profile_resolve_reports_the_observability_defaults_for_slim_and_full(tmp_path: Path) -> None:
+    resolved = {}
+    for preset in ("slim", "full"):
+        profile = _VALID_PROFILE.replace("preset: slim", f"preset: {preset}")
+        (tmp_path / "openlakeforge.yaml").write_text(profile, encoding="utf-8")
+        result = runner.invoke(app, ["profile", "resolve", "--project", str(tmp_path), "--json"])
+        assert result.exit_code == 0
+        resolved[preset] = json.loads(result.output)["observability"]
+
+    assert resolved["slim"]["logs"] == {
+        "archive": {"enabled": True, "retention_days": 30},
+        "search": {"enabled": False},
+    }
+    assert resolved["slim"]["metrics"]["enabled"] is False
+    assert resolved["full"]["metrics"]["enabled"] is True
+    assert resolved["slim"]["grafana"] == resolved["full"]["grafana"] == {"enabled": False}
+
+
+def test_profile_resolve_text_output_summarises_observability(tmp_path: Path) -> None:
+    (tmp_path / "openlakeforge.yaml").write_text(_VALID_PROFILE, encoding="utf-8")
+
+    result = runner.invoke(app, ["profile", "resolve", "--project", str(tmp_path)])
+
+    assert "observability: archive_retention_days=30 log_search=False metrics=False grafana=False" in result.output
+
+
+def test_profile_validate_names_the_path_of_an_invalid_observability_value(tmp_path: Path) -> None:
+    (tmp_path / "openlakeforge.yaml").write_text(
+        _VALID_PROFILE + "  observability:\n    logs:\n      archive:\n        enabled: false\n", encoding="utf-8"
+    )
+
+    result = runner.invoke(app, ["profile", "validate", "--project", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "spec.observability.logs.archive.enabled" in result.output

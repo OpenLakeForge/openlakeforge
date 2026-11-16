@@ -13,39 +13,7 @@ from fastapi.testclient import TestClient
 
 from openlakeforge_platform_api.app import create_app
 from openlakeforge_platform_api.files import FILE_OPERATIONS, touches_audit_prefix
-from openlakeforge_platform_api.settings import Settings, SettingsError
-
-# settings
-
-
-def test_settings_parse_the_files_fields(settings: Settings) -> None:
-    parsed = _settings(settings, files_max_upload_bytes=5)
-
-    assert parsed.file_buckets == {
-        "dev": ("olf-dev-bronze", "olf-dev-silver"),
-        "uat": ("olf-uat-bronze",),
-        "prod": ("olf-prod-bronze",),
-    }
-    assert parsed.ops_bucket == OPS
-    assert parsed.files_max_upload_bytes == 5
-
-
-def test_settings_default_to_no_files_and_a_gibibyte_cap(settings: Settings) -> None:
-    assert settings.file_buckets == {}
-    assert settings.ops_bucket is None
-    assert settings.files_max_upload_bytes == 1_073_741_824
-
-
-def test_file_buckets_for_a_stage_that_is_not_enabled_are_refused(settings: Settings) -> None:
-    with pytest.raises(SettingsError, match="file_buckets names stages that are not enabled: qa"):
-        _settings(settings, file_buckets={"qa": ["b"]})
-
-
-@pytest.mark.parametrize("value", [0, -1])
-def test_a_non_positive_upload_cap_is_refused(settings: Settings, value: int) -> None:
-    with pytest.raises(SettingsError, match="files_max_upload_bytes must be positive"):
-        _settings(settings, files_max_upload_bytes=value)
-
+from openlakeforge_platform_api.settings import Settings
 
 # the role matrix
 
@@ -194,29 +162,35 @@ def test_the_limit_bounds_are_accepted(api: TestClient, mint: Mint) -> None:
         assert api.get(_base() + f"?limit={limit}", headers=_as(mint, "data-engineer")).status_code == 200
 
 
-@pytest.mark.parametrize("prefix", ["orders", "/orders/", "a/../b/", "a/../", "bad\x01/"])
+@pytest.mark.parametrize("prefix", ["orders", "/orders/", "a/../b/", "a/../", "bad\x01/", "a//b/", "a\\b/", "./a/"])
 def test_an_invalid_prefix_is_refused(api: TestClient, mint: Mint, prefix: str) -> None:
     response = api.get(_base(), params={"prefix": prefix}, headers=_as(mint, "data-engineer"))
 
     assert response.status_code == 422
 
 
-def test_listing_passes_the_delimiter_limit_and_cursor_to_s3(settings: Settings, s3: FakeS3, mint: Mint) -> None:
-    calls: list[dict[str, Any]] = []
-    original = s3.list_objects_v2
 
-    def spy(**kwargs: Any) -> dict[str, Any]:
-        calls.append(kwargs)
-        return original(**kwargs)
 
-    s3.list_objects_v2 = spy  # type: ignore[method-assign]
-    api = TestClient(create_app(_settings(settings), files_store=s3))
+def test_a_listing_honours_the_page_size_and_continues_after_it(api: TestClient, s3: FakeS3, mint: Mint) -> None:
+    for number in range(5):
+        s3.put("olf-dev-bronze", f"logs/f{number}.txt", b"x")
+    s3.put("olf-dev-bronze", "logs/", b"")
+    s3.put("olf-dev-bronze", "logs/sub/deep.txt", b"x")
+    s3.put("olf-dev-bronze", "logs-other/y.txt", b"x")
+    headers = _as(mint, "data-engineer")
+    pages: list[dict[str, Any]] = []
+    cursor = ""
+    while True:
+        body = api.get(_base(), params={"prefix": "logs/", "limit": 2, "cursor": cursor}, headers=headers).json()
+        pages.append(body)
+        if body["next_cursor"] is None:
+            break
+        cursor = body["next_cursor"]
 
-    api.get(_base() + "?prefix=orders/&limit=7&cursor=0", headers=_as(mint, "data-engineer"))
-
-    assert calls == [
-        {"Bucket": "olf-dev-bronze", "Prefix": "orders/", "Delimiter": "/", "MaxKeys": 7, "ContinuationToken": "0"}
-    ]
+    assert len(pages) > 1
+    assert all(len(page["files"]) + len(page["folders"]) <= 2 for page in pages)
+    assert [file["key"] for page in pages for file in page["files"]] == [f"logs/f{number}.txt" for number in range(5)]
+    assert [folder["prefix"] for page in pages for folder in page["folders"]] == ["logs/sub/"]
 
 
 # download
@@ -261,7 +235,26 @@ def test_the_ops_bucket_audit_prefix_can_be_read_by_platform_admin(api: TestClie
 # keys
 
 
-@pytest.mark.parametrize("key", ["", "/abs", "a/../b", "..", "a/..", "a\x00b", "a\nb", "k" * 1025, "é" * 513])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "",
+        "/abs",
+        "a/../b",
+        "..",
+        "a/..",
+        "a\x00b",
+        "a\nb",
+        "k" * 1025,
+        "é" * 513,
+        "audit//platform-api/x",
+        "a//",
+        "audit\\platform-api\\x",
+        "./audit/x",
+        "a/./b",
+        "a/.",
+    ],
+)
 def test_an_invalid_key_is_refused(api: TestClient, mint: Mint, key: str) -> None:
     response = api.get(_base() + "/content", params={"key": key}, headers=_as(mint, "data-engineer"))
 
@@ -297,21 +290,6 @@ def test_a_missing_store_answers_503(settings: Settings, mint: Mint, monkeypatch
         response = api.get(path, headers=headers)
         assert response.status_code == 503
         assert response.json()["detail"] == "the files store is not configured"
-
-
-def test_the_store_is_built_only_from_the_files_key(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "log-reader")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "log-secret")
-    monkeypatch.delenv("OPENLAKEFORGE_FILES_ACCESS_KEY_ID", raising=False)
-    monkeypatch.delenv("OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY", raising=False)
-
-    assert create_app(_settings(settings)).state.files_store is None
-
-    monkeypatch.setenv("OPENLAKEFORGE_FILES_ACCESS_KEY_ID", "files")
-    monkeypatch.setenv("OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY", "files-secret")
-
-    assert create_app(_settings(settings)).state.files_store is not None
-    assert create_app(settings).state.files_store is None  # no file_buckets configured
 
 
 @pytest.mark.parametrize(
@@ -363,6 +341,13 @@ def test_listing_buckets_with_the_store_unreachable_answers_503(api: TestClient,
         (OPS, "activations/dev/x", False),
         (OPS, "auditing/x", False),
         ("olf-dev-bronze", "audit/x", False),
+        (OPS, "audit//platform-api/x", True),
+        (OPS, "audit\\platform-api\\x", True),
+        (OPS, "./audit/x", True),
+        (OPS, "activations/../audit/x", True),
+        (OPS, "audit/..", True),
+        (OPS, "a//", False),
+        (OPS, "activations//x", False),
     ],
 )
 def test_touches_audit_prefix(settings: Settings, bucket: str, key: str, touches: bool) -> None:

@@ -7,8 +7,92 @@ groups:
 
 models:
   - name: mart_inventory_position
-    description: Latest inventory position and reorder status by product and warehouse.
+    description: Latest inventory position and reorder status by product and warehouse. One row per product and warehouse.
+    data_tests:
+      - openlakeforge_dbt.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - product_id
+              - warehouse_id
+    columns:
+      - name: product_id
+        description: Product identifier.
+        data_tests:
+          - not_null
+      - name: warehouse_id
+        description: Warehouse identifier.
+        data_tests:
+          - not_null
+      - name: warehouse_name
+        description: Warehouse display name.
+      - name: region
+        description: Warehouse region.
+      - name: snapshot_date
+        description: Date of the latest snapshot for the product and warehouse.
+      - name: on_hand_units
+        description: Units on hand at the snapshot.
+      - name: allocated_units
+        description: Units allocated to open orders.
+      - name: available_units
+        description: On-hand units minus allocated units.
+      - name: reorder_point
+        description: Available units at or below which stock is reordered.
+      - name: inventory_status
+        description: reorder when available units are at or below the reorder point, otherwise healthy.
   - name: mart_supplier_delivery_reliability
-    description: Supplier delivery lateness, fill rate, and on-time performance.
+    description: Supplier delivery lateness, fill rate, and on-time performance. One row per supplier.
+    columns:
+      - name: supplier_id
+        description: Supplier identifier; the grain.
+        data_tests:
+          - unique
+          - not_null
+      - name: supplier_name
+        description: Supplier display name.
+      - name: country
+        description: Supplier country.
+      - name: risk_tier
+        description: Supplier risk tier.
+      - name: purchase_order_count
+        description: Delivered purchase orders.
+      - name: ordered_units
+        description: Units ordered.
+      - name: received_units
+        description: Units received.
+      - name: avg_days_late
+        description: Average days between expected and delivered date; negative when early.
+      - name: on_time_rate
+        description: Share of deliveries on or before the expected date.
   - name: mart_stockout_risk
-    description: Stockout risk by product and warehouse using current inventory and stockout history.
+    description: Stockout risk by product and warehouse using current inventory and stockout history. One row per product and warehouse.
+    data_tests:
+      - openlakeforge_dbt.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - product_id
+              - warehouse_id
+    columns:
+      - name: product_id
+        description: Product identifier.
+        data_tests:
+          - not_null
+      - name: warehouse_id
+        description: Warehouse identifier.
+        data_tests:
+          - not_null
+      - name: warehouse_name
+        description: Warehouse display name.
+      - name: region
+        description: Warehouse region.
+      - name: available_units
+        description: Available units at the latest snapshot.
+      - name: reorder_point
+        description: Reorder point at the latest snapshot.
+      - name: inventory_status
+        description: reorder or healthy, from mart_inventory_position.
+      - name: stockout_event_count
+        description: Recorded stockout events.
+      - name: lost_units
+        description: Units lost to stockouts.
+      - name: stockout_risk
+        description: high, medium or low from inventory status and stockout history.
