@@ -13,7 +13,7 @@ of a module or name outside this page.
 
 | Module | Public names |
 | --- | --- |
-| `openlakeforge_runtime.product_dagster` | `ProductDefinitionSpec`, `ResolvedProductInputs`, `build_product_definitions`, `SourceDefinitionSpec`, `build_source_definitions`, `build_silver_definitions`, `build_maintenance_definitions`, `build_gold_maintenance_definitions`, `build_stage_schedules` |
+| `openlakeforge_runtime.product_dagster` | `ProductDefinitionSpec`, `ProductCadence`, `ResolvedProductInputs`, `build_product_definitions`, `SourceDefinitionSpec`, `build_source_definitions`, `build_silver_definitions`, `build_maintenance_definitions`, `build_gold_maintenance_definitions`, `build_stage_schedules` |
 | `openlakeforge_runtime.bronze_csv` | `BronzeLoadResult`, `load_entities_to_bronze`, `load_entity_to_bronze` |
 | `openlakeforge_runtime.bronze_dlt` | `load_dlt_source` |
 | `openlakeforge_runtime.bronze_incremental` | `CursorNotReached`, `keyset_batches`, `newest_first_pages`, `sql_engine` |
@@ -44,9 +44,25 @@ project declares, and a list you pass wins over its default:
 | `gold_assets` | The models under `gold/models/<product>/` in the Gold dbt project |
 | `silver_inputs` | The domain's Silver tables those models read; a source of another domain is refused |
 | `bronze_inputs` | The Bronze resource each of `silver_inputs` reads, from the domain's Floe entities |
+| `cadence` | Daily at 03:00 UTC, as `<product>_daily` |
 
 ```python
-defs = build_product_definitions(ProductDefinitionSpec(domain="sales", product="order_revenue"))
+spec = ProductDefinitionSpec(domain="sales", product="order_revenue")
+defs = build_product_definitions(spec)
+```
+
+`cadence` is a `ProductCadence(cron, timezone="UTC")` and sets the PROD
+schedule, named `<product>_schedule`. `ProductCadence(cron=None)` declares a
+product with no schedule. DEV and UAT never get one, and the schedule is
+`STOPPED` either way: switching it on stays a decision in the Dagster UI.
+Keep the spec in a module-level `spec` name so `olf check project-code` checks
+the cadence the product declares.
+
+```python
+spec = ProductDefinitionSpec(
+    domain="sales", product="order_revenue", cadence=ProductCadence("0 * * * *")
+)
+defs = build_product_definitions(spec)
 ```
 
 A dbt source that is not a Silver table of the domain fails when the

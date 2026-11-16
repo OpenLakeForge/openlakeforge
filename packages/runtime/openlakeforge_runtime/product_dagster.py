@@ -57,6 +57,7 @@ from openlakeforge_runtime.source_bindings import source_binding_tags
 
 __all__ = [
     "ProductDefinitionSpec",
+    "ProductCadence",
     "ResolvedProductInputs",
     "SourceDefinitionSpec",
     "build_gold_maintenance_definitions",
@@ -102,6 +103,18 @@ _GOLD_MAINTENANCE_SCHEDULE_CRON = "0 5 * * 0"
 
 
 @dataclass(frozen=True)
+class ProductCadence:
+    """When a product's PROD schedule fires; `cron=None` declares the product manual-only.
+
+    Declaring a cadence does not switch it on: the schedule still ships `STOPPED`. Dagster rejects an invalid
+    cron or timezone when the definitions load, which fails `olf check project-code`.
+    """
+
+    cron: str | None = _DAILY_SCHEDULE_CRON
+    timezone: str = "UTC"
+
+
+@dataclass(frozen=True)
 class ResolvedProductInputs:
     """The assets a product's job selects, once the spec's omitted lists are filled from the project."""
 
@@ -121,7 +134,8 @@ class ProductDefinitionSpec:
       project (ADR 0004);
     - `silver_inputs`: the domain's Silver tables those models read;
     - `bronze_inputs`: the Bronze resource each of `silver_inputs` reads, from
-      the domain's Floe entities.
+      the domain's Floe entities;
+    - `cadence`: the PROD schedule's cron and timezone; absent means daily at 03:00 UTC.
     """
 
     domain: str
@@ -129,6 +143,7 @@ class ProductDefinitionSpec:
     silver_inputs: tuple[str, ...] | None = None
     bronze_inputs: tuple[tuple[str, str], ...] | None = None
     gold_assets: tuple[str, ...] | None = None
+    cadence: ProductCadence | None = None
 
     @property
     def job_name(self) -> str:
@@ -586,7 +601,7 @@ def _bronze_source_binding_tags(inputs: ResolvedProductInputs) -> dict[str, str]
 
 
 def build_stage_schedules(spec: ProductDefinitionSpec, *, stage: str | None = None) -> list[ScheduleDefinition]:
-    """Build the daily schedule scaffold a stage is entitled to.
+    """Build the schedule a stage is entitled to: the product's cadence, or daily at 03:00 UTC without one.
 
     `stage` defaults to the deployed stage the activation release puts on the
     pod. Anything else -- an unset variable, a workstation run, a stage this
@@ -599,15 +614,23 @@ def build_stage_schedules(spec: ProductDefinitionSpec, *, stage: str | None = No
     resolved = (os.environ.get(_STAGE_ENV, "") if stage is None else stage).strip().lower()
     if resolved not in _SCHEDULED_STAGES:
         return []
-    return [
-        ScheduleDefinition(
-            name=f"{spec.product}_daily",
-            job_name=spec.job_name,
-            cron_schedule=_DAILY_SCHEDULE_CRON,
-            execution_timezone="UTC",
-            default_status=DefaultScheduleStatus.STOPPED,
-        )
-    ]
+    cadence = spec.cadence
+    if cadence is None:
+        # The default keeps its original name: Dagster keys a schedule's on/off state by name.
+        return [_stopped_schedule(f"{spec.product}_daily", spec, ProductCadence())]
+    if cadence.cron is None:
+        return []
+    return [_stopped_schedule(f"{spec.product}_schedule", spec, cadence)]
+
+
+def _stopped_schedule(name: str, spec: ProductDefinitionSpec, cadence: ProductCadence) -> ScheduleDefinition:
+    return ScheduleDefinition(
+        name=name,
+        job_name=spec.job_name,
+        cron_schedule=cadence.cron,
+        execution_timezone=cadence.timezone,
+        default_status=DefaultScheduleStatus.STOPPED,
+    )
 
 
 def _retaining_artifacts_on_failure(context, spec: ProductDefinitionSpec, target_paths: list[Path], stream):

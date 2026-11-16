@@ -23,6 +23,7 @@ _PUBLISHED = {
         "sql_engine",
     },
     "openlakeforge_runtime.product_dagster": {
+        "ProductCadence",
         "ProductDefinitionSpec",
         "ResolvedProductInputs",
         "SourceDefinitionSpec",
