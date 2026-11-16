@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -11,7 +12,7 @@ from typing import Any
 import pytest
 import requests
 from botocore.exceptions import ClientError, EndpointConnectionError
-from openlakeforge_core import HealthState, Signal, SignalKind
+from openlakeforge_core import HealthState, Signal, SignalKind, SpoolObservation
 from openlakeforge_services.dagster import DagsterTransientError
 
 from openlakeforge_platform_api import service_probes
@@ -33,6 +34,9 @@ ALL = StageTargets(
     dagster_graphql_url="http://dagster.olf-dev/graphql",
     trino_url="http://trino.olf-dev:8080",
     bucket="ops",
+    log_archive_base_uri="s3://ops/activations/dev/logs",
+    log_archive_namespace="olf-dev",
+    spool_probe_url="http://log-collector-probe.olf-system.svc:2021",
 )
 REPOSITORIES = {"repositoriesOrError": {"__typename": "RepositoryConnection", "nodes": [{"name": "r"}]}}
 
@@ -100,6 +104,33 @@ class Store:
         return {"KeyCount": 0}
 
 
+class Archive:
+    """The archive listing: objects by key, each with the time it was last modified."""
+
+    def __init__(self, modified: dict[str, datetime] | None = None, error: Exception | None = None) -> None:
+        self.modified = modified or {}
+        self.error = error
+        self.prefixes: list[str] = []
+
+    def list_objects_v2(self, **kwargs: Any) -> Any:
+        if self.error:
+            raise self.error
+        self.prefixes.append(kwargs["Prefix"])
+        contents = [{"Key": k, "LastModified": t} for k, t in self.modified.items() if k.startswith(kwargs["Prefix"])]
+        return {"Contents": contents, "IsTruncated": False}
+
+
+ARCHIVE_PREFIX = "activations/dev/logs/v2/namespace=olf-dev/date=2026-11-16/"
+
+
+def fresh_archive(age: timedelta = timedelta(minutes=2)) -> Archive:
+    return Archive({ARCHIVE_PREFIX + "dev-1.ndjson.gz": NOW - age})
+
+
+def spool(*, age: timedelta | None = None, size: int = 0, stage: str = "dev", seen: datetime = NOW) -> SpoolObservation:
+    return SpoolObservation(stage, seen, age, size, 512_000_000)
+
+
 def healthy_cluster() -> Cluster:
     return Cluster([controller(DAGSTER), controller(TRINO)], [pod(DAGSTER), pod(TRINO)])
 
@@ -110,6 +141,8 @@ def probes(
     info: Callable[[], Mapping[str, Any]] = lambda: {"starting": False},
     dagster: Callable[[], Mapping[str, Any]] = lambda: REPOSITORIES,
     store: Store | None = None,
+    archive: Archive | None = None,
+    spool_read: Callable[[str], tuple[list[SpoolObservation], int]] = lambda url: ([spool()], 0),
     timeout: timedelta = timedelta(seconds=2),
 ) -> ServiceProbes:
     return ServiceProbes(
@@ -117,6 +150,8 @@ def probes(
         http_get_json=lambda url, _timeout: info(),
         dagster_query=lambda url, query: dagster(),
         store=store or Store(),
+        archive_store=archive or fresh_archive(),
+        spool_read=spool_read,
         timeout=timeout,
         ttl=TTL,
         clock=lambda: NOW,
@@ -230,6 +265,9 @@ def test_a_stage_without_dagster_trino_or_a_store_reports_disabled_and_probes_no
         "trino.workloads",
         "trino.readiness",
         "object-store.list",
+        "log-archive.spool-age",
+        "log-archive.spool-size",
+        "log-archive.newest-object",
     }
 
 
@@ -525,3 +563,182 @@ def test_a_probe_that_raises_is_not_cached(monkeypatch: pytest.MonkeyPatch) -> N
         cached.probe(ALL)
     assert cached.probe(ALL) == []
     assert len(attempts) == 2
+
+
+def test_a_collector_whose_uploads_are_failing_is_seen_through_its_spool_and_the_archive() -> None:
+    old = spool(age=timedelta(minutes=12), size=300_000_000)
+    stale = fresh_archive(timedelta(minutes=20))
+
+    signals = by_component(probes(spool_read=lambda url: ([old], 0), archive=stale).probe(ALL))
+
+    assert signals["log-archive.spool-age"].state is HealthState.WARNING
+    assert signals["log-archive.spool-size"].state is HealthState.WARNING
+    assert signals["log-archive.newest-object"].state is HealthState.WARNING
+
+
+def test_a_full_spool_and_an_hour_without_an_object_are_critical() -> None:
+    full = spool(age=timedelta(minutes=45), size=500_000_000)
+
+    signals = by_component(
+        probes(spool_read=lambda url: ([full], 0), archive=fresh_archive(timedelta(hours=2))).probe(ALL)
+    )
+
+    assert {
+        signals[c].state for c in ("log-archive.spool-age", "log-archive.spool-size", "log-archive.newest-object")
+    } == {HealthState.CRITICAL}
+
+
+def test_the_worst_collector_pod_decides_and_a_silent_one_is_unknown() -> None:
+    healthy, stuck = spool(), spool(age=timedelta(minutes=40))
+
+    worst = by_component(probes(spool_read=lambda url: ([healthy, stuck], 0)).probe(ALL))
+    silent = by_component(probes(spool_read=lambda url: ([healthy], 1)).probe(ALL))
+
+    assert worst["log-archive.spool-age"].state is HealthState.CRITICAL
+    assert silent["log-archive.spool-age"].state is HealthState.UNKNOWN
+    assert "did not answer" in silent["log-archive.spool-age"].reason
+
+
+def test_another_stages_spool_is_not_this_stages() -> None:
+    other = spool(stage="prod", age=timedelta(hours=3), size=512_000_000)
+
+    signals = by_component(probes(spool_read=lambda url: ([other], 0)).probe(ALL))
+
+    assert signals["log-archive.spool-age"].state is HealthState.UNKNOWN
+
+
+def test_a_collector_nobody_can_reach_is_unknown_never_healthy() -> None:
+    def unreachable(url: str) -> tuple[list[SpoolObservation], int]:
+        raise ProbeError("the collector probe Service has no ready pod")
+
+    signals = by_component(probes(spool_read=unreachable).probe(ALL))
+
+    assert signals["log-archive.spool-age"].state is HealthState.UNKNOWN
+    assert signals["log-archive.spool-size"].state is HealthState.UNKNOWN
+
+
+def test_the_spool_is_read_once_for_both_signals() -> None:
+    reads: list[str] = []
+
+    def read(url: str) -> tuple[list[SpoolObservation], int]:
+        reads.append(url)
+        return [spool()], 0
+
+    probes(spool_read=read).probe(ALL)
+
+    assert len(reads) == 1
+
+
+def test_the_newest_object_looks_at_today_and_yesterday_of_the_stages_own_prefix() -> None:
+    archive = Archive(
+        {"activations/dev/logs/v2/namespace=olf-dev/date=2026-11-15/dev-9.ndjson.gz": NOW - timedelta(minutes=3)}
+    )
+
+    signal = by_component(probes(archive=archive).probe(ALL))["log-archive.newest-object"]
+
+    assert archive.prefixes == [
+        "activations/dev/logs/v2/namespace=olf-dev/date=2026-11-16/",
+        "activations/dev/logs/v2/namespace=olf-dev/date=2026-11-15/",
+    ]
+    assert signal.state is HealthState.HEALTHY
+
+
+def test_no_object_in_the_days_listed_is_unknown_and_a_refused_listing_is_unknown() -> None:
+    empty = by_component(probes(archive=Archive()).probe(ALL))["log-archive.newest-object"]
+    denied = Archive(error=ClientError({"Error": {"Code": "AccessDenied"}}, "ListObjectsV2"))
+    refused = by_component(probes(archive=denied).probe(ALL))["log-archive.newest-object"]
+
+    assert empty.state is HealthState.UNKNOWN
+    assert refused.state is HealthState.UNKNOWN
+    assert "AccessDenied" in refused.reason
+
+
+def test_a_stage_without_a_collector_probe_or_archive_reports_those_signals_disabled() -> None:
+    bare = StageTargets(stage="dev", namespace="olf-dev", bucket="ops")
+
+    signals = by_component(probes().probe(bare))
+
+    for component in ("log-archive.spool-age", "log-archive.spool-size", "log-archive.newest-object"):
+        assert signals[component].state is HealthState.DISABLED
+
+
+def test_a_collector_pod_that_does_not_answer_is_counted_and_makes_the_spool_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    healthy_report = {
+        "observed_at": NOW.isoformat(),
+        "limit_bytes": 512_000_000,
+        "stages": {"dev": {"oldest_file_age_seconds": None, "size_bytes": 0}},
+    }
+
+    class Answer:
+        def __init__(self, ok: bool) -> None:
+            self.ok = ok
+
+        def raise_for_status(self) -> None:
+            if not self.ok:
+                raise requests.ConnectionError("no answer")
+
+        def json(self) -> dict[str, Any]:
+            return healthy_report
+
+    def get(url: str, timeout: float) -> Answer:
+        return Answer(ok="10.0.0.1" in url)
+
+    def resolve(host: str | None, port: int | None, **_: Any) -> list[Any]:
+        return [(2, 1, 6, "", ("10.0.0.1", port)), (2, 1, 6, "", ("10.0.0.2", port))]
+
+    monkeypatch.setattr(service_probes.socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(service_probes.requests, "get", get)
+    read = service_probes.in_cluster_spool_read(2.0)
+
+    observations, unanswered = read("http://log-collector-probe.olf-system.svc:2021")
+    signals = by_component(probes(spool_read=read).probe(ALL))
+
+    assert (len(observations), unanswered) == (1, 1)
+    assert signals["log-archive.spool-age"].state is HealthState.UNKNOWN
+    assert signals["log-archive.spool-size"].state is HealthState.UNKNOWN
+    assert "did not answer" in signals["log-archive.spool-age"].reason
+
+
+def test_a_collector_that_hangs_does_not_cost_the_reachable_ones_their_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release = threading.Event()
+    critical = {
+        "observed_at": NOW.isoformat(),
+        "limit_bytes": 512_000_000,
+        "stages": {"dev": {"oldest_file_age_seconds": 3000.0, "size_bytes": 500_000_000}},
+    }
+
+    class Answer:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, Any]:
+            return critical
+
+    def get(url: str, timeout: Any) -> Answer:
+        if "10.0.0.1" in url:
+            release.wait(10)
+            raise requests.ConnectTimeout("hung")
+        return Answer()
+
+    def resolve(host: str | None, port: int | None, **_: Any) -> list[Any]:
+        return [(2, 1, 6, "", ("10.0.0.1", port)), (2, 1, 6, "", ("10.0.0.2", port))]
+
+    monkeypatch.setattr(service_probes.socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(service_probes.requests, "get", get)
+    outer = timedelta(seconds=2)
+    started = time.monotonic()
+    try:
+        signals = by_component(
+            probes(spool_read=service_probes.in_cluster_spool_read(outer.total_seconds()), timeout=outer).probe(ALL)
+        )
+    finally:
+        release.set()
+    elapsed = time.monotonic() - started
+
+    assert signals["log-archive.spool-age"].state is HealthState.CRITICAL
+    assert signals["log-archive.spool-size"].state is HealthState.CRITICAL
+    assert elapsed < outer.total_seconds()

@@ -14,6 +14,7 @@ from .health import HealthState, Scope, Signal, service_signal
 
 SPOOL_AGE = "log-archive.spool-age"
 SPOOL_SIZE = "log-archive.spool-size"
+NEWEST_OBJECT = "log-archive.newest-object"
 
 
 @dataclass(frozen=True)
@@ -30,10 +31,18 @@ class ArchiveThresholds:
     spool_age_critical: timedelta = timedelta(minutes=30)
     spool_size_warning: float = 0.5
     spool_size_critical: float = 0.9
+    # The newest archive object of a stage covers a collector that is down, which the spool cannot show: an upload
+    # needs `upload_timeout` plus the spool's age warning to be late, so the warning is 15 minutes. An hour without
+    # an object is critical for a stage whose pods are logging; a stage that logs nothing reads the same, which the
+    # failure-injection e2e measures for Dagster's own pods [T].
+    newest_object_warning: timedelta = timedelta(minutes=15)
+    newest_object_critical: timedelta = timedelta(hours=1)
 
     def __post_init__(self) -> None:
         if not timedelta(0) < self.spool_age_warning < self.spool_age_critical:
             raise ValueError("the spool age thresholds must be positive, warning below critical")
+        if not timedelta(0) < self.newest_object_warning < self.newest_object_critical:
+            raise ValueError("the newest-object thresholds must be positive, warning below critical")
         if not 0 < self.spool_size_warning < self.spool_size_critical <= 1:
             raise ValueError("the spool size thresholds are fractions of the limit, warning below critical")
 
@@ -105,6 +114,41 @@ def evaluate_spool_size(
     else:
         state = HealthState.HEALTHY
     return service_signal(Scope(stage=stage), SPOOL_SIZE, state, reason, now=observation.observed_at, max_age=max_age)
+
+
+def evaluate_newest_object(
+    stage: str,
+    newest_age: timedelta | None,
+    *,
+    observed_at: datetime,
+    now: datetime,
+    max_age: timedelta,
+    thresholds: ArchiveThresholds = ArchiveThresholds(),  # noqa: B008 - frozen, so sharing the default is safe
+) -> Signal:
+    """Age of the newest object under the stage's archive prefix, as an identity that can list it saw it.
+
+    `None` means the listing found no object in the window the caller looked at: that says nothing about whether
+    the collector works (a new stage has none), so it is `unknown`, not a failure.
+    """
+    for moment in (observed_at, now):
+        if moment.tzinfo is None:
+            raise ValueError("health timestamps must be timezone-aware")
+    if max_age <= timedelta(0):
+        raise ValueError("max_age must be positive")
+    scope = Scope(stage=stage)
+    if now >= observed_at + max_age:
+        return service_signal(
+            scope, NEWEST_OBJECT, HealthState.UNKNOWN, "observation is stale", now=observed_at, max_age=max_age
+        )
+    if newest_age is None:
+        state, reason = HealthState.UNKNOWN, "no archive object in the days listed"
+    elif newest_age >= thresholds.newest_object_critical:
+        state, reason = HealthState.CRITICAL, f"the newest archive object is {_minutes(newest_age)} old"
+    elif newest_age >= thresholds.newest_object_warning:
+        state, reason = HealthState.WARNING, f"the newest archive object is {_minutes(newest_age)} old"
+    else:
+        state, reason = HealthState.HEALTHY, f"the newest archive object is {_minutes(newest_age)} old"
+    return service_signal(scope, NEWEST_OBJECT, state, reason, now=observed_at, max_age=max_age)
 
 
 def _unusable(

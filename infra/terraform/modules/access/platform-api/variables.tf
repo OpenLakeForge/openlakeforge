@@ -211,3 +211,9 @@ variable "probe_namespaces" {
   type        = map(string)
   default     = {}
 }
+
+variable "log_collector_probe_url" {
+  description = "Base URL of the log collector's spool probes, the headless Service with one address per collector pod (ADR 0022, decision 2), reached over F42. Null leaves the spool signals disabled."
+  type        = string
+  default     = null
+}

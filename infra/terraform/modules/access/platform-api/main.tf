@@ -25,7 +25,9 @@ locals {
     # A stage not in probe_namespaces is not probed.
     stage_namespaces = var.probe_namespaces
     trino_urls       = var.trino_urls
-    openmetadata_url = var.openmetadata_url
+    # The log collector's spool probes (ADR 0022, decision 2), over F42.
+    log_collector_probe_url = var.log_collector_probe_url
+    openmetadata_url        = var.openmetadata_url
     # Read with the key in log_reader_secret_name, which never enters this file.
     log_archives    = var.log_archives
     s3_endpoint_url = var.s3_endpoint_url

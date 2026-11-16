@@ -312,7 +312,9 @@ resource "kubernetes_daemon_set_v1" "collector" {
 }
 
 # One A record per collector pod, so the platform API asks every node's probe.
-# Only the collector's own pods; pods that are not ready are left out.
+# Only the collector's own pods. Not-ready ones are published too: a collector
+# that is up but failing its readiness probe is the case the signals exist for,
+# and leaving it out of DNS would let a healthy neighbour hide it.
 resource "kubernetes_service_v1" "probe" {
   count = local.probe_enabled ? 1 : 0
 
@@ -323,8 +325,9 @@ resource "kubernetes_service_v1" "probe" {
   }
 
   spec {
-    cluster_ip = "None"
-    selector   = local.labels
+    cluster_ip                  = "None"
+    publish_not_ready_addresses = true
+    selector                    = local.labels
     port {
       name        = "probe"
       port        = local.probe_port
