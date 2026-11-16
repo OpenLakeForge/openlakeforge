@@ -279,11 +279,11 @@ def _states(runs: list[DagsterRun], *manifests: tuple[str, QualityResult]) -> st
 
 
 def test_a_running_run_with_every_check_so_far_passing_is_not_healthy() -> None:
-    # The retry (run-2) has cleared Silver; the failed run-1 is not a success to fall back on.
+    # The retry (run-2) has cleared Silver; the failed run-1's blocking error still speaks.
     failed = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
     partial = _result(QualityOutcome.PASSED, run_id="run-2")
 
-    assert _states(_two_runs("FAILURE", "STARTED"), ("run-1", failed), ("run-2", partial)) is None
+    assert _states(_two_runs("FAILURE", "STARTED"), ("run-1", failed), ("run-2", partial)) == "critical"
     assert (
         _states(
             _two_runs("SUCCESS", "STARTED"),
@@ -298,6 +298,16 @@ def test_a_failed_run_with_a_silver_only_passing_manifest_is_not_healthy() -> No
     silver_only = _result(QualityOutcome.PASSED, run_id="run-1")
 
     assert _states(_two_runs("FAILURE"), ("run-1", silver_only)) is None
+
+
+@pytest.mark.parametrize("retry", ["STARTED", "FAILURE"])
+def test_a_failure_between_an_old_success_and_a_silver_only_retry_still_speaks(retry: str) -> None:
+    old = _result(QualityOutcome.PASSED, run_id="run-1")
+    blocked = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-2")
+    silver_only = _result(QualityOutcome.PASSED, run_id="run-3")
+    manifests = (("run-1", old), ("run-2", blocked), ("run-3", silver_only))
+
+    assert _states(_two_runs("SUCCESS", "FAILURE", retry), *manifests) == "critical"
 
 
 def test_a_failed_run_with_a_blocking_error_still_reads_critical() -> None:
@@ -355,6 +365,13 @@ def test_a_running_retry_does_not_resolve_an_open_quality_incident_and_a_complet
     assert evaluate(_two_runs("FAILURE"), failed, at=NOW) == ["opened:quality"]
     partial = _result(QualityOutcome.PASSED, run_id="run-2")
     assert evaluate(_two_runs("FAILURE", "STARTED"), failed, partial, at=NOW + timedelta(minutes=5)) == []
+    # An old success before the failure does not speak for a Silver-only retry either.
+    old = _result(QualityOutcome.PASSED, run_id="run-1")
+    failed2 = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-2")
+    silver_only = _result(QualityOutcome.PASSED, run_id="run-3")
+    for retry in ("STARTED", "FAILURE"):
+        runs = _two_runs("SUCCESS", "FAILURE", retry)
+        assert evaluate(runs, old, failed2, silver_only, at=NOW + timedelta(minutes=6)) == []
     # A retry that failed (dbt worker died) after a passing Silver step leaves a Silver-only manifest.
     assert evaluate(_two_runs("FAILURE", "FAILURE"), failed, partial, at=NOW + timedelta(minutes=7)) == []
     # Still open: the retry failing in dbt does not notify a second time.

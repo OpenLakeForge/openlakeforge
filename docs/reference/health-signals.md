@@ -125,11 +125,13 @@ quality signal.
 Only a `SUCCESS` run's manifest can read `healthy`. Any other run (in progress,
 canceled, or failed) may have a partial manifest, because dbt runs after Silver
 and its results are omitted until its evidence is read: a pass in it proves
-nothing. Such a run contributes only a `warning` or `critical`; otherwise the
-latest `SUCCESS` run's manifest answers, and with no such run the pipeline
-carries no `quality` signal, which leaves an open incident open. A manifest
-whose `results` are malformed (an entry that is not an object, wrong field
-types) reads `unknown` like an unreadable one.
+nothing. Runs are read newest first. One that did not succeed answers only with
+a `warning` or `critical`, and is otherwise passed over, so a failure between an
+old success and a Silver-only retry still speaks. The first `SUCCESS` run
+answers with its own manifest, and when none is reached the pipeline carries no
+`quality` signal, which leaves an open incident open. A manifest whose `results`
+are malformed (an entry that is not an object, wrong field types) reads
+`unknown` like an unreadable one.
 
 The worst check decides, and no table name is used, so a manifest written from
 the baked dbt manifest, which names no table, reads the same as any other. A
