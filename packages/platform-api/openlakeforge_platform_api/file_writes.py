@@ -122,8 +122,16 @@ def _delete_keys(store: FileStore, bucket: str, keys: list[str]) -> tuple[list[s
     return deleted, errors
 
 
+# The existence checks before a move are a courtesy; the copy itself carries If-None-Match: *, which SeaweedFS 4.48
+# evaluates under the destination's write lock (`weed/s3api/s3api_object_handlers_copy.go`), so two moves onto one
+# absent key cannot both succeed, and a refused copy deletes no original.
 def _copy(store: FileStore, bucket: str, source: str, destination: str) -> None:
-    store.copy_object(Bucket=bucket, Key=destination, CopySource={"Bucket": bucket, "Key": source})
+    try:
+        store.copy_object(Bucket=bucket, Key=destination, CopySource={"Bucket": bucket, "Key": source}, IfNoneMatch="*")
+    except ClientError as exc:
+        if _error_code(exc) in _PRECONDITION_FAILED:
+            raise HTTPException(status_code=409, detail=f"{destination!r} already exists") from exc
+        raise
 
 
 async def _shielded(function: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:

@@ -195,6 +195,35 @@ def test_a_folder_of_1000_keys_moves_and_1001_is_422(api: TestClient, s3: FakeS3
     assert "copy_object" not in s3.calls[calls:]
 
 
+def test_a_file_rename_that_loses_a_race_for_the_destination_is_409_and_keeps_both(
+    api: TestClient, s3: FakeS3, mint: Mint
+) -> None:
+    # Another rename lands on the destination after this one looked and found it free.
+    s3.hooks["copy_object"] = lambda: s3.put(DEV, "taken.txt", b"other")
+
+    response = rename(api, _as(mint, "data-engineer"), source="readme.txt", target="taken.txt")
+
+    assert response.status_code == 409
+    assert s3.objects[(DEV, "taken.txt")][0] == b"other"
+    assert (DEV, "readme.txt") in s3.objects
+    assert "delete_object" not in s3.calls
+
+
+def test_a_folder_rename_that_hits_a_conflict_midway_removes_its_copies_and_deletes_no_original(
+    api: TestClient, s3: FakeS3, mint: Mint
+) -> None:
+    s3.put(DEV, "src/a.txt", b"a")
+    s3.put(DEV, "src/b.txt", b"b")
+    s3.hooks["copy_object"] = lambda: s3.put(DEV, "dst/b.txt", b"other")
+
+    response = rename(api, _as(mint, "data-engineer"), source="src/", target="dst/")
+
+    assert response.status_code == 409
+    assert {(DEV, "src/a.txt"), (DEV, "src/b.txt")} <= set(s3.objects)
+    assert (DEV, "dst/a.txt") not in s3.objects
+    assert s3.objects[(DEV, "dst/b.txt")][0] == b"other"
+
+
 def test_a_failed_copy_removes_the_copies_already_made(
     api: TestClient, s3: FakeS3, mint: Mint, audit_store: AuditStore
 ) -> None:

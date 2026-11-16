@@ -13,6 +13,7 @@ from openlakeforge_core import FULL_REFRESH_TAG, full_refresh_tags  # noqa: E402
 from openlakeforge_runtime import product_dagster  # noqa: E402
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult  # noqa: E402
 from openlakeforge_runtime.product_dagster import (  # noqa: E402
+    ProductCadence,
     ProductDefinitionSpec,
     ResolvedProductInputs,
     SourceDefinitionSpec,
@@ -44,6 +45,31 @@ def test_only_prod_gets_a_daily_schedule_and_it_is_stopped() -> None:
         "0 3 * * *",
     )
     assert schedule.default_status == DefaultScheduleStatus.STOPPED
+
+
+def test_a_declared_cadence_sets_the_prod_schedule_and_it_is_still_stopped() -> None:
+    spec = ProductDefinitionSpec(
+        domain="sales", product="revenue", cadence=ProductCadence("0 * * * *", timezone="Europe/Paris")
+    )
+
+    (schedule,) = build_stage_schedules(spec, stage="prod")
+
+    assert (schedule.cron_schedule, schedule.execution_timezone) == ("0 * * * *", "Europe/Paris")
+    assert schedule.default_status == DefaultScheduleStatus.STOPPED
+    assert build_stage_schedules(spec, stage="dev") == []
+
+
+def test_a_manual_cadence_defines_no_schedule_in_prod() -> None:
+    spec = ProductDefinitionSpec(domain="sales", product="revenue", cadence=ProductCadence(cron=None))
+
+    assert build_stage_schedules(spec, stage="prod") == []
+
+
+def test_an_invalid_cadence_is_refused_when_the_schedule_is_built() -> None:
+    spec = ProductDefinitionSpec(domain="sales", product="revenue", cadence=ProductCadence("not a cron"))
+
+    with pytest.raises(Exception, match="cron"):
+        build_stage_schedules(spec, stage="prod")
 
 
 @pytest.mark.parametrize("stage", ["dev", "uat", "", "staging"])
