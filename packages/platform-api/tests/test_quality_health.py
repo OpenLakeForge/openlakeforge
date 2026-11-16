@@ -279,11 +279,31 @@ def _states(runs: list[DagsterRun], *manifests: tuple[str, QualityResult]) -> st
 
 
 def test_a_running_run_with_every_check_so_far_passing_is_not_healthy() -> None:
-    # The retry (run-2) has cleared Silver; the failed run-1 is the latest finished one.
+    # The retry (run-2) has cleared Silver; the failed run-1 is not a success to fall back on.
     failed = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
     partial = _result(QualityOutcome.PASSED, run_id="run-2")
 
-    assert _states(_two_runs("FAILURE", "STARTED"), ("run-1", failed), ("run-2", partial)) == "critical"
+    assert _states(_two_runs("FAILURE", "STARTED"), ("run-1", failed), ("run-2", partial)) is None
+    assert (
+        _states(
+            _two_runs("SUCCESS", "STARTED"),
+            ("run-1", _result(QualityOutcome.PASSED, run_id="run-1")),
+            ("run-2", partial),
+        )
+        == "healthy"
+    )
+
+
+def test_a_failed_run_with_a_silver_only_passing_manifest_is_not_healthy() -> None:
+    silver_only = _result(QualityOutcome.PASSED, run_id="run-1")
+
+    assert _states(_two_runs("FAILURE"), ("run-1", silver_only)) is None
+
+
+def test_a_failed_run_with_a_blocking_error_still_reads_critical() -> None:
+    blocked = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
+
+    assert _states(_two_runs("FAILURE"), ("run-1", blocked)) == "critical"
 
 
 def test_a_running_run_with_no_finished_run_before_it_carries_no_quality_signal() -> None:
@@ -335,6 +355,8 @@ def test_a_running_retry_does_not_resolve_an_open_quality_incident_and_a_complet
     assert evaluate(_two_runs("FAILURE"), failed, at=NOW) == ["opened:quality"]
     partial = _result(QualityOutcome.PASSED, run_id="run-2")
     assert evaluate(_two_runs("FAILURE", "STARTED"), failed, partial, at=NOW + timedelta(minutes=5)) == []
+    # A retry that failed (dbt worker died) after a passing Silver step leaves a Silver-only manifest.
+    assert evaluate(_two_runs("FAILURE", "FAILURE"), failed, partial, at=NOW + timedelta(minutes=7)) == []
     # Still open: the retry failing in dbt does not notify a second time.
     blocked_again = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-2")
     assert evaluate(_two_runs("FAILURE", "FAILURE"), failed, blocked_again, at=NOW + timedelta(minutes=10)) == []

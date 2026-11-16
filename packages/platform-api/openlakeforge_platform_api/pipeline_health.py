@@ -49,9 +49,6 @@ _RUN_STATUS = {
     "CANCELING": RunStatus.CANCELED,
 }
 
-# Runs whose quality manifest is complete; a canceled or in-progress run stopped before its later checks.
-_FINISHED = frozenset({"SUCCESS", "FAILURE"})
-
 
 @dataclass(frozen=True)
 class PipelineEvaluation:
@@ -148,21 +145,23 @@ def _owed(schedule: DagsterSchedule | None, runs: list[DagsterRun], owed: dateti
 def _quality(
     quality: QualityReader, scope: Scope, job: str, runs: list[DagsterRun], now: datetime, max_age: timedelta
 ) -> Signal | None:
-    """The quality signal of the latest run's manifest, which is where a failed run's blocking errors are.
+    """The quality signal of the latest run's manifest, where a failed run's blocking errors are.
 
-    The manifest is published after every step, so one that is not from a finished run lacks the checks still to
-    come (dbt runs last) and a pass in it proves nothing: a retry that has cleared Silver but not dbt would resolve
-    the incident the previous run's dbt failure opened. Such a run contributes only a warning or critical; otherwise
-    the latest finished run's manifest answers, and with none there is no signal, which leaves an open incident open.
+    The manifest is published after every step and omits dbt's results until dbt's evidence is read, so one from a
+    run that did not succeed (in progress, canceled, or failed before dbt reported) may lack the checks still to
+    come, and a pass in it proves nothing: a retry that has cleared Silver would resolve the incident the previous
+    run's dbt failure opened. Only a successful run's manifest can read `healthy`. Any other run contributes only
+    a warning or critical; otherwise the latest successful run's manifest answers, and with none there is no signal,
+    which leaves an open incident open.
     """
     latest = runs[0]
     found = quality_signal(quality, scope, job, latest.run_id, latest.tags, now=now, max_age=max_age)
-    if latest.status in _FINISHED or found is None or found.state in (HealthState.WARNING, HealthState.CRITICAL):
+    if latest.status == "SUCCESS" or found is None or found.state in (HealthState.WARNING, HealthState.CRITICAL):
         return found
-    finished = next((run for run in runs[1:] if run.status in _FINISHED), None)
-    if finished is None:
+    succeeded = next((run for run in runs[1:] if run.status == "SUCCESS"), None)
+    if succeeded is None:
         return None
-    return quality_signal(quality, scope, job, finished.run_id, finished.tags, now=now, max_age=max_age)
+    return quality_signal(quality, scope, job, succeeded.run_id, succeeded.tags, now=now, max_age=max_age)
 
 
 def _evaluate(

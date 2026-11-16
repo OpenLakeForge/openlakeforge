@@ -420,6 +420,7 @@ Proposed above; the maintainer may change any of them.
 c of #793); the health routes report the quality integration as `available` or
 `not_provided`.
 
-2026-11-16: a run that has not finished contributes only a quality `warning`
-or `critical`; a pass in its partial manifest never reads `healthy`, so a
-retry cannot resolve the previous run's quality incident before dbt has run.
+2026-11-16: only a successful run's manifest can read quality `healthy`. A run
+that did not succeed (in progress, canceled, or failed before dbt reported)
+contributes only a `warning` or `critical`, so a retry's partial manifest
+cannot resolve the previous run's quality incident before dbt has passed.
