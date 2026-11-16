@@ -372,8 +372,7 @@ component.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `logs.archive.retention_days` | integer, 1 to 3650 | `30` | How long the durable log archive keeps logs. |
-| `logs.archive.enabled` | `true` | `true` | Accepted only as `true`: the archive is always on in `slim` and `full`, and `false` is rejected. |
+| `logs.archive.retention_days` | integer, 1 to 3650 | `30` | How long the durable log archive keeps logs. The archive is always on, so there is no `enabled` switch and a profile that sets `logs.archive.enabled` is rejected. |
 | `logs.search.enabled` | boolean | `false` | Indexed log search. Browsing archived logs does not need it. |
 | `metrics.enabled` | boolean | `false` with `preset: slim`, `true` with `preset: full` | Metrics collection and history. An explicit value wins over the preset. |
 | `metrics.retention_days` | integer, 1 to 3650 | `7` | How long metrics history is kept. |
@@ -381,7 +380,7 @@ component.
 | `alerts.receivers` | list | empty | Where alert notifications go; see below. |
 
 A receiver takes `name` (lowercase, same pattern as `metadata.name`, unique in
-the list), `type` (`webhook`, `email` or `slack`) and `secret_ref`, all
+the list), `type` (only `webhook` today: a generic HTTPS endpoint; `email` and `slack` are rejected until they exist) and `secret_ref`, all
 required. `secret_ref` takes `name` and `key`, both required: the Kubernetes
 Secret (created out-of-band) and the data key that hold the receiver's
 credential. A credential written inline is rejected as an unknown field.
@@ -396,10 +395,10 @@ observability:
   alerts:
     receivers:
       - name: on-call
-        type: slack
+        type: webhook
         secret_ref:
           name: alert-webhooks
-          key: slack-url
+          key: webhook-url
 ```
 
 ### `spec.access`

@@ -116,9 +116,8 @@
                 "archive": {
                   "type": "object",
                   "additionalProperties": false,
-                  "description": "Durable log archive. Always on in Slim and Full, so `enabled: false` is rejected.",
+                  "description": "Durable log archive. Always on in Slim and Full, so there is no `enabled` field and a profile that sets one is rejected.",
                   "properties": {
-                    "enabled": {"const": true},
                     "retention_days": {"type": "integer", "minimum": 1, "maximum": 3650, "default": 30}
                   }
                 },
@@ -158,7 +157,7 @@
                     "required": ["name", "type", "secret_ref"],
                     "properties": {
                       "name": {"type": "string", "pattern": "^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$", "description": "Unique within the list."},
-                      "type": {"enum": ["webhook", "email", "slack"]},
+                      "type": {"enum": ["webhook"]},
                       "secret_ref": {
                         "type": "object",
                         "additionalProperties": false,

@@ -1131,7 +1131,7 @@ def _resolved_observability(document: dict) -> dict:
 
 
 _SLIM_OBSERVABILITY = {
-    "logs": {"archive": {"enabled": True, "retention_days": 30}, "search": {"enabled": False}},
+    "logs": {"archive": {"retention_days": 30}, "search": {"enabled": False}},
     "metrics": {"enabled": False, "retention_days": 7},
     "grafana": {"enabled": False},
     "alerts": {"receivers": []},
@@ -1157,23 +1157,35 @@ def test_observability_explicit_values_win_over_the_preset() -> None:
     assert _resolved_observability(_load_fixture("valid_full_metrics_off.yaml"))["metrics"]["enabled"] is False
 
     assert _resolved_observability(_load_fixture("valid_observability_overrides.yaml")) == {
-        "logs": {"archive": {"enabled": True, "retention_days": 90}, "search": {"enabled": True}},
+        "logs": {"archive": {"retention_days": 90}, "search": {"enabled": True}},
         "metrics": {"enabled": True, "retention_days": 15},
         "grafana": {"enabled": True},
         "alerts": {
             "receivers": [
-                {"name": "on-call", "type": "slack", "secret_ref": {"name": "alert-webhooks", "key": "slack-url"}}
+                {"name": "on-call", "type": "webhook", "secret_ref": {"name": "alert-webhooks", "key": "webhook-url"}}
             ]
         },
     }
 
 
-def test_the_archive_cannot_be_disabled() -> None:
-    with pytest.raises(DeploymentProfileError) as exc:
-        validate_deployment_profile(_load_fixture("invalid_observability_archive_disabled.yaml"))
+@pytest.mark.parametrize("enabled", [True, False])
+def test_the_removed_archive_enabled_field_fails_with_its_path(enabled: bool) -> None:
+    document = _observability_document(logs={"archive": {"enabled": enabled}})
 
-    assert "spec.observability.logs.archive.enabled" in str(exc.value)
-    assert "always on" in str(exc.value)
+    with pytest.raises(DeploymentProfileError) as exc:
+        validate_deployment_profile(document)
+
+    assert "spec.observability.logs.archive.enabled was removed" in str(exc.value)
+
+
+@pytest.mark.parametrize("receiver_type", ["email", "slack"])
+def test_only_webhook_receivers_exist(receiver_type: str) -> None:
+    document = _observability_document(alerts={"receivers": [{**_RECEIVER, "type": receiver_type}]})
+
+    with pytest.raises(DeploymentProfileError) as exc:
+        validate_deployment_profile(document)
+
+    assert "spec.observability.alerts.receivers[0].type must be one of ['webhook']" in str(exc.value)
 
 
 _RECEIVER = {"name": "ops", "type": "webhook", "secret_ref": {"name": "alerts", "key": "url"}}
