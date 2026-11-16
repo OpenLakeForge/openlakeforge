@@ -2,6 +2,23 @@
 
 from __future__ import annotations
 
+from .alerts import (
+    DAGSTER_PIPELINES,
+    DAGSTER_READ_API,
+    UNREADABLE_THRESHOLD,
+    AlertEvent,
+    AlertKind,
+    AlertSeverity,
+    AlertState,
+    Evaluation,
+    HistoryEvent,
+    Incident,
+    IncidentState,
+    Notification,
+    OutboxEntry,
+    evaluate,
+    fingerprint,
+)
 from .descriptors import (
     SOURCE_API_VERSION,
     SOURCE_KIND,
@@ -71,6 +88,21 @@ from .quality import (
 from .runs import FLOE_FULL_REFRESH_TAG, FULL_REFRESH_SCOPES, FULL_REFRESH_TAG, full_refresh_scope, full_refresh_tags
 
 __all__ = [
+    "AlertEvent",
+    "AlertKind",
+    "AlertSeverity",
+    "AlertState",
+    "Evaluation",
+    "HistoryEvent",
+    "Incident",
+    "IncidentState",
+    "Notification",
+    "OutboxEntry",
+    "DAGSTER_PIPELINES",
+    "DAGSTER_READ_API",
+    "UNREADABLE_THRESHOLD",
+    "evaluate",
+    "fingerprint",
     "HealthState",
     "HealthQualityFields",
     "PipelineOutcome",
