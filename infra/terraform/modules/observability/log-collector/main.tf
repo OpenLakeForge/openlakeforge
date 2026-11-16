@@ -7,15 +7,16 @@ locals {
   http_port = 2020
 
   config = templatefile("${path.module}/templates/fluent-bit.conf.tftpl", {
-    routes           = var.routes
-    bucket           = var.bucket
-    region           = var.s3_region
-    endpoint         = var.s3_endpoint_url
-    http_port        = local.http_port
-    mem_buf_limit    = var.mem_buf_limit
-    max_chunks_up    = var.max_chunks_up
-    chunk_limit_size = var.chunk_limit_size
-    spool_limit_size = var.spool_limit_size
+    routes                = var.routes
+    bucket                = var.bucket
+    region                = var.s3_region
+    endpoint              = var.s3_endpoint_url
+    http_port             = local.http_port
+    mem_buf_limit         = var.mem_buf_limit
+    max_chunks_up         = var.max_chunks_up
+    chunk_limit_size      = var.chunk_limit_size
+    spool_limit_size      = var.spool_limit_size
+    quarantine_limit_size = var.quarantine_limit_size
   })
 
   # Builds the archive record (ADR 0022, decision 4) from the file name, the

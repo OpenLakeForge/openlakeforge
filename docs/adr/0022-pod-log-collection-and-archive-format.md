@@ -71,7 +71,7 @@ Configuration shape, so slice b does not reopen the choice:
 | Buffering | `storage.type filesystem` on every input, `storage.path` on a `hostPath` or `emptyDir` sized by the profile | A collector restart or an S3 outage keeps the chunks |
 | Output | `out_s3` per stage, `use_put_object On`, `compression gzip`, `total_file_size` 8M, `upload_timeout` 5m, **`store_dir_limit_size` set explicitly** (never the default `0`), `store_dir` on the collector volume | `PutObject` leaves no unfinished multipart uploads to clean. The S3 plugin buffers every chunk into `store_dir` and returns `FLB_OK`, so the engine's `Retry_Limit` and `storage.total_limit_size` never see an upload failure: the spool and its limit are the plugin's own ([S3 output](https://docs.fluentbit.io/manual/data-pipeline/outputs/s3), "Differences between S3 and other Fluent Bit outputs") |
 | Spool bound | `store_dir_limit_size` = the stated outage budget (hours) times the stage's measured peak ingest rate (slice b measures it); the volume holds `store_dir_limit_size` plus the `storage.path` chunk budget plus headroom slice b sets | An unbounded spool fills the node disk; a bound makes the loss point a number an operator can size and alert on. Whether the spool counts uncompressed bytes, and which data is discarded at the limit (the page says only that data is discarded), is [T] |
-| Upload retries | The plugin's own `retry_limit` (default 5), `file_delivery_attempt_limit` and `retry_exhausted_action` (default `quarantine`, alternative `delete`) | The page documents the defaults; whether a quarantined file still counts against `store_dir_limit_size`, and whether it is retried after the outage, is [T] and decides the value slice b sets |
+| Upload retries | The plugin's own `retry_limit` (default 5), `file_delivery_attempt_limit` and `retry_exhausted_action` (default `quarantine`, alternative `delete`) | The page documents the defaults; a quarantined file is released from the `store_dir_limit_size` budget [V: `s3_store.c`, `s3.c` in v5.2.0], and `quarantine_dir_limit_size` defaults to `0` (unlimited), so slice a sets `retry_exhausted_action quarantine` and an explicit `quarantine_dir_limit_size` (128M) per stage: failed objects stay inspectable on the node, and once the quarantine is full a further exhausted file is deleted [V: `s3.c`]. Whether a quarantined file is retried after the outage is [T] |
 | Metadata | `kubernetes` filter with `Merge_Log Off`, `Annotations Off`, `Use_Kubelet Off` | App JSON stays a string in `message`; annotations can carry customer text; `nodes/proxy` is not requested |
 | Telemetry | `http_server On`, `Health_Check On`, Prometheus endpoint, plus the spool and delivery signals of Decision 2 | The engine's output metrics are "meaningless for S3" (same page), so delivery health is read from the spool and the bucket, not from them |
 
@@ -230,8 +230,10 @@ the CRI timestamp (`time_as_table`, nanoseconds) and the filter's labels, and
 writes a fresh table so a workload's own keys cannot enter it; an absent label is
 left out and named in `missing` rather than written as `null`; the offsets, engine
 chunks and S3 spool sit on a `hostPath` under `/var/lib/openlakeforge/log-collector`,
-bounded by `store_dir_limit_size` (512M) and `storage.total_limit_size` (256M) per
-stage, so a replaced pod keeps its offsets. Whether the `cri` multiline parser sets
+bounded per stage by `store_dir_limit_size` (512M) plus `quarantine_dir_limit_size`
+(128M), which are separate budgets because a quarantined file leaves the spool
+budget, and `storage.total_limit_size` (256M) for engine chunks, so a replaced pod
+keeps its offsets. Whether the `cri` multiline parser sets
 the event time from the CRI timestamp, whether `Offset_Key` is the offset of the
 line, and whether the S3 plugin creates `store_dir` itself are [T]. `olf-system`
 admits the `hostPath` mounts: no namespace carries a Pod Security label [V].

@@ -34,6 +34,8 @@ run "memory_and_disk_are_bounded" {
       length(regexall("store_dir_limit_size +512M", kubernetes_config_map_v1.collector.data["fluent-bit.conf"])) == 3
       && length(regexall("storage.total_limit_size +256M", kubernetes_config_map_v1.collector.data["fluent-bit.conf"])) == 3
       && !strcontains(kubernetes_config_map_v1.collector.data["fluent-bit.conf"], "store_dir_limit_size 0")
+      && length(regexall("quarantine_dir_limit_size +128M", kubernetes_config_map_v1.collector.data["fluent-bit.conf"])) == 3
+      && length(regexall("retry_exhausted_action +quarantine", kubernetes_config_map_v1.collector.data["fluent-bit.conf"])) == 3
     )
     error_message = "every S3 output needs an explicit spool limit and chunk limit, never the unlimited default"
   }
@@ -47,6 +49,25 @@ run "an_unbounded_spool_is_refused" {
   }
 
   expect_failures = [var.spool_limit_size]
+}
+
+run "an_unbounded_quarantine_is_refused" {
+  command = plan
+
+  variables {
+    quarantine_limit_size = "0"
+  }
+
+  expect_failures = [var.quarantine_limit_size]
+}
+
+run "empty_missing_serializes_as_an_array" {
+  command = plan
+
+  assert {
+    condition     = strcontains(kubernetes_config_map_v1.collector.data["fluent-bit.conf"], "type_array_key              missing")
+    error_message = "the lua filter must declare missing an array so an empty one is [] not {}"
+  }
 }
 
 # The test runs on a copy of the module, which cannot read the catalog;

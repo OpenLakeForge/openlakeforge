@@ -82,6 +82,17 @@ variable "spool_limit_size" {
   }
 }
 
+variable "quarantine_limit_size" {
+  description = "quarantine_dir_limit_size of each S3 output: disk for files whose upload retries are exhausted, kept for inspection. They leave the spool budget, so this bounds them separately; at the limit further exhausted files are deleted. Never 0, which is unlimited."
+  type        = string
+  default     = "128M"
+
+  validation {
+    condition     = can(regex("^[1-9][0-9]*[KMG]$", var.quarantine_limit_size))
+    error_message = "quarantine_limit_size is a positive size such as 128M; 0 would leave the quarantine unbounded."
+  }
+}
+
 variable "memory_limit" {
   description = "Memory limit of the collector container; must cover mem_buf_limit per route, the emitter buffers and max_chunks_up."
   type        = string

@@ -51,6 +51,7 @@
     script                      /fluent-bit/etc/record.lua
     call                        build
     time_as_table               On
+    type_array_key              missing
 
 # The new tag is <namespace>.<UTC date of the record>: the S3 plugin keeps one buffer per tag, so an object holds one date.
 [FILTER]
@@ -80,5 +81,7 @@
     s3_key_format               /${route.key_prefix}namespace=$TAG[0]/date=$TAG[1]/${stage}-$UUID.ndjson.gz
     store_dir                   /var/fluent-bit/spool-${stage}
     store_dir_limit_size        ${spool_limit_size}
+    retry_exhausted_action      quarantine
+    quarantine_dir_limit_size   ${quarantine_limit_size}
     storage.total_limit_size    ${chunk_limit_size}
 %{ endfor ~}
