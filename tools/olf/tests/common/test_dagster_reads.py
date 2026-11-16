@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from openlakeforge_services.base import ServiceClientError
-from openlakeforge_services.dagster import DagsterClient, DagsterJob, DagsterRun
+from openlakeforge_services.dagster import DagsterClient, DagsterJob, DagsterRun, DagsterSchedule
 
 
 def _client(response: Mapping[str, Any], sent: list[Mapping[str, Any] | None] | None = None) -> DagsterClient:
@@ -48,6 +48,55 @@ def test_list_jobs_names_each_jobs_location_and_leaves_out_dagsters_own() -> Non
     assert client.list_jobs() == [
         DagsterJob("sales-dagster", "__repository__", "sales_order_revenue_pipeline", "Order revenue.")
     ]
+
+
+def test_list_schedules_reads_state_cron_timezone_start_and_the_latest_run_requesting_tick() -> None:
+    schedule = {
+        "name": "sales_daily",
+        "pipelineName": "sales_pipeline",
+        "cronSchedule": "0 6 * * *",
+        "executionTimezone": "Europe/Berlin",
+    }
+    running = {
+        "status": "RUNNING",
+        "typeSpecificData": {"__typename": "ScheduleData", "startTimestamp": 1699000000.0},
+        "ticks": [{"timestamp": 1700000000.0}],
+    }
+    # A schedule that is on by default in code carries no start time.
+    stopped = {
+        "status": "STOPPED",
+        "typeSpecificData": {"__typename": "ScheduleData", "startTimestamp": None},
+        "ticks": [],
+    }
+    client = _client(
+        {
+            "repositoriesOrError": {
+                "__typename": "RepositoryConnection",
+                "nodes": [
+                    {
+                        "schedules": [
+                            {**schedule, "scheduleState": running},
+                            {**schedule, "name": "new", "executionTimezone": None, "scheduleState": stopped},
+                        ]
+                    }
+                ],
+            }
+        }
+    )
+
+    assert client.list_schedules() == [
+        DagsterSchedule(
+            "sales_daily", "sales_pipeline", "RUNNING", "0 6 * * *", "Europe/Berlin", 1699000000.0, 1700000000.0
+        ),
+        DagsterSchedule("new", "sales_pipeline", "STOPPED", "0 6 * * *", "UTC", None, None),
+    ]
+
+
+def test_list_schedules_reports_dagsters_own_error() -> None:
+    client = _client({"repositoriesOrError": {"__typename": "PythonError", "message": "boom"}})
+
+    with pytest.raises(ServiceClientError, match="boom"):
+        client.list_schedules()
 
 
 def test_list_runs_filters_by_job_and_reads_each_run() -> None:
