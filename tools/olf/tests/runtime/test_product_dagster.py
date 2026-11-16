@@ -8,7 +8,15 @@ import yaml
 
 pytest.importorskip("dagster")
 
-from dagster import DefaultScheduleStatus, materialize  # noqa: E402
+from dagster import (  # noqa: E402
+    DefaultScheduleStatus,
+    Definitions,
+    Failure,
+    asset,
+    define_asset_job,
+    in_process_executor,
+    materialize,
+)
 from openlakeforge_core import FULL_REFRESH_TAG, full_refresh_tags  # noqa: E402
 from openlakeforge_runtime import product_dagster  # noqa: E402
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult  # noqa: E402
@@ -769,3 +777,88 @@ def test_the_run_queue_admits_one_run_per_silver_domain() -> None:
             "limit": 1,
         }
     ]
+
+
+def _product_defs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **spec_fields) -> Definitions:  # noqa: ANN003
+    monkeypatch.setenv("OPENLAKEFORGE_DBT_PROFILES_DIR", str(tmp_path))
+    spec = ProductDefinitionSpec(domain="sales", product="order_revenue", **spec_fields)
+    return product_dagster.build_product_definitions(spec)
+
+
+def test_a_product_job_carries_no_dagster_retry_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    defs = _product_defs(tmp_path, monkeypatch)
+    (job,) = defs.jobs
+
+    # A policy would make Dagster restart a step a terminated run interrupted, instead of stopping the run.
+    assert job.op_retry_policy is None
+    assert all(gold.op.retry_policy is None for gold in defs.assets)
+
+
+def test_a_bronze_load_failing_transiently_succeeds_on_a_later_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("openlakeforge_runtime.bronze_retry.time.sleep", lambda _s: None)
+    attempts: list[tuple[str, ...]] = []
+
+    def flaky(resources: tuple[str, ...]) -> dict[str, BronzeLoadResult]:
+        attempts.append(resources)
+        if len(attempts) == 1:
+            raise ConnectionError("source reset the connection")
+        return {
+            r: BronzeLoadResult(entity=r, rows=1, uri=f"s3://bronze/shop/{r}.csv", source_file=r) for r in resources
+        }
+
+    source = SourceDefinitionSpec(source="shop", resources=("orders",), bronze_loader=flaky)
+    defs = Definitions(assets=list(build_source_definitions(source).assets), jobs=[define_asset_job("bronze")])
+
+    assert defs.resolve_job_def("bronze").execute_in_process().success
+    assert len(attempts) == 2
+
+
+def test_a_bronze_load_is_not_retried_when_the_source_turns_retries_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("openlakeforge_runtime.bronze_retry.time.sleep", lambda _s: None)
+    attempts: list[int] = []
+
+    def down(_resources: tuple[str, ...]) -> dict[str, BronzeLoadResult]:
+        attempts.append(1)
+        raise ConnectionError("down")
+
+    source = SourceDefinitionSpec(source="shop", resources=("orders",), bronze_loader=down, bronze_retry_attempts=0)
+    defs = Definitions(assets=list(build_source_definitions(source).assets), jobs=[define_asset_job("bronze")])
+
+    assert not defs.resolve_job_def("bronze").execute_in_process(raise_on_error=False).success
+    assert len(attempts) == 1
+
+
+def test_a_silver_style_failure_runs_once_in_a_product_style_job() -> None:
+    runs: list[int] = []
+
+    @asset
+    def silver_like() -> None:
+        runs.append(1)
+        raise Failure("floe contract failure")
+
+    job = define_asset_job("product", executor_def=in_process_executor)
+    defs = Definitions(assets=[silver_like], jobs=[job])
+
+    assert not defs.resolve_job_def("product").execute_in_process(raise_on_error=False).success
+    assert len(runs) == 1
+
+
+def _local_dagster_values() -> dict:
+    repo_root = Path(__file__).resolve().parents[4]
+    return yaml.safe_load((repo_root / "infra/helm/values/local/dagster.yaml").read_text(encoding="utf-8"))
+
+
+def test_a_run_whose_pod_is_lost_is_failed_by_the_daemon_within_a_bounded_time() -> None:
+    monitoring = _local_dagster_values()["dagsterDaemon"]["runMonitoring"]
+
+    assert monitoring["enabled"] is True
+    assert monitoring["pollIntervalSeconds"] <= 60
+    assert monitoring["startTimeoutSeconds"] <= 600
+    assert 0 < monitoring["maxRuntimeSeconds"] <= 24 * 3600
+
+
+def test_the_size_derived_run_limit_is_left_to_the_terraform_module() -> None:
+    queue = _local_dagster_values()["dagsterDaemon"]["runCoordinator"]["config"]["queuedRunCoordinator"]
+
+    # The module sets it from release/query-sizes.yaml; a value here would shadow the sized one.
+    assert "maxConcurrentRuns" not in queue

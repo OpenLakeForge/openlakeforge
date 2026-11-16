@@ -150,8 +150,9 @@ and `olf profile resolve` prints `sizes: storage=small` and each enabled
 stage's `query=` size (`query` and `storage` in `--json`, `query` per stage).
 
 `query.size` picks one row of `release/query-sizes.yaml`, which sets Trino's
-workers, heap, memory, per-query limits and `query.max-stage-count`. It changes only the Trino Helm
-values, never the project image or a ProjectRevision. The `medium` and `large`
+workers, heap, memory, per-query limits and `query.max-stage-count`, and the
+stage's Dagster run-queue limit (`max_concurrent_runs`). It changes only the
+Trino and Dagster Helm values, never the project image or a ProjectRevision. The `medium` and `large`
 rows are defined but not yet accepted: workers still need network flows to the
 coordinator, authentication across nodes
 ([#367](https://github.com/OpenLakeForge/openlakeforge/issues/367)) and a kind
