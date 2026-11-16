@@ -58,6 +58,7 @@ sections:
       - docs/reference/roles-and-permissions.md
       - docs/reference/descriptors.md
       - docs/reference/runtime-api.md
+      - docs/reference/health-signals.md
       - docs/reference/components.md
       - docs/reference/compatibility-matrix.md
       - docs/reference/glossary.md
