@@ -1,7 +1,9 @@
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import yaml
@@ -9,6 +11,11 @@ import yaml
 pytest.importorskip("dagster")
 
 from dagster import (  # noqa: E402
+    AssetCheckResult,
+    AssetCheckSeverity,
+    AssetCheckSpec,
+    AssetKey,
+    AssetOut,
     DefaultScheduleStatus,
     Definitions,
     Failure,
@@ -16,10 +23,14 @@ from dagster import (  # noqa: E402
     define_asset_job,
     in_process_executor,
     materialize,
+    multi_asset,
 )
 from openlakeforge_core import FULL_REFRESH_TAG, full_refresh_tags  # noqa: E402
+from openlakeforge_core.quality import PipelineOutcome, QualityManifest, QualityOutcome, QualityResult  # noqa: E402
 from openlakeforge_runtime import product_dagster  # noqa: E402
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult  # noqa: E402
+from openlakeforge_runtime.dbt_quality import DbtRunEvidence  # noqa: E402
+from openlakeforge_runtime.floe_quality import FloeCheckEvidence, FloeEntityEvidence  # noqa: E402
 from openlakeforge_runtime.product_dagster import (  # noqa: E402
     ProductCadence,
     ProductDefinitionSpec,
@@ -181,9 +192,7 @@ class _Log:
         self.errors.append(message)
 
 
-def test_dbt_artifacts_upload_only_the_files_the_run_produced(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_dbt_artifacts_upload_only_the_files_the_run_produced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "manifest.json").write_text("{}")
     (tmp_path / "dbt.log").write_text("log")
     uploaded: list[tuple[str, str, str]] = []
@@ -298,6 +307,46 @@ def test_a_build_that_failed_before_any_dbt_invocation_leaves_an_incomplete_mark
         _drain([], SimpleNamespace(run_id="r1", log=_Log()))
 
     assert list(store) == ["dbt/sales/revenue/r1/artifacts_incomplete.json"]
+
+
+def test_a_build_that_failed_before_any_dbt_invocation_leaves_the_baked_manifest_to_name_its_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    baked = tmp_path / "manifest.json"
+    baked.write_text('{"nodes": {}}')
+    store = _ops_store(monkeypatch)
+
+    with pytest.raises(_DbtBuildFailed):
+        for _ in product_dagster._retaining_artifacts_on_failure(
+            SimpleNamespace(run_id="r1", log=_Log()), _SPEC, [], _failing_build(), baked_manifest=baked
+        ):
+            pass
+
+    assert store["dbt/sales/revenue/r1/target/manifest.json"] == '{"nodes": {}}'
+    assert "dbt/sales/revenue/r1/artifacts_incomplete.json" in store
+
+
+def test_the_selected_tests_are_recorded_beside_the_dbt_artifacts(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _ops_store(monkeypatch)
+
+    product_dagster._upload_selected_tests(
+        SimpleNamespace(run_id="r1", log=_Log()), _SPEC, ["test.shop.a", "test.shop.b"]
+    )
+
+    assert json.loads(store["dbt/sales/revenue/r1/selected_tests.json"]) == {
+        "selected_tests": ["test.shop.a", "test.shop.b"]
+    }
+
+
+def test_a_failing_selected_tests_upload_is_logged_and_does_not_stop_the_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ops_store(monkeypatch, fail=True)
+    context = SimpleNamespace(run_id="r1", log=_Log())
+
+    product_dagster._upload_selected_tests(context, _SPEC, ["test.shop.a"])
+
+    assert "ops store unreachable" in context.log.errors[0]
 
 
 def test_the_dbt_error_survives_a_failing_upload_and_the_upload_failure_is_logged(
@@ -879,3 +928,384 @@ def test_the_size_derived_run_limit_is_left_to_the_terraform_module() -> None:
 
     # The module sets it from release/query-sizes.yaml; a value here would shadow the sized one.
     assert "maxConcurrentRuns" not in queue
+
+
+_OPS = "s3://ops/activations/dev"
+
+
+def _quality_store(monkeypatch: pytest.MonkeyPatch, *, fail: bool = False) -> dict[tuple[str, str], str]:
+    store: dict[tuple[str, str], str] = {}
+
+    def upload(path: Path, *, bucket: str, key: str) -> str:
+        if fail:
+            raise OSError("ops store unreachable")
+        store[(bucket, key)] = path.read_text()
+        return f"s3://{bucket}/{key}"
+
+    monkeypatch.setenv("OPENLAKEFORGE_STAGE", "dev")
+    monkeypatch.setenv("OPENLAKEFORGE_ARTIFACT_BASE_URI", _OPS)
+    monkeypatch.setenv("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI", f"{_OPS}/run-artifacts")
+
+    def read(uri: str) -> dict[str, Any]:
+        bucket, _, key = uri.removeprefix("s3://").partition("/")
+        return json.loads(store[(bucket, key)])
+
+    monkeypatch.setattr(product_dagster, "upload_file", upload)
+    monkeypatch.setattr(product_dagster, "read_json_uri", read)
+    monkeypatch.setattr(product_dagster, "read_dbt_evidence", lambda *a, **k: None)
+    monkeypatch.setattr(product_dagster, "read_entity_report", lambda *a, **k: None)
+    return store
+
+
+def _floe_events(*checks: tuple[str, bool]) -> list[SimpleNamespace]:
+    """The ASSET_CHECK_EVALUATION log entries of one `orders` Silver step."""
+    return [
+        SimpleNamespace(
+            dagster_event=SimpleNamespace(
+                event_specific_data=SimpleNamespace(
+                    asset_key=AssetKey(["sales", "orders"]),
+                    check_name=name,
+                    passed=passed,
+                    severity="ERROR",
+                    metadata={"floe_run_status": "success" if passed else "aborted"},
+                )
+            )
+        )
+        for name, passed in checks
+    ]
+
+
+def _quality_context(run_id: str, events: list[SimpleNamespace]) -> SimpleNamespace:
+    instance = SimpleNamespace(all_logs=lambda run, of_type=None: events)
+    return SimpleNamespace(run_id=run_id, log=_Log(), instance=instance)
+
+
+def _manifest_of(store: dict[tuple[str, str], str], run_id: str) -> QualityManifest:
+    key = f"activations/dev/run-artifacts/quality/sales/revenue/{run_id}/manifest.json"
+    return QualityManifest.from_json(store[("ops", key)])
+
+
+def test_a_floe_abort_leaves_a_valid_quality_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _quality_store(monkeypatch)
+    context = _quality_context("r1", _floe_events(("floe_cast_error", False), ("floe_not_null", True)))
+
+    product_dagster._publish_quality_manifest(context, _SPEC, ("orders",))
+
+    manifest = _manifest_of(store, "r1")
+    assert (manifest.stage, manifest.dagster_run_id) == ("dev", "r1")
+    assert {r.check_id: r.outcome for r in manifest.results}["floe_cast_error"] is QualityOutcome.ERROR
+    assert context.log.errors == []
+
+
+def test_a_failed_dbt_build_leaves_a_quality_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _quality_store(monkeypatch)
+    node: dict[str, Any] = {
+        "resource_type": "test",
+        "package_name": "shop",
+        "unique_id": "test.shop.not_null_daily_id.abc",
+        "name": "not_null_daily_id",
+        "attached_node": None,
+        "column_name": "id",
+        "config": {"severity": "ERROR"},
+        "depends_on": {"nodes": []},
+    }
+    evidence = DbtRunEvidence(
+        manifest={"metadata": {"project_name": "shop"}, "nodes": {node["unique_id"]: node}, "sources": {}},
+        run_results={"results": [{"unique_id": node["unique_id"], "status": "fail", "failures": 2}]},
+        incomplete_marker={"status": "artifacts_incomplete"},
+    )
+    read: list[str] = []
+
+    def read_evidence(prefix: str, **_: object) -> DbtRunEvidence:
+        read.append(prefix)
+        return evidence
+
+    monkeypatch.setattr(product_dagster, "read_dbt_evidence", read_evidence)
+
+    product_dagster._publish_quality_manifest(_quality_context("r1", []), _SPEC, ("orders",))
+
+    (record,) = _manifest_of(store, "r1").results
+    assert (record.engine, record.outcome, record.pipeline_outcome) == (
+        "dbt",
+        QualityOutcome.ERROR,
+        PipelineOutcome.BLOCKED,
+    )
+    assert read == [f"{_OPS}/run-artifacts/dbt/sales/revenue/r1"]
+
+
+def test_two_runs_of_one_product_write_two_objects(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _quality_store(monkeypatch)
+    events = _floe_events(("floe_not_null", True))
+
+    for run_id in ("r1", "r2"):
+        product_dagster._publish_quality_manifest(_quality_context(run_id, events), _SPEC, ("orders",))
+
+    assert {key for _, key in store} == {
+        f"activations/dev/run-artifacts/quality/sales/revenue/{run}/manifest.json" for run in ("r1", "r2")
+    }
+
+
+def test_a_failing_quality_upload_is_logged_and_never_raised(monkeypatch: pytest.MonkeyPatch) -> None:
+    _quality_store(monkeypatch, fail=True)
+    context = _quality_context("r1", _floe_events(("floe_not_null", True)))
+
+    product_dagster._publish_quality_manifest(context, _SPEC, ("orders",))
+
+    assert "ops store unreachable" in context.log.errors[0]
+
+
+def test_a_step_with_no_quality_evidence_uploads_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _quality_store(monkeypatch)
+
+    product_dagster._publish_quality_manifest(_quality_context("r1", []), _SPEC, ("orders",))
+
+    assert store == {}
+
+
+def test_a_failing_quality_upload_changes_no_steps_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
+    _quality_store(monkeypatch, fail=True)
+    entities = [FloeEntityEvidence("orders", checks=(FloeCheckEvidence("floe_not_null", True, "ERROR", {}),))]
+    monkeypatch.setattr(product_dagster, "_floe_entities", lambda *a: entities)
+
+    @asset
+    def passing() -> None: ...
+
+    @asset(deps=[passing])
+    def failing() -> None:
+        raise Failure("floe aborted")
+
+    job = define_asset_job("quality", hooks=product_dagster._quality_manifest_hooks(_SPEC, ("orders",)))
+    defs = Definitions(assets=[passing, failing], jobs=[job])
+    result = defs.get_job_def("quality").execute_in_process(raise_on_error=False)
+
+    assert [e.step_key for e in result.get_step_success_events()] == ["passing"]
+    assert [e.step_key for e in result.get_step_failure_events()] == ["failing"]
+
+
+def _dbt_test_node(name: str) -> dict[str, Any]:
+    return {
+        "resource_type": "test",
+        "package_name": "shop",
+        "unique_id": f"test.shop.{name}",
+        "name": name,
+        "attached_node": None,
+        "column_name": "id",
+        "config": {"severity": "ERROR"},
+        "depends_on": {"nodes": []},
+    }
+
+
+def test_the_quality_manifest_of_a_run_reads_the_selected_tests_the_build_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Generation 1's test failed and generation 2's never started: only the recorded selection can tell.
+    store = _quality_store(monkeypatch)
+    prefix = f"{_OPS}/run-artifacts/dbt/sales/revenue/r1"
+    nodes = {n["unique_id"]: n for n in (_dbt_test_node("gen1_test"), _dbt_test_node("gen2_test"))}
+    files = {
+        f"{prefix}/target/manifest.json": {"metadata": {"project_name": "shop"}, "nodes": nodes, "sources": {}},
+        f"{prefix}/target/run_results.json": {"results": [{"unique_id": "test.shop.gen1_test", "status": "fail"}]},
+        f"{prefix}/selected_tests.json": {"selected_tests": sorted(nodes)},
+    }
+    monkeypatch.setattr(product_dagster, "read_dbt_evidence", lambda p, **k: _read_with(files, p, **k))
+
+    product_dagster._publish_quality_manifest(_quality_context("r1", []), _SPEC, ("orders",))
+
+    results = {r.check_id: r for r in _manifest_of(store, "r1").results}
+    assert results["gen1_test"].pipeline_outcome is PipelineOutcome.BLOCKED
+    assert results["gen2_test"].outcome is QualityOutcome.NOT_RUN
+
+
+def _read_with(files: dict[str, Any], prefix: str, **kwargs: Any) -> Any:
+    from openlakeforge_runtime.dbt_quality import read_dbt_evidence
+
+    return read_dbt_evidence(prefix, read=lambda uri: files[uri], **kwargs)
+
+
+def test_a_build_that_failed_before_run_results_leaves_every_selected_test_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _quality_store(monkeypatch)
+    prefix = f"{_OPS}/run-artifacts/dbt/sales/revenue/r1"
+    nodes = {n["unique_id"]: n for n in (_dbt_test_node("gen1_test"), _dbt_test_node("gen2_test"))}
+    files = {
+        f"{prefix}/target/manifest.json": {"metadata": {"project_name": "shop"}, "nodes": nodes, "sources": {}},
+        f"{prefix}/artifacts_incomplete.json": {"status": "artifacts_incomplete"},
+        f"{prefix}/selected_tests.json": {"selected_tests": sorted(nodes)},
+    }
+    monkeypatch.setattr(product_dagster, "read_dbt_evidence", lambda p, **k: _read_with(files, p, **k))
+
+    product_dagster._publish_quality_manifest(_quality_context("r1", []), _SPEC, ("orders",))
+
+    results = _manifest_of(store, "r1").results
+    assert {r.check_id for r in results} == {"gen1_test", "gen2_test"}
+    assert {(r.outcome, r.pipeline_outcome) for r in results} == {(QualityOutcome.UNKNOWN, PipelineOutcome.UNKNOWN)}
+
+
+def test_the_baked_fallback_manifest_names_the_selected_tests_but_not_their_tables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The baked manifest has an empty schema prefix while Glue adds one at run time, so its tables are not the run's.
+    prefix = f"{_OPS}/run-artifacts/dbt/sales/revenue/r1"
+    node = {**_dbt_test_node("gen1_test"), "attached_node": "model.shop.daily"}
+    manifest = {
+        "metadata": {"project_name": "shop"},
+        "nodes": {node["unique_id"]: node, "model.shop.daily": {"name": "daily", "schema": "revenue_gold"}},
+        "sources": {},
+    }
+    baked = tmp_path / "manifest.json"
+    baked.write_text(json.dumps(manifest))
+    ops = _ops_store(monkeypatch)
+    with pytest.raises(_DbtBuildFailed):
+        for _ in product_dagster._retaining_artifacts_on_failure(
+            SimpleNamespace(run_id="r1", log=_Log()), _SPEC, [], _failing_build(), baked_manifest=baked
+        ):
+            pass
+    store = _quality_store(monkeypatch)
+    files = {
+        f"{prefix}/target/manifest.json": manifest,
+        f"{prefix}/artifacts_incomplete.json": json.loads(ops["dbt/sales/revenue/r1/artifacts_incomplete.json"]),
+        f"{prefix}/selected_tests.json": {"selected_tests": [node["unique_id"]]},
+    }
+    monkeypatch.setattr(product_dagster, "read_dbt_evidence", lambda p, **k: _read_with(files, p, **k))
+
+    product_dagster._publish_quality_manifest(_quality_context("r1", []), _SPEC, ("orders",))
+
+    (record,) = _manifest_of(store, "r1").results
+    assert (record.check_id, record.table, record.column) == ("gen1_test", None, None)
+    assert (record.outcome, record.pipeline_outcome) == (QualityOutcome.UNKNOWN, PipelineOutcome.UNKNOWN)
+
+
+def test_a_dbt_process_that_died_before_writing_a_manifest_still_gets_the_baked_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The target dir is registered when dbt starts, so a profile or parse failure leaves it registered but empty.
+    prefix = f"{_OPS}/run-artifacts/dbt/sales/revenue/r1"
+    node = {**_dbt_test_node("gen1_test"), "attached_node": "model.shop.daily"}
+    manifest = {
+        "metadata": {"project_name": "shop"},
+        "nodes": {node["unique_id"]: node, "model.shop.daily": {"name": "daily", "schema": "revenue_gold"}},
+        "sources": {},
+    }
+    baked = tmp_path / "baked" / "manifest.json"
+    baked.parent.mkdir()
+    baked.write_text(json.dumps(manifest))
+    empty_target = tmp_path / "target"
+    empty_target.mkdir()
+    ops = _ops_store(monkeypatch)
+    with pytest.raises(_DbtBuildFailed):
+        for _ in product_dagster._retaining_artifacts_on_failure(
+            SimpleNamespace(run_id="r1", log=_Log()), _SPEC, [empty_target], _failing_build(), baked_manifest=baked
+        ):
+            pass
+    assert "dbt/sales/revenue/r1/target/manifest.json" in ops
+    marker = json.loads(ops["dbt/sales/revenue/r1/artifacts_incomplete.json"])
+    assert marker["baked_manifest"] is True
+    store = _quality_store(monkeypatch)
+    files = {
+        f"{prefix}/target/manifest.json": manifest,
+        f"{prefix}/artifacts_incomplete.json": marker,
+        f"{prefix}/selected_tests.json": {"selected_tests": [node["unique_id"]]},
+    }
+    monkeypatch.setattr(product_dagster, "read_dbt_evidence", lambda p, **k: _read_with(files, p, **k))
+
+    product_dagster._publish_quality_manifest(_quality_context("r1", []), _SPEC, ("orders",))
+
+    (record,) = _manifest_of(store, "r1").results
+    assert (record.check_id, record.table, record.column) == ("gen1_test", None, None)
+    assert (record.outcome, record.pipeline_outcome) == (QualityOutcome.UNKNOWN, PipelineOutcome.UNKNOWN)
+
+
+def test_a_later_publish_never_turns_a_known_floe_outcome_into_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _quality_store(monkeypatch)
+    passed = _floe_entities_with_report(checks_passed=True)
+    monkeypatch.setattr(product_dagster, "_floe_entities", lambda *a: passed)
+    product_dagster._publish_quality_manifest(_quality_context("r1", []), _SPEC, ("orders",))
+    first = {r.check_id: r.outcome for r in _manifest_of(store, "r1").results}
+    assert QualityOutcome.PASSED in first.values()
+
+    # The next step's report read fails: the same checks now come back without evidence.
+    monkeypatch.setattr(product_dagster, "_floe_entities", lambda *a: [FloeEntityEvidence("orders", checks=())])
+    product_dagster._publish_quality_manifest(_quality_context("r1", []), _SPEC, ("orders",))
+
+    assert {r.check_id: r.outcome for r in _manifest_of(store, "r1").results} == first
+
+
+def _floe_entities_with_report(*, checks_passed: bool) -> list[FloeEntityEvidence]:
+    names = ("floe_cast_error", "floe_not_null")
+    checks = tuple(FloeCheckEvidence(n, checks_passed, "ERROR", {}) for n in names)
+    return [FloeEntityEvidence("orders", checks=checks, report={"files": [{"name": "orders.csv"}]})]
+
+
+def test_a_later_publish_replaces_an_unknown_outcome_and_keeps_a_record_it_lacks() -> None:
+    def record(check: str, outcome: QualityOutcome) -> QualityResult:
+        return QualityResult(
+            engine="floe",
+            stage="dev",
+            domain="sales",
+            product="revenue",
+            check_id=check,
+            engine_severity="reject",
+            outcome=outcome,
+            pipeline_outcome=PipelineOutcome.UNKNOWN,
+            observed_at=datetime(2026, 11, 16, tzinfo=UTC),
+            dagster_run_id="r1",
+        )
+
+    def manifest(*results: QualityResult) -> QualityManifest:
+        return QualityManifest(stage="dev", domain="sales", product="revenue", dagster_run_id="r1", results=results)
+
+    published = manifest(record("a", QualityOutcome.UNKNOWN), record("b", QualityOutcome.PASSED))
+    fresh = manifest(record("a", QualityOutcome.PASSED), record("c", QualityOutcome.UNKNOWN))
+
+    merged = product_dagster._without_regressions(fresh, published)
+
+    assert {r.check_id: r.outcome for r in merged.results} == {
+        "a": QualityOutcome.PASSED,
+        "b": QualityOutcome.PASSED,
+        "c": QualityOutcome.UNKNOWN,
+    }
+
+
+def test_a_product_job_attaches_the_quality_manifest_hooks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (job,) = _product_defs(tmp_path, monkeypatch).jobs
+
+    assert {hook.name for hook in job.hooks} == {
+        "publish_quality_manifest_on_success",
+        "publish_quality_manifest_on_failure",
+    }
+
+
+def test_the_hooks_publish_a_valid_manifest_when_a_silver_step_yields_checks_and_then_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _quality_store(monkeypatch)
+    monkeypatch.setattr(product_dagster, "read_entity_report", lambda uri: {"files": [{"name": "orders.csv"}]})
+    key = AssetKey(["sales", "orders"])
+
+    @multi_asset(
+        outs={"orders": AssetOut(key=key)},
+        check_specs=[AssetCheckSpec(name, asset=key) for name in ("floe_cast_error", "floe_not_null")],
+    )
+    def silver():
+        for name, passed in (("floe_cast_error", False), ("floe_not_null", True)):
+            yield AssetCheckResult(
+                asset_key=key,
+                check_name=name,
+                passed=passed,
+                severity=AssetCheckSeverity.ERROR,
+                metadata={"floe_run_status": "aborted", "entity_report_uri": "s3://ops/floe/orders/run.json"},
+            )
+        raise Failure("floe aborted")
+
+    job = define_asset_job("quality_e2e", hooks=product_dagster._quality_manifest_hooks(_SPEC, ("orders",)))
+    result = (
+        Definitions(assets=[silver], jobs=[job]).get_job_def("quality_e2e").execute_in_process(raise_on_error=False)
+    )
+
+    assert not result.success
+    manifest = _manifest_of(store, result.run_id)
+    assert QualityManifest.from_json(manifest.to_json()) == manifest
+    outcomes = {r.check_id: r.outcome for r in manifest.results}
+    assert outcomes["floe_cast_error"] is QualityOutcome.ERROR
+    assert outcomes["floe_not_null"] is QualityOutcome.PASSED
