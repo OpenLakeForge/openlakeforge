@@ -367,8 +367,10 @@ resolve` check and print it, and `olf profile resolve --json` reports the
 resolved values as `observability`, including when the block is omitted.
 Terraform reports the resolved values in the provider contract's
 [`shared.observability`](../architecture/provider-contracts.md#sharedobservability),
-but no component acts on them yet, so changing them changes no running
-component.
+but only the alerts act on them today: on the local provider, with at least one
+receiver, an evaluator CronJob posts notifications to it ([send alerts to a
+webhook](../guides/operations/alerts.md)). The other fields change no running
+component yet.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
