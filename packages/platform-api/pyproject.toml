@@ -46,6 +46,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
+
 [tool.mypy]
 python_version = "3.12"
 files = ["openlakeforge_platform_api", "tests"]

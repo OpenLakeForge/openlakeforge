@@ -224,6 +224,43 @@ def test_a_folder_rename_that_hits_a_conflict_midway_removes_its_copies_and_dele
     assert s3.objects[(DEV, "dst/b.txt")][0] == b"other"
 
 
+def test_a_file_overwritten_before_the_copy_is_not_moved(api: TestClient, s3: FakeS3, mint: Mint) -> None:
+    s3.hooks["copy_object"] = lambda: s3.put(DEV, "readme.txt", b"newer")
+
+    response = rename(api, _as(mint, "data-engineer"), source="readme.txt", target="moved.txt")
+
+    assert response.status_code == 409
+    assert s3.objects[(DEV, "readme.txt")][0] == b"newer"
+    assert (DEV, "moved.txt") not in s3.objects
+
+
+def test_a_file_overwritten_between_the_copy_and_the_delete_keeps_the_newer_file(
+    api: TestClient, s3: FakeS3, mint: Mint
+) -> None:
+    s3.hooks["delete_object"] = lambda: s3.put(DEV, "readme.txt", b"newer")
+
+    response = rename(api, _as(mint, "data-engineer"), source="readme.txt", target="moved.txt")
+
+    assert response.status_code == 409
+    assert s3.objects[(DEV, "readme.txt")][0] == b"newer"
+    assert (DEV, "moved.txt") not in s3.objects
+
+
+def test_a_folder_key_overwritten_before_the_delete_stays_and_the_rest_moves(
+    api: TestClient, s3: FakeS3, mint: Mint
+) -> None:
+    s3.put(DEV, "src/a.txt", b"a")
+    s3.put(DEV, "src/b.txt", b"b")
+    s3.hooks["delete_objects"] = lambda: s3.put(DEV, "src/b.txt", b"newer")
+
+    response = rename(api, _as(mint, "data-engineer"), source="src/", target="dst/")
+
+    assert response.status_code == 409 and "1 keys changed" in response.json()["detail"]
+    assert s3.objects[(DEV, "src/b.txt")][0] == b"newer"
+    assert (DEV, "dst/b.txt") not in s3.objects
+    assert (DEV, "src/a.txt") not in s3.objects and s3.objects[(DEV, "dst/a.txt")][0] == b"a"
+
+
 def test_a_failed_copy_removes_the_copies_already_made(
     api: TestClient, s3: FakeS3, mint: Mint, audit_store: AuditStore
 ) -> None:
