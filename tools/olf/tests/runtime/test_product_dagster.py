@@ -1176,6 +1176,46 @@ def test_the_baked_fallback_manifest_names_the_selected_tests_but_not_their_tabl
     assert (record.outcome, record.pipeline_outcome) == (QualityOutcome.UNKNOWN, PipelineOutcome.UNKNOWN)
 
 
+def test_a_dbt_process_that_died_before_writing_a_manifest_still_gets_the_baked_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The target dir is registered when dbt starts, so a profile or parse failure leaves it registered but empty.
+    prefix = f"{_OPS}/run-artifacts/dbt/sales/revenue/r1"
+    node = {**_dbt_test_node("gen1_test"), "attached_node": "model.shop.daily"}
+    manifest = {
+        "metadata": {"project_name": "shop"},
+        "nodes": {node["unique_id"]: node, "model.shop.daily": {"name": "daily", "schema": "revenue_gold"}},
+        "sources": {},
+    }
+    baked = tmp_path / "baked" / "manifest.json"
+    baked.parent.mkdir()
+    baked.write_text(json.dumps(manifest))
+    empty_target = tmp_path / "target"
+    empty_target.mkdir()
+    ops = _ops_store(monkeypatch)
+    with pytest.raises(_DbtBuildFailed):
+        for _ in product_dagster._retaining_artifacts_on_failure(
+            SimpleNamespace(run_id="r1", log=_Log()), _SPEC, [empty_target], _failing_build(), baked_manifest=baked
+        ):
+            pass
+    assert "dbt/sales/revenue/r1/target/manifest.json" in ops
+    marker = json.loads(ops["dbt/sales/revenue/r1/artifacts_incomplete.json"])
+    assert marker["baked_manifest"] is True
+    store = _quality_store(monkeypatch)
+    files = {
+        f"{prefix}/target/manifest.json": manifest,
+        f"{prefix}/artifacts_incomplete.json": marker,
+        f"{prefix}/selected_tests.json": {"selected_tests": [node["unique_id"]]},
+    }
+    monkeypatch.setattr(product_dagster, "read_dbt_evidence", lambda p, **k: _read_with(files, p, **k))
+
+    product_dagster._publish_quality_manifest(_quality_context("r1", []), _SPEC, ("orders",))
+
+    (record,) = _manifest_of(store, "r1").results
+    assert (record.check_id, record.table, record.column) == ("gen1_test", None, None)
+    assert (record.outcome, record.pipeline_outcome) == (QualityOutcome.UNKNOWN, PipelineOutcome.UNKNOWN)
+
+
 def test_a_later_publish_never_turns_a_known_floe_outcome_into_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
     store = _quality_store(monkeypatch)
     passed = _floe_entities_with_report(checks_passed=True)

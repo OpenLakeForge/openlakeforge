@@ -802,9 +802,10 @@ def _retaining_artifacts_on_failure(
                 _upload_dbt_artifacts(context, spec, target_paths[-1])
             without_results = [i for i, path in enumerate(target_paths, 1) if path not in with_results]
             uploaded_baked = False
-            if not target_paths and baked_manifest is not None:
+            if baked_manifest is not None and not any((path / "manifest.json").exists() for path in target_paths):
                 uploaded_baked = True
-                # dbt never started, so there is no invocation manifest; the quality reader needs one to name tests.
+                # No invocation left a manifest (dbt never started, or died while parsing before writing one); the
+                # quality reader needs one to name tests.
                 _upload_run_file(context, spec, baked_manifest, "target/manifest.json")
             if not target_paths or without_results:
                 _upload_incomplete_marker(
