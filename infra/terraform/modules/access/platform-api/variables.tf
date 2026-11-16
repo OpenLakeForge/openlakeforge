@@ -187,3 +187,9 @@ variable "superset_urls" {
   type        = map(string)
   default     = {}
 }
+
+variable "probe_namespaces" {
+  description = "Stage name to the namespace whose pods, Deployments and StatefulSets the API may list for its service probes (ADR 0021, decision 7). Empty by default: the pod then mounts no ServiceAccount token. Never olf-system, and never a cluster-wide scope."
+  type        = map(string)
+  default     = {}
+}

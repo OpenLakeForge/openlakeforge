@@ -14,10 +14,12 @@ from openlakeforge_core import (
     Scope,
     Signal,
     SignalKind,
+    WorkloadObservation,
     evaluate_execution,
     evaluate_expected_run,
     evaluate_latest_success,
     evaluate_quality,
+    evaluate_workload,
     rollup,
     rollup_by_stage,
     worst_state,
@@ -218,3 +220,30 @@ def test_scope_and_signal_need_a_stage() -> None:
         Scope(stage="")
     with pytest.raises(ValueError, match="stage"):
         Signal(SignalKind.SERVICE, HealthState.HEALTHY, "", "fixture")
+
+
+def _workload(desired: int, ready: int, observed_at: datetime = FRESH, **kwargs: int) -> WorkloadObservation:
+    return WorkloadObservation(desired, ready, observed_at, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("workload", "expected"),
+    [
+        (_workload(2, 2), HealthState.HEALTHY),
+        (_workload(2, 1), HealthState.WARNING),
+        (_workload(2, 0), HealthState.CRITICAL),
+        (_workload(1, 1, unschedulable=1), HealthState.CRITICAL),
+        (_workload(1, 1, crash_looping=1), HealthState.WARNING),
+        (_workload(1, 1, max_restarts=3), HealthState.WARNING),
+        (_workload(0, 0), HealthState.WARNING),
+        (_workload(1, 1, STALE), HealthState.UNKNOWN),
+        (None, HealthState.UNKNOWN),
+    ],
+)
+def test_workload_state_follows_readiness_restarts_and_age(
+    workload: WorkloadObservation | None, expected: HealthState
+) -> None:
+    signal = evaluate_workload(DEV, "dagster", workload, now=NOW, max_age=MAX_AGE)
+    assert signal.state is expected
+    assert signal.kind is SignalKind.SERVICE
+    assert signal.component == "dagster"

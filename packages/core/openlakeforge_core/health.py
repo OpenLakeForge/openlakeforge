@@ -88,6 +88,8 @@ class Signal:
     observed_at: datetime | None = None
     expires_at: datetime | None = None
     evidence_uri: str | None = None
+    # Which service a SERVICE signal is about ("dagster", "trino", "object-store"); None for pipeline signals.
+    component: str | None = None
 
     def __post_init__(self) -> None:
         if not self.stage:
@@ -125,7 +127,22 @@ class QualityObservation:
     evidence_uri: str | None = None
 
 
-_Observation = RunObservation | ScheduleObservation | QualityObservation
+@dataclass(frozen=True)
+class WorkloadObservation:
+    """What the cluster reports for one component's controllers, summed across them."""
+
+    desired: int
+    ready: int
+    observed_at: datetime
+    # Pods that are Pending because no node fits them, and pods waiting in CrashLoopBackOff.
+    unschedulable: int = 0
+    crash_looping: int = 0
+    # The highest container restart count on any pod: a pod that was killed and came back is ready again.
+    max_restarts: int = 0
+    evidence_uri: str | None = None
+
+
+_Observation = RunObservation | ScheduleObservation | QualityObservation | WorkloadObservation
 
 
 def evaluate_execution(scope: Scope, run: RunObservation | None, *, now: datetime, max_age: timedelta) -> Signal:
@@ -205,6 +222,62 @@ def evaluate_quality(scope: Scope, quality: QualityObservation | None, *, now: d
     return _signal(SignalKind.QUALITY, scope, state, reason, quality, max_age, run=quality.run)
 
 
+def evaluate_workload(
+    scope: Scope,
+    component: str,
+    workload: WorkloadObservation | None,
+    *,
+    now: datetime,
+    max_age: timedelta,
+    restart_warning: int = 3,
+) -> Signal:
+    """Controller readiness. This proves pods exist and are ready, not that the service answers its clients."""
+    _check_clock(now, max_age)
+    if workload is None:
+        return _service(scope, component, HealthState.UNKNOWN, "no observation", None, None, max_age)
+    if _is_stale(workload, now, max_age):
+        return _service(
+            scope,
+            component,
+            HealthState.UNKNOWN,
+            "observation is stale",
+            workload.observed_at,
+            workload.evidence_uri,
+            max_age,
+        )
+    ready = f"{workload.ready}/{workload.desired} pods ready"
+    if workload.desired == 0:
+        state, reason = HealthState.WARNING, "scaled to zero"
+    elif workload.unschedulable:
+        state, reason = HealthState.CRITICAL, f"{ready}; {workload.unschedulable} unschedulable"
+    elif workload.ready == 0:
+        state, reason = HealthState.CRITICAL, ready
+    elif workload.crash_looping:
+        state, reason = HealthState.WARNING, f"{ready}; {workload.crash_looping} crash looping"
+    elif workload.ready < workload.desired:
+        state, reason = HealthState.WARNING, ready
+    elif workload.max_restarts >= restart_warning:
+        state, reason = HealthState.WARNING, f"{ready}; {workload.max_restarts} restarts"
+    else:
+        state, reason = HealthState.HEALTHY, ready
+    return _service(scope, component, state, reason, workload.observed_at, workload.evidence_uri, max_age)
+
+
+def service_signal(
+    scope: Scope,
+    component: str,
+    state: HealthState,
+    reason: str,
+    *,
+    now: datetime,
+    max_age: timedelta,
+    evidence_uri: str | None = None,
+) -> Signal:
+    """A SERVICE signal observed `now`: UNKNOWN when a probe could not answer, DISABLED for a component that is off."""
+    _check_clock(now, max_age)
+    return _service(scope, component, state, reason, now, evidence_uri, max_age)
+
+
 def worst_state(states: Iterable[HealthState]) -> HealthState:
     """The most severe state; an empty input is `unknown`, because nothing was observed."""
     return max(states, key=_SEVERITY.__getitem__, default=HealthState.UNKNOWN)
@@ -248,6 +321,27 @@ def _is_stale(observation: _Observation, now: datetime, max_age: timedelta) -> b
 
 def _stale(kind: SignalKind, scope: Scope, observation: _Observation, max_age: timedelta) -> Signal:
     return _signal(kind, scope, HealthState.UNKNOWN, "observation is stale", observation, max_age)
+
+
+def _service(
+    scope: Scope,
+    component: str,
+    state: HealthState,
+    reason: str,
+    observed_at: datetime | None,
+    evidence_uri: str | None,
+    max_age: timedelta,
+) -> Signal:
+    return Signal(
+        kind=SignalKind.SERVICE,
+        state=state,
+        stage=scope.stage,
+        reason=reason,
+        component=component,
+        observed_at=observed_at,
+        expires_at=observed_at + max_age if observed_at else None,
+        evidence_uri=evidence_uri,
+    )
 
 
 def _signal(
