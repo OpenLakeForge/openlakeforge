@@ -37,6 +37,7 @@ from openlakeforge_core import full_refresh_scope, inventory_for
 
 from openlakeforge_runtime import gold_maintenance
 from openlakeforge_runtime.bronze_csv import BronzeLoadResult
+from openlakeforge_runtime.bronze_retry import DEFAULT_BRONZE_RETRY_ATTEMPTS, call_with_transient_retry
 from openlakeforge_runtime.dbt.render_profiles import dbt_environment, ensure_baked_manifest, resolve_profiles_dir
 from openlakeforge_runtime.dbt_build import (
     DbtTest,
@@ -253,6 +254,8 @@ class SourceDefinitionSpec:
     source: str
     resources: tuple[str, ...]
     bronze_loader: Callable[[tuple[str, ...]], dict[str, BronzeLoadResult]]
+    # Retries of the loader after a transient network error (see `bronze_retry`); 0 turns them off.
+    bronze_retry_attempts: int = DEFAULT_BRONZE_RETRY_ATTEMPTS
 
 
 def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
@@ -285,7 +288,14 @@ def build_source_definitions(spec: SourceDefinitionSpec) -> Definitions:
                 for resource in spec.resources
                 if context.selected_output_names is None or resource in context.selected_output_names
             )
-            results = spec.bronze_loader(selected)
+            results = call_with_transient_retry(
+                lambda: spec.bronze_loader(selected),
+                retries=spec.bronze_retry_attempts,
+                on_retry=lambda retry, exc, delay: context.log.warning(
+                    f"Bronze load of {spec.source} failed transiently ({type(exc).__name__}); "
+                    f"retry {retry} of {spec.bronze_retry_attempts} in {delay:.0f} s"
+                ),
+            )
         finally:
             if previous_run_id is None:
                 os.environ.pop("DAGSTER_RUN_ID", None)

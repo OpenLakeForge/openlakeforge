@@ -22,6 +22,7 @@ QUERY_SIZES_PATH = "release/query-sizes.yaml"
 _NODE_FIELDS = ("heap", "cpu_request", "memory_request", "memory_limit")
 _SIZE_FIELDS = {
     "workers",
+    "max_concurrent_runs",
     "schedule_on_coordinator",
     "max_memory",
     "max_memory_per_node",
@@ -47,6 +48,7 @@ class NodeResources:
 class QuerySizing:
     size: str
     workers: int
+    max_concurrent_runs: int
     schedule_on_coordinator: bool
     max_memory: str
     max_memory_per_node: str
@@ -81,6 +83,9 @@ def load_query_sizing(distribution_root: Path, size: Size) -> QuerySizing:
     stages = entry.get("max_stage_count")
     if not isinstance(stages, int) or isinstance(stages, bool) or stages < 1:
         raise QuerySizingError(f"{where}.max_stage_count must be a positive integer")
+    runs = entry.get("max_concurrent_runs")
+    if not isinstance(runs, int) or isinstance(runs, bool) or runs < 1:
+        raise QuerySizingError(f"{where}.max_concurrent_runs must be a positive integer")
     schedule = entry.get("schedule_on_coordinator")
     if not isinstance(schedule, bool):
         raise QuerySizingError(f"{where}.schedule_on_coordinator must be a boolean")
@@ -89,6 +94,7 @@ def load_query_sizing(distribution_root: Path, size: Size) -> QuerySizing:
     return QuerySizing(
         size=size.value,
         workers=workers,
+        max_concurrent_runs=runs,
         schedule_on_coordinator=schedule,
         max_memory=_text(entry, "max_memory", where),
         max_memory_per_node=_text(entry, "max_memory_per_node", where),
