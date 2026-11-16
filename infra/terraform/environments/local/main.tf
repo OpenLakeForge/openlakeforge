@@ -306,6 +306,7 @@ module "alerts" {
   stages                  = sort(keys(local.enabled_stages))
   dagster_graphql_urls    = local.dagster_graphql_urls
   state_base_uri          = "${local.artifact_base_uri}/${local.alerts_prefix}"
+  quality_manifests       = { for name in keys(local.enabled_stages) : name => "${local.artifact_base_uri}/activations/${name}/" }
   s3_endpoint_url         = module.seaweedfs.contract.endpoint
   s3_region               = module.seaweedfs.contract.region
   credentials_secret_name = module.seaweedfs.alerts_secret_name

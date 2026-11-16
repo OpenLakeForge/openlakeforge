@@ -41,6 +41,9 @@ class EvaluatorSettings:
     dagster_graphql_urls: Mapping[str, str]
     # s3://<ops bucket>/<prefix>/, e.g. s3://ops/alerts/
     state_base_uri: str
+    # Each stage's activation prefix, s3://<ops bucket>/activations/<stage>/, where its quality manifests are written
+    # under run-artifacts/quality/. A stage without an entry raises no quality alerts.
+    quality_manifests: Mapping[str, str] = field(default_factory=dict)
     receivers: tuple[ReceiverSetting, ...] = ()
     links: LinkSettings = field(default_factory=LinkSettings)
     s3_endpoint_url: str | None = None
@@ -55,6 +58,7 @@ class EvaluatorSettings:
                 stages=tuple(str(stage) for stage in data["stages"]),
                 dagster_graphql_urls={str(s): str(url) for s, url in data["dagster_graphql_urls"].items()},
                 state_base_uri=str(data["state_base_uri"]),
+                quality_manifests={str(s): str(uri) for s, uri in (data.get("quality_manifests") or {}).items()},
                 receivers=tuple(
                     ReceiverSetting(
                         str(item["name"]), str(item["url_env"]), tuple(str(stage) for stage in item.get("stages") or ())
@@ -88,6 +92,13 @@ class EvaluatorSettings:
         parts = urlsplit(self.state_base_uri)
         if parts.scheme != "s3" or not parts.netloc or not self.state_base_uri.endswith("/"):
             raise SettingsError("state_base_uri must be s3://<bucket>/<prefix>/, ending in /")
+        stray_quality = sorted(set(self.quality_manifests) - set(self.stages))
+        if stray_quality:
+            raise SettingsError(f"quality_manifests names stages that are not enabled: {', '.join(stray_quality)}")
+        for stage, uri in self.quality_manifests.items():
+            parts = urlsplit(uri)
+            if parts.scheme != "s3" or not parts.netloc or not uri.endswith("/"):
+                raise SettingsError(f"quality_manifests[{stage!r}] must be s3://<bucket>/<prefix>/, ending in /")
         names = [receiver.name for receiver in self.receivers]
         if not all(names) or len(set(names)) != len(names):
             raise SettingsError("receivers must have distinct, non-empty names")

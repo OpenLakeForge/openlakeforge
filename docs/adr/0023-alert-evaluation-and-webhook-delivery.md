@@ -123,8 +123,9 @@ What does not alert, all **default, revisit**:
 `quality` conditions read the quality manifests that #1162 writes, through the
 same `read_stage_pipelines` the health routes use (`quality_health.py`), so the
 two cannot disagree. A pipeline whose run wrote no manifest reads `unknown` and
-opens nothing. The evaluator takes the readers as an argument; mounting a key
-for it is part of the CronJob (#1172).
+opens nothing. The evaluator takes the readers as an argument; the CronJob
+builds one per stage from `quality_manifests` in its settings, on its own key
+(decision 3), which already holds Read and List on each stage's quality prefix.
 
 `stale_output` is suppressed while `missed_run` or `run_failed` is open for the
 same product **(proposed)**: either already says why the output is stale, and a
@@ -439,3 +440,8 @@ an older success precedes the failure. A success after a newer run whose
 manifest could not be read reads `unknown`, not `healthy`, so a transient read
 failure neither resolves nor reopens the
 incident.
+
+2026-11-16: the deployed evaluator reads the quality manifests: its settings
+carry `quality_manifests` and it builds one reader per stage on its own
+`openlakeforge-alerts` key, not the platform API's per-stage keys, so no Secret,
+grant or network row was added. No deviation from the decisions above.

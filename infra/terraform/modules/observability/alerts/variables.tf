@@ -66,6 +66,22 @@ variable "state_base_uri" {
   }
 }
 
+variable "quality_manifests" {
+  description = "Each stage's activation prefix, s3://<ops bucket>/activations/<stage>/, whose run-artifacts/quality/ holds its quality manifests; a stage without an entry raises no quality alerts. They are read with the evaluator's own key (credentials_secret_name), which holds Read and List on each stage's quality prefix (ADR 0023, decision 3), so no further Secret is mounted."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition     = alltrue([for stage in keys(var.quality_manifests) : contains(var.stages, stage)])
+    error_message = "quality_manifests names enabled stages only."
+  }
+
+  validation {
+    condition     = alltrue([for uri in values(var.quality_manifests) : startswith(uri, "s3://") && endswith(uri, "/")])
+    error_message = "Each quality manifest prefix is s3://<bucket>/<prefix>/, ending in '/'."
+  }
+}
+
 variable "s3_endpoint_url" {
   description = "S3 endpoint of the object store, from its provider contract."
   type        = string

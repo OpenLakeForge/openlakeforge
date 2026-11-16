@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import certifi
@@ -22,10 +23,12 @@ from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient, DagsterJob, DagsterRun, DagsterSchedule
 from openlakeforge_services.notify import DeliveryResult
 
+from openlakeforge_platform_api import quality_health
 from openlakeforge_platform_api.alerting import __main__ as entrypoint
 from openlakeforge_platform_api.alerting.run import run_once
 from openlakeforge_platform_api.alerting.settings import EvaluatorSettings, ReceiverSetting
 from openlakeforge_platform_api.alerting.store import AlertStore, StoreError
+from openlakeforge_platform_api.settings import SettingsError
 
 NOW = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
 BASE = "s3://ops/alerts/"
@@ -582,3 +585,82 @@ def test_the_combined_ca_bundle_holds_the_public_roots_and_the_local_ca(tmp_path
     assert Path(path).parent == tmp_path
     # Every certificate loads, so a missing newline between the two files would have glued two PEMs together.
     assert len(ssl.create_default_context(cafile=path).get_ca_certs()) == public_pem.count("BEGIN CERTIFICATE") + 1
+
+
+def _with_quality(**manifests: str) -> dict[str, Any]:
+    return {**settings_mapping(), "quality_manifests": manifests}
+
+
+def test_quality_manifests_must_name_enabled_stages_and_s3_prefixes() -> None:
+    parsed = EvaluatorSettings.from_mapping(_with_quality(dev="s3://ops/activations/dev/"))
+    assert parsed.quality_manifests == {"dev": "s3://ops/activations/dev/"}
+    assert EvaluatorSettings.from_mapping(settings_mapping()).quality_manifests == {}
+
+    with pytest.raises(SettingsError, match="not enabled: prod"):
+        EvaluatorSettings.from_mapping(_with_quality(prod="s3://ops/activations/prod/"))
+    for bad in ("https://ops/activations/dev/", "s3://ops/activations/dev"):
+        with pytest.raises(SettingsError, match="quality_manifests"):
+            EvaluatorSettings.from_mapping(_with_quality(dev=bad))
+
+
+def _run_entrypoint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mapping: dict[str, Any]
+) -> tuple[int, dict[str, Any]]:
+    captured: dict[str, Any] = {}
+
+    def fake_run_once(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return SimpleNamespace(notifications=0, delivered=0, failed=0, expired=0)
+
+    monkeypatch.setattr(entrypoint, "_object_store", lambda settings: FakeBucket())
+    monkeypatch.setattr(entrypoint, "run_once", fake_run_once)
+    monkeypatch.setenv("OPS_URL", "https://hooks.example.test/secret-path")
+    path = tmp_path / "alerts.json"
+    path.write_text(json.dumps(mapping))
+    return entrypoint.main(["--settings", str(path)]), captured
+
+
+def test_the_entrypoint_reads_quality_with_its_own_key_for_each_stage_with_a_prefix(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "evaluator-key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "evaluator-secret")
+    clients: list[dict[str, Any]] = []
+
+    def fake_client(service: str, **kwargs: Any) -> object:
+        clients.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(quality_health.boto3, "client", fake_client)
+    mapping = _with_quality(dev="s3://ops/activations/dev/")
+    mapping["stages"] = ["dev", "prod"]
+    mapping["dagster_graphql_urls"]["prod"] = "http://dagster-prod/graphql"
+
+    code, captured = _run_entrypoint(monkeypatch, tmp_path, mapping)
+
+    assert code == 0
+    assert set(captured["quality"]) == {"dev"}
+    assert [(c["aws_access_key_id"], c["aws_secret_access_key"]) for c in clients] == [
+        ("evaluator-key", "evaluator-secret")
+    ]
+
+
+def test_the_entrypoint_passes_no_readers_without_manifest_prefixes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+
+    code, captured = _run_entrypoint(monkeypatch, tmp_path, settings_mapping())
+
+    assert code == 0
+    assert captured["quality"] == {}
+
+
+def test_the_entrypoint_exits_two_when_quality_is_configured_but_the_key_is_not(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+
+    code, _ = _run_entrypoint(monkeypatch, tmp_path, _with_quality(dev="s3://ops/activations/dev/"))
+
+    assert code == 2

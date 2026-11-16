@@ -11,9 +11,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import Any, NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol, cast
 from urllib.parse import urlsplit
 
+import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from openlakeforge_core.health import (
     HealthState,
@@ -40,6 +42,22 @@ class ManifestStore(Protocol):
     """The one call the reader makes; boto3's S3 client satisfies it."""
 
     def get_object(self, *, Bucket: str, Key: str) -> Mapping[str, Any]: ...  # noqa: N803 - boto3's names
+
+
+def s3_quality_reader(
+    base_uri: str, *, endpoint_url: str | None, region: str, access_key: str, secret_key: str
+) -> QualityReader:
+    """A reader over its own S3 client. The key is passed explicitly: boto3's credential chain falls through to
+    instance metadata, which NetworkPolicy drops, so a missing key would hang until that times out."""
+    client = boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        region_name=region,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=Config(s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}),
+    )
+    return QualityReader(cast("ManifestStore", client), base_uri)
 
 
 class QualityReadError(Exception):

@@ -638,5 +638,6 @@ its rows render only on a profile with receivers. The evaluator holds no token f
 
 The SeaweedFS credentials Job's E1 pin gained `platform-api-quality-reader-<stage>-s3-creds` (#1186): one key per
 stage, `Read` and `List` on that stage's `activations/<stage>/run-artifacts/quality/` and nothing else, mounted by the
-platform API so its health routes and the alert evaluator can read the quality manifests. It reuses the platform API's
-existing S3 flow, so no network row changed.
+platform API for its health routes. It reuses the platform API's existing S3 flow, so no network row changed. The alert
+evaluator reads the same manifests with its own `openlakeforge-alerts` key (F39), which already holds `Read` and `List` on
+each quality prefix: no Secret, grant or flow was added for it.

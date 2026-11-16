@@ -115,3 +115,56 @@ run "a_stage_without_a_url_is_refused" {
 
   expect_failures = [var.dagster_graphql_urls]
 }
+
+run "quality_manifests_are_read_with_the_evaluators_own_key" {
+  command = plan
+
+  variables {
+    receivers = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" }]
+    quality_manifests = {
+      dev  = "s3://ops/activations/dev/"
+      prod = "s3://ops/activations/prod/"
+    }
+  }
+
+  assert {
+    condition = (
+      jsondecode(kubernetes_config_map_v1.settings[0].data["alerts.json"]).quality_manifests.dev == "s3://ops/activations/dev/"
+      && jsondecode(kubernetes_config_map_v1.settings[0].data["alerts.json"]).quality_manifests.prod == "s3://ops/activations/prod/"
+    )
+    error_message = "the settings carry each stage's activation prefix"
+  }
+
+  assert {
+    condition = alltrue([
+      for e in kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].container[0].env :
+      !startswith(e.name, "OPENLAKEFORGE_QUALITY_")
+      && (e.value_from == null || length(e.value_from) == 0 || e.value_from[0].secret_key_ref[0].name != "platform-api-quality-reader-dev-s3-creds")
+    ])
+    error_message = "no per-stage quality key is mounted: the evaluator's own key already reads the quality prefixes"
+  }
+}
+
+run "quality_manifests_default_to_none" {
+  command = plan
+
+  variables {
+    receivers = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" }]
+  }
+
+  assert {
+    condition     = length(jsondecode(kubernetes_config_map_v1.settings[0].data["alerts.json"]).quality_manifests) == 0
+    error_message = "a deployment without manifest prefixes raises no quality alerts"
+  }
+}
+
+run "a_manifest_prefix_for_a_stage_that_is_not_enabled_is_refused" {
+  command = plan
+
+  variables {
+    receivers         = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" }]
+    quality_manifests = { staging = "s3://ops/activations/staging/" }
+  }
+
+  expect_failures = [var.quality_manifests]
+}
