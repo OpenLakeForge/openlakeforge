@@ -6,8 +6,10 @@ Decided; slice b is built. The Fluent Bit DaemonSet
 (`infra/terraform/modules/observability/log-collector`) writes archive format v2
 beside the polling CronJob's v1, in Slim and Full alike, with a write-only key.
 The CronJob and the v1 reader stay the only path the API reads until slices c
-and d land. Not built yet: the delivery signals of Decision 2 and the lifecycle
-rule of Decision 6 (`logs_archive_retention` stays reported as unsupported).
+and d land. The spool age and size signals of Decision 2 are partly built (#1189): the
+probe sidecar and the rules that classify its numbers exist; the platform API's
+health route does not read them yet. Not built yet: the newest-key
+signal of Decision 2 and the lifecycle rule of Decision 6 (`logs_archive_retention` stays reported as unsupported).
 Every claim marked [T] is still untested: the kind smoke does not run here, and
 slice d (#1123) verifies them on a cluster. Tags used below: **[V]** checked in this
 repository or in the upstream page cited; **[T]** a claim the implementing slice
@@ -97,9 +99,41 @@ independent of the plugin's `FLB_OK`:
 
 | Signal | Source | Reads as an outage when |
 | --- | --- | --- |
-| Age of the oldest file in `store_dir` | A file-age gauge over the volume, from a probe in the collector pod or a node-level exporter [T: which `olf-system`'s pod security level admits] | Older than `upload_timeout` plus one retry cycle: a healthy spool is emptied within minutes |
-| Spool size against `store_dir_limit_size` | Same source (`du` of `store_dir`) | Above a fraction of the limit that leaves the stated outage budget half spent; at the limit data is already being lost |
+| Age of the oldest file in `store_dir` | The `spool-probe` sidecar of the collector pod (below) | Older than `upload_timeout` plus one retry cycle: a healthy spool is emptied within minutes. `warning` at 10 minutes, `critical` at 30 |
+| Spool size against `store_dir_limit_size` | Same sidecar (bytes under `store_dir`) | Above a fraction of the limit that leaves the stated outage budget half spent; at the limit data is already being lost. `warning` at 50% of `store_dir_limit_size`, `critical` at 90% |
 | Newest object key per stage prefix | A `ListObjectsV2` by the #798 self-health probe, with a read identity (the collector's key is write-only, Decision 3) | Older than `upload_timeout` plus slack while the stage's pods are running and logging: the only signal that also covers a collector that is down |
+
+The probe (#1189) is a second container in the collector DaemonSet's pod. It
+runs the platform API image, which olf already loads into kind for the alert
+evaluator, as `python -m openlakeforge_platform_api.spool_probe`, and serves
+`GET /spool` on 2021: per stage, the age of the oldest file under
+`spool-<stage>` (its mtime) and the bytes held, skipping the quarantine
+directory, which has left the spool's budget. Why a sidecar and not an exporter
+or a file: the platform API already reads Dagster, Trino and the object store
+as `SERVICE` signals (`service_probes.py`), so a fourth HTTP read fits that
+shape; a node-level exporter would be one more workload to deploy, and a file
+would need a reader on every node. A headless Service, `log-collector-probe`,
+gives the API one address per collector pod, and the API takes (in the follow-up change) the worst signal
+over the pods (F42 in ADR 0017 opens that one port).
+
+| Property | Value |
+| --- | --- |
+| Resources | requests 10m CPU and 32Mi; limits 100m CPU and 64Mi |
+| Host access | the collector's own state directory, mounted read-only; nothing else |
+| Privilege | uid 0, because the spool is root-owned; no capability, no privilege escalation, read-only root filesystem, `RuntimeDefault` seccomp |
+| Credentials | none: no S3 key. It shares the pod's ServiceAccount token, which is the collector's read of pods and namespaces |
+| Pod security | `olf-system` carries no Pod Security label [V: no `pod-security.kubernetes.io` in `infra/`], so the pod is admitted as the collector is; a cluster that enforces `baseline` would also refuse the collector's `hostPath` mounts, which is why the sidecar adds nothing to that decision |
+| Without the image | no sidecar and no Service; the signals read as `unknown`, never `healthy` |
+
+The thresholds are proposed defaults and are the maintainers' to review: ADR
+0022 set none. They live in `openlakeforge_core.archive_health` as
+`ArchiveThresholds`. Open [T] items the failure-injection e2e settles: whether
+the plugin keeps appending to one file during an outage, which would hide a
+stuck spool from an mtime-based age until it grows (the size signal covers it);
+whether the spool counts compressed or uncompressed bytes; whether `store_dir`
+and its quarantine are laid out as the probe assumes; and whether Fluent Bit's
+`512M` means 512 000 000 or 536 870 912 bytes (the probe assumes the smaller,
+so the fraction errs high).
 
 Slice d (#1123) verifies them by failure injection: block the ops-bucket
 endpoint with a NetworkPolicy, write known lines, and assert that the oldest-file
@@ -264,3 +298,8 @@ the F37 flows; Status and Build order updated, no decision changed.
 
 2026-11-16: slice c (#1122): reader, API filters and the reader key land. `severity` is read from the
 level token in `message`, because the v2 record has no severity field.
+
+2026-11-16: #1189 (part): the `spool-probe` sidecar, `archive_health` in
+`openlakeforge_core` and the F42 flow land, with proposed thresholds recorded in
+Decision 2. The health route reading them, the newest-key signal and the
+failure-injection e2e follow in their own changes.

@@ -293,6 +293,9 @@ module "log_collector" {
   s3_endpoint_url         = module.seaweedfs.contract.endpoint
   s3_region               = module.seaweedfs.contract.region
   credentials_secret_name = module.seaweedfs.log_collector_secret_name
+  # The spool probe runs the platform API image, which olf loads into kind on every node.
+  probe_image             = var.platform_api_image
+  probe_image_pull_policy = "Never"
 }
 
 # ADR 0023: the alert evaluator, only with a receiver to notify. It runs the

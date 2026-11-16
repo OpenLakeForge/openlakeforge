@@ -7,3 +7,8 @@ output "collected_namespaces" {
   description = "Namespaces whose container logs are collected, by stage label."
   value       = { for stage, route in var.routes : stage => route.namespace }
 }
+
+output "probe_url" {
+  description = "Base URL of the spool probes, one A record per collector pod; null without a probe image."
+  value       = local.probe_enabled ? "http://${var.release_name}-probe.${var.namespace}.svc:${local.probe_port}" : null
+}
