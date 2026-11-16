@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -26,10 +27,12 @@ def test_a_state_round_trips_through_the_bucket() -> None:
     bucket = FakeBucket()
     state = AlertState(unknown_counts={"dev": 2}, sequences={"abc": 1})
 
-    AlertStore(bucket, BASE).write_state(state)
+    AlertStore(bucket, BASE).write_state(state, evaluated_at=NOW)
 
     assert AlertStore(bucket, BASE).read_state(NOW) == state
-    assert bucket.objects["alerts/state/v1/state.json"] == state_to_json(state).encode()
+    stored = json.loads(bucket.objects["alerts/state/v1/state.json"])
+    assert stored.pop("evaluated_at") == NOW.isoformat()
+    assert stored == json.loads(state_to_json(state))
 
 
 @pytest.mark.parametrize("body", [b"{not json", b'{"schema_version": 2}', b"\xff\xfe"])
@@ -52,7 +55,7 @@ def test_an_unreachable_store_is_a_store_error_not_an_empty_state() -> None:
     with pytest.raises(StoreError):
         store.read_state(NOW)
     with pytest.raises(StoreError):
-        store.write_state(AlertState())
+        store.write_state(AlertState(), evaluated_at=NOW)
     with pytest.raises(StoreError):
         store.write_history(NOW, "x", {})
 
@@ -70,7 +73,7 @@ def test_history_is_partitioned_by_day_and_the_name_is_made_safe() -> None:
 def test_a_state_prefix_replaces_the_base_prefix() -> None:
     bucket = FakeBucket()
 
-    AlertStore(bucket, BASE, prefix="e2e/run-1/").write_state(AlertState())
+    AlertStore(bucket, BASE, prefix="e2e/run-1/").write_state(AlertState(), evaluated_at=NOW)
 
     assert list(bucket.objects) == ["e2e/run-1/state/v1/state.json"]
 

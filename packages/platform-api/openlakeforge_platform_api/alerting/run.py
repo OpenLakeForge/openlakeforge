@@ -72,7 +72,7 @@ def run_once(
     ]
     if pending:
         store.write_pending_history(pending, state)
-    store.write_state(state)
+    store.write_state(state, evaluated_at=now)
     _flush_history(store, pending)
 
     delivered = failed = 0
@@ -132,7 +132,7 @@ def run_once(
                 "at": now.isoformat(),
             },
         )
-    store.write_state(state)
+    store.write_state(state, evaluated_at=now)
     return RunSummary(len(evaluation.notifications), delivered, failed, len(expired))
 
 

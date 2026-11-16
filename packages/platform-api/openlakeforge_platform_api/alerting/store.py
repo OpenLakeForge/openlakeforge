@@ -79,8 +79,16 @@ class AlertStore:
             self._put(copy, body)
             return AlertState()
 
-    def write_state(self, state: AlertState) -> None:
-        self._put(self._key("state", "v1", "state.json"), state_to_json(state).encode())
+    def write_state(self, state: AlertState, *, evaluated_at: datetime) -> None:
+        """The state, stamped with `evaluated_at` so a quiet but working evaluator is told from a stopped one.
+
+        The stamp sits beside the model's document (its reader ignores unknown keys), so it changes neither the
+        state nor its digest.
+        """
+        document = json.loads(state_to_json(state))
+        document["evaluated_at"] = evaluated_at.isoformat()
+        body = json.dumps(document, sort_keys=True, separators=(",", ":"))
+        self._put(self._key("state", "v1", "state.json"), body.encode())
 
     def write_pending_history(self, records: list[PendingRecord], state: AlertState | None) -> None:
         """The transition records of a state about to be written, tagged with that state's digest; [] clears them."""

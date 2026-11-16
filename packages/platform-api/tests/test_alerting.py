@@ -175,6 +175,15 @@ def _state(bucket: FakeBucket) -> dict[str, Any]:
     return bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]
 
 
+def test_a_quiet_evaluation_still_stamps_when_it_ran() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster()}
+    _evaluate(_settings(A), bucket, dagster, {"ops": notifier}, NOW + timedelta(minutes=5))
+
+    state = _state(bucket)
+    assert state["evaluated_at"] == (NOW + timedelta(minutes=5)).isoformat()
+    assert (state["incidents"], state["outbox"], notifier.sent) == ([], [], [])
+
+
 def test_a_failed_state_write_leaves_no_phantom_transition_in_history() -> None:
     bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
     bucket.failing_writes = ("alerts/state/v1/state.json",)
