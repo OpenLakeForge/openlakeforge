@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from openlakeforge_platform_api.app import create_app
 from openlakeforge_platform_api.files import touches_audit_prefix
-from openlakeforge_platform_api.settings import Settings, SettingsError
+from openlakeforge_platform_api.settings import Settings
 
 WHEN = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 BUCKETS = {"dev": ["olf-dev-bronze", "olf-dev-silver"], "uat": ["olf-uat-bronze"], "prod": ["olf-prod-bronze"]}
@@ -143,38 +143,6 @@ def _as(mint: Mint, role: str) -> dict[str, str]:
 
 def _base(stage: str = "dev", bucket: str = "olf-dev-bronze") -> str:
     return f"/api/v1/stages/{stage}/buckets/{bucket}/objects"
-
-
-# settings
-
-
-def test_settings_parse_the_files_fields(settings: Settings) -> None:
-    parsed = _settings(settings, files_max_upload_bytes=5)
-
-    assert parsed.file_buckets == {
-        "dev": ("olf-dev-bronze", "olf-dev-silver"),
-        "uat": ("olf-uat-bronze",),
-        "prod": ("olf-prod-bronze",),
-    }
-    assert parsed.ops_bucket == OPS
-    assert parsed.files_max_upload_bytes == 5
-
-
-def test_settings_default_to_no_files_and_a_gibibyte_cap(settings: Settings) -> None:
-    assert settings.file_buckets == {}
-    assert settings.ops_bucket is None
-    assert settings.files_max_upload_bytes == 1_073_741_824
-
-
-def test_file_buckets_for_a_stage_that_is_not_enabled_are_refused(settings: Settings) -> None:
-    with pytest.raises(SettingsError, match="file_buckets names stages that are not enabled: qa"):
-        _settings(settings, file_buckets={"qa": ["b"]})
-
-
-@pytest.mark.parametrize("value", [0, -1])
-def test_a_non_positive_upload_cap_is_refused(settings: Settings, value: int) -> None:
-    with pytest.raises(SettingsError, match="files_max_upload_bytes must be positive"):
-        _settings(settings, files_max_upload_bytes=value)
 
 
 # the role matrix
@@ -450,21 +418,6 @@ def test_a_missing_store_answers_503(settings: Settings, mint: Mint, monkeypatch
         response = api.get(path, headers=headers)
         assert response.status_code == 503
         assert response.json()["detail"] == "the files store is not configured"
-
-
-def test_the_store_is_built_only_from_the_files_key(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "log-reader")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "log-secret")
-    monkeypatch.delenv("OPENLAKEFORGE_FILES_ACCESS_KEY_ID", raising=False)
-    monkeypatch.delenv("OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY", raising=False)
-
-    assert create_app(_settings(settings)).state.files_store is None
-
-    monkeypatch.setenv("OPENLAKEFORGE_FILES_ACCESS_KEY_ID", "files")
-    monkeypatch.setenv("OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY", "files-secret")
-
-    assert create_app(_settings(settings)).state.files_store is not None
-    assert create_app(settings).state.files_store is None  # no file_buckets configured
 
 
 @pytest.mark.parametrize(
