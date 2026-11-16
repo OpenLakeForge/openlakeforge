@@ -39,14 +39,19 @@ def parse_size(text: str) -> int:
 
 
 def scan_stage(directory: Path, *, now: float) -> tuple[float | None, int]:
-    """The oldest file's age in seconds (None when there is none) and the bytes held under `directory`."""
+    """The oldest file's age in seconds (None when there is none) and the bytes held under `directory`.
+
+    Only a path that vanishes is tolerated: the plugin uploads and removes files while this runs, and a spool
+    directory it has not created yet is an empty spool. Any other OSError (permissions, I/O) propagates, because
+    skipping it would report a spool nobody could read as an empty one.
+    """
     oldest: float | None = None
     size = 0
     pending = [directory]
     while pending:
         try:
             entries = list(pending.pop().iterdir())
-        except OSError:
+        except FileNotFoundError:
             continue
         for entry in entries:
             try:
@@ -57,8 +62,7 @@ def scan_stage(directory: Path, *, now: float) -> tuple[float | None, int]:
                         pending.append(entry)
                     continue
                 info = entry.stat()
-            except OSError:
-                # Uploaded and removed between the listing and the stat.
+            except FileNotFoundError:
                 continue
             size += info.st_size
             age = max(0.0, now - info.st_mtime)
@@ -67,13 +71,19 @@ def scan_stage(directory: Path, *, now: float) -> tuple[float | None, int]:
 
 
 def build_report(root: Path, stages: Mapping[str, str], limit_bytes: int, *, now: float) -> dict[str, Any]:
-    scanned = {stage: scan_stage(root / name, now=now) for stage, name in stages.items()}
+    report: dict[str, Any] = {}
+    for stage, name in stages.items():
+        try:
+            oldest, size = scan_stage(root / name, now=now)
+        except OSError:
+            # Unreadable is not empty: the consumer reads it as unknown, never as a healthy spool.
+            report[stage] = {"oldest_file_age_seconds": None, "size_bytes": 0, "unreadable": True}
+        else:
+            report[stage] = {"oldest_file_age_seconds": oldest, "size_bytes": size}
     return {
         "observed_at": datetime.fromtimestamp(now, UTC).isoformat(),
         "limit_bytes": limit_bytes,
-        "stages": {
-            stage: {"oldest_file_age_seconds": oldest, "size_bytes": size} for stage, (oldest, size) in scanned.items()
-        },
+        "stages": report,
     }
 
 
@@ -89,6 +99,7 @@ def parse_report(payload: Mapping[str, Any]) -> list[SpoolObservation]:
                 oldest_file_age=None if age is None else timedelta(seconds=float(age)),
                 size_bytes=int(values["size_bytes"]),
                 limit_bytes=limit,
+                unreadable=values.get("unreadable") is True,
             )
             for stage, values in payload["stages"].items()
             for age in [values["oldest_file_age_seconds"]]

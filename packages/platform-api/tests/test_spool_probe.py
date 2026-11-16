@@ -118,3 +118,43 @@ def test_the_server_answers_the_spool_path_only(tmp_path: Path) -> None:
 
     assert [(o.stage, o.size_bytes) for o in observed] == [("dev", 10)]
     assert missing.value.code == 404
+
+
+def test_a_spool_that_cannot_be_read_is_reported_unreadable_not_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _file(tmp_path / "spool-dev" / "nested" / "a", 10, 60)
+    _file(tmp_path / "spool-prod" / "b", 5, 30)
+    real = Path.iterdir
+
+    def deny_nested(self: Path):  # type: ignore[no-untyped-def]
+        if self.name == "nested":
+            raise PermissionError(13, "denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "iterdir", deny_nested)
+
+    report = spool_probe.build_report(tmp_path, {"dev": "spool-dev", "prod": "spool-prod"}, 1000, now=NOW)
+    by_stage = {o.stage: o for o in spool_probe.parse_report(report)}
+
+    assert report["stages"]["dev"]["unreadable"] is True
+    assert by_stage["dev"].unreadable
+    assert not by_stage["prod"].unreadable
+    assert by_stage["prod"].size_bytes == 5
+
+
+def test_a_file_that_vanishes_mid_scan_does_not_hide_the_rest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _file(tmp_path / "spool-dev" / "kept", 10, 600)
+    _file(tmp_path / "spool-dev" / "gone", 99, 9000)
+    real = Path.stat
+
+    def vanish(self: Path, **kwargs):  # type: ignore[no-untyped-def]
+        if self.name == "gone":
+            raise FileNotFoundError(2, "uploaded and removed")
+        return real(self, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", vanish)
+
+    report = spool_probe.build_report(tmp_path, {"dev": "spool-dev"}, 1000, now=NOW)
+
+    assert report["stages"]["dev"] == {"oldest_file_age_seconds": 600, "size_bytes": 10}

@@ -48,6 +48,8 @@ class SpoolObservation:
     oldest_file_age: timedelta | None
     size_bytes: int
     limit_bytes: int
+    # The probe could not read the spool; the other fields then say nothing and the signals are `unknown`.
+    unreadable: bool = False
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None:
@@ -125,6 +127,15 @@ def _unusable(
             component,
             HealthState.UNKNOWN,
             "observation is stale",
+            now=observation.observed_at,
+            max_age=max_age,
+        )
+    if observation.unreadable:
+        return service_signal(
+            Scope(stage=stage),
+            component,
+            HealthState.UNKNOWN,
+            "the collector could not read its spool",
             now=observation.observed_at,
             max_age=max_age,
         )

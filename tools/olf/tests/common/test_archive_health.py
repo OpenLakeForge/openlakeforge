@@ -97,3 +97,13 @@ def test_an_observation_cannot_be_judged_as_another_stage() -> None:
 def test_an_unbounded_spool_is_not_an_observation() -> None:
     with pytest.raises(ValueError, match="limit"):
         SpoolObservation("dev", NOW, None, 0, 0)
+
+
+@pytest.mark.parametrize("evaluate", [evaluate_spool_age, evaluate_spool_size])
+def test_a_spool_the_probe_could_not_read_is_unknown_never_healthy(evaluate) -> None:  # type: ignore[no-untyped-def]
+    unreadable = SpoolObservation("dev", NOW - timedelta(seconds=5), None, 0, LIMIT, unreadable=True)
+
+    signal = evaluate("dev", unreadable, now=NOW, max_age=MAX_AGE)
+
+    assert signal.state is HealthState.UNKNOWN
+    assert "could not read" in signal.reason

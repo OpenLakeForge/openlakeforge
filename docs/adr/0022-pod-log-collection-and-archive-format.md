@@ -123,6 +123,7 @@ over the pods (F42 in ADR 0017 opens that one port).
 | Privilege | uid 0, because the spool is root-owned; no capability, no privilege escalation, read-only root filesystem, `RuntimeDefault` seccomp |
 | Credentials | none: no S3 key. It shares the pod's ServiceAccount token, which is the collector's read of pods and namespaces |
 | Pod security | `olf-system` carries no Pod Security label [V: no `pod-security.kubernetes.io` in `infra/`], so the pod is admitted as the collector is; a cluster that enforces `baseline` would also refuse the collector's `hostPath` mounts, which is why the sidecar adds nothing to that decision |
+| Unreadable spool | A permission or I/O error on the spool is reported as `unreadable` and both signals read `unknown`; only a file or directory that vanishes mid-scan, or a spool directory the plugin has not created yet, is tolerated and measured as empty |
 | Without the image | no sidecar and no Service; the signals read as `unknown`, never `healthy` |
 
 The thresholds are proposed defaults and are the maintainers' to review: ADR
