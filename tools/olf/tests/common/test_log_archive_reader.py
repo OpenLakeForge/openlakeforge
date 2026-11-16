@@ -123,7 +123,7 @@ def test_a_day_reads_every_archive_oldest_first(store: _ObjectStore, archive: Ar
 
     assert [line.line for line in lines] == ["early", "second", "late"]
     assert lines[0] == ArchivedLogLine(
-        archived_at=_at(9).isoformat(), namespace="olf-dev", pod="dagster-0", container="web", line="early"
+        archived_at=_at(9).isoformat(), namespace="olf-dev", pod="dagster-0", container="web", line="early", source="v1"
     )
 
 

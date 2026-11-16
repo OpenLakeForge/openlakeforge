@@ -232,7 +232,8 @@ module "seaweedfs" {
     namespace               = kubernetes_namespace_v1.shared.metadata[0].name
     credentials_secret_name = "platform-api-log-reader-s3-creds"
     ops_bucket_name         = var.ops_bucket_name
-    prefixes                = [for prefix in values(local.stage_log_prefixes) : "${prefix}/k8s/"]
+    # v1 (the polling archiver) and v2 (the collector) of each stage; never the platform prefix, which no stage's reader may see.
+    prefixes = flatten([for prefix in values(local.stage_log_prefixes) : ["${prefix}/k8s/", "${prefix}/v2/"]])
   } : null
   audit_writer_credentials = local.platform_api_enabled ? {
     namespace               = kubernetes_namespace_v1.shared.metadata[0].name

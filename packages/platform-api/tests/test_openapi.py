@@ -92,8 +92,10 @@ def test_jobs_log_lines_and_data_products_keep_their_wire_form() -> None:
     product = ServiceDataProduct("orders", "Orders", ("sales", "finance"))
 
     assert _typed(models.Jobs(jobs=[models.Job(**asdict(job))])) == _wire({"jobs": [asdict(job)]})
-    assert _typed(models.Logs(lines=[models.LogLine(**asdict(line)) for line in lines], truncated=True)) == _wire(
-        {"lines": [asdict(line) for line in lines], "truncated": True}
+    # The reader's lines carry more fields than the route answers with.
+    answered = [{name: asdict(line)[name] for name in models.LogLine.model_fields} for line in lines]
+    assert _typed(models.Logs(lines=[models.LogLine(**line) for line in answered], truncated=True)) == _wire(
+        {"lines": answered, "truncated": True}
     )
     assert _typed(models.DataProducts(data_products=[models.DataProduct(**asdict(product))])) == _wire(
         {"data_products": [asdict(product)]}

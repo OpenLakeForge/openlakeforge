@@ -187,7 +187,7 @@ what it may launch.
 | `olf runs list` | The stage's most recent runs, newest first; `--job` for one job, `--limit` 1 to 100 (default 20) | `data-engineer` |
 | `olf runs show <run-id>` | One run's status, times and tags | `data-engineer` |
 | `olf runs launch <job>` | Launches the job as you, on `dev` only; the API stores an audit record first and launches nothing if it cannot | `data-engineer` |
-| `olf logs` | The stage's archived pod log lines for a day (`--date`, default today in UTC) or one `--hour`; `--pod`, `--container`, `--limit` 1 to 5000 (default 500) | `data-engineer` |
+| `olf logs` | The stage's archived pod log lines for a day (`--date`, default today in UTC) or one `--hour`; `--pod`, `--container`, `--limit` 1 to 5000 (default 500) | `data-engineer` on `dev`; `platform-admin` on every stage |
 | `olf health <stage>` | The stage's health: its state, each service's state and reason, each pipeline's state; `unknown` and `disabled` print as themselves, never as healthy | `data-engineer` |
 | `olf pipelines health <stage>` | Each pipeline's state and the reason behind it | `data-engineer` |
 | `olf domain list` | Governance domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |
