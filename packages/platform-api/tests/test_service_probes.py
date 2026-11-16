@@ -659,3 +659,42 @@ def test_a_stage_without_a_collector_probe_or_archive_reports_those_signals_disa
 
     for component in ("log-archive.spool-age", "log-archive.spool-size", "log-archive.newest-object"):
         assert signals[component].state is HealthState.DISABLED
+
+
+def test_a_collector_pod_that_does_not_answer_is_counted_and_makes_the_spool_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    healthy_report = {
+        "observed_at": NOW.isoformat(),
+        "limit_bytes": 512_000_000,
+        "stages": {"dev": {"oldest_file_age_seconds": None, "size_bytes": 0}},
+    }
+
+    class Answer:
+        def __init__(self, ok: bool) -> None:
+            self.ok = ok
+
+        def raise_for_status(self) -> None:
+            if not self.ok:
+                raise requests.ConnectionError("no answer")
+
+        def json(self) -> dict[str, Any]:
+            return healthy_report
+
+    def get(url: str, timeout: float) -> Answer:
+        return Answer(ok="10.0.0.1" in url)
+
+    def resolve(host: str | None, port: int | None, **_: Any) -> list[Any]:
+        return [(2, 1, 6, "", ("10.0.0.1", port)), (2, 1, 6, "", ("10.0.0.2", port))]
+
+    monkeypatch.setattr(service_probes.socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(service_probes.requests, "get", get)
+    read = service_probes.in_cluster_spool_read(2.0)
+
+    observations, unanswered = read("http://log-collector-probe.olf-system.svc:2021")
+    signals = by_component(probes(spool_read=read).probe(ALL))
+
+    assert (len(observations), unanswered) == (1, 1)
+    assert signals["log-archive.spool-age"].state is HealthState.UNKNOWN
+    assert signals["log-archive.spool-size"].state is HealthState.UNKNOWN
+    assert "did not answer" in signals["log-archive.spool-age"].reason

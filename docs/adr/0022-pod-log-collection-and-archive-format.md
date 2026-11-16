@@ -125,6 +125,7 @@ over the pods (F42 in ADR 0017 opens that one port).
 | Credentials | none: no S3 key. It shares the pod's ServiceAccount token, which is the collector's read of pods and namespaces |
 | Pod security | `olf-system` carries no Pod Security label [V: no `pod-security.kubernetes.io` in `infra/`], so the pod is admitted as the collector is; a cluster that enforces `baseline` would also refuse the collector's `hostPath` mounts, which is why the sidecar adds nothing to that decision |
 | Unreadable spool | A permission or I/O error on the spool is reported as `unreadable` and both signals read `unknown`; only a file or directory that vanishes mid-scan, or a spool directory the plugin has not created yet, is tolerated and measured as empty |
+| Pods the API cannot see | The headless Service publishes not-ready pods, so a collector that is up but unready is asked, and one that does not answer makes the signals `unknown`. A pod with no IP yet (Pending) is in no DNS answer, and the API cannot list `olf-system` pods to notice it; that gap is out of scope here, and the newest-object signal still sees a stage whose archive stops |
 | Without the image | no sidecar and no Service; the signals read as `unknown`, never `healthy` |
 
 The thresholds are proposed defaults and are the maintainers' to review: ADR
