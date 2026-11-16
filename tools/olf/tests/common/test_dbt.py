@@ -280,3 +280,53 @@ def test_gold_maintenance_covers_one_schema_per_product(monkeypatch: pytest.Monk
         "lakehouse_dev_inventory_reliability_gold",
         "lakehouse_dev_order_revenue_gold",
     ]
+
+
+def _gold_model_entries() -> dict[str, dict]:
+    entries: dict[str, dict] = {}
+    for schema in sorted((GOLD / "models").glob("*/schema.yml")):
+        for entry in yaml.safe_load(schema.read_text(encoding="utf-8")).get("models", []):
+            entries[entry["name"]] = entry
+    return entries
+
+
+def test_every_reference_mart_tests_its_grain_and_describes_its_columns() -> None:
+    entries = _gold_model_entries()
+    marts = {path.stem for path in (GOLD / "models").glob("*/mart_*.sql")}
+    assert marts == set(entries)
+    for name, entry in entries.items():
+        columns = entry.get("columns", [])
+        assert columns and all(column.get("description") for column in columns), name
+        tests = {column["name"]: column.get("data_tests", []) for column in columns}
+        keyed = [column for column, column_tests in tests.items() if "not_null" in column_tests]
+        assert keyed, name
+        composite = [test for test in entry.get("data_tests", []) if isinstance(test, dict)]
+        if composite:
+            combination = composite[0]["openlakeforge_dbt.unique_combination_of_columns"]["arguments"]
+            assert sorted(combination["combination_of_columns"]) == sorted(keyed), name
+        else:
+            assert len(keyed) == 1 and "unique" in tests[keyed[0]], name
+
+
+def test_a_scaffolded_gold_schema_carries_the_commented_grain_test_block() -> None:
+    from olf.common.scaffold import _templates
+
+    text = _templates.render_gold_schema_yml(product="p", gold_tables=(("mart_a", "A."), ("mart_b", "B.")))
+
+    assert text.count("#       - unique") == 2 and text.count("#       - not_null") == 2
+    models = yaml.safe_load(text)["models"]
+    assert [model["name"] for model in models] == ["mart_a", "mart_b"] and all("columns" not in m for m in models)
+
+
+def test_untested_models_lists_only_models_no_test_depends_on() -> None:
+    from olf.common.commands.checks import _dbt
+
+    tested = _model("tested", "order_revenue", schema="order_revenue_gold")
+    bare = _model("bare", "order_revenue", schema="order_revenue_gold")
+    check = {"resource_type": "test", "name": "unique_tested_id", "depends_on": {"nodes": ["model.gold.tested"]}}
+    manifest = {
+        "metadata": {"project_name": "gold"},
+        "nodes": {"model.gold.tested": tested, "model.gold.bare": bare, "test.gold.unique_tested_id": check},
+    }
+
+    assert _dbt.untested_models(manifest) == ["bare"]

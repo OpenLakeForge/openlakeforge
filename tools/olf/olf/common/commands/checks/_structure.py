@@ -146,6 +146,7 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "packages/runtime/openlakeforge_runtime/dbt/__init__.py",
     "packages/runtime/openlakeforge_runtime/dbt/openlakeforge_dbt/dbt_project.yml",
     "packages/runtime/openlakeforge_runtime/dbt/openlakeforge_dbt/macros/generate_schema_name.sql",
+    "packages/runtime/openlakeforge_runtime/dbt/openlakeforge_dbt/macros/unique_combination_of_columns.sql",
     "packages/runtime/openlakeforge_runtime/dbt/profiles/trino.yml",
     "packages/runtime/openlakeforge_runtime/dbt/render_profiles.py",
     "packages/runtime/openlakeforge_runtime/product_dagster.py",
