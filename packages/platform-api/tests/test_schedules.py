@@ -9,8 +9,10 @@ import pytest
 from openlakeforge_platform_api.schedules import latest_due
 
 
-def _utc(*parts: int) -> datetime:
-    return datetime(*parts, tzinfo=UTC)
+def _utc(
+    year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0, microsecond: int = 0
+) -> datetime:
+    return datetime(year, month, day, hour, minute, second, microsecond, tzinfo=UTC)
 
 
 @pytest.mark.parametrize(

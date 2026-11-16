@@ -30,6 +30,7 @@ dev = [
   "mypy>=1.13,<2",
   "pytest>=9.0.3,<10",
   "PyYAML>=6,<7",
+  "types-croniter>=6.2.4.20261006",
   "types-pyyaml>=6.0.12.20260815",
 ]
 
