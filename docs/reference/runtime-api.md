@@ -73,7 +73,8 @@ raises a transient network error (a `ConnectionError` or `TimeoutError`, a
 connection, read-timeout, connection-closed or response-streaming error, also
 as the cause dlt wraps in `PipelineStepFailed`), the loader runs again after
 15 s, then 30 s, then 60 s (15 s doubling, at most 2 minutes), so 3 retries by
-default. Any other error fails the step at once. An interrupt
+default. A TLS or proxy error (`ssl.SSLError`, or the `requests` and botocore SSL and proxy errors, which are
+connection errors too) and any other error fail the step at once. An interrupt
 (`KeyboardInterrupt`, `SystemExit` or Dagster's `DagsterExecutionInterruptedError`,
 raised when a run is terminated) is never retried, so a terminated run stops.
 The wait is a sleep in the run pod, so the run keeps its queue slot meanwhile.

@@ -38,20 +38,38 @@ _TRANSIENT_NAMES = (
     "botocore.exceptions.ConnectionClosedError",
     "botocore.exceptions.ResponseStreamingError",
 )
+# A broken certificate or proxy never heals by waiting, yet these subclass the transient connection errors above
+# (`requests`' and botocore's `ConnectionError`), so they are checked first and fail the step at once.
+_PERMANENT_NAMES = (
+    "ssl.SSLError",  # includes SSLCertVerificationError
+    "ssl.SSLCertVerificationError",
+    "requests.exceptions.SSLError",
+    "requests.exceptions.ProxyError",
+    "botocore.exceptions.SSLError",
+    "botocore.exceptions.ProxyConnectionError",
+)
 # Dagster's `DagsterExecutionInterruptedError` is a BaseException like these; it is matched by name so this
 # module needs no dagster import.
 _NEVER_RETRY_NAMES = ("DagsterExecutionInterruptedError",)
 
 
-def _transient_types() -> tuple[type[BaseException], ...]:
+def _resolve(names: tuple[str, ...]) -> tuple[type[BaseException], ...]:
     types: list[type[BaseException]] = []
-    for name in _TRANSIENT_NAMES:
+    for name in names:
         module, _, attr = name.rpartition(".")
         try:
             types.append(getattr(import_module(module), attr))
         except (ImportError, AttributeError):
             continue
     return tuple(types)
+
+
+def _transient_types() -> tuple[type[BaseException], ...]:
+    return _resolve(_TRANSIENT_NAMES)
+
+
+def _permanent_types() -> tuple[type[BaseException], ...]:
+    return _resolve(_PERMANENT_NAMES)
 
 
 def _is_interrupt(exc: BaseException) -> bool:
@@ -75,6 +93,8 @@ def _causes(exc: BaseException) -> list[BaseException]:
 def is_transient(exc: BaseException) -> bool:
     chain = _causes(exc)
     if any(_is_interrupt(link) for link in chain):
+        return False
+    if any(isinstance(link, _permanent_types()) for link in chain):
         return False
     return any(isinstance(link, _transient_types()) for link in chain)
 

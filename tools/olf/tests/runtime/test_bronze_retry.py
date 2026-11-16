@@ -1,3 +1,5 @@
+import ssl
+
 import botocore.exceptions
 import pytest
 import requests
@@ -59,6 +61,28 @@ def test_a_transient_error_is_retried_until_a_later_attempt_succeeds(error: Base
 
 @pytest.mark.parametrize("error", [ValueError("bad row"), PermissionError("denied"), _Wrapped(KeyError("x"))])
 def test_any_other_error_is_raised_at_once(error: BaseException) -> None:
+    flaky = _Flaky([error])
+    sleeps: list[float] = []
+
+    with pytest.raises(type(error)):
+        call_with_transient_retry(flaky, retries=3, sleep=sleeps.append)
+
+    assert flaky.calls == 1
+    assert sleeps == []
+
+
+_TLS_AND_PROXY = [
+    ssl.SSLError("handshake"),
+    ssl.SSLCertVerificationError("bad cert"),
+    requests.exceptions.SSLError("bad cert"),
+    requests.exceptions.ProxyError("proxy refused"),
+    botocore.exceptions.SSLError(endpoint_url="https://s3", error="bad cert"),
+    botocore.exceptions.ProxyConnectionError(proxy_url="http://proxy"),
+]
+
+
+@pytest.mark.parametrize("error", [*_TLS_AND_PROXY, *(_Wrapped(e) for e in _TLS_AND_PROXY)])
+def test_a_tls_or_proxy_error_is_never_retried_though_it_is_a_connection_error(error: BaseException) -> None:
     flaky = _Flaky([error])
     sleeps: list[float] = []
 
