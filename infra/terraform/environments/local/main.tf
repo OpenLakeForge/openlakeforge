@@ -304,9 +304,6 @@ module "platform_api" {
     }
     if local.query_api_enabled
   }
-  # The one Kubernetes read the API holds (ADR 0021, decision 7): list pods and
-  # controllers in each stage's own namespace, for its service probes.
-  probe_namespaces = { for name, namespace in kubernetes_namespace_v1.stage : name => namespace.metadata[0].name }
   # Reached in-cluster over F32 (ADR 0017), around the perimeter.
   dagster_graphql_urls = {
     for name in keys(local.enabled_stages) :

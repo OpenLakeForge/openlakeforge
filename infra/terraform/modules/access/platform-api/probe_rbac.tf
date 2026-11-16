@@ -20,6 +20,13 @@ resource "kubernetes_role_v1" "probe" {
     labels    = local.labels
   }
 
+  lifecycle {
+    precondition {
+      condition     = !contains(["kube-system", var.namespace], each.value)
+      error_message = "probe_namespaces must not name the API's own namespace or kube-system (ADR 0021, decision 7)."
+    }
+  }
+
   rule {
     api_groups = [""]
     resources  = ["pods"]

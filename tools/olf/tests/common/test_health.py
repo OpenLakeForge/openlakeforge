@@ -22,6 +22,7 @@ from openlakeforge_core import (
     evaluate_workload,
     rollup,
     rollup_by_stage,
+    service_signal,
     worst_state,
 )
 
@@ -234,7 +235,7 @@ def _workload(desired: int, ready: int, observed_at: datetime = FRESH, **kwargs:
         (_workload(2, 0), HealthState.CRITICAL),
         (_workload(1, 1, unschedulable=1), HealthState.CRITICAL),
         (_workload(1, 1, crash_looping=1), HealthState.WARNING),
-        (_workload(1, 1, max_restarts=3), HealthState.WARNING),
+        (_workload(1, 1, recent_restarts=3), HealthState.WARNING),
         (_workload(0, 0), HealthState.WARNING),
         (_workload(1, 1, STALE), HealthState.UNKNOWN),
         (None, HealthState.UNKNOWN),
@@ -247,3 +248,17 @@ def test_workload_state_follows_readiness_restarts_and_age(
     assert signal.state is expected
     assert signal.kind is SignalKind.SERVICE
     assert signal.component == "dagster"
+
+
+def test_service_signal_carries_unknown_and_disabled_states() -> None:
+    unknown = service_signal(DEV, "trino", HealthState.UNKNOWN, "probe timed out", now=NOW, max_age=MAX_AGE)
+    disabled = service_signal(DEV, "trino", HealthState.DISABLED, "not deployed", now=NOW, max_age=MAX_AGE)
+    assert (unknown.state, disabled.state) == (HealthState.UNKNOWN, HealthState.DISABLED)
+    assert unknown.kind is SignalKind.SERVICE and unknown.component == "trino"
+    assert unknown.reason == "probe timed out"
+
+
+def test_service_signal_expires_max_age_after_observation() -> None:
+    signal = service_signal(DEV, "dagster", HealthState.HEALTHY, "ok", now=NOW, max_age=MAX_AGE)
+    assert signal.observed_at == NOW
+    assert signal.expires_at == NOW + MAX_AGE

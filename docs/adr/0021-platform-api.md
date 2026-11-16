@@ -268,7 +268,9 @@ for a footprint-sensitive audience, and the exposure it would avoid is small
 because the grant is read-only and namespaced. What a compromised API gains is
 the names, labels, environment values and status of pods and controllers in
 the stage namespaces; no Secret, log, exec or write. The probe component is
-the fallback if a later signal needs more than this list.
+the fallback if a later signal needs more than this list. The grant is defined
+in the module but not wired: no environment passes `probe_namespaces` until the
+adapter that uses the token lands.
 
 | Where | apiGroup | Resources | Verbs |
 | --- | --- | --- | --- |
@@ -279,7 +281,9 @@ Nothing else: no `ClusterRole`, no `get` or `watch`, nothing in `olf-system`
 (the object store is probed over S3, not through Kubernetes), no `secrets`,
 `pods/log`, `pods/exec` or `events`. The module's `probe_namespaces` creates
 the Roles and mounts the ServiceAccount token only when it is non-empty, so a
-deployment without it is as before. Terraform tests assert the exact rules.
+deployment without it is as before; it refuses `kube-system` and the API's own
+namespace. Terraform tests assert the exact rules. Restarts are judged over a
+recent window, never the lifetime `restartCount`, which does not reset.
 
 The probes will live in `openlakeforge_platform_api.service_probes`, behind the
 health routes. Each emits a SERVICE `Signal` (`openlakeforge_core.health`) with
@@ -560,6 +564,7 @@ not the release, so a release bump does not change it.
 Issue #1126, decision 7: platform health reads the cluster through a Role per
 stage namespace for the API's own ServiceAccount (`list` on pods, deployments
 and statefulsets), not through a probe component. Decision 6's "no Kubernetes
-permission" now has this one exception. The Roles exist; the probe adapter,
-the health routes (#1127) and the ADR 0017 rows (open item 4) are not yet
-wired, and nothing has run against a cluster.
+permission" now has this one exception. The grant is defined but not wired:
+`environments/local` passes no `probe_namespaces`, so the pod mounts no token,
+until the probe adapter, the health routes (#1127) and the ADR 0017 rows (open
+item 4) land together. Nothing has run against a cluster.

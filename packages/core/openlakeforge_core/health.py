@@ -137,8 +137,10 @@ class WorkloadObservation:
     # Pods that are Pending because no node fits them, and pods waiting in CrashLoopBackOff.
     unschedulable: int = 0
     crash_looping: int = 0
-    # The highest container restart count on any pod: a pod that was killed and came back is ready again.
-    max_restarts: int = 0
+    # The highest count, on any pod, of container restarts inside a recent window. The observer counts only
+    # restarts whose lastState.terminated.finishedAt is within that window: the cluster's restartCount never
+    # resets, so a lifetime count would keep the workload on WARNING forever.
+    recent_restarts: int = 0
     evidence_uri: str | None = None
 
 
@@ -256,8 +258,8 @@ def evaluate_workload(
         state, reason = HealthState.WARNING, f"{ready}; {workload.crash_looping} crash looping"
     elif workload.ready < workload.desired:
         state, reason = HealthState.WARNING, ready
-    elif workload.max_restarts >= restart_warning:
-        state, reason = HealthState.WARNING, f"{ready}; {workload.max_restarts} restarts"
+    elif workload.recent_restarts >= restart_warning:
+        state, reason = HealthState.WARNING, f"{ready}; {workload.recent_restarts} recent restarts"
     else:
         state, reason = HealthState.HEALTHY, ready
     return _service(scope, component, state, reason, workload.observed_at, workload.evidence_uri, max_age)

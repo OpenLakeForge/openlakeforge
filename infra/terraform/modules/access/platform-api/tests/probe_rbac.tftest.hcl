@@ -55,7 +55,40 @@ run "probe_role_lists_pods_and_controllers_in_each_stage_namespace_only" {
   }
 
   assert {
+    condition = (
+      kubernetes_role_binding_v1.probe["prod"].subject[0].kind == "ServiceAccount"
+      && kubernetes_role_binding_v1.probe["prod"].subject[0].name == kubernetes_deployment_v1.platform_api.spec[0].template[0].spec[0].service_account_name
+    )
+    error_message = "the binding subject must be the ServiceAccount the pod runs as"
+  }
+
+  assert {
+    condition     = kubernetes_role_binding_v1.probe["prod"].role_ref[0].name == kubernetes_role_v1.probe["prod"].metadata[0].name
+    error_message = "the binding must reference the Role of its own namespace"
+  }
+
+  assert {
     condition     = kubernetes_deployment_v1.platform_api.spec[0].template[0].spec[0].automount_service_account_token == true
     error_message = "the pod needs its token to list"
   }
+}
+
+run "probe_namespaces_refuse_the_apis_own_namespace" {
+  command = plan
+
+  variables {
+    probe_namespaces = { dev = "olf-system" }
+  }
+
+  expect_failures = [kubernetes_role_v1.probe]
+}
+
+run "probe_namespaces_refuse_kube_system" {
+  command = plan
+
+  variables {
+    probe_namespaces = { dev = "kube-system" }
+  }
+
+  expect_failures = [kubernetes_role_v1.probe]
 }
