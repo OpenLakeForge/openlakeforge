@@ -473,7 +473,23 @@ def render_gold_schema_yml(*, product: str, gold_tables: tuple[tuple[str, str], 
     for name, description in gold_tables:
         lines.append(f"  - name: {name}")
         lines.append(f"    description: {description}")
+        lines.extend(_GOLD_GRAIN_TEST_BLOCK)
     return "\n".join(lines) + "\n"
+
+
+# Commented because the grain is the author's to name: a guessed key would fail the first run or pass vacuously.
+# `olf check dbt` warns for every mart that still has no test.
+_GOLD_GRAIN_TEST_BLOCK = (
+    "    # Name the column(s) that make one row unique, then uncomment. For a grain of several columns put",
+    "    # openlakeforge_dbt.unique_combination_of_columns under the model's `data_tests:`",
+    "    # and not_null on each column.",
+    "    # columns:",
+    "    #   - name: <grain_column>",
+    "    #     description: <what one value identifies>",
+    "    #     data_tests:",
+    "    #       - unique",
+    "    #       - not_null",
+)
 
 
 def render_dagster_product_module(*, domain: str, product: str) -> str:

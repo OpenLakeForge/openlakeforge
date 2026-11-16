@@ -7,8 +7,91 @@ groups:
 
 models:
   - name: mart_customer_health_score
-    description: Account-level health score using subscription, support, and NPS signals.
+    description: Account-level health score using subscription, support, and NPS signals. One row per account.
+    columns:
+      - name: account_id
+        description: Account identifier; the grain.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_name
+        description: Account display name.
+      - name: segment
+        description: Account segment.
+      - name: region
+        description: Account region.
+      - name: arr
+        description: Annual recurring revenue of the account.
+      - name: subscription_status
+        description: Status of the account's subscription.
+      - name: monthly_recurring_revenue
+        description: Monthly recurring revenue of the account's subscription.
+      - name: ticket_count
+        description: Support tickets opened by the account.
+      - name: avg_resolution_hours
+        description: Average ticket resolution time in hours; 0 without tickets.
+      - name: sla_rate
+        description: Share of tickets that met their SLA; 1 without tickets.
+      - name: avg_nps
+        description: Average NPS score; 7 without responses.
+      - name: health_score
+        description: Composite score from NPS, SLA rate, ticket count and past-due status.
   - name: mart_churn_risk_by_segment
-    description: Churn risk and ARR exposure grouped by account segment and region.
+    description: Churn risk and ARR exposure grouped by account segment and region. One row per segment, region and churn risk band.
+    data_tests:
+      - openlakeforge_dbt.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - segment
+              - region
+              - churn_risk
+    columns:
+      - name: segment
+        description: Account segment.
+        data_tests:
+          - not_null
+      - name: region
+        description: Account region.
+        data_tests:
+          - not_null
+      - name: churn_risk
+        description: Churn risk band derived from the health score, high, medium or low.
+        data_tests:
+          - not_null
+      - name: account_count
+        description: Accounts in the band.
+      - name: arr_at_risk
+        description: Summed ARR of the accounts in the band.
+      - name: avg_health_score
+        description: Average health score of the accounts in the band.
   - name: mart_support_sla_by_customer
-    description: Support volume, resolution hours, and SLA rate by customer and priority.
+    description: Support volume, resolution hours, and SLA rate by customer and priority. One row per account and ticket priority.
+    data_tests:
+      - openlakeforge_dbt.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - account_id
+              - priority
+    columns:
+      - name: account_id
+        description: Account identifier.
+        data_tests:
+          - not_null
+      - name: account_name
+        description: Account display name.
+      - name: segment
+        description: Account segment.
+      - name: region
+        description: Account region.
+      - name: priority
+        description: Ticket priority.
+        data_tests:
+          - not_null
+      - name: ticket_count
+        description: Tickets at this priority.
+      - name: avg_resolution_hours
+        description: Average resolution time in hours.
+      - name: tickets_met_sla
+        description: Tickets that met their SLA.
+      - name: sla_rate
+        description: Share of tickets that met their SLA.
