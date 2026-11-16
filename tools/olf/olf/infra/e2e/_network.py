@@ -64,6 +64,7 @@ E1_PINS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "platform-api-log-reader-s3-creds",
             "platform-api-audit-writer-s3-creds",
             "platform-api-files-s3-creds",
+            "log-collector-s3-creds",
         ),
     ),
     ("*-credentials", ("*-client-*",)),  # dex-credentials

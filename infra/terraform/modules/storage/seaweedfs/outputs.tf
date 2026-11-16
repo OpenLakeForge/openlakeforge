@@ -54,6 +54,12 @@ output "audit_writer_secret_name" {
   depends_on  = [kubernetes_job_v1.credentials]
 }
 
+output "log_collector_secret_name" {
+  description = "Secret holding the log collector's write-only key for the v2 archive prefixes, or null when log_collector_credentials is."
+  value       = var.log_collector_credentials == null ? null : var.log_collector_credentials.credentials_secret_name
+  depends_on  = [kubernetes_job_v1.credentials]
+}
+
 output "files_secret_name" {
   description = "Secret holding the platform API's files explorer key, or null when files_credentials is."
   value       = var.files_credentials == null ? null : var.files_credentials.credentials_secret_name

@@ -46,6 +46,7 @@ workloads:
   dex-credentials: {openlakeforge.io/job: dex-credentials}
   perimeter-cookie-secret: {openlakeforge.io/job: perimeter-cookie-secret}
   publish-local-ca: {openlakeforge.io/job: publish-local-ca}
+  log-collector: {app.kubernetes.io/name: log-collector}
   postgresql-credentials: {openlakeforge.io/job: postgresql-credentials}
   openmetadata-role-sync: {openlakeforge.io/job: openmetadata-role-sync}
 flows:
@@ -204,6 +205,16 @@ flows:
     from: [{scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}, {scope: shared, pods: {app.kubernetes.io/name: cert-manager, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: controller}}, {scope: shared, pods: {app.kubernetes.io/name: cainjector, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: cainjector}}, {scope: shared, pods: {app.kubernetes.io/name: webhook, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: webhook}}, {scope: shared, pods: {app.kubernetes.io/name: startupapicheck, app.kubernetes.io/instance: cert-manager, app.kubernetes.io/component: startupapicheck}}, {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}, {scope: shared, pods: {openlakeforge.io/job: dex-credentials}}, {scope: shared, pods: {openlakeforge.io/job: perimeter-cookie-secret}}, {scope: shared, pods: {openlakeforge.io/job: publish-local-ca}}, {scope: shared, pods: {openlakeforge.io/job: postgresql-credentials}}]
     to: {scope: apiserver}
     ports: [443, 6443]
+    tag: T # Service port and endpoint port; DNAT order is unconfirmed
+  - id: F37
+    from: {scope: shared, pods: {app.kubernetes.io/name: log-collector}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs, app.kubernetes.io/component: s3}}
+    ports: [8333] # archive format v2, with the write-only key for the v2 prefixes
+    tag: T # needs a collected line in the archive on a running cluster
+  - id: F37
+    from: {scope: shared, pods: {app.kubernetes.io/name: log-collector}}
+    to: {scope: apiserver}
+    ports: [443, 6443] # the kubernetes filter's pod and namespace metadata
     tag: T # Service port and endpoint port; DNAT order is unconfirmed
   - id: F20
     from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
