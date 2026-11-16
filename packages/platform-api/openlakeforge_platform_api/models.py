@@ -176,3 +176,8 @@ class Objects(BaseModel):
     folders: list[Folder]
     files: list[FileObject]
     next_cursor: str | None
+
+
+class UploadedObject(BaseModel):
+    key: str
+    size: int
