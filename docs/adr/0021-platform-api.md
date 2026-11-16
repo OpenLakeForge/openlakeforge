@@ -226,20 +226,30 @@ For those calls it therefore:
   client knows to hide its Files page. A bucket not among the stage's layer
   buckets is a 404, and so is the ops bucket for anyone below `platform-admin`,
   which sees it under every stage. Keys travel as query parameters, since they
-  contain `/`, and a folder is a key prefix ending in `/`; a key with a `..`
-  segment, a leading `/`, a control character or more than 1024 bytes is a 422.
+  contain `/`, and a folder is a key prefix ending in `/`; a key with a `.` or
+  `..` segment, an empty segment (`//`), a backslash, a leading `/`, a control
+  character or more than 1024 bytes is a 422, because SeaweedFS normalises such
+  a key into another one (`audit//x` into `audit/x`) and the audit-prefix check
+  must speak about the key the store acts on.
   Downloads and uploads are streamed, never held whole: an upload goes up in one
   call, or as a multipart upload past one 8 MiB part that is aborted on any
   failure, needs a `Content-Length` (411) and is refused above
   `files_max_upload_bytes`, 1 GiB unless the settings say otherwise (413). It
-  does not replace an existing key unless asked (409). S3 has no atomic rename,
+  does not replace an existing key unless asked (409): the final `PutObject` or
+  `CompleteMultipartUpload` carries `If-None-Match: *`, which SeaweedFS 4.48
+  evaluates under the object's write lock (`weed/s3api/s3api_object_handlers_put.go`,
+  `weed/s3api/filer_multipart.go`), so two uploads racing for a new key have one
+  winner. S3 has no atomic rename,
   so a rename copies and then deletes, and a folder moves or deletes at most 1000
   keys (422 above that): a folder rename removes the copies it made if one
   fails, a delete reports each key's outcome instead of failing as a whole, and
-  nothing here is atomic across keys. Rename never lands on an existing key or
-  prefix (409). The buckets come from `file_buckets` and `ops_bucket` in the
-  settings, rendered from the profile, so no name is hardcoded; without them or
-  without the key every files route answers 503. Every write is audited as above;
+  nothing here is atomic across keys. Rename refuses an existing key or prefix
+  (409) after looking; unlike an upload, that check and the copy are not one
+  step. The buckets come from `file_buckets` and `ops_bucket` in the settings,
+  which the local environment's Terraform renders from each stage's bucket
+  bindings (`infra/terraform/environments/local/main.tf`), so no name is
+  hardcoded; without them or without the key every files route answers 503, as
+  it does on the environments that do not wire them yet. Every write is audited as above;
 - **is stateless** with a read-only root filesystem until a feature needs
   storage; saved queries or history bring the shared PostgreSQL in as their
   own decision;
@@ -539,9 +549,16 @@ gained `role_stages`, generic so a later row may use it, the files rows are
 its first users, and the object-store row of decision 2 has a third key. The
 ops bucket is listed for `platform-admin` only, and its audit prefix is
 read-only through the API because SeaweedFS's `Write` also deletes.
-`olf bucket` and the portal's Files page are its clients. Not yet run: a files
-route against a deployed SeaweedFS; the SeaweedFS identity's grant on whole
-buckets and the Secret are in the storage module.
+`olf bucket` and the portal's Files page are its clients. The infrastructure is
+in the tree: the `openlakeforge-platform-api-files` identity and its Secret in
+`infra/terraform/modules/storage/seaweedfs/credentials.tf`, and
+`OPENLAKEFORGE_FILES_ACCESS_KEY_ID`, `OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY`
+and `file_buckets` in `modules/access/platform-api` and the local environment.
+The aws-poc and azure-poc environments do not wire the files key. Not yet run: a
+files route against a deployed SeaweedFS. Review changed three things: an
+upload's `overwrite=false` is enforced on the final write with `If-None-Match`,
+keys the store would normalise are refused, and the upload runs its audit and
+S3 calls off the event loop.
 
 Decision 1 rewritten: the portal is no longer Astro. It is a React Router
 (framework mode, Node SSR) app in its own repository
