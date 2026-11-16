@@ -10,13 +10,14 @@ object-store credential and does not depend on boto3 (ADR 0021, decision 4).
 
 from __future__ import annotations
 
+import bisect
 import gzip
 import heapq
 import json
 import re
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from itertools import chain
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -31,6 +32,10 @@ _NAMESPACE = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?")
 SEVERITIES = ("debug", "info", "warning", "error", "critical")
 _LEVEL = re.compile(r"\b(DEBUG|INFO|WARN(?:ING)?|ERROR|CRITICAL|FATAL)\b", re.IGNORECASE)
 _LEVEL_NAME = {"warn": "warning", "fatal": "critical"}
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+_FRACTION = re.compile(r"\.(\d+)")
+
+_SortKey = tuple[int, int]
 
 
 class ObjectStore(Protocol):
@@ -78,6 +83,55 @@ def _instant(stamp: str) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _nanoseconds(stamp: str, at: datetime) -> int:
+    """`at` is parsed to the microsecond; the digits below it are read back from the stamp."""
+    seconds = (at.replace(microsecond=0) - _EPOCH) // timedelta(seconds=1)
+    fraction = _FRACTION.search(stamp)
+    return seconds * 1_000_000_000 + (int(fraction.group(1)[:9].ljust(9, "0")) if fraction else 0)
+
+
+def _event_nanoseconds(stamp: str, fallback: str) -> int:
+    """Event time for either layout, so one event sorts the same wherever it was archived.
+
+    `fallback` is the archive time, used only when `stamp` is no timestamp, as for a v1 archive error.
+    """
+    at = _instant(stamp)
+    if at is None:
+        at, stamp = _instant(fallback), fallback
+    return _nanoseconds(stamp, at) if at else -1
+
+
+class _Best:
+    """The `limit` earliest candidates seen, and the dedup keys of only those.
+
+    A replayed record sorts exactly where its first copy did, so once the first copy is outside the best
+    `limit` the replay is too and needs no memory. State is O(limit), not O(records in the day). Equal
+    event times keep the order they were offered in; `first` makes a later pass sort after an earlier one.
+    """
+
+    def __init__(self, limit: int, first: int = 0) -> None:
+        self._limit = limit
+        self._items: list[tuple[_SortKey, str | None, ArchivedLogLine]] = []
+        self._dedup: set[str] = set()
+        self.offered = first
+
+    def offer(self, nanos: int, dedup: str | None, line: ArchivedLogLine) -> None:
+        if dedup is not None and dedup in self._dedup:
+            return
+        self.offered += 1
+        key = (nanos, self.offered)
+        if len(self._items) >= self._limit:
+            if key >= self._items[-1][0]:
+                return
+            self._dedup.discard(self._items.pop()[1] or "")
+        bisect.insort(self._items, (key, dedup, line), key=lambda item: item[0])
+        if dedup is not None:
+            self._dedup.add(dedup)
+
+    def sorted(self) -> list[tuple[_SortKey, ArchivedLogLine]]:
+        return [(key, line) for key, _, line in self._items]
 
 
 class LogArchive:
@@ -136,17 +190,25 @@ class LogArchive:
                 and (until is None or (at is not None and at < until))
             )
 
-        v2 = heapq.nsmallest(limit, self._v2(namespace, day, hour, wanted), key=lambda item: item[0])
+        v2 = _Best(limit)
+        self._v2(namespace, day, hour, wanted, v2)
+        retained = v2.sorted()
         # ADR 0022, decision 5: a v1 line is dropped only when v2 holds the same line of the same container.
-        overlap = {(line.pod, line.container, line.archived_at, line.line) for _, line in v2}
-        v1 = () if component or product or run_id else self._v1(namespace, day, hour, wanted, overlap)
-        merged = heapq.nsmallest(limit, chain(v2, v1), key=lambda item: item[0])
+        overlap = {(line.pod, line.container, line.archived_at, line.line) for _, line in retained}
+        v1 = _Best(limit, v2.offered)
+        if not (component or product or run_id):
+            self._v1(namespace, day, hour, wanted, overlap, v1)
+        merged = heapq.nsmallest(limit, chain(retained, v1.sorted()), key=lambda item: item[0])
         return [line for _, line in merged]
 
     def _v2(
-        self, namespace: str, day: date, hour: int | None, wanted: Callable[[ArchivedLogLine, datetime | None], bool]
-    ) -> Iterator[tuple[tuple[datetime, str], ArchivedLogLine]]:
-        seen: set[str] = set()
+        self,
+        namespace: str,
+        day: date,
+        hour: int | None,
+        wanted: Callable[[ArchivedLogLine, datetime | None], bool],
+        best: _Best,
+    ) -> None:
         for key in sorted(self._keys(self._partition("v2", namespace, day, None))):
             for record in self._records(key):
                 if record.get("schema") != SCHEMA_V2 or record["namespace"] != namespace:
@@ -171,15 +233,9 @@ class LogArchive:
                     source="v2",
                 )
                 at = _instant(stamp)
-                if not wanted(line, at):
-                    continue
-                # A replay after a collector restart writes the same record again.
-                dedup = record.get("dedup_key")
-                if dedup is not None:
-                    if dedup in seen:
-                        continue
-                    seen.add(dedup)
-                yield (at or datetime.min.replace(tzinfo=UTC), stamp), line
+                if wanted(line, at):
+                    # A replay after a collector restart writes the same record again.
+                    best.offer(_event_nanoseconds(stamp, stamp), record.get("dedup_key"), line)
 
     def _v1(
         self,
@@ -188,9 +244,9 @@ class LogArchive:
         hour: int | None,
         wanted: Callable[[ArchivedLogLine, datetime | None], bool],
         overlap: set[tuple[str, str, str, str | None]],
-    ) -> Iterator[tuple[tuple[datetime, str], ArchivedLogLine]]:
-        # The object names carry the archive time to the second, so key order is archive order.
-        for key in sorted(self._keys(self._partition("k8s", namespace, day, hour))):
+        best: _Best,
+    ) -> None:
+        for key in self._keys(self._partition("k8s", namespace, day, hour)):
             for record in self._records(key):
                 # A run with no pods leaves one marker record naming no pod; it is not a log line.
                 if record.get("schema") != SCHEMA or "pod" not in record:
@@ -212,7 +268,7 @@ class LogArchive:
                 if (line.pod, line.container, stamp, rest) in overlap:
                     continue
                 if wanted(line, at):
-                    yield (at or datetime.min.replace(tzinfo=UTC), line.archived_at), line
+                    best.offer(_event_nanoseconds(stamp, line.archived_at), None, line)
 
     def _partition(self, layout: str, namespace: str, day: date, hour: int | None) -> str:
         parts = [self._prefix, layout, f"namespace={namespace}", f"date={day.isoformat()}"]

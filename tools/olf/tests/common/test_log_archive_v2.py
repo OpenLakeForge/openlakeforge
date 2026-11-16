@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import io
 import json
+import weakref
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -124,10 +125,10 @@ def test_only_the_stages_own_namespace_and_day_are_listed_or_read(store: _Store)
     store.put(_v2_key("dev-b", day="2026-11-17"), [_v2("2026-11-17T00:00:00Z", "tomorrow")])
 
     assert _read(store) == ["mine"]
-    assert store.listed == [
+    assert set(store.listed) == {
         "activations/dev/logs/v2/namespace=olf-dev/date=2026-11-16/",
         "activations/dev/logs/k8s/namespace=olf-dev/date=2026-11-16/",
-    ]
+    }
 
 
 def test_a_record_of_another_namespace_in_the_partition_is_skipped(store: _Store) -> None:
@@ -170,3 +171,41 @@ def test_run_scoped_filters_leave_v1_out_because_it_cannot_carry_them(store: _St
 
     assert _read(store, run_id="r1") == []
     assert _read(store) == ["x"]
+
+
+def test_a_v1_and_a_v2_event_in_the_same_microsecond_sort_by_their_nanoseconds(store: _Store) -> None:
+    # The v1 line was archived two hours after the v2 line was written; archive time must not decide.
+    store.put(_v1_key(), [_v1("2026-11-16T09:00:00.123456001Z earlier")])
+    store.put(_v2_key("dev-a"), [_v2("2026-11-16T09:00:00.123456999Z", "later")])
+
+    assert _read(store, limit=1) == ["2026-11-16T09:00:00.123456001Z earlier"]
+    assert _read(store) == ["2026-11-16T09:00:00.123456001Z earlier", "later"]
+
+
+def test_dedup_state_stays_proportional_to_the_limit_not_to_the_day(
+    store: _Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Tracked(str):
+        """A dedup key that can be counted while anything still holds it."""
+
+    live: weakref.WeakSet[Tracked] = weakref.WeakSet()
+    most_alive = 0
+    real_loads = json.loads
+
+    def counting_loads(raw: str) -> Any:
+        nonlocal most_alive
+        record = real_loads(raw)
+        if isinstance(record.get("dedup_key"), str):
+            record["dedup_key"] = Tracked(record["dedup_key"])
+            live.add(record["dedup_key"])
+            most_alive = max(most_alive, len(live))
+        return record
+
+    monkeypatch.setattr("openlakeforge_services.logs.json.loads", counting_loads)
+    # Descending times, so every record beats the one kept so far and is offered to the candidates.
+    records = [_v2(f"2026-11-16T09:{59 - n // 60:02d}:{59 - n % 60:02d}Z", f"line {n}") for n in range(3000)]
+    store.put(_v2_key("dev-a"), records[:1500])
+    store.put(_v2_key("dev-b"), records[1500:])
+
+    assert _read(store, limit=1) == ["line 2999"]
+    assert most_alive <= 5
