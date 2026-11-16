@@ -172,12 +172,21 @@ def require_private(image: str, *, allow_public: bool) -> None:
     )
 
 
-def image_ids(listing: str, repository: str) -> list[str]:
-    """IDs in `crictl images -o json` output that carry a tag or digest name under `repository`."""
+def _names_image(name: str, repository: str, digest: str) -> bool:
+    """Whether a CRI name refers to the image: under its repository, or any repository at its pinned digest.
+
+    The purge and the check that the purge worked must use this one test: when they differed, a record that kept only
+    another repository's name at the digest was found lingering but never selected for removal (#1144).
+    """
+    return name.startswith((f"{repository}:", f"{repository}@")) or bool(digest and name.endswith(f"@{digest}"))
+
+
+def image_ids(listing: str, repository: str, digest: str = "") -> list[str]:
+    """IDs in `crictl images -o json` output with a name under `repository` or, given `digest`, at that digest."""
     ids = []
     for image in json.loads(listing).get("images", []):
         names = [*(image.get("repoTags") or []), *(image.get("repoDigests") or [])]
-        if any(name.startswith((f"{repository}:", f"{repository}@")) for name in names):
+        if any(_names_image(name, repository, digest) for name in names):
             ids.append(image["id"])
     return ids
 
@@ -207,7 +216,7 @@ def lingering_images(crictl_listing: str, ctr_listing: str, image: str) -> list[
     found = []
     for record in json.loads(crictl_listing).get("images", []):
         names = [*(record.get("repoTags") or []), *(record.get("repoDigests") or [])]
-        if any(name.startswith((f"{repository}:", f"{repository}@")) or name.endswith(f"@{digest}") for name in names):
+        if any(_names_image(name, repository, digest) for name in names):
             found.append(f"CRI {record['id']} ({', '.join(names)})")
     for ref, ref_digest in containerd_refs(ctr_listing).items():
         if ref.startswith((f"{repository}:", f"{repository}@")) or (digest and ref_digest == digest):
@@ -413,7 +422,7 @@ def _purge_node(cfg: E2EConfig, docker: Callable[[list[str]], str], node: str, i
     def kept(ids: Sequence[str]) -> dict[str, list[str]]:
         return records_with_ids(docker([*exec_, "crictl", "images", "-o", "json"]), ids)
 
-    ids = image_ids(docker([*exec_, "crictl", "images", "-o", "json"]), repository)
+    ids = image_ids(docker([*exec_, "crictl", "images", "-o", "json"]), repository, digest)
     if ids:
         docker([*exec_, "crictl", "rmi", *ids])
     listed = kept(ids)

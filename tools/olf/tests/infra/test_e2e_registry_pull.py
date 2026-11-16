@@ -111,6 +111,23 @@ def test_the_image_ids_to_remove_are_those_under_the_repository() -> None:
     assert registry_pull.image_ids(listing, REPOSITORY) == ["sha256:1", "sha256:2"]
 
 
+def test_a_record_that_kept_only_another_repositorys_name_at_the_digest_is_selected_for_removal() -> None:
+    digest = IMAGE.partition("@")[2]
+    listing = json.dumps(
+        {
+            "images": [
+                {"id": "sha256:alias", "repoTags": [], "repoDigests": [f"ghcr.io/acme/mirror@{digest}"]},
+                {"id": "sha256:other", "repoTags": [], "repoDigests": [f"ghcr.io/acme/mirror@sha256:{'b' * 64}"]},
+            ]
+        }
+    )
+
+    assert registry_pull.image_ids(listing, REPOSITORY, digest) == ["sha256:alias"]
+    assert registry_pull.lingering_images(listing, "REF TYPE DIGEST\n", IMAGE) == [
+        f"CRI sha256:alias (ghcr.io/acme/mirror@{digest})"
+    ]
+
+
 def _event(pod: str, message: str, reason: str = "Pulled") -> dict[str, Any]:
     return {"involvedObject": {"kind": "Pod", "name": pod}, "reason": reason, "message": message}
 
