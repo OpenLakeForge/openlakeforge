@@ -202,7 +202,19 @@ def test_download_streams_the_body_with_its_headers(api: TestClient, s3: FakeS3,
     assert response.headers["content-type"].startswith("text/csv")
     assert response.headers["content-length"] == "5"
     assert response.headers["content-disposition"] == "attachment; filename=\"a.csv\"; filename*=UTF-8''a.csv"
-    assert s3.bodies[0].chunk_sizes == [64 * 1024]
+    assert s3.bodies[0].closed
+
+
+def test_a_large_download_is_read_in_bounded_pieces(api: TestClient, s3: FakeS3, mint: Mint) -> None:
+    payload = bytes(range(256)) * (20 * 1024)  # 5 MiB
+    s3.put("olf-dev-bronze", "big.bin", payload)
+
+    response = api.get(_base() + "/content?key=big.bin", headers=_as(mint, "data-engineer"))
+
+    assert response.status_code == 200
+    assert response.content == payload
+    assert response.headers["content-length"] == str(len(payload))
+    assert 0 < s3.bodies[0].largest_read < len(payload)
     assert s3.bodies[0].closed
 
 
