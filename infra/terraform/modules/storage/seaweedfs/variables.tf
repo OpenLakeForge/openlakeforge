@@ -116,6 +116,21 @@ variable "audit_writer_credentials" {
   }
 }
 
+variable "files_credentials" {
+  description = "An identity for the platform API's files explorer (ADR 0021): Read, Write and List on each named bucket, the enabled stages' layer buckets and the ops bucket. Null when the platform API is not deployed."
+  type = object({
+    namespace               = string
+    credentials_secret_name = string
+    bucket_names            = list(string)
+  })
+  default = null
+
+  validation {
+    condition     = var.files_credentials == null || length(try(var.files_credentials.bucket_names, [])) > 0
+    error_message = "The files identity names at least one bucket; an identity with no grant would authenticate and be allowed nothing."
+  }
+}
+
 variable "s3_port" {
   description = "SeaweedFS S3 service port."
   type        = number
