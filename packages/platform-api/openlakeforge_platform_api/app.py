@@ -33,7 +33,7 @@ from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.models import Health, WhoAmI
 from openlakeforge_platform_api.permissions import ANONYMOUS, EVERY_STAGE, Permission, PermissionMatrix
-from openlakeforge_platform_api.quality_health import ManifestStore, QualityReader
+from openlakeforge_platform_api.quality_health import QualityReader, s3_quality_reader
 from openlakeforge_platform_api.service_probes import ListableStore, ServiceProbes, StageProber, bounded_s3_config
 from openlakeforge_platform_api.settings import QUERY_SIGNING_KEY_ENV, Settings, quality_key_envs
 from openlakeforge_platform_api.tokens import InvalidToken, IssuerUnavailable, Principal, TokenValidator
@@ -218,17 +218,13 @@ def _quality_readers(settings: Settings) -> dict[str, QualityReader]:
         access_key, secret_key = os.environ.get(key_env), os.environ.get(secret_env)
         if not access_key or not secret_key:
             continue
-        client = boto3.client(
-            "s3",
+        readers[stage] = s3_quality_reader(
+            base_uri,
             endpoint_url=settings.s3_endpoint_url,
-            region_name=settings.s3_region,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            config=Config(
-                s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}
-            ),
+            region=settings.s3_region,
+            access_key=access_key,
+            secret_key=secret_key,
         )
-        readers[stage] = QualityReader(cast("ManifestStore", client), base_uri)
     return readers
 
 

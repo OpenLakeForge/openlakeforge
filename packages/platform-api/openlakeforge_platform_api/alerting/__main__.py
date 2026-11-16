@@ -23,6 +23,7 @@ from openlakeforge_services.notify import Notifier, WebhookNotifier, quiet_trans
 from openlakeforge_platform_api.alerting.run import run_once
 from openlakeforge_platform_api.alerting.settings import EvaluatorSettings
 from openlakeforge_platform_api.alerting.store import AlertObjectStore, AlertStore, StoreError
+from openlakeforge_platform_api.quality_health import QualityReader, s3_quality_reader
 from openlakeforge_platform_api.settings import SettingsError
 
 SETTINGS_ENV = "OPENLAKEFORGE_ALERTS_SETTINGS"
@@ -54,6 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings = EvaluatorSettings.from_file(args.settings)
         notifiers = _notifiers(settings)
         client = _object_store(settings)
+        quality = _quality_readers(settings)
     except (SettingsError, ValueError, OSError) as error:
         log.error("alert evaluator is misconfigured: %s", error)
         return 2
@@ -66,6 +68,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             store=store,
             dagster=dagster,
             notifiers=notifiers,
+            quality=quality,
             now=args.now or datetime.now(UTC),
         )
     except StoreError as error:
@@ -104,6 +107,27 @@ def _notifiers(settings: EvaluatorSettings) -> dict[str, Notifier]:
             raise SettingsError(f"receiver {receiver.name!r}: {receiver.url_env} is not set")
         notifiers[receiver.name] = WebhookNotifier(receiver.name, url, ca_file=ca_file)
     return notifiers
+
+
+def _quality_readers(settings: EvaluatorSettings) -> dict[str, QualityReader]:
+    """A reader per stage with a manifest prefix, all on the evaluator's own key: it holds Read and List on every
+    stage's quality prefix (ADR 0023, decision 3), so no per-stage key is mounted here."""
+    if not settings.quality_manifests:
+        return {}
+    access_key = os.environ.get(ACCESS_KEY_ENV)
+    secret_key = os.environ.get(SECRET_KEY_ENV)
+    if not access_key or not secret_key:
+        raise SettingsError(f"{ACCESS_KEY_ENV} and {SECRET_KEY_ENV} must be set")
+    return {
+        stage: s3_quality_reader(
+            base_uri,
+            endpoint_url=settings.s3_endpoint_url,
+            region=settings.s3_region,
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+        for stage, base_uri in settings.quality_manifests.items()
+    }
 
 
 def _object_store(settings: EvaluatorSettings) -> AlertObjectStore:

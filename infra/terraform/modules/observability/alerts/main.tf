@@ -21,6 +21,7 @@ locals {
     stages               = var.stages
     dagster_graphql_urls = var.dagster_graphql_urls
     state_base_uri       = var.state_base_uri
+    quality_manifests    = var.quality_manifests
     receivers = [
       for env, receiver in local.receiver_envs : {
         name    = receiver.name
