@@ -19,7 +19,6 @@ What each probe proves, and what it does not (the table is ADR 0021, decision 7)
 
 from __future__ import annotations
 
-import json
 import logging
 import socket
 import threading
@@ -466,8 +465,24 @@ class _Once:
             return self._value
 
 
+# The probes run together and share the check's deadline (`_run`). Each pod gets this fraction of it, so a pod that
+# hangs is given up on while the check still has time to report what the others said.
+_SPOOL_POD_BUDGET = 0.6
+
+
 def in_cluster_spool_read(timeout: float) -> SpoolRead:
-    """Ask every pod behind the headless probe Service. Each call is bounded by `timeout`; a pod that fails counts."""
+    """Ask every pod behind the headless probe Service at once, giving each `_SPOOL_POD_BUDGET` of `timeout`.
+
+    A pod that fails or does not answer in time counts as unanswered; the answers of the others are kept, so a
+    reachable collector's warning or critical reading is not lost to a silent neighbour.
+    """
+    per_pod = timeout * _SPOOL_POD_BUDGET
+
+    def fetch(url: str) -> list[SpoolObservation]:
+        # Connect and read are separate timeouts, so each gets half to keep the call within the pod's budget.
+        response = requests.get(url, timeout=(per_pod / 2, per_pod / 2))
+        response.raise_for_status()
+        return parse_report(response.json())
 
     def read(base_url: str) -> tuple[list[SpoolObservation], int]:
         parts = urlsplit(base_url)
@@ -479,17 +494,28 @@ def in_cluster_spool_read(timeout: float) -> SpoolRead:
             raise ProbeError(f"the collector probe Service did not resolve: {type(exc).__name__}") from exc
         if not addresses:
             raise ProbeError("the collector probe Service has no ready pod")
+        # One worker per pod, so no pod waits for another's worker. A hung socket cannot be cancelled: the pool is
+        # abandoned, not joined, and the thread ends when its own timeout fires.
+        pool = ThreadPoolExecutor(max_workers=len(addresses), thread_name_prefix="spool-read")
+        deadline = monotonic() + per_pod
+        futures = {
+            address: pool.submit(
+                fetch,
+                f"{parts.scheme}://{f'[{address}]' if ':' in str(address) else address}:{parts.port}{SPOOL_PATH}",
+            )
+            for address in addresses
+        }
         observations: list[SpoolObservation] = []
         unanswered = 0
-        for address in addresses:
-            host = f"[{address}]" if ":" in str(address) else address
-            try:
-                response = requests.get(f"{parts.scheme}://{host}:{parts.port}{SPOOL_PATH}", timeout=timeout)
-                response.raise_for_status()
-                observations.extend(parse_report(response.json()))
-            except (requests.RequestException, ValueError, json.JSONDecodeError):
-                log.warning("collector spool probe at %s failed", address, exc_info=True)
-                unanswered += 1
+        try:
+            for address, future in futures.items():
+                try:
+                    observations.extend(future.result(timeout=max(0.0, deadline - monotonic())))
+                except (FutureTimeout, requests.RequestException, ValueError):
+                    log.warning("collector spool probe at %s failed", address, exc_info=True)
+                    unanswered += 1
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
         return observations, unanswered
 
     return read
