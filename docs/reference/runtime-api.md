@@ -44,23 +44,31 @@ project declares, and a list you pass wins over its default:
 | `gold_assets` | The models under `gold/models/<product>/` in the Gold dbt project |
 | `silver_inputs` | The domain's Silver tables those models read; a source of another domain is refused |
 | `bronze_inputs` | The Bronze resource each of `silver_inputs` reads, from the domain's Floe entities |
-| `cadence` | Daily at 03:00 UTC, as `<product>_daily` |
+| `cadence` | Daily at 03:00 UTC, stopped, as `<product>_daily` |
 
 ```python
 spec = ProductDefinitionSpec(domain="sales", product="order_revenue")
 defs = build_product_definitions(spec)
 ```
 
-`cadence` is a `ProductCadence(cron, timezone="UTC")` and sets the PROD
-schedule, named `<product>_schedule`. `ProductCadence(cron=None)` declares a
-product with no schedule. DEV and UAT never get one, and the schedule is
-`STOPPED` either way: switching it on stays a decision in the Dagster UI.
-Keep the spec in a module-level `spec` name so `olf check project-code` checks
-the cadence the product declares.
+`cadence` is a `ProductCadence(cron, timezone="UTC", enabled_in_prod=False)`
+and sets the PROD schedule, named `<product>_schedule`.
+`ProductCadence(cron=None)` declares a product with no schedule. DEV and UAT
+never get one.
+
+`enabled_in_prod` decides whether the PROD schedule runs. `False` ships it
+`STOPPED`, and switching it on is then a decision in the Dagster UI. `True`
+ships it `RUNNING`, so deploying the revision to PROD starts it. `cron=None`
+with `enabled_in_prod=True` raises `ValueError`. Keep the spec in a
+module-level `spec` name so `olf check project-code` checks the cadence the
+product declares: it accepts a `RUNNING` schedule only when `enabled_in_prod`
+is `True`.
 
 ```python
 spec = ProductDefinitionSpec(
-    domain="sales", product="order_revenue", cadence=ProductCadence("0 * * * *")
+    domain="sales",
+    product="order_revenue",
+    cadence=ProductCadence("0 * * * *", enabled_in_prod=True),
 )
 defs = build_product_definitions(spec)
 ```

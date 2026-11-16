@@ -288,12 +288,14 @@ def _verify_in_process_execution(product: Product, job: _Job) -> None:
 def _verify_stage_schedules(
     inventory: LakehouseInventory, library: _ProductDagsterLibrary, specs: Mapping[str, object] | None = None
 ) -> None:
-    """Require a schedule to exist only where a stage asks for it, and never to start itself.
+    """Require a schedule to exist only where a stage asks for it, and to start itself only if the product says so.
 
     Every stage runs the same immutable revision, so this is the only thing
     standing between a promotion and a recurring production-shaped workload
     appearing in DEV. How often PROD runs, or whether it has a schedule at all,
-    is the product's cadence and not this check's business.
+    is the product's cadence and not this check's business. Whether it starts
+    running on deploy is too, but only through `enabled_in_prod`: a RUNNING
+    schedule the cadence does not declare is refused.
 
     `specs` holds the `spec` a product's pipeline module declares; a product
     whose module does not declare one is checked with the default cadence.
@@ -312,8 +314,14 @@ def _verify_stage_schedules(
             if schedule.job_name != product.job_name:
                 _fail(f"{schedule.name} targets {schedule.job_name}, not the descriptor job {product.job_name}")
             status = getattr(schedule.default_status, "value", schedule.default_status)
-            if status != "STOPPED":
-                _fail(f"{schedule.name} defaults to {status}; deploying a revision must not start a schedule")
+            declared_running = bool(getattr(getattr(spec, "cadence", None), "enabled_in_prod", False))
+            if status == "RUNNING" and not declared_running:
+                _fail(
+                    f"{schedule.name} defaults to RUNNING; deploying a revision must not start a schedule "
+                    "unless the cadence sets enabled_in_prod=True"
+                )
+            if status != ("RUNNING" if declared_running else "STOPPED"):
+                _fail(f"{schedule.name} defaults to {status}, which contradicts the cadence's enabled_in_prod")
 
 
 def _verify_shared_assets(

@@ -222,6 +222,30 @@ def test_stage_schedules_reject_anything_a_promotion_could_start(overrides: dict
         project_code_check._verify_stage_schedules(_inventory(), _schedule_library(**overrides))
 
 
+def test_stage_schedules_accept_a_running_prod_schedule_the_cadence_declares() -> None:
+    declared = SimpleNamespace(cadence=SimpleNamespace(enabled_in_prod=True))
+
+    project_code_check._verify_stage_schedules(
+        _inventory(), _schedule_library(status="RUNNING"), {"order_revenue": declared}
+    )
+
+
+def test_stage_schedules_reject_a_stopped_schedule_the_cadence_declares_running() -> None:
+    declared = SimpleNamespace(cadence=SimpleNamespace(enabled_in_prod=True))
+
+    with pytest.raises(RuntimeError, match="contradicts"):
+        project_code_check._verify_stage_schedules(_inventory(), _schedule_library(), {"order_revenue": declared})
+
+
+def test_stage_schedules_still_refuse_a_declared_cadence_on_dev() -> None:
+    declared = SimpleNamespace(cadence=SimpleNamespace(enabled_in_prod=True))
+
+    with pytest.raises(RuntimeError, match="must define no schedule"):
+        project_code_check._verify_stage_schedules(
+            _inventory(), _schedule_library(status="RUNNING", stages=("dev", "prod")), {"order_revenue": declared}
+        )
+
+
 def test_environment_exports_values_to_the_reader_and_restores_os_environ(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SOURCES__X__KEPT", "before")
     monkeypatch.delenv("SOURCES__X__NEW", raising=False)

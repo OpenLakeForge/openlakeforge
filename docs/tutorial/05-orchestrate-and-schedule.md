@@ -65,7 +65,9 @@ accumulating duplicates.
 A product's job has no recurring trigger of its own in DEV. The shared
 `build_product_definitions` adds a daily schedule named
 `campaign_performance_daily` (`0 3 * * *`, UTC), but only in the PROD stage.
-It is created stopped, and enabling it is a deliberate act in the Dagster UI.
+It is created stopped, and enabling it is a deliberate act in the Dagster UI,
+unless the product's `ProductCadence` sets `enabled_in_prod=True`, which makes
+PROD start it on deploy (see the [runtime API](../reference/runtime-api.md)).
 DEV and UAT stay manual on purpose: the same immutable revision is deployed to
 every stage, and a schedule there would be a production-shaped workload on a
 development catalog. You add PROD in lesson 9, and the schedule appears in

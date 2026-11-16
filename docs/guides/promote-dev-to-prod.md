@@ -82,8 +82,9 @@ imports its Superset reports and OpenMetadata metadata when those are on, and
 rolls out its Dagster code location, which renders the stage's Floe profile
 when it loads. It starts
 no Dagster schedule: the recurring schedules a revision defines exist only in
-PROD and are created `STOPPED`. Switch one on in the PROD Dagster when you want
-recurring runs.
+PROD and are created `STOPPED`, unless the product's cadence sets
+`enabled_in_prod=True`. Switch a stopped one on in the PROD Dagster when you
+want recurring runs.
 
 ## Automate with GitHub Actions
 

@@ -107,12 +107,19 @@ _GOLD_MAINTENANCE_SCHEDULE_CRON = "0 5 * * 0"
 class ProductCadence:
     """When a product's PROD schedule fires; `cron=None` declares the product manual-only.
 
-    Declaring a cadence does not switch it on: the schedule still ships `STOPPED`. Dagster rejects an invalid
-    cron or timezone when the definitions load, which fails `olf check project-code`.
+    A cadence does not switch the schedule on by itself: it ships `STOPPED` unless `enabled_in_prod` is set. The
+    flag lives here, in Git, so the repository records whether PROD is meant to run and a stopped schedule can be
+    told apart from a broken one. Dagster rejects an invalid cron or timezone when the definitions load, which
+    fails `olf check project-code`.
     """
 
     cron: str | None = _DAILY_SCHEDULE_CRON
     timezone: str = "UTC"
+    enabled_in_prod: bool = False
+
+    def __post_init__(self) -> None:
+        if self.enabled_in_prod and self.cron is None:
+            raise ValueError("ProductCadence(cron=None) is manual-only, so it cannot set enabled_in_prod=True")
 
 
 @dataclass(frozen=True)
@@ -136,7 +143,7 @@ class ProductDefinitionSpec:
     - `silver_inputs`: the domain's Silver tables those models read;
     - `bronze_inputs`: the Bronze resource each of `silver_inputs` reads, from
       the domain's Floe entities;
-    - `cadence`: the PROD schedule's cron and timezone; absent means daily at 03:00 UTC.
+    - `cadence`: the PROD schedule's cron and timezone, and whether it runs; absent means daily at 03:00 UTC, stopped.
     """
 
     domain: str
@@ -618,8 +625,8 @@ def build_stage_schedules(spec: ProductDefinitionSpec, *, stage: str | None = No
     scaffold does not cover -- gets no schedule at all, which is the safe
     direction: a stage cannot acquire recurring runs by being unrecognised.
 
-    The schedule is `STOPPED` even where it exists, so deploying a revision
-    never starts it. Enabling it is a deliberate act in the Dagster UI.
+    The schedule is `STOPPED` unless the cadence sets `enabled_in_prod`, so deploying a revision starts nothing
+    the product's code has not declared. Without the flag, enabling it is a deliberate act in the Dagster UI.
     """
     resolved = (os.environ.get(_STAGE_ENV, "") if stage is None else stage).strip().lower()
     if resolved not in _SCHEDULED_STAGES:
@@ -627,19 +634,19 @@ def build_stage_schedules(spec: ProductDefinitionSpec, *, stage: str | None = No
     cadence = spec.cadence
     if cadence is None:
         # The default keeps its original name: Dagster keys a schedule's on/off state by name.
-        return [_stopped_schedule(f"{spec.product}_daily", spec, ProductCadence())]
+        return [_product_schedule(f"{spec.product}_daily", spec, ProductCadence())]
     if cadence.cron is None:
         return []
-    return [_stopped_schedule(f"{spec.product}_schedule", spec, cadence)]
+    return [_product_schedule(f"{spec.product}_schedule", spec, cadence)]
 
 
-def _stopped_schedule(name: str, spec: ProductDefinitionSpec, cadence: ProductCadence) -> ScheduleDefinition:
+def _product_schedule(name: str, spec: ProductDefinitionSpec, cadence: ProductCadence) -> ScheduleDefinition:
     return ScheduleDefinition(
         name=name,
         job_name=spec.job_name,
         cron_schedule=cadence.cron,
         execution_timezone=cadence.timezone,
-        default_status=DefaultScheduleStatus.STOPPED,
+        default_status=DefaultScheduleStatus.RUNNING if cadence.enabled_in_prod else DefaultScheduleStatus.STOPPED,
     )
 
 

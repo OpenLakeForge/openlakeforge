@@ -78,7 +78,7 @@ the contract values the runtime reads (`_RUNTIME_ENV` in
 
 | Stage the pod reports | Schedules in the code location |
 | --- | --- |
-| `prod` | At most one schedule per product, every one `STOPPED`: `<product>_daily` by default, `<product>_schedule` when the product declares a `cadence` |
+| `prod` | At most one schedule per product: `<product>_daily` by default, `<product>_schedule` when the product declares a `cadence`. `STOPPED` unless the cadence sets `enabled_in_prod=True` |
 | `dev`, `uat` | None |
 | Unset or unrecognised | None |
 
@@ -86,7 +86,8 @@ Two properties matter, and `olf check project-code` fails the build if either
 stops holding. DEV and UAT define no schedule at all, so the production-shaped
 daily job is not present to be switched on by mistake against the DEV catalog.
 The PROD schedules default to `STOPPED`, so deploying or promoting a revision
-never starts a run — enabling one is a deliberate act in the Dagster UI, and
+starts no run unless the product's cadence declares `enabled_in_prod=True` in
+Git; otherwise enabling one is a deliberate act in the Dagster UI, and
 Dagster keeps that choice in the stage's own metadata database, which is not
 part of the revision.
 
