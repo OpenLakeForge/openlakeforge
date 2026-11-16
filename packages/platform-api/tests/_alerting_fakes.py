@@ -15,6 +15,8 @@ class FakeBucket:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
         self.down = False
+        # Key prefixes whose writes fail, to stand for a store that fails part-way through a run.
+        self.failing_writes: tuple[str, ...] = ()
 
     def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
         self._check()
@@ -24,6 +26,8 @@ class FakeBucket:
 
     def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> None:  # noqa: N803
         self._check()
+        if Key.startswith(self.failing_writes) and self.failing_writes:
+            raise EndpointConnectionError(endpoint_url="http://store.invalid")
         self.objects[Key] = Body
 
     def list_objects_v2(  # noqa: N803
