@@ -114,7 +114,10 @@ def test_the_stage_reads_only_its_own_namespace_and_prefix(api: TestClient, stor
     response = api.get(LOGS + "&hour=9", headers=_as(mint, "data-engineer"))
 
     assert response.status_code == 200
-    assert store.listed == ["activations/dev/logs/k8s/namespace=olf-dev/date=2026-10-30/hour=09/"]
+    assert store.listed == [
+        "activations/dev/logs/v2/namespace=olf-dev/date=2026-10-30/",
+        "activations/dev/logs/k8s/namespace=olf-dev/date=2026-10-30/hour=09/",
+    ]
 
 
 def test_lines_are_filtered_by_pod_and_limited(api: TestClient, mint: Mint) -> None:
@@ -129,6 +132,14 @@ def test_lines_are_filtered_by_pod_and_limited(api: TestClient, mint: Mint) -> N
                 "container": "main",
                 "line": "started",
                 "error": None,
+                "stage": None,
+                "component": None,
+                "domain": None,
+                "product": None,
+                "run_id": None,
+                "stream": None,
+                "missing": None,
+                "source": "v1",
             }
         ],
         "truncated": True,
@@ -240,3 +251,75 @@ def test_a_log_archive_setting_that_could_not_be_served_refuses_to_load(
 ) -> None:
     with pytest.raises(SettingsError):
         _settings(settings, log_archives=archives)
+
+
+def _v2(time: str, message: str, namespace: str = "olf-dev", **fields: Any) -> dict[str, Any]:
+    return {
+        "schema": "openlakeforge.k8s_log.v2",
+        "time": time,
+        "stage": "dev",
+        "namespace": namespace,
+        "pod": "dagster-run-8f1c2d4e-x7k2p",
+        "container": "runner",
+        "container_id": "3f9c",
+        "stream": "stderr",
+        "message": message,
+        "missing": ["product"],
+        "dedup_key": f"3f9c:{time}:{message}",
+        **fields,
+    }
+
+
+V2_DEV = "activations/dev/logs/v2/namespace=olf-dev/date=2026-10-30/dev-4f1b.ndjson.gz"
+
+
+def test_v2_lines_are_found_by_run_without_the_pod_name_and_deduplicated(
+    api: TestClient, store: ObjectStore, mint: Mint
+) -> None:
+    replay = _v2("2026-10-30T09:00:02Z", "ERROR contract violated", run_id="r1", component="floe")
+    store.archive(V2_DEV, [_v2("2026-10-30T09:00:01Z", "INFO other run", run_id="r2"), replay, replay])
+
+    body = api.get(LOGS + "&run_id=r1&severity=error", headers=_as(mint, "data-engineer")).json()
+
+    assert [(line["line"], line["run_id"], line["source"], line["missing"]) for line in body["lines"]] == [
+        ("ERROR contract violated", "r1", "v2", ["product"])
+    ]
+
+
+@pytest.fixture
+def two_stages(settings: Settings, store: ObjectStore) -> TestClient:
+    store.archive(
+        "activations/prod/logs/v2/namespace=olf-prod/date=2026-10-30/prod-1.ndjson.gz",
+        [_v2("2026-10-30T09:00:00Z", "prod secret", namespace="olf-prod", stage="prod")],
+    )
+    configured = _settings(
+        settings,
+        log_archives={
+            "dev": {"base_uri": DEV_BASE, "namespace": "olf-dev"},
+            "prod": {"base_uri": "s3://ops/activations/prod/logs", "namespace": "olf-prod"},
+        },
+    )
+    return TestClient(create_app(configured, object_store=store))
+
+
+def test_a_dev_caller_cannot_read_prod_logs_and_prod_is_never_listed_for_them(
+    two_stages: TestClient, store: ObjectStore, mint: Mint
+) -> None:
+    response = two_stages.get("/api/v1/stages/prod/logs?date=2026-10-30", headers=_as(mint, "data-engineer"))
+
+    assert response.status_code == 403
+    assert store.listed == []
+
+
+def test_a_platform_admin_reads_prod_from_the_prod_prefix_only(
+    two_stages: TestClient, store: ObjectStore, mint: Mint
+) -> None:
+    response = two_stages.get("/api/v1/stages/prod/logs?date=2026-10-30", headers=_as(mint, "platform-admin"))
+
+    assert [line["line"] for line in response.json()["lines"]] == ["prod secret"]
+    assert all(prefix.startswith("activations/prod/") for prefix in store.listed)
+
+
+@pytest.mark.parametrize("query", ["&severity=loud", "&since=yesterday", "&until=x"])
+def test_a_malformed_filter_is_refused(api: TestClient, mint: Mint, query: str) -> None:
+    assert api.get(LOGS + query, headers=_as(mint, "data-engineer")).status_code == 422

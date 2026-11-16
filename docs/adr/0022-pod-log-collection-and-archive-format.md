@@ -241,7 +241,7 @@ admits the `hostPath` mounts: no namespace carries a Pod Security label [V].
 | Slice | Content | Updates |
 | --- | --- | --- |
 | b | Terraform module and Helm values for the DaemonSet, the namespace map, the write-only S3 identity, NetworkPolicy flows (kube-apiserver, S3 8333), the catalog digest, failure-injection tests, per-size overhead. Whether `olf-system`'s Pod Security level admits a `hostPath` mount is [T] | ADR 0017 flow table and RBAC inventory |
-| c | `LogArchive` reads v2 and dedups; fixtures from real collector output | `logs.py`, its tests |
+| c | `LogArchive` reads v2 and dedups, filters by run, product, component, severity and time; the API's `list_logs` role matrix row limits `data-engineer` to DEV; the reader key gains `v2/`. The CronJob and v1 stay (#1122) | `logs.py`, its tests |
 | d | API filters by stage, product, run, component; `olf logs` flags; CronJob removal; documentation of retention and the runbook | ADR 0021, `docs/reference/cli.md`, `docs/technical-debt.md` (the observability row still names Loki) |
 
 ## Rejected
@@ -261,3 +261,6 @@ admits the `hostPath` mounts: no namespace carries a Pod Security label [V].
 2026-11-16: slice b (#1121) built the collector module, the write-only identity,
 the catalog pin (`fluent_bit`, index digest read from Docker Hub for 5.2.0) and
 the F37 flows; Status and Build order updated, no decision changed.
+
+2026-11-16: slice c (#1122): reader, API filters and the reader key land. `severity` is read from the
+level token in `message`, because the v2 record has no severity field.

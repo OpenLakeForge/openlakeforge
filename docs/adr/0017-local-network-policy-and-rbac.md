@@ -203,7 +203,7 @@ port [D]).
 | F30 | OpenMetadata role-sync CronJob (`openlakeforge.io/job=openmetadata-role-sync`) | any address outside the pod and Service ranges | 443 | the sync reads team members from `api.github.com` ([ADR 0014](0014-identity-and-authorization.md), "OpenMetadata role sync"); no FQDN selector, so the port on any address, on that Job's pods only. Its calls to OpenMetadata ride F13 | T |
 | F31 | oauth2-proxy; Polaris; the platform API; OpenMetadata | Dex (`olf-system`) | 5556 | the signing keys for people's tokens and the perimeter's code exchange, over Dex's Service (ADR 0013, decision 8). Trino no longer fetches them: it has no authentication of its own (#983) | T |
 | F32 | the platform API | Dagster webserver 80 (stage); OpenMetadata 8585 | 80, 8585 | its read endpoints ([ADR 0021](0021-platform-api.md)): each stage's GraphQL URL (`dagster_graphql_urls`), and OpenMetadata with the caller's token forwarded (`openmetadata_url`), both rendered by `modules/access/platform-api` | T |
-| F33 | the platform API | SeaweedFS S3 8333 | 8333 | its archived-logs route ([ADR 0021](0021-platform-api.md)), with the read-only key `openlakeforge-platform-api-logs` the SeaweedFS credentials Job mints: `Read` and `List` on each stage's `activations/<stage>/logs/k8s/` and nothing else | T |
+| F33 | the platform API | SeaweedFS S3 8333 | 8333 | its archived-logs route ([ADR 0021](0021-platform-api.md)), with the read-only key `openlakeforge-platform-api-logs` the SeaweedFS credentials Job mints: `Read` and `List` on each stage's `activations/<stage>/logs/k8s/` and `.../logs/v2/` and nothing else | T |
 | F34 | Dagster run pods (`app.kubernetes.io/component=run_worker`) of a stage whose profile declares `spec.stages.<stage>.source_egress.ports` | any address outside the pod and Service ranges | the declared ports, TCP | Bronze sources that read an external API or database (#660); their host and port are stage bindings (`olf-source-<id>` ConfigMaps) that reach the run pod only. No FQDN selector, so the ports on any address, as F28 and F30; rendered from the profile, as F23, as its own policy `olf-flows-f34` in that stage's namespace only. A stage that declares nothing gets no row | T |
 | F35 | the platform API | Superset 8088 (stage) | 8088 | its report routes ([ADR 0021](0021-platform-api.md)): each stage's Superset (`superset_urls`), as the service user `olf-platform-api` whose password the platform API module's Job mints, and never as `admin` | T |
 | F36 | the platform API | the stage namespaces (a stage's Trino coordinator) 8080 | 8080 | a person's queries ([ADR 0021](0021-platform-api.md)): each stage's statement URL (`query_endpoints`), carrying that person's own token for Polaris; the API holds no Trino credential. Also the health probe's `GET /v1/info` against the coordinator's base URL. The row is not conditional on `person_query` | T |
@@ -561,7 +561,8 @@ API (ADR 0021, decision 3).
 
 F33 added (#668): the platform API reads each stage's pod log archive from the
 SeaweedFS S3 gateway with its own identity, `openlakeforge-platform-api-logs`,
-granted `Read` and `List` on `activations/<stage>/logs/k8s/` only. The
+granted `Read` and `List` on `activations/<stage>/logs/k8s/` and
+`activations/<stage>/logs/v2/` only (v2 added by #1122; never the `platform/` prefix). The
 SeaweedFS credentials Job mints its key into `olf-system`, so its Role there
 names the new Secret. The stage identities' ops-bucket grant now ends at
 `activations/<stage>/*`: SeaweedFS 4.48 matches actions with a wildcard in which
