@@ -32,3 +32,12 @@ uv export --project packages/platform-api --frozen --no-dev --no-emit-project \
   --no-emit-package openlakeforge-lakehouse-services --no-emit-package openlakeforge-core \
   --format requirements-txt -o images/platform-api/requirements.lock
 ```
+
+## Alert evaluator entrypoint
+
+The same image runs the alert evaluator (ADR 0023): the CronJob overrides the command with
+`python -m openlakeforge_platform_api.alerting`. It reads its settings from `/config/alerts.json`
+(or `OPENLAKEFORGE_ALERTS_SETTINGS`), each receiver URL from the environment variable the settings name, and the
+ops-bucket key from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. It exits 1 when the bucket cannot be read or
+written, 2 when its settings or environment are wrong, and 0 otherwise, including when only a delivery failed.
+`--now` and `--state-prefix` exist for the e2e; the CronJob never passes them.
