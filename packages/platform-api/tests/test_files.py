@@ -169,8 +169,6 @@ def test_an_invalid_prefix_is_refused(api: TestClient, mint: Mint, prefix: str) 
     assert response.status_code == 422
 
 
-
-
 def test_a_listing_honours_the_page_size_and_continues_after_it(api: TestClient, s3: FakeS3, mint: Mint) -> None:
     for number in range(5):
         s3.put("olf-dev-bronze", f"logs/f{number}.txt", b"x")
