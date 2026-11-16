@@ -31,6 +31,10 @@ locals {
       secret    = var.log_collector_credentials.credentials_secret_name
       namespace = var.log_collector_credentials.namespace
     }],
+    var.alerts_credentials == null ? [] : [{
+      secret    = var.alerts_credentials.credentials_secret_name
+      namespace = var.alerts_credentials.namespace
+    }],
   )
 
   # Every namespace that receives a Secret, with the names it may read.
