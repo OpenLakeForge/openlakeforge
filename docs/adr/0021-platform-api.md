@@ -682,3 +682,9 @@ state. A probe that fails is `unknown`; a stage with no namespace is not probed
 and reports `services` as `disabled`. The object-store probe lists the stage's
 first files bucket with the files key, because the log reader's key is scoped to
 the archive prefixes. Nothing has run against a cluster.
+
+Issue #1167 (ADR 0023): the image also hosts the alert evaluator's entrypoint,
+`python -m openlakeforge_platform_api.alerting`, run as a CronJob in
+`olf-system`. The API itself stays stateless: the evaluator is a separate
+process and keeps its state as objects in the ops bucket, not in the API.
+Nothing is built.
