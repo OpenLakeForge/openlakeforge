@@ -18,7 +18,9 @@ signed-in person's token. The local provider deploys it with `spec.identity`
 (`modules/access/platform-api`), from an image `olf` builds, since no release
 has published one to pin. Its first state-changing route launches a DEV run,
 audited as decision 3 says, with a write-only key the deployment mounts;
-`olf runs launch` calls it.
+`olf runs launch` calls it. A files explorer reads and manages the objects in
+each stage's lakehouse buckets (decision 3), with a key of its own; `olf bucket`
+and the portal's Files page are its clients.
 What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
 reaches services through one backend, written in Python in this repository,
 and new code that would duplicate a platform operation in another language or
@@ -113,6 +115,7 @@ cannot accept the person's token. Per service:
 | Superset | Report export and import | The platform API's Superset service credential | **The platform API** |
 | Dagster | Runs and jobs | None (Dagster checks nothing); the platform API reaches it over its own flow rows | **The platform API** |
 | Object store | Archived log reads | The platform API's read-only key for the log prefix | **The platform API** |
+| Object store | The files explorer: list, download, upload, create folders, rename and delete, in the enabled stages' layer buckets and the ops bucket | The platform API's files key | **The platform API** |
 
 A call that carries the person's token takes one of two routes. A CLI command
 may call the service's public route directly, as `olf query` reaches Trino's
@@ -176,11 +179,22 @@ For those calls it therefore:
   [ADR 0014](0014-identity-and-authorization.md) maps it, and checks each
   operation against a **permission matrix kept as data and tested** — an
   operation, the lowest role allowed, and the stages it applies to — in the
-  monotonic-floor style of ADR 0014's perimeter;
+  monotonic-floor style of ADR 0014's perimeter. A row's `stages` apply to every
+  role at or above its floor; an optional `role_stages` limits a named role to
+  some of them (`role_stages = { data-engineer = ["dev"] }`), and a role it does
+  not name keeps `stages`. Its keys are checked against the role precedence when
+  the matrix loads;
 - **holds the narrowest credential each service offers**, mounted from a
   Secret (architectural rule 7): a Superset service user rather than `admin`
   wherever Superset's API allows the operation, a read-only object-store key
-  for the log prefix, and no OpenMetadata credential;
+  for the log prefix, and no OpenMetadata credential. The object store has a
+  third key besides that one and the audit writer's: the **files key**, identity
+  `openlakeforge-platform-api-files`, with `Read`, `Write` and `List` on the
+  enabled stages' layer buckets (bronze, silver and gold) and on the ops bucket,
+  minted in-cluster like the others, mounted from its own Secret, and used by
+  its own client, never the log reader's. The object store cannot narrow it
+  below a bucket and cannot tell one person from another, so the API decides
+  access (the files explorer below);
 - **reaches Dagster's GraphQL API through its own rows in
   `release/network-flows.yaml`**, and its permission matrix is the only check
   on what it asks there, since Dagster checks nothing;
@@ -196,7 +210,36 @@ For those calls it therefore:
   goes to stdout only, so no anonymous caller can fill the bucket. The request
   id in each record and key is the API's own. SeaweedFS's `Write` also
   overwrites and deletes (`weed/s3api/s3api_server.go`, 4.48), so the records
-  are tamper-evident against everyone but the API itself, not append-only;
+  are tamper-evident against everyone but the API itself, not append-only. The
+  files key can write and delete anywhere in the ops bucket for the same reason,
+  so the API keeps the audit prefix read-only itself: a files write that reaches
+  it, or a folder that contains it, is refused with 403 and the refusal is
+  stored;
+- **runs the files explorer on its own rows, since the files key decides
+  nothing.** Routes under `/api/v1/stages/{stage}/buckets` list buckets and the
+  folders and files under a prefix (paged with a cursor), download, upload,
+  create a folder, rename and delete; `GET /api/v1/file-capabilities` returns
+  the stages and operations the caller may use. Every row is `data-engineer` with
+  `role_stages` limiting that role to `dev`, so `platform-admin` may use every
+  enabled stage, `data-engineer` only `dev`, and `analyst` and `viewer` nothing,
+  reads included: for them `file-capabilities` lists no stage, which is how a
+  client knows to hide its Files page. A bucket not among the stage's layer
+  buckets is a 404, and so is the ops bucket for anyone below `platform-admin`,
+  which sees it under every stage. Keys travel as query parameters, since they
+  contain `/`, and a folder is a key prefix ending in `/`; a key with a `..`
+  segment, a leading `/`, a control character or more than 1024 bytes is a 422.
+  Downloads and uploads are streamed, never held whole: an upload goes up in one
+  call, or as a multipart upload past one 8 MiB part that is aborted on any
+  failure, needs a `Content-Length` (411) and is refused above
+  `files_max_upload_bytes`, 1 GiB unless the settings say otherwise (413). It
+  does not replace an existing key unless asked (409). S3 has no atomic rename,
+  so a rename copies and then deletes, and a folder moves or deletes at most 1000
+  keys (422 above that): a folder rename removes the copies it made if one
+  fails, a delete reports each key's outcome instead of failing as a whole, and
+  nothing here is atomic across keys. Rename never lands on an existing key or
+  prefix (409). The buckets come from `file_buckets` and `ops_bucket` in the
+  settings, rendered from the profile, so no name is hardcoded; without them or
+  without the key every files route answers 503. Every write is audited as above;
 - **is stateless** with a read-only root filesystem until a feature needs
   storage; saved queries or history bring the shared PostgreSQL in as their
   own decision;
@@ -204,7 +247,8 @@ For those calls it therefore:
   on POST, PUT, PATCH and DELETE it refuses an `Origin` other than the
   configured `public_origin` (unset: any `Origin`), a `Sec-Fetch-Site` other
   than `same-origin` or `none`, and a body that is not JSON (`application/zip`
-  for report import). A request with no `Origin` is a non-browser client and
+  for report import, `application/octet-stream` for a files upload, the only
+  other). A request with no `Origin` is a non-browser client and
   passes. It serves no CORS headers.
 
 ### 4. One library, two hosts
@@ -263,7 +307,7 @@ cluster rights (ADR 0020).
 - Platform logic is written once, in Python, and the portal, `olf` and agents
   share it through one API.
 - The platform API holds service credentials for Superset and the object
-  store, and is the authorization point for them and for Dagster. Its
+  store (its files key reaches every enabled stage's buckets), and is the authorization point for them and for Dagster. Its
   permission matrix and token validation carry the review weight the
   perimeter carries today.
 - OpenMetadata keeps its per-user authorization on every platform path, and
@@ -489,6 +533,15 @@ rows and an export at most `query_export_max_rows`, else 413; CSV cells that a
 spreadsheet would read as formulas are prefixed with a quote.
 There is no per-person limit on queries in flight: it would need state shared
 between replicas, which this API does not have.
+
+Issue #1114: the files explorer, decision 3's files key and rows. The matrix
+gained `role_stages`, generic so a later row may use it, the files rows are
+its first users, and the object-store row of decision 2 has a third key. The
+ops bucket is listed for `platform-admin` only, and its audit prefix is
+read-only through the API because SeaweedFS's `Write` also deletes.
+`olf bucket` and the portal's Files page are its clients. Not yet run: a files
+route against a deployed SeaweedFS; the SeaweedFS identity's grant on whole
+buckets and the Secret are in the storage module.
 
 Decision 1 rewritten: the portal is no longer Astro. It is a React Router
 (framework mode, Node SSR) app in its own repository
