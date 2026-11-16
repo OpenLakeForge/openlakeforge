@@ -63,6 +63,9 @@ class DbtRunEvidence:
     selected_tests: frozenset[str] | None = None
     # Where run_results.json is, as the record's pointer to its evidence.
     artifact_uri: str | None = None
+    # False when the manifest is the image's stage-neutral one: its schemas lack the run's catalog prefix, so
+    # it names tests but not the run's tables.
+    table_identity_known: bool = True
 
 
 def read_dbt_evidence(
@@ -92,6 +95,7 @@ def read_dbt_evidence(
         incomplete_marker=marker,
         selected_tests=None if selected_tests is None else frozenset(selected_tests),
         artifact_uri=_safe_uri(f"{base}/{RUN_RESULTS_PATH}") if run_results is not None else None,
+        table_identity_known=not (marker or {}).get("baked_manifest"),
     )
 
 
@@ -122,7 +126,7 @@ def dbt_quality_manifest(
             outcome, pipeline = _missing(has_results=bool(results_by_id), build_failed=build_failed)
         else:
             outcome, pipeline = _classify(result.get("status"), test)
-        table = _table(evidence.manifest, test)
+        table = _table(evidence.manifest, test) if evidence.table_identity_known else None
         records.append(
             QualityResult(
                 engine=ENGINE,

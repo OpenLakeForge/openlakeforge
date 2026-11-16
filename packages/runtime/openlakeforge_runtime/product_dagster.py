@@ -801,20 +801,27 @@ def _retaining_artifacts_on_failure(
             if target_paths and target_paths[-1] not in with_results:
                 _upload_dbt_artifacts(context, spec, target_paths[-1])
             without_results = [i for i, path in enumerate(target_paths, 1) if path not in with_results]
+            uploaded_baked = False
             if not target_paths and baked_manifest is not None:
+                uploaded_baked = True
                 # dbt never started, so there is no invocation manifest; the quality reader needs one to name tests.
                 _upload_run_file(context, spec, baked_manifest, "target/manifest.json")
             if not target_paths or without_results:
-                _upload_incomplete_marker(context, spec, len(target_paths), without_results)
+                _upload_incomplete_marker(
+                    context, spec, len(target_paths), without_results, baked_manifest=uploaded_baked
+                )
         except Exception as upload_error:
             context.log.error(f"Could not retain dbt artifacts of the failed build: {upload_error!r}")
         raise
 
 
 def _upload_incomplete_marker(
-    context, spec: ProductDefinitionSpec, invocations: int, without_results: list[int]
+    context, spec: ProductDefinitionSpec, invocations: int, without_results: list[int], *, baked_manifest: bool = False
 ) -> None:
-    """Tell a reader of the prefix that the absence of run_results.json is a failure, not a missing upload."""
+    """Tell a reader of the prefix that the absence of run_results.json is a failure, not a missing upload.
+
+    `baked_manifest` says the uploaded manifest is the image's stage-neutral one: it is baked with an empty schema
+    prefix while Glue adds one at run time, so the tables it names are not the run's."""
     run_id = getattr(context, "run_id", None) or "unknown"
     marker = {
         "status": "artifacts_incomplete",
@@ -823,6 +830,8 @@ def _upload_incomplete_marker(
         "dbt_invocations": invocations,
         "generations_without_results": without_results,
     }
+    if baked_manifest:
+        marker["baked_manifest"] = True
     _upload_run_json(context, spec, "artifacts_incomplete.json", marker)
 
 
