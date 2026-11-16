@@ -31,7 +31,7 @@ Slim. A missed run produces no event, so something has to look for it.
 | The provider contract carries `shared.observability.alerts` as `{receivers, supported}`; all three environments set `alerts = false` and the reference says no component acts on it yet | `environments/{local,aws-poc,azure-poc}/contracts.tf`; `modules/contracts/provider-contract/outputs.tf`; [provider contracts](../architecture/provider-contracts.md) |
 | The health vocabulary is canonical: `HealthState` (`healthy`, `warning`, `critical`, `unknown`, `disabled`), `SignalKind` (`execution`, `latest_success`, `expected_run`, `freshness`, `quality`, `service`) and the pure rules `evaluate_execution`, `evaluate_latest_success`, `evaluate_expected_run`, `evaluate_quality` | `packages/core/openlakeforge_core/health.py` |
 | A failed run is `critical`, a canceled one `warning`; a due run that never started is `critical` ("a scheduler that is down emits no failure event"); a stopped or absent schedule is `disabled` | `evaluate_execution`, `evaluate_expected_run` in `health.py` |
-| The API computes pipeline signals from Dagster reads and a due time derived from the cron alone, never from a tick; `GET /api/v1/stages/{stage}/health` and the pipelines route already return them. Quality is reported "not yet provided" and no rule produces a `freshness` signal | `health_routes.py` (`_expected`, `_evaluate`, `_NOT_PROVIDED`), `schedules.py` (`latest_due`) in `packages/platform-api/openlakeforge_platform_api/` |
+| The API computes pipeline signals from Dagster reads and a due time derived from the cron alone, never from a tick; `GET /api/v1/stages/{stage}/health` and the pipelines route already return them. Each product pipeline's latest run also carries one `quality` signal read from its manifest with a per-stage read-only key; a stage without the key reports the quality integration as `not_provided` and adds none | `health_routes.py` (`_quality`), `pipeline_health.py` (`_evaluate`), `quality_health.py`, `schedules.py` (`latest_due`) in `packages/platform-api/openlakeforge_platform_api/`; `quality_reader_credentials` in `modules/storage/seaweedfs/credentials.tf` |
 | That computation takes a `Request` today | `_read(request, ...)` in `health_routes.py`; #1161 removes the dependency |
 | The expected-run grace is 15 minutes and a run is looked back over a window of 25 | `SCHEDULE_GRACE`, `RUN_WINDOW` in `health_routes.py` |
 | A quality outcome is `passed`, `warn`, `error`, `not_run` or `unknown`; a per-run manifest is keyed `run-artifacts/quality/<domain>/<product>/<run>/manifest.json` under a stage's artifact prefix | `packages/core/openlakeforge_core/quality.py` (`QualityOutcome`, `manifest_key`); `run_artifact_base_uri` in `tools/olf/olf/common/provider_contracts/_model.py` |
@@ -120,10 +120,11 @@ What does not alert, all **default, revisit**:
   source **(proposed)**: the issue names run, schedule, freshness and quality
   conditions only.
 
-`quality` conditions need the evaluator to read quality manifests, which no
-caller wires into the health route yet (`_NOT_PROVIDED` in `health_routes.py`)
-and which #1162 starts to write. Until a stage writes them, the quality
-conditions read `unknown` and open nothing.
+`quality` conditions read the quality manifests that #1162 writes, through the
+same `read_stage_pipelines` the health routes use (`quality_health.py`), so the
+two cannot disagree. A pipeline whose run wrote no manifest reads `unknown` and
+opens nothing. The evaluator takes the readers as an argument; mounting a key
+for it is part of the CronJob (#1172).
 
 `stale_output` is suppressed while `missed_run` or `run_failed` is open for the
 same product **(proposed)**: either already says why the output is stale, and a
@@ -424,3 +425,17 @@ reports `alerts.supported = true`. The Secret check is `require_alert_receiver_s
 CronJob's 240 s deadline, so slow receivers cannot kill the Job before progress is recorded; a starved entry still ages
 through `runs` and expires. With `local-ca`, the evaluator trusts the public roots plus the cluster CA (a bundle built at
 startup in `/tmp`) rather than the cluster CA alone. No deviation from the decisions above.
+
+2026-11-16: quality signals are read from the per-run manifests (#1186, slice
+c of #793); the health routes report the quality integration as `available` or
+`not_provided`.
+
+2026-11-16: quality `healthy` needs a successful run whose manifest is
+`complete`, a flag the run's last publish sets once dbt's evidence is read; a
+pass in an incomplete manifest reads `unknown`. Runs are read newest first: one
+that did not succeed answers only with a `warning` or `critical`, so a retry's
+partial manifest cannot resolve the previous run's quality incident, even when
+an older success precedes the failure. A success after a newer run whose
+manifest could not be read reads `unknown`, not `healthy`, so a transient read
+failure neither resolves nor reopens the
+incident.

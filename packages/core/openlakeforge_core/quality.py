@@ -53,7 +53,8 @@ _FORBIDDEN_KEYS = frozenset(
     "credential credentials access_key secret_key".split()
 )
 
-_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+# `\Z`, not `$`: `$` also matches before a trailing newline, which would pass into an object key.
+_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 
 _RECORD_KEYS = frozenset(
     {
@@ -207,7 +208,7 @@ class QualityResult:
             raise QualityRecordError(f"quality result is missing {exc.args[0]!r}") from exc
         except QualityRecordError:
             raise
-        except ValueError as exc:
+        except (ValueError, TypeError, AttributeError) as exc:
             raise QualityRecordError(f"quality result is invalid: {exc}") from exc
         stored = data.get("identity")
         if stored is not None and stored != record.identity:
@@ -224,8 +225,13 @@ class QualityManifest:
     product: str
     dagster_run_id: str
     results: tuple[QualityResult, ...] = ()
+    # Set only by the run's last publish, once every step that reports has reported. A manifest without it may lack
+    # the later steps' results, so a pass in it is not evidence of a healthy run.
+    complete: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.complete, bool):
+            raise QualityRecordError("manifest complete must be a boolean")
         for name in ("stage", "domain", "product", "dagster_run_id"):
             if not _SEGMENT.match(getattr(self, name)):
                 raise QualityRecordError(f"manifest {name} {getattr(self, name)!r} is not a safe path segment")
@@ -265,6 +271,7 @@ class QualityManifest:
             "domain": self.domain,
             "product": self.product,
             "dagster_run_id": self.dagster_run_id,
+            "complete": self.complete,
             "results": [r.to_dict() for r in self.results],
         }
         return json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n"
@@ -278,20 +285,27 @@ class QualityManifest:
         if not isinstance(data, dict):
             raise QualityRecordError("quality manifest must be a JSON object")
         _check_version(data)
-        unknown = set(data) - {"version", "stage", "domain", "product", "dagster_run_id", "results"}
+        unknown = set(data) - {"version", "stage", "domain", "product", "dagster_run_id", "results", "complete"}
         if unknown:
             raise QualityRecordError(f"quality manifest has unknown fields {sorted(unknown)}")
+        results = data.get("results")
+        if not isinstance(results, list):
+            raise QualityRecordError("quality manifest results must be a list")
+        for entry in results:
+            if not isinstance(entry, dict):
+                raise QualityRecordError(f"quality manifest result must be an object, not {type(entry).__name__}")
         try:
             return cls(
                 stage=data["stage"],
                 domain=data["domain"],
                 product=data["product"],
                 dagster_run_id=data["dagster_run_id"],
-                results=tuple(QualityResult.from_dict(r) for r in data["results"]),
+                results=tuple(QualityResult.from_dict(r) for r in results),
+                complete=data.get("complete", False),
             )
         except KeyError as exc:
             raise QualityRecordError(f"quality manifest is missing {exc.args[0]!r}") from exc
-        except TypeError as exc:
+        except (TypeError, AttributeError) as exc:
             raise QualityRecordError(f"quality manifest is invalid: {exc}") from exc
 
 

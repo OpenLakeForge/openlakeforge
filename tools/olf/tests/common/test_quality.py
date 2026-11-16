@@ -50,6 +50,17 @@ def test_record_round_trips_through_json() -> None:
     assert QualityManifest.from_json(original.to_json()) == original
 
 
+def test_a_manifest_is_incomplete_unless_marked_and_the_marker_round_trips() -> None:
+    document = json.loads(manifest(result()).to_json())
+    del document["complete"]
+
+    assert QualityManifest.from_json(json.dumps(document)).complete is False
+    finished = QualityManifest("dev", "sales", "order_revenue", "run-1", (result(),), complete=True)
+    assert QualityManifest.from_json(finished.to_json()).complete is True
+    with pytest.raises(QualityRecordError):
+        QualityManifest.from_json(_manifest_document(complete="yes"))
+
+
 def test_serialization_is_deterministic_whatever_the_input_order() -> None:
     a, b = result(check_id="floe_unique"), result(check_id="floe_not_null")
     assert manifest(a, b).to_json() == manifest(b, a).to_json()
@@ -164,9 +175,62 @@ def test_malformed_manifests_raise_a_record_error(text: str) -> None:
         QualityManifest.from_json(text)
 
 
+def _manifest_document(**changes: object) -> str:
+    document = json.loads(manifest(result()).to_json())
+    document.update(changes)
+    return json.dumps(document)
+
+
+def _result_document(**changes: object) -> dict[str, object]:
+    record = result().to_dict()
+    record.update(changes)
+    return record
+
+
+@pytest.mark.parametrize(
+    "results",
+    [
+        [None],
+        [[]],
+        ["text"],
+        [1],
+        {},
+        "text",
+        None,
+        1,
+        [_result_document(metrics="x")],
+        [_result_document(metrics=[1])],
+        [_result_document(metrics={"rows": "many"})],
+        [_result_document(outcome=[])],
+        [_result_document(outcome=1)],
+        [_result_document(observed_at=1)],
+        [_result_document(engine=1)],
+        [_result_document(check_id=None)],
+        [_result_document(domain=1)],
+    ],
+    ids=repr,
+)
+def test_structurally_malformed_results_raise_a_record_error(results: object) -> None:
+    with pytest.raises(QualityRecordError):
+        QualityManifest.from_json(_manifest_document(results=results))
+
+
+def test_a_manifest_without_results_raises_a_record_error() -> None:
+    document = json.loads(_manifest_document())
+    del document["results"]
+
+    with pytest.raises(QualityRecordError, match="results"):
+        QualityManifest.from_json(json.dumps(document))
+
+
 def test_manifest_key_refuses_path_traversal() -> None:
     with pytest.raises(QualityRecordError, match="safe path segment"):
         manifest_key("sales", "../other", "run-1")
+
+
+def test_manifest_key_refuses_a_trailing_newline() -> None:
+    with pytest.raises(QualityRecordError, match="safe path segment"):
+        manifest_key("sales\n", "orders", "run-1")
 
 
 def test_reject_that_quarantined_rows_is_a_non_blocking_health_error() -> None:

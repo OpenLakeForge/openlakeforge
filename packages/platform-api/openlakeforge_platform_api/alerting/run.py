@@ -26,6 +26,7 @@ from openlakeforge_services.notify import Notifier
 from openlakeforge_platform_api.alerting.settings import EvaluatorSettings, LinkSettings
 from openlakeforge_platform_api.alerting.store import AlertStore, PendingRecord
 from openlakeforge_platform_api.pipeline_health import read_stage_pipelines
+from openlakeforge_platform_api.quality_health import QualityReader
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ def run_once(
     dagster: Mapping[str, DagsterClient],
     notifiers: Mapping[str, Notifier],
     now: datetime,
+    quality: Mapping[str, QualityReader] | None = None,
     delivery_budget: float = DELIVERY_BUDGET_SECONDS,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> RunSummary:
@@ -61,7 +63,7 @@ def run_once(
     previous = store.read_state(now)
     # Transitions of the stored state whose history writes did not all land last run: replay them now.
     _flush_history(store, store.read_pending_history(previous))
-    signals, scopes = _read_stages(settings, dagster, previous, now)
+    signals, scopes = _read_stages(settings, dagster, quality or {}, previous, now)
     evaluation = evaluate(
         previous,
         signals,
@@ -167,7 +169,11 @@ def _flush_history(store: AlertStore, pending: list[PendingRecord]) -> None:
 
 
 def _read_stages(
-    settings: EvaluatorSettings, dagster: Mapping[str, DagsterClient], previous: AlertState, now: datetime
+    settings: EvaluatorSettings,
+    dagster: Mapping[str, DagsterClient],
+    quality: Mapping[str, QualityReader],
+    previous: AlertState,
+    now: datetime,
 ) -> tuple[list[Signal], list[Scope]]:
     """Signals of every enabled stage, and the products that still exist in the stages that could be read.
 
@@ -177,7 +183,7 @@ def _read_stages(
     signals: list[Signal] = []
     scopes: list[Scope] = []
     for stage in settings.stages:
-        status, pipelines = read_stage_pipelines(dagster.get(stage), stage, now)
+        status, pipelines = read_stage_pipelines(dagster.get(stage), stage, now, quality.get(stage))
         readable = status.status == "available"
         # Exactly one per stage and evaluation: a stage with none would have its unreadable counter reset.
         signals.append(
