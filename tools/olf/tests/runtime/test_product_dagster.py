@@ -219,6 +219,25 @@ def test_a_failed_build_without_run_results_leaves_an_incomplete_marker(
     assert store["dbt/sales/revenue/r1/logs/dbt.log"] == "boom"
 
 
+def test_a_later_generation_failing_keeps_the_results_of_the_earlier_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first, second = tmp_path / "gen1", tmp_path / "gen2"
+    first.mkdir()
+    second.mkdir()
+    (first / "run_results.json").write_text('{"results": [{"unique_id": "model.a"}]}')
+    (second / "dbt.log").write_text("gen2 crashed")
+    store = _ops_store(monkeypatch)
+
+    with pytest.raises(_DbtBuildFailed):
+        _drain([first, second], SimpleNamespace(run_id="r1", log=_Log()))
+
+    assert json.loads(store["dbt/sales/revenue/r1/target/run_results.json"])["results"] == [{"unique_id": "model.a"}]
+    assert store["dbt/sales/revenue/r1/logs/dbt.log"] == "gen2 crashed"
+    marker = json.loads(store["dbt/sales/revenue/r1/artifacts_incomplete.json"])
+    assert marker["generations_without_results"] == [2]
+
+
 def test_a_build_that_failed_before_any_dbt_invocation_leaves_an_incomplete_marker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

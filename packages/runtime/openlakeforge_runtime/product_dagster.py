@@ -620,16 +620,23 @@ def _retaining_artifacts_on_failure(context, spec: ProductDefinitionSpec, target
         yield from stream
     except Exception:
         try:
-            if target_paths:
-                _upload_dbt_artifacts(context, spec, merge_run_results(target_paths))
-            if not target_paths or not (target_paths[-1] / "run_results.json").exists():
-                _upload_incomplete_marker(context, spec, len(target_paths))
+            with_results = [path for path in target_paths if (path / "run_results.json").exists()]
+            if with_results:
+                _upload_dbt_artifacts(context, spec, merge_run_results(with_results))
+            # The failing invocation's manifest and log are the evidence; it lands after, so it wins those keys.
+            if target_paths and target_paths[-1] not in with_results:
+                _upload_dbt_artifacts(context, spec, target_paths[-1])
+            without_results = [i for i, path in enumerate(target_paths, 1) if path not in with_results]
+            if not target_paths or without_results:
+                _upload_incomplete_marker(context, spec, len(target_paths), without_results)
         except Exception as upload_error:
             context.log.error(f"Could not retain dbt artifacts of the failed build: {upload_error!r}")
         raise
 
 
-def _upload_incomplete_marker(context, spec: ProductDefinitionSpec, invocations: int) -> None:
+def _upload_incomplete_marker(
+    context, spec: ProductDefinitionSpec, invocations: int, without_results: list[int]
+) -> None:
     """Tell a reader of the prefix that the absence of run_results.json is a failure, not a missing upload."""
     base_uri = os.environ.get("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI")
     if not base_uri:
@@ -637,9 +644,10 @@ def _upload_incomplete_marker(context, spec: ProductDefinitionSpec, invocations:
     run_id = getattr(context, "run_id", None) or "unknown"
     marker = {
         "status": "artifacts_incomplete",
-        "reason": "the dbt build failed before writing run_results.json",
+        "reason": "the dbt build failed and some invocations wrote no run_results.json",
         "dagster_run_id": run_id,
         "dbt_invocations": invocations,
+        "generations_without_results": without_results,
     }
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "artifacts_incomplete.json"
