@@ -273,8 +273,11 @@ token and the F20 egress to the API server land together with their caller
 (#1156): `environments/local` sets `probe_namespaces` from the stage namespace
 resources, the pod mounts its token, F20 names the platform API, and the stage
 health route runs the probes. A mounted token or an open egress with no route
-using it would widen a compromised API's reach for nothing, which is why none
-of the three exists without the others.
+using it would widen a compromised API's reach for nothing. The F20 row is
+static: it is open whenever the platform API is deployed. `environments/local`,
+the only root that deploys it, guarantees the token and the Roles always
+accompany it with a precondition that `probe_namespaces` names at least one
+stage namespace.
 
 | Where | apiGroup | Resources | Verbs |
 | --- | --- | --- | --- |
@@ -583,8 +586,10 @@ condition. Nothing has run against a cluster.
 
 Issue #1156, decision 7 and open item 4: the probe grant, the token and the F20
 egress are wired together with the stage health route that calls them, and open
-item 4 is closed. `environments/local` sets `probe_namespaces` from the stage
-namespace resources, so each Role is created after its namespace; the module
+item 4 is closed. The F20 row is static, so `environments/local` carries a
+precondition that `probe_namespaces` is non-empty whenever the platform API
+renders; the token and the Roles therefore always accompany the egress. It
+sets `probe_namespaces` from the stage namespace resources, so each Role is created after its namespace; the module
 renders the same map as the settings' `stage_namespaces`, with `trino_urls`
 (each coordinator's base URL, not the statement URL). `GET
 /api/v1/stages/{stage}/health` builds `ServiceProbes` once at startup, runs the

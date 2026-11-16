@@ -135,6 +135,25 @@ def test_a_probe_that_raises_is_unknown_and_leaks_nothing(
     assert "secret-detail" not in response.text
 
 
+def test_an_unreadable_dagster_is_unknown_even_when_every_service_probe_is_healthy(
+    settings: Settings, dagster: ScheduledDagster, mint: Mint
+) -> None:
+    probes = FakeProbes(
+        [_signal("trino.readiness", HealthState.HEALTHY), _signal("dagster.workloads", HealthState.HEALTHY)]
+    )
+    configured = _settings(
+        settings,
+        dagster_graphql_urls={"dev": f"{UNREACHABLE}/graphql"},
+        stage_namespaces={"dev": "olf-dev"},
+    )
+    api = TestClient(create_app(configured, service_probes=probes))
+
+    body = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
+
+    assert body["state"] == "unknown"
+    assert {item["name"]: item["status"] for item in body["integrations"]}["dagster"] == "unavailable"
+
+
 def test_a_stage_with_no_namespace_is_not_probed(settings: Settings, dagster: ScheduledDagster, mint: Mint) -> None:
     probes = FakeProbes([_signal("trino.readiness", HealthState.CRITICAL)])
     configured = _settings(settings, dagster_graphql_urls={"dev": f"{dagster.url}/graphql"})

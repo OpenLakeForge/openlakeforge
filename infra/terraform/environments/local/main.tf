@@ -354,6 +354,20 @@ module "platform_api" {
   bootstrap_job_image = local.bootstrap_job_image
 }
 
+# The F20 egress row to the API server is static, so it is open whenever the
+# platform API renders. This is what guarantees the token and the Roles come
+# with it: a module call cannot carry a precondition, so this resource does.
+resource "terraform_data" "platform_api_probe_grant" {
+  count = local.platform_api_enabled ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = length(jsondecode(module.platform_api[0].settings_json).stage_namespaces) > 0
+      error_message = "the platform API's F20 egress to the API server is static; probe_namespaces must name a stage namespace so the token and the Roles accompany it (ADR 0021, decision 7)"
+    }
+  }
+}
+
 module "traefik" {
   source = "../../modules/access/traefik"
   count  = local.access_enabled ? 1 : 0

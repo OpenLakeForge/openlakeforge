@@ -280,4 +280,9 @@ run "service_probes_are_wired_to_each_stage_namespace" {
     }
     error_message = "the probe needs each coordinator's base URL, not its statement URL"
   }
+
+  assert {
+    condition     = length(terraform_data.platform_api_probe_grant) == 1
+    error_message = "the F20 egress is static, so the root must check the probe grant accompanies the platform API"
+  }
 }

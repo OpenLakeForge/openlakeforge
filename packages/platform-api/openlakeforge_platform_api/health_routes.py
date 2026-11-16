@@ -237,6 +237,19 @@ async def get_stage_health(request: Request, stage: str) -> StageHealth:
         run_in_threadpool(_read, request, stage, now), run_in_threadpool(_probe, request, stage, now)
     )
     signals = [signal for pipeline in pipelines for signal in pipeline.signals] + service_signals
+    if dagster.status == "unavailable":
+        # No pipelines means no signal: without this a configured Dagster that cannot be read would drop out of the
+        # rollup and a stage with passing service probes would read healthy.
+        signals.append(
+            service_signal(
+                Scope(stage=stage),
+                "dagster.pipelines",
+                HealthState.UNKNOWN,
+                "Dagster could not be read",
+                now=now,
+                max_age=SERVICE_MAX_AGE,
+            )
+        )
     return StageHealth(
         stage=stage,
         state=rollup(signals).value,
