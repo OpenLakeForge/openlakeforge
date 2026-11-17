@@ -42,6 +42,10 @@ STATE_PREFIX = "quality-sync/state"
 SUMMARY_KEY = "quality-sync/summary.json"
 MANIFEST_PREFIX = "run-artifacts/quality"
 DEFAULT_LIMIT = 25
+# The `testResultValue` name carrying a result's execution identity, and how far around a timestamp it is looked
+# for: a run's records are restamped while it runs, never by days.
+IDENTITY_VALUE = "olf_identity"
+IDENTITY_WINDOW_MS = 24 * 60 * 60 * 1000
 # Manifests older than this are not scanned: it bounds the listing, and an older run is replayed by naming it.
 DEFAULT_MAX_AGE = timedelta(days=30)
 
@@ -124,13 +128,19 @@ class QualityCatalog:
             raise OpenMetadataError("OpenMetadata did not name the test case it stored")
         return fqn
 
-    def has_result(self, case_fqn: str, timestamp: int) -> bool:
+    def has_result(self, case_fqn: str, timestamp: int, identity: str) -> bool:
+        """Whether this execution is already there, by its identity and not only by its timestamp: a manifest
+        rewritten by a later step of the run restamps a record, and the same execution must not be added twice."""
         page = self._client.request(
             "GET",
             f"/api/v1/dataQuality/testCases/testCaseResults/{_path(case_fqn)}",
-            params={"startTs": timestamp, "endTs": timestamp},
+            params={"startTs": timestamp - IDENTITY_WINDOW_MS, "endTs": timestamp + IDENTITY_WINDOW_MS},
         )
-        return any(r.get("timestamp") == timestamp for r in page.get("data") or [])
+        for stored in page.get("data") or []:
+            values = {v.get("name"): v.get("value") for v in stored.get("testResultValue") or []}
+            if stored.get("timestamp") == timestamp or values.get(IDENTITY_VALUE) == identity:
+                return True
+        return False
 
     def add_result(self, case_fqn: str, body: Mapping[str, Any]) -> None:
         self._client.request(
@@ -339,7 +349,7 @@ class QualityPublisher:
                 column=column,
                 description=f"{result.engine} check {result.check_id}, published from the run's quality manifest.",
             )
-            if not self._catalog.has_result(case_fqn, timestamp):
+            if not self._catalog.has_result(case_fqn, timestamp, result.identity):
                 self._catalog.add_result(case_fqn, result_body(result, status, timestamp))
         except OpenMetadataTransientError as exc:
             outcome.interrupted = True
@@ -471,6 +481,7 @@ def result_body(result: QualityResult, status: OmStatus, timestamp: int) -> dict
         ("engine_severity", result.engine_severity),
         ("pipeline_outcome", result.pipeline_outcome.value),
         ("dagster_run_id", result.dagster_run_id),
+        (IDENTITY_VALUE, result.identity),
         *((f"metric.{name}", str(value)) for name, value in result.metrics.items()),
     ]
     if result.engine_run_id:

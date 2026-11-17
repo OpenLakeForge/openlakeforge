@@ -72,8 +72,7 @@ class FakeOpenMetadata:
             assert fqn in self.cases, "a result for a case that does not exist"
             history = self.results.setdefault(fqn, {})
             if method == "GET":
-                ts = params["startTs"]
-                return {"data": [history[ts]] if ts in history else []}
+                return {"data": [r for t, r in history.items() if params["startTs"] <= t <= params["endTs"]]}
             assert json_body["timestamp"] not in history, "duplicate result timestamp"
             history[json_body["timestamp"]] = json_body
             return {}
@@ -464,3 +463,16 @@ def test_an_unusable_manifest_is_rejected_once_and_does_not_starve_valid_runs(bu
     put_manifest(bucket, [result("floe_unique", run="run-0")], run="run-0", modified=T0)
     assert pub.reconcile(now=now, limit=1).published == 1
     assert summary(bucket).rejected_runs == 0
+
+
+def test_a_restamped_record_of_the_same_execution_is_not_published_twice(bucket, om):
+    put_manifest(bucket, [result("floe_not_null")])
+    pub = publisher(bucket, om)
+    pub.reconcile(now=T0)
+    # The result reached OpenMetadata but the state write was lost; a later step then rewrote the manifest with a
+    # fresh timestamp for the same execution.
+    del bucket.objects[STATE_KEY]
+    put_manifest(bucket, [result("floe_not_null", at=T0 + timedelta(minutes=7))], modified=T0 + timedelta(minutes=7))
+    report = pub.reconcile(now=T0 + timedelta(hours=1))
+    assert report.published == 1
+    assert len(om.results[f'{SILVER}."olf.floe.floe_not_null"']) == 1

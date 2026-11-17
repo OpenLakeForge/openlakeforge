@@ -22,6 +22,7 @@ from olf.infra.e2e._assertions import _openmetadata_e2e_login, openmetadata_clie
 from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import product_gold_tables, stage_catalog_name
 from olf.infra.openmetadata._auth import admin_password
+from olf.infra.openmetadata._quality_sync import schema_map
 
 WARN_RULE = "e2e_warn_rule"
 ERROR_RULE = "e2e_error_rule"
@@ -44,9 +45,16 @@ def check_quality_publication(cfg: E2EConfig) -> None:
     entities = cfg.inventory.floe_entities(domain)
     if not entities:
         raise E2EError(f"domain {domain.name} has no Floe entity")
-    silver = f"{database_fqn}.{domain.silver_namespace}.{entities[0].name}"
+    environ = cfg_environ(cfg)
+    # The contract's own schema mappings, as the replay command passes them: on AWS Glue the physical schemas are
+    # stage-prefixed and are not `<domain>_silver`.
+    silver_schemas = schema_map("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", environ)
+    gold_schemas = schema_map("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", environ)
+    silver_schema = (silver_schemas or {}).get(domain.name) or f"{database_fqn}.{domain.silver_namespace}"
     gold_table = product_gold_tables(cfg, product)[0]
-    gold = f"{database_fqn}.{gold_table}"
+    gold_schema = (gold_schemas or {}).get(product.id) or f"{database_fqn}.{product.gold_namespace}"
+    silver = f"{silver_schema}.{entities[0].name}"
+    gold = f"{gold_schema}.{gold_table.rsplit('.', 1)[1]}"
 
     stamp = int(datetime.now(UTC).timestamp())
     runs = [f"olf-e2e-quality-{stamp}-{i}" for i in (1, 2, 3)]
@@ -71,6 +79,8 @@ def check_quality_publication(cfg: E2EConfig) -> None:
             stage=stage,
             catalog=QualityCatalog(client),
             database_fqn=database_fqn,
+            silver_schemas=silver_schemas,
+            gold_schemas=gold_schemas,
         )
 
         def put(run: str, at: datetime, results: list[QualityResult]) -> str:
@@ -152,9 +162,9 @@ def check_quality_publication(cfg: E2EConfig) -> None:
             visible = summary is not None and summary.pending >= 1 and "not registered" in (summary.last_error or "")
             if blocked.deferred != 1 or not visible:
                 raise E2EError(f"an unregistered table was not left pending and visible: {blocked}")
-            _expect_absent(client, f"{database_fqn}.{domain.silver_namespace}.zz_e2e_unregistered")
+            _expect_absent(client, f"{silver_schema}.zz_e2e_unregistered")
 
-            _expect_no_other_stage_writes(cfg, client, stage, database_fqn, domain.silver_namespace, entities[0].name)
+            _expect_no_other_stage_writes(cfg, client, stage, silver)
         finally:
             for key in keys:
                 for stored in (key, f"{base}/quality-sync/state/{domain.name}/{product.id}/{key.split('/')[-2]}.json"):
@@ -189,14 +199,14 @@ def _expect_absent(client: OpenMetadataClient, table_fqn: str) -> None:
         raise E2EError(f"the publisher created or found a table it must not own: {table_fqn}: {exc}") from exc
 
 
-def _expect_no_other_stage_writes(
-    cfg: E2EConfig, client: OpenMetadataClient, stage: str, database_fqn: str, schema: str, table: str
-) -> None:
-    """A result of this stage never reaches another stage's root: its `olf.floe.e2e_*` cases do not exist there."""
+def _expect_no_other_stage_writes(cfg: E2EConfig, client: OpenMetadataClient, stage: str, silver: str) -> None:
+    """A result of this stage never reaches another stage's root: its `olf.floe.e2e_*` cases do not exist there.
+    The other stage's table name is this one's with the stage's catalog swapped, which also holds for prefixed
+    physical schemas."""
     stages = load_provider_contracts_or_raise(cfg).get("stages") or {}
-    service = database_fqn.split(".", 1)[0]
     for other in sorted(set(stages) - {stage}):
-        fqn = case_fqn(f"{service}.lakehouse_{other}.{schema}.{table}", f"olf.floe.{WARN_RULE}")
+        other_table = silver.replace(f"lakehouse_{stage}", f"lakehouse_{other}")
+        fqn = case_fqn(other_table, f"olf.floe.{WARN_RULE}")
         try:
             client.request(
                 "GET", "/api/v1/dataQuality/testCases/name/" + urllib.parse.quote(fqn, safe=""), ok_statuses=(404,)

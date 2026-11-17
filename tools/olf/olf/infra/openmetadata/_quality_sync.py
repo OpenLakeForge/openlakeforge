@@ -68,15 +68,15 @@ def run_quality_sync(
             stage=stage,
             catalog=QualityCatalog(client),
             database_fqn=database_fqn,
-            silver_schemas=_schema_map("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", environ),
-            gold_schemas=_schema_map("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", environ),
+            silver_schemas=schema_map("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", environ),
+            gold_schemas=schema_map("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", environ),
             warn_status=warn_status,
         )
         report = publisher.reconcile(limit=limit, run_id=run_id, retry_failed=retry_failed)
     return QualitySyncOutcome(stage=stage, governance_enabled=True, report=report)
 
 
-def _schema_map(name: str, environ: Mapping[str, str]) -> dict[str, str] | None:
+def schema_map(name: str, environ: Mapping[str, str]) -> dict[str, str] | None:
     """The provider contract's logical name -> physical schema FQN, as `deploy-metadata` registers tables under."""
     raw = config.env(name, environ=environ)
     if not raw:

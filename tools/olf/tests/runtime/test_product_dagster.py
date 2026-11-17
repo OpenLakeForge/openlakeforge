@@ -1289,6 +1289,30 @@ def test_a_later_publish_replaces_an_unknown_outcome_and_keeps_a_record_it_lacks
     }
 
 
+def test_a_rewritten_manifest_keeps_the_first_observation_time_of_an_execution() -> None:
+    def manifest(at: datetime) -> QualityManifest:
+        result = QualityResult(
+            engine="floe",
+            stage="dev",
+            domain="sales",
+            product="revenue",
+            check_id="a",
+            engine_severity="reject",
+            outcome=QualityOutcome.PASSED,
+            pipeline_outcome=PipelineOutcome.CONTINUED,
+            observed_at=at,
+            dagster_run_id="r1",
+        )
+        return QualityManifest(
+            stage="dev", domain="sales", product="revenue", dagster_run_id="r1", results=(result,)
+        )
+
+    first = datetime(2026, 11, 16, 10, tzinfo=UTC)
+    merged = product_dagster._without_regressions(manifest(datetime(2026, 11, 16, 10, 9, tzinfo=UTC)), manifest(first))
+
+    assert [r.observed_at for r in merged.results] == [first]
+
+
 def test_a_product_job_attaches_the_quality_manifest_hooks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (job,) = _product_defs(tmp_path, monkeypatch).jobs
 
