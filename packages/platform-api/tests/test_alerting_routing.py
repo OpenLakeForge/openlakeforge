@@ -114,3 +114,49 @@ def test_the_policy_clearing_resolves_policy_unreadable_to_the_same_receivers() 
     _evaluate(_settings(OPS), bucket, dagster, {"ops": ops}, NOW + timedelta(minutes=5))
 
     assert _told(ops) == [("dev", "policy_unreadable", "opened"), ("dev", "policy_unreadable", "resolved")]
+
+
+def _queued(bucket: FakeBucket) -> list[str]:
+    outbox = bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["outbox"]
+    return [entry["notification"]["id"] for entry in outbox]
+
+
+def test_a_queued_notification_waits_while_its_stage_policy_cannot_be_read_at_all() -> None:
+    bucket = FakeBucket()
+    publish(bucket, alerts=_policy("on-call", routes="on-call: ops"))
+    ops, dagster, settings = FakeNotifier(up=False), {"dev": FakeDagster([_failed()])}, _settings(OPS)
+
+    _evaluate(settings, bucket, dagster, {"ops": ops})
+    (queued,) = _queued(bucket)
+    # Neither the stage's pointer nor the cached policy can be read this time.
+    pointer = bucket.objects["activations/dev/ACTIVE.json"]
+    del bucket.objects["alerts/state/v1/policy/dev.json"]
+    bucket.objects["activations/dev/ACTIVE.json"] = b"\xff\xfe"
+    ops.up = True
+
+    _evaluate(settings, bucket, dagster, {"ops": ops}, NOW + timedelta(minutes=5))
+
+    assert queued in _queued(bucket)
+    assert ("dev", "policy_unreadable", "opened") in _told(ops)  # platform conditions do not need the policy
+    # The one attempt that failed is the only send of it so far.
+    assert _told(ops).count(("dev", "run_failed", "opened")) == 1
+
+    bucket.objects["activations/dev/ACTIVE.json"] = pointer
+    _evaluate(settings, bucket, dagster, {"ops": ops}, NOW + timedelta(minutes=10))
+
+    assert queued not in _queued(bucket)
+    assert _told(ops).count(("dev", "run_failed", "opened")) == 2
+
+
+def test_a_notification_whose_policy_was_read_and_routes_nobody_still_leaves_the_outbox() -> None:
+    bucket = FakeBucket()
+    publish(bucket, alerts=_policy("sales", routes="on-call: ops, sales: gone"))
+
+    _evaluate(_settings(OPS), bucket, {"dev": FakeDagster([_failed()])}, {"ops": FakeNotifier(up=False)})
+
+    assert all(_condition(bucket, queued) != "run_failed" for queued in _queued(bucket))
+
+
+def _condition(bucket: FakeBucket, notification_id: str) -> str:
+    outbox = bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["outbox"]
+    return next(e["notification"]["kind"] for e in outbox if e["notification"]["id"] == notification_id)

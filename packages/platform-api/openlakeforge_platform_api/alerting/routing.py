@@ -21,13 +21,20 @@ log = logging.getLogger(__name__)
 
 def routed_receivers(
     notification: Notification, settings: EvaluatorSettings, policies: Mapping[str, StagePolicy]
-) -> set[str]:
-    """Names of the receivers `notification` goes to now; empty when nobody is routed."""
+) -> set[str] | None:
+    """Names of the receivers `notification` goes to now; empty when nobody is routed.
+
+    None when a product notification cannot be routed because its stage has no policy that could be read, not even a
+    cached one: that says nothing about whether anyone is routed, so the caller must leave the notification queued.
+    """
     stage = notification.scope.stage
     if notification.kind in PLATFORM_KINDS:
         wanted = {receiver.name for receiver in settings.receivers if receiver.platform}
     else:
-        wanted = _product_receivers(notification, settings, policies.get(stage))
+        found = policies.get(stage)
+        if found is not None and found.revision is None and found.unreadable:
+            return None
+        wanted = _product_receivers(notification, settings, found)
     return {receiver.name for receiver in settings.receivers if receiver.name in wanted and receiver.routes(stage)}
 
 

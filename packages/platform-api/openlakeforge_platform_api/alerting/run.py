@@ -103,6 +103,10 @@ def run_once(
             break
         notification = entry.notification
         routed = routed_receivers(notification, settings, stage_policies)
+        if routed is None:
+            # No policy could be read to route it by. It stays queued, and its `runs` count, already advanced by this
+            # run's evaluation, still expires it.
+            continue
         if not routed or routed <= entry.delivered:
             # Nobody to send to, or every receiver still routed to it has it (a route can change between runs).
             state = drop_notification(state, notification.id)
@@ -155,7 +159,9 @@ def run_once(
                 "schema": HISTORY_SCHEMA,
                 "record": "undeliverable",
                 "notification_id": entry.notification.id,
-                "receivers": sorted(routed_receivers(entry.notification, settings, stage_policies) - entry.delivered),
+                "receivers": sorted(
+                    (routed_receivers(entry.notification, settings, stage_policies) or set()) - entry.delivered
+                ),
                 "attempts": dict(sorted(entry.attempts.items())),
                 "runs": entry.runs,
                 "at": now.isoformat(),
