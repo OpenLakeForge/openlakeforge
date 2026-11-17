@@ -62,9 +62,9 @@ on:
           custom profile 'stage_scope' and 'access_tls' are ignored -- the
           profile decides -- and the provider-contract fixture comparison is
           skipped. The run activates dev and prod only, pushes the revision to
-          its own GHCR repository and cannot run the stage drill, so a profile
-          that enables another stage, declares spec.project or is used with
-          stage_drill is rejected. Leave empty for the conformance profile.
+          its own GHCR repository and cannot run the stage drill or the
+          registry pull check, so a profile that enables another stage or
+          declares spec.project, or a run that asks for either, is rejected. Leave empty for the conformance profile.
         type: string
         default: ""
       profile_path:
@@ -362,8 +362,9 @@ jobs:
             # The steps below activate dev and prod only, and they own the image repository (GHCR, with the job's token).
             python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); bad = [s["name"] for s in d["stages"] if s["enabled"] and s["name"] not in ("dev", "prod")]; sys.exit("::error::this workflow activates dev and prod only; the profile also enables " + ", ".join(bad) if bad else 0)' "${RUNNER_TEMP}/resolved-profile.json"
             python3 -c 'import json, sys; sys.exit("::error::a custom profile must not declare spec.project: the workflow pushes the revision to its own GHCR repository" if json.load(open(sys.argv[1]))["project"]["source"] == "profile" else 0)' "${RUNNER_TEMP}/resolved-profile.json"
-            if [ "${{ inputs.stage_drill }}" = "true" ]; then
-              echo "::error::stage_drill rewrites the conformance profile and does not support a custom profile"
+            # Both edit the conformance profile's text (sed, and an appended `project:` block), not parsed YAML.
+            if [ "${{ inputs.stage_drill }}" = "true" ] || [ "${{ inputs.registry_pull_check }}" = "true" ]; then
+              echo "::error::stage_drill and registry_pull_check edit the conformance profile and do not support a custom profile"
               exit 1
             fi
           fi
