@@ -146,6 +146,7 @@ def test_the_stages_archive_and_the_collector_probe_reach_the_probes(
         stage_namespaces={"dev": "olf-dev"},
         log_archives={"dev": {"base_uri": "s3://ops/activations/dev/logs", "namespace": "olf-dev"}},
         log_collector_probe_url="http://log-collector-probe.olf-system.svc:2021",
+        polaris_health_url="http://polaris-mgmt.olf-system.svc:8182",
     )
     api = TestClient(create_app(configured, service_probes=probes))
 
@@ -155,6 +156,7 @@ def test_the_stages_archive_and_the_collector_probe_reach_the_probes(
     assert target.log_archive_base_uri == "s3://ops/activations/dev/logs"
     assert target.log_archive_namespace == "olf-dev"
     assert target.spool_probe_url == "http://log-collector-probe.olf-system.svc:2021"
+    assert target.polaris_health_url == "http://polaris-mgmt.olf-system.svc:8182"
 
 
 def test_a_probe_that_raises_is_unknown_and_leaks_nothing(
@@ -270,6 +272,7 @@ def test_settings_name_each_stage_namespace_and_trino_base_url(settings: Setting
         ({"trino_urls": {"dev": "trino:8080"}}, "http.s. base URL"),
         ({"log_collector_probe_url": "https://probe:2021"}, "log_collector_probe_url"),
         ({"log_collector_probe_url": "http://probe"}, "log_collector_probe_url"),
+        ({"polaris_health_url": "polaris-mgmt:8182"}, "polaris_health_url"),
     ],
 )
 def test_settings_refuse_probe_targets_that_cannot_be_probed(

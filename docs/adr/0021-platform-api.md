@@ -368,6 +368,7 @@ probed. A 200 never counts alone:
 | `*.workloads` | pods ready, schedulable, not crash looping, restarts below 3 | that the service answers |
 | `dagster.read-api` | the webserver answers GraphQL and a code location is loaded | that a run would launch |
 | `trino.readiness` | the coordinator finished starting (`/v1/info`) | workers, catalogs, Polaris |
+| `polaris.readiness` | the catalog's management port answers `/q/health/ready` with no credential (F43, [ADR 0017](0017-local-network-policy-and-rbac.md)); a DOWN answer is `critical` | that a catalog read works, that a grant holds, or that the stage's catalog exists: the probe holds no Polaris credential and never touches the REST API |
 | `object-store.list` | the endpoint is reachable and the key may list the bucket | that a write is durable |
 | `log-archive.spool-age`, `log-archive.spool-size` | how old the collector's oldest unsent file is and how full its spool is, worst over every collector pod (F42; [ADR 0022](0022-pod-log-collection-and-archive-format.md), decision 2) | that an object reached the bucket |
 | `log-archive.newest-object` | the age of the newest object under the stage's `logs/v2/namespace=<ns>/`, listed with the log reader's key | that the stage logs anything: an idle stage reads the same as a stalled collector |
@@ -690,3 +691,11 @@ Issue #1167 (ADR 0023): the image also hosts the alert evaluator's entrypoint,
 `olf-system`. The API itself stays stateless: the evaluator is a separate
 process and keeps its state as objects in the ops bucket, not in the API.
 Nothing is built.
+
+Issue #798, decision 7: `polaris.readiness` is added as an unauthenticated
+check of the catalog's own readiness (`GET /q/health/ready` on the management
+port 8182, F43). It was chosen over a catalog read because a read needs a
+Polaris principal and a grant the platform API does not hold, and ADR 0019
+defers data-plane authorization. A profile that deploys no catalog leaves
+`polaris_health_url` out and the signal is `disabled`. Polaris is one service
+for every stage, so each stage's health reads the same answer.
