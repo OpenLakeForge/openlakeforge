@@ -103,7 +103,7 @@ def flows(
 
     if json_output:
         report = {
-            "command": "check_flows",
+            "command": "check flows",
             "ok": len(errors) == 0,
             "items": [
                 {

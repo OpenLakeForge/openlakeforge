@@ -126,13 +126,13 @@ def project_code(
                 _run(pytest, cwd=project.root, env=env)
 
         if json_output:
-            typer.echo(json.dumps({"command": "check project_code", "ok": True, "items": []}, indent=2))
+            typer.echo(json.dumps({"command": "check project-code", "ok": True, "items": []}, indent=2))
         else:
             typer.echo("Project code checks passed.")
     except Exception as exc:
         if json_output:
             error_report = {
-                "command": "check project_code",
+                "command": "check project-code",
                 "ok": False,
                 "items": [{
                     "id": "execution_error",

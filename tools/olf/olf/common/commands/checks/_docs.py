@@ -89,7 +89,7 @@ def docs(
     # Branch on output format
     if json_output:
         report = {
-            "command": "check_docs",
+            "command": "check docs",
             "ok": len(errors) == 0,
             "items": [
                 {

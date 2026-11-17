@@ -190,24 +190,47 @@ def doctor(
     """Check host tools, source inputs, and provider authentication without mutating deployment state."""
     from olf.common.deployment.errors import DeploymentError
 
-    context = _build_context(
-        provider,
-        profile=profile,
-        namespace=namespace,
-        stage=stage,
-        cluster_name=cluster_name,
-        kubeconfig_path=kubeconfig_path,
-        project_root=project_root,
-    )
-    engine = _build_engine(context, var_file=var_file)
-    resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform", "artifacts"))
-
-    progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
     try:
-        with progress:
-            report = engine.doctor(resolved_phase)
-    except (DeploymentError, OSError) as exc:
-        # Emit JSON error when --json is set, ensure valid JSON on all exits
+        context = _build_context(
+            provider,
+            profile=profile,
+            namespace=namespace,
+            stage=stage,
+            cluster_name=cluster_name,
+            kubeconfig_path=kubeconfig_path,
+            project_root=project_root,
+        )
+        engine = _build_engine(context, var_file=var_file)
+        resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform", "artifacts"))
+
+        progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
+        try:
+            with progress:
+                report = engine.doctor(resolved_phase)
+        except (DeploymentError, OSError) as exc:
+            # Emit JSON error when --json is set, ensure valid JSON on all exits
+            if json_output:
+                error_report = {
+                    "command": "doctor",
+                    "ok": False,
+                    "items": [{
+                        "id": "execution_error",
+                        "status": "fail",
+                        "message": str(exc),
+                        "remedy": None,
+                    }]
+                }
+                typer.echo(json.dumps(error_report, indent=2))
+                raise typer.Exit(code=1) from exc
+            else:
+                # fail() prints to stderr AND returns exit code
+                raise typer.Exit(code=fail(str(exc))) from exc
+
+        typer.echo(json.dumps(report.as_dict(), indent=2) if json_output else report.render())
+        if not report.ok:
+            raise typer.Exit(code=1)
+    except Exception as exc:
+        # Catch any exception that occurs during setup or execution
         if json_output:
             error_report = {
                 "command": "doctor",
@@ -222,12 +245,7 @@ def doctor(
             typer.echo(json.dumps(error_report, indent=2))
             raise typer.Exit(code=1) from exc
         else:
-            # fail() prints to stderr AND returns exit code
-            raise typer.Exit(code=fail(str(exc))) from exc
-
-    typer.echo(json.dumps(report.as_dict(), indent=2) if json_output else report.render())
-    if not report.ok:
-        raise typer.Exit(code=1)
+            raise
 
 
 def destroy(

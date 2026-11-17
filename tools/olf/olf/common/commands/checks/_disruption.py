@@ -107,7 +107,7 @@ def disruption(
 
     if json_output:
         report = {
-            "command": "check_disruption",
+            "command": "check disruption",
             "ok": len(errors) == 0,
             "items": [
                 {

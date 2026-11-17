@@ -355,7 +355,7 @@ def structure(
     # Branch on output format
     if json_output:
         report = {
-            "command": "check_structure",
+            "command": "check structure",
             "ok": len(all_errors) == 0,
             "items": [
                 {

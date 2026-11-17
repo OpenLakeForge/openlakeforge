@@ -303,8 +303,11 @@ def test_docs_check_json_output_schema(tmp_path: Path) -> None:
 def test_contracts_check_json_output_has_remedy_field(tmp_path: Path) -> None:
     """contracts check with --json includes remedy field in items."""
     # Create minimal valid project structure for contracts check
-    _templates.render_governance_yaml(tmp_path)
-    (tmp_path / "lakehouse_code/products").mkdir(parents=True)
+    (tmp_path / "lakehouse_code").mkdir(parents=True)
+    (tmp_path / "lakehouse_code/governance.yml").write_text(
+        "apiVersion: openlakeforge.io/v1beta2\nkind: Governance\ndomains: []\n"
+    )
+    (tmp_path / "lakehouse_code/products").mkdir(parents=True, exist_ok=True)
 
     result = runner.invoke(app, ["check", "contracts", "--repo-root", str(tmp_path), "--json"])
 
