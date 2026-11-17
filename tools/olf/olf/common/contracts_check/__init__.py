@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from olf.common.contracts_check._alert_policy import _check_alert_policy_conformance
 from olf.common.contracts_check._descriptors import (
     _check_deployment_profile_schema_conformance,
     _check_descriptor_schema_conformance,
@@ -57,6 +58,7 @@ def run_contracts_check(
     report = ContractsCheckReport()
     report.results.append(_check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema"))
     report.results.append(_check_governance_conformance(root, schema_root=dist_root / "docs" / "schema"))
+    report.results.append(_check_alert_policy_conformance(root, schema_root=dist_root / "docs" / "schema"))
     report.results.append(
         _check_deployment_profile_schema_conformance(
             root, schema_root=dist_root / "docs" / "schema", distribution_root=dist_root

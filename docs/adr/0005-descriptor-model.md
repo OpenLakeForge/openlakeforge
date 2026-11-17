@@ -22,12 +22,13 @@ nothing else knows.
 
 ## Decision
 
-### Two descriptors
+### Three descriptors
 
 | Kind | Path | Declares |
 | --- | --- | --- |
 | `Governance` (`openlakeforge.io/v1beta2`) | `lakehouse_code/governance.yml` (one per project) | Domains, and the data products nested under them |
 | `Source` (`openlakeforge.io/v1beta1`) | `lakehouse_code/bronze/<source>/source.yaml` (one per source) | A Bronze source and the resources it exposes |
+| `AlertPolicy` (`openlakeforge.io/v1beta1`) | `lakehouse_code/alerts.yml` (optional, one per project) | Which conditions alert for which products and stages, and through which routes (ADR 0023, alert policy) |
 
 A product's `id` is its only identity and is unique across the lakehouse. A
 table belongs to a domain or product by the schema it lives in, not by a list:
@@ -43,8 +44,9 @@ Sources are the `bronze/*/source.yaml` files on disk, and dashboards are the
 serves the products whose `<product>_gold` schema its datasets read. None of
 these is declared a second time.
 
-Both descriptors are validated against JSON Schema
-(`docs/schema/governance.schema.json`, `docs/schema/source.schema.json`) and
+All three are validated against JSON Schema
+(`docs/schema/governance.schema.json`, `docs/schema/source.schema.json`,
+`docs/schema/alert-policy.schema.json`) and
 against the typed model. The schemas are closed against unknown fields, which
 is what enforces provider-neutrality (ADR 0003): a `bucket` or `catalog` key is
 rejected rather than ignored.
@@ -145,3 +147,7 @@ to `olf project migrate`, which rewrites its version line.
 2026-11-07 (#994): `ProductDefinitionSpec` no longer needs the Gold assets, Silver inputs and Bronze
 inputs of a product. They default to the dbt models, the dbt sources and the Floe entities'
 Bronze resources, so the project declares each once. An explicit list still wins.
+
+2026-11-17: `alerts.yml` (`AlertPolicy`, `v1beta1`) is the third descriptor (ADR 0023,
+alert policy). It is optional, closed against unknown fields like the others, and
+validated by `olf check contracts`.

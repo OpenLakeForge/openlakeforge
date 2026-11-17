@@ -1,8 +1,9 @@
 # Descriptor reference
 
-The fields and rules of the two descriptors that declare a project's data:
+The fields and rules of the descriptors that declare a project's data:
 `lakehouse_code/governance.yml`, one per project, and
-`lakehouse_code/bronze/<source>/source.yaml`, one per source. It also lists the
+`lakehouse_code/bronze/<source>/source.yaml`, one per source. The optional
+`lakehouse_code/alerts.yml` declares its alert policy. It also lists the
 names OpenLakeForge derives from them.
 
 Both are validated against JSON Schemas,
@@ -270,6 +271,63 @@ a dbt model that dbt resolved into any schema but its folder's
 `<product>_gold` (when the Gold project's `target/manifest.json` exists),
 since its tables would belong to no product.
 
+## `alerts.yml`
+
+Optional. It declares which conditions alert for which products and stages,
+with which options, and through which routes (see
+[ADR 0023](../adr/0023-alert-evaluation-and-webhook-delivery.md), alert
+policy). A project without it gets no product alerts. Receivers and their
+credentials stay in `openlakeforge.yaml`; a route is only a name for one of
+them. The schema is [`alert-policy.schema.json`](../schema/alert-policy.schema.json).
+
+```yaml
+apiVersion: openlakeforge.io/v1beta1
+kind: AlertPolicy
+routes:
+  on-call: on-call # route name: receiver name in openlakeforge.yaml
+defaults:
+  notify: [on-call]
+rules:
+  - match: {domain: "*", product: "*"}
+    when:
+      run_failed: {}
+      quality: {on: error}
+```
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `routes` | map of route name to receiver name | yes | Names are lowercase with hyphens, as receiver names are. |
+| `defaults.stages` | list of `dev`, `uat`, `prod` | no | Stages a rule applies to when it names none; every stage. |
+| `defaults.notify` | list of route names | no | Routes a rule notifies when it names none. |
+| `rules[].match.domain`, `rules[].match.product` | identifier or `"*"` | yes | A domain `name` and product `id` of `governance.yml`. |
+| `rules[].stages` | list of stages | no | `defaults.stages` when omitted. |
+| `rules[].notify` | list of route names | no | `defaults.notify` when omitted; a rule with no route is an error. |
+| `rules[].when` | map of condition to options or `false` | yes | At least one condition; `false` turns off a condition a less specific rule turns on. |
+
+| `when` key | Options | Default |
+| --- | --- | --- |
+| `run_failed` | `severity`: `warning` or `critical` | `critical` |
+| `missed_run` | `grace`: a duration; `severity` | `15m`; `critical` |
+| `freshness` | `warn_after`, `critical_after`: durations since the last success. Without them, `grace` and `severity` apply to cadence-derived staleness | `15m`; `critical` |
+| `quality` | `on`: `warn` or `error` | `warn` |
+| `schedule_mismatch` | `severity` | `warning` |
+
+`{}` turns a condition on with its defaults. A duration is a positive integer
+with `m`, `h` or `d`. `warn_after` must be below `critical_after`, and
+thresholds do not mix with `grace` or `severity`. Platform conditions cannot
+be named here.
+
+For each stage and condition, the most specific matching rule wins: a rule
+that names a product, then a domain with `product: "*"`, then the global
+`"*"`/`"*"`. `notify` is the winning rule's own list, not a union. Two rules at
+the same specificity that set the same condition for an overlapping stage are
+an error. A job that is no product's, such as `gold_maintenance`, is matched
+by the global rule only.
+
+`alerts.yml` is read with YAML 1.2 booleans, so `on` in `quality: {on: error}`
+stays a key. `olf check contracts` does not check receiver names, because only
+activation has the profile.
+
 ## Implementation files
 
 Each identity selects the files that implement it:
@@ -318,6 +376,8 @@ olf check contracts
 | Product names an unknown domain | A product's `domain` is not in `domains`. |
 | Domain or product has no directory | `silver/<domain>/` or `gold/models/<product>/` is missing, or exists without an entry in `governance.yml`. |
 | Silver entity reads an unknown Bronze resource (`olf check project-code`) | A Floe entity's `source.ref`/`resource` is not a resource of a `source.yaml`. |
+| Alert rule names an unknown route, domain or product (`alerts.yml`) | `notify` is not a key of `routes`, or `match` is not in `governance.yml`, or the product is nested under another domain. |
+| Alert rules overlap (`alerts.yml`) | Two rules of the same specificity set one condition for the same stage. |
 | Model outside `<product>_gold` | A dbt model sets its own schema and a manifest shows it. |
 
 `olf check contracts` reads each descriptor on its own. `olf check

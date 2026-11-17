@@ -1,0 +1,23 @@
+apiVersion: openlakeforge.io/v1beta1
+kind: AlertPolicy
+
+routes:
+  on-call: on-call # route name: receiver name in openlakeforge.yaml
+
+defaults:
+  notify: [on-call]
+
+rules:
+  # Every job in every stage, maintenance jobs included.
+  - match: {domain: "*", product: "*"}
+    when:
+      run_failed: {}
+      quality: {}
+
+  # Only PROD carries schedules.
+  - match: {domain: "*", product: "*"}
+    stages: [prod]
+    when:
+      missed_run: {}
+      freshness: {}
+      schedule_mismatch: {}
