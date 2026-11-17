@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from _alerting_fakes import FakeBucket, declare_everything
+from _alerting_fakes import EVERYTHING, FakeBucket, declare_everything, publish
 from conftest import Mint
 from fastapi.testclient import TestClient
 from openlakeforge_core import parse_alert_policy, resolve_policy
@@ -626,3 +626,36 @@ def test_level_error_reads_a_complete_manifest_of_only_warns_as_a_pass_and_an_in
     )
 
     assert (complete.state.value, partial.state.value) == ("healthy", "unknown")
+
+
+@pytest.mark.parametrize("extra", [(), (QualityOutcome.PASSED,)], ids=["warn only", "passed and warn"])
+def test_level_error_a_complete_retry_with_only_warns_resolves_the_blocking_error_incident(
+    extra: tuple[QualityOutcome, ...],
+) -> None:
+    bucket = FakeBucket()
+    publish(bucket, alerts=EVERYTHING.replace("quality: {}", "quality: {level: error}"))
+    notifier, store, manifests = FakeNotifier(), AlertStore(bucket, "s3://ops/alerts/"), FakeBucket()
+
+    def tick(runs: list[DagsterRun], stored: QualityManifest, minutes: int) -> list[str]:
+        manifests.objects[stored.ops_key] = stored.to_json().encode()
+        notifier.sent.clear()
+        run_once(
+            settings=_settings(A),
+            store=store,
+            dagster={"dev": FakeDagster(runs)},
+            notifiers={"ops": notifier},
+            now=NOW + timedelta(minutes=minutes),
+            quality={"dev": QualityReader(manifests, BASE)},
+        )
+        return [f"{p['event']}:{p['severity']}" for _, p in notifier.sent if p["condition"] == "quality"]
+
+    blocked = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
+    assert tick(
+        _two_runs("FAILURE"), QualityManifest("dev", "sales", "orders", "run-1", (blocked,), complete=True), 0
+    ) == ["opened:critical"]
+    results = tuple(
+        _result(outcome, run_id="run-2", check=f"check_{index}")
+        for index, outcome in enumerate((*extra, QualityOutcome.WARN))
+    )
+    retry = QualityManifest("dev", "sales", "orders", "run-2", results, complete=True)
+    assert tick(_two_runs("FAILURE", "SUCCESS"), retry, 5) == ["resolved:critical"]

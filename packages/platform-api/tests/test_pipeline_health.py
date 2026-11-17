@@ -222,3 +222,18 @@ def test_a_pipeline_without_a_success_stays_unknown_whatever_the_bounds() -> Non
 
 def _hours(count: int) -> timedelta:
     return timedelta(hours=count)
+
+
+def test_a_raised_grace_reads_the_occurrence_that_opened_the_incident_as_inside_its_grace() -> None:
+    """The evaluator resolves an open missed run when the signal names the same occurrence as inside its grace."""
+    now = _utc(16, 9, 25)
+    run = _success(_utc(15, 9, 5))
+    schedule = _schedule("0 9 * * *")
+
+    default = _evaluate("dev", "orders_job", [run], schedule, now)
+    raised = _evaluate("dev", "orders_job", [run], schedule, now, conditions=_conditions(missed_run={"grace": "30m"}))
+    assert (default.signals[2].state.value, raised.signals[2].state.value) == ("critical", "healthy")
+    assert (raised.signals[2].reason, raised.signals[2].due) == (
+        "the expected run is within its grace period",
+        _utc(16, 9),
+    )

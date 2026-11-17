@@ -926,11 +926,11 @@ severity the rule changes is re-evaluated on the next run (one `escalated` notif
 falls). `read_stage_pipelines` takes the policy and applies `missed_run`'s `grace` (also moving the evidence bound) and
 `freshness`'s `grace` or `warn_after`/`critical_after`, the latter through the new `evaluate_freshness_age`, in any
 schedule state; the health routes pass no policy. `Signal` carries the quality `outcome`, which answers the earlier
-**[T]**: `level: error` ignores a WARN, and an ignored WARN is no evidence of recovery, so an open incident stays open
-until a run passes (a retry still running can WARN before the failed check reruns). A manifest holding both a WARN and a
-non-blocking ERROR reports the ERROR, whatever the order of its checks. Both follow from reading a WARN as a pass
-while the manifest is read (`quality_signal(level=)`), so a newer run's WARN does not hide an older run's blocking ERROR
-either. A raised `missed_run` grace resolves the incident
+**[T]**: `level: error` is applied while the manifest is read (`quality_signal(level=)`): a WARN counts as a pass, so
+every safeguard of the read applies to it unchanged. A running retry's incomplete manifest proves nothing, a newer run's
+WARN does not hide an older run's blocking ERROR, a manifest holding a WARN and a non-blocking ERROR reports the ERROR
+whatever the order of its checks, and a complete retry holding only WARNs (or PASSED and WARN) resolves the incident.
+A raised `missed_run` grace resolves the incident
 opened for the same occurrence (the signal carries when its occurrence came due), while a later occurrence inside its
 grace still clears nothing. Two details this record left open: a
 stage whose policy has never read cleanly and cannot be read now is left out of the evaluation's policy, so its open
