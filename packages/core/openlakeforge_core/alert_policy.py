@@ -36,22 +36,6 @@ _SEVERITIES = ("warning", "critical")
 DEFAULT_GRACE = timedelta(minutes=15)
 
 
-class _Loader(yaml.SafeLoader):
-    """Only ``true`` and ``false`` are booleans: YAML 1.1 reads the key of ``quality: {on: error}`` as True."""
-
-
-_Loader.yaml_implicit_resolvers = {
-    key: [(tag, regexp) for tag, regexp in resolvers if tag != "tag:yaml.org,2002:bool"]
-    for key, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
-}
-_Loader.add_implicit_resolver("tag:yaml.org,2002:bool", re.compile(r"^(?:true|false)$"), list("tf"))
-
-
-def load_alert_policy_document(text: str) -> object:
-    """The YAML document of ``alerts.yml``, with ``on`` kept a string."""
-    return yaml.load(text, Loader=_Loader)  # noqa: S506 - a SafeLoader subclass
-
-
 def parse_duration(value: object, *, where: str) -> timedelta:
     """``30m``, ``26h`` or ``2d``: a positive integer and one unit."""
     match = _DURATION.fullmatch(value) if isinstance(value, str) else None
@@ -85,7 +69,7 @@ class Freshness:
 
 @dataclass(frozen=True)
 class Quality:
-    on: str = "warn"
+    level: str = "warn"
 
 
 @dataclass(frozen=True)
@@ -175,6 +159,8 @@ def _name(value: object, *, where: str) -> str:
 def _name_list(value: object, *, where: str, allowed: Sequence[str] | None = None) -> tuple[str, ...]:
     if not isinstance(value, list) or not value:
         raise LakehouseDescriptorError(f"{where} must be a non-empty list")
+    if not all(isinstance(item, str) for item in value):
+        raise LakehouseDescriptorError(f"{where} must list strings, got {value!r}")
     items = tuple(value)
     if len(set(items)) != len(items):
         raise LakehouseDescriptorError(f"{where} must not repeat an entry")
@@ -231,10 +217,13 @@ def _condition(name: str, value: object, *, where: str) -> ConditionOptions | No
             _severity(options, "critical", where=here),
         )
     if name == "quality":
-        options = _object(value, {"on"}, where=here)
-        if options.get("on", "warn") not in ("warn", "error"):
-            raise LakehouseDescriptorError(f"{here}.on must be 'warn' or 'error'")
-        return Quality(options.get("on", "warn"))
+        # YAML 1.1 loads the key `on` as True, which is how an old `quality: {on: error}` arrives.
+        if isinstance(value, Mapping) and True in value:
+            raise LakehouseDescriptorError(f"{here}: quality uses `level`, not `on` (quality: {{level: warn|error}})")
+        options = _object(value, {"level"}, where=here)
+        if options.get("level", "warn") not in ("warn", "error"):
+            raise LakehouseDescriptorError(f"{here}.level must be 'warn' or 'error'")
+        return Quality(options.get("level", "warn"))
     options = _object(value, {"severity"}, where=here)
     return ScheduleMismatch(_severity(options, "warning", where=here))
 
@@ -370,7 +359,7 @@ def parse_alert_policy(document: Mapping[str, Any], *, source: str = "alerts.yml
 def load_alert_policy(path: str | Path, governance: Mapping[str, Any] | None = None) -> AlertPolicy:
     """Load, parse and validate the AlertPolicy at ``path``. ``governance`` enables the ``match`` id checks."""
     source = str(path)
-    document = load_alert_policy_document(Path(path).read_text(encoding="utf-8"))
+    document = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(document, dict):
         raise LakehouseDescriptorError(f"{source}: descriptor must contain a YAML object")
     policy = parse_alert_policy(document, source=source)
