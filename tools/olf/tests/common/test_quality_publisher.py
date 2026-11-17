@@ -62,10 +62,11 @@ class FakeOpenMetadata:
             link = json_body["entityLink"]
             assert link.startswith("<#E::table::") and link.endswith(">")
             table, _, column = link[len("<#E::table::") : -1].partition("::columns::")
-            fqn = f"{table}.{column + '.' if column else ''}{json_body['name']}"
+            # FullyQualifiedName.add quotes a segment that contains a dot, as 1.13.6 does for these case names.
+            fqn = f'{table}.{column + "." if column else ""}"{json_body["name"]}"'
             assert json_body["testDefinition"] in self.definitions
             self.cases[fqn] = json_body
-            return {}
+            return {"fullyQualifiedName": fqn}
         if path.startswith("/api/v1/dataQuality/testCases/testCaseResults/"):
             fqn = unquote(path.rsplit("/", 1)[1])
             assert fqn in self.cases, "a result for a case that does not exist"
@@ -206,13 +207,13 @@ def test_publishes_floe_and_dbt_results_under_existing_tables(bucket, om):
 
     assert report.published == 3
     ts = int(T0.timestamp() * 1000)
-    warn = om.results[f"{SILVER}.olf.floe.floe_not_null"][ts]
+    warn = om.results[f'{SILVER}."olf.floe.floe_not_null"'][ts]
     assert warn["testCaseStatus"] == "Aborted"
     assert {"name": "olf_outcome", "value": "warn"} in warn["testResultValue"]
     assert {"name": "engine_severity", "value": "warn"} in warn["testResultValue"]
-    assert om.results[f"{SILVER}.olf.floe.floe_unique"][ts]["testCaseStatus"] == "Failed"
-    assert om.results[f"{GOLD}.amount.olf.dbt.not_null_revenue_amount"][ts]["testCaseStatus"] == "Success"
-    assert om.cases[f"{GOLD}.amount.olf.dbt.not_null_revenue_amount"]["entityLink"].endswith("::columns::amount>")
+    assert om.results[f'{SILVER}."olf.floe.floe_unique"'][ts]["testCaseStatus"] == "Failed"
+    assert om.results[f'{GOLD}.amount."olf.dbt.not_null_revenue_amount"'][ts]["testCaseStatus"] == "Success"
+    assert om.cases[f'{GOLD}.amount."olf.dbt.not_null_revenue_amount"']["entityLink"].endswith("::columns::amount>")
     assert summary(bucket).pending == 0
     assert summary(bucket).lag_seconds is None
 
@@ -220,7 +221,7 @@ def test_publishes_floe_and_dbt_results_under_existing_tables(bucket, om):
 def test_warn_status_can_be_failed_by_the_operator(bucket, om):
     put_manifest(bucket, [result("floe_not_null", QualityOutcome.WARN)])
     publisher(bucket, om, warn_status=OmStatus.FAILED).reconcile(now=T0)
-    assert next(iter(om.results[f"{SILVER}.olf.floe.floe_not_null"].values()))["testCaseStatus"] == "Failed"
+    assert next(iter(om.results[f'{SILVER}."olf.floe.floe_not_null"'].values()))["testCaseStatus"] == "Failed"
 
 
 def test_warn_is_never_published_as_success():
@@ -241,8 +242,8 @@ def test_a_second_run_adds_history_to_the_same_case(bucket, om):
     put_manifest(bucket, [result("floe_not_null")])
     put_manifest(bucket, [result("floe_not_null", run="run-2", at=T0 + timedelta(hours=1))], run="run-2")
     publisher(bucket, om).reconcile(now=T0 + timedelta(hours=2))
-    assert list(om.cases) == [f"{SILVER}.olf.floe.floe_not_null"]
-    assert len(om.results[f"{SILVER}.olf.floe.floe_not_null"]) == 2
+    assert list(om.cases) == [f'{SILVER}."olf.floe.floe_not_null"']
+    assert len(om.results[f'{SILVER}."olf.floe.floe_not_null"']) == 2
 
 
 def test_replaying_the_same_run_is_idempotent(bucket, om):
@@ -254,7 +255,7 @@ def test_replaying_the_same_run_is_idempotent(bucket, om):
     del bucket.objects[STATE_KEY]
     report = pub.reconcile(now=T0 + timedelta(minutes=10), run_id="run-1")
     assert report.published == 1
-    assert len(om.results[f"{SILVER}.olf.floe.floe_not_null"]) == 1
+    assert len(om.results[f'{SILVER}."olf.floe.floe_not_null"']) == 1
 
 
 def test_outage_leaves_a_retriable_pending_state_with_lag(bucket, om):
@@ -342,10 +343,10 @@ def test_batches_are_bounded_oldest_first(bucket, om):
     pub = publisher(bucket, om)
     now = T0 + timedelta(days=1)
     assert pub.reconcile(now=now, limit=2).runs_examined == 2
-    assert len(om.results[f"{SILVER}.olf.floe.floe_not_null"]) == 2
+    assert len(om.results[f'{SILVER}."olf.floe.floe_not_null"']) == 2
     assert summary(bucket).pending == 0
     assert pub.reconcile(now=now, limit=2).runs_examined == 1
-    assert len(om.results[f"{SILVER}.olf.floe.floe_not_null"]) == 3
+    assert len(om.results[f'{SILVER}."olf.floe.floe_not_null"']) == 3
 
 
 def test_a_dbt_result_without_table_identity_is_not_guessed(bucket, om):
@@ -358,7 +359,7 @@ def test_a_dbt_result_without_table_identity_is_not_guessed(bucket, om):
 def test_requests_carry_no_sample_data(bucket, om):
     put_manifest(bucket, [result("floe_cast_error", QualityOutcome.ERROR, pipeline=PipelineOutcome.QUARANTINED)])
     publisher(bucket, om).reconcile(now=T0)
-    body = json.dumps(om.results[f"{SILVER}.olf.floe.floe_cast_error"])
+    body = json.dumps(om.results[f'{SILVER}."olf.floe.floe_cast_error"'])
     assert "sampleData" not in body
     assert "secret" not in body.lower()
 
@@ -368,3 +369,46 @@ def test_an_unreadable_bucket_is_an_error_not_a_silent_pass(bucket, om):
     with pytest.raises(StoreUnavailableError):
         publisher(bucket, om).reconcile(now=T0)
     assert om.calls == []
+
+
+def test_a_replay_of_one_run_keeps_another_runs_failure_in_the_summary(bucket, om):
+    put_manifest(bucket, [result("floe_not_null")], run="run-1")
+    put_manifest(bucket, [result("floe_unique", run="run-2")], run="run-2", modified=T0 + timedelta(hours=1))
+    del om.tables[SILVER]
+    pub = publisher(bucket, om)
+    now = T0 + timedelta(hours=2)
+    pub.reconcile(now=now)
+    assert summary(bucket).pending == 2
+
+    pub.reconcile(now=now + timedelta(minutes=1), run_id="run-1")
+    assert summary(bucket).pending == 2
+    assert summary(bucket).lag_seconds is not None
+
+
+def test_a_bounded_pass_counts_the_runs_it_did_not_reach(bucket, om):
+    for i in range(3):
+        run = f"run-{i}"
+        put_manifest(bucket, [result("floe_not_null", run=run)], run=run, modified=T0 + timedelta(hours=i))
+    publisher(bucket, om).reconcile(now=T0 + timedelta(days=1), limit=1)
+    s = summary(bucket)
+    assert s.unread_runs == 2
+    assert s.lag_seconds is not None
+
+
+def test_retry_failed_is_not_spent_on_settled_runs(bucket, om):
+    for i in range(30):
+        run = f"run-{i:02d}"
+        put_manifest(bucket, [result("floe_unique", run=run)], run=run, modified=T0 + timedelta(hours=i))
+    pub = publisher(bucket, om)
+    now = T0 + timedelta(days=5)
+    for _ in range(2):
+        pub.reconcile(now=now, limit=25)
+    put_manifest(bucket, [result("floe_not_null", run="run-99")], run="run-99", modified=T0 + timedelta(days=2))
+    del om.tables[SILVER]
+    for step in range(MAX_ATTEMPTS):
+        pub.reconcile(now=now + timedelta(hours=2 * (step + 1)), limit=25)
+    assert summary(bucket).failed == 1
+    om.tables[SILVER] = ["id"]
+    report = pub.reconcile(now=now + timedelta(days=2), limit=25, retry_failed=True)
+    assert report.published == 1
+    assert summary(bucket).failed == 0

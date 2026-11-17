@@ -51,9 +51,9 @@ def check_quality_publication(cfg: E2EConfig) -> None:
     runs = [f"olf-e2e-quality-{stamp}-{i}" for i in (1, 2, 3)]
     start = datetime.now(UTC).replace(microsecond=0)
     cases = {
-        f"{silver}.olf.floe.{WARN_RULE}": "Aborted",
-        f"{silver}.olf.floe.{ERROR_RULE}": "Failed",
-        f"{gold}.olf.dbt.{DBT_RULE}": "Success",
+        case_fqn(silver, f"olf.floe.{WARN_RULE}"): "Aborted",
+        case_fqn(silver, f"olf.floe.{ERROR_RULE}"): "Failed",
+        case_fqn(gold, f"olf.dbt.{DBT_RULE}"): "Success",
     }
 
     with ops_bucket_client(cfg) as (s3, bucket), openmetadata_client(cfg) as (client, _token):
@@ -102,12 +102,14 @@ def check_quality_publication(cfg: E2EConfig) -> None:
             if report.published != 3:
                 raise E2EError(f"expected 3 published results, got {report}")
             for fqn, status in cases.items():
+                # The server must know the case by the name the publisher derived from its own response.
+                client.request("GET", "/api/v1/dataQuality/testCases/name/" + urllib.parse.quote(fqn, safe=""))
                 history = _results(client, fqn)
                 if [r["testCaseStatus"] for r in history] != [status]:
                     raise E2EError(f"{fqn}: expected one {status} result, OpenMetadata has {history}")
                 if int(start.timestamp() * 1000) != history[0]["timestamp"]:
                     raise E2EError(f"{fqn}: the result is not stamped with the event time")
-            warn_result = _results(client, f"{silver}.olf.floe.{WARN_RULE}")[0]
+            warn_result = _results(client, case_fqn(silver, f"olf.floe.{WARN_RULE}"))[0]
             warn_values = {v["name"]: v["value"] for v in warn_result["testResultValue"]}
             if warn_values.get("olf_outcome") != "warn":
                 raise E2EError(f"a WARN lost its original outcome in OpenMetadata: {warn_values}")
@@ -156,6 +158,11 @@ def check_quality_publication(cfg: E2EConfig) -> None:
     _expect_clean_summary(cfg)
 
 
+def case_fqn(table_fqn: str, name: str) -> str:
+    """OpenMetadata 1.13.6's name for a case: `FullyQualifiedName.add` quotes a segment containing a dot."""
+    return f'{table_fqn}."{name}"'
+
+
 def _results(client: OpenMetadataClient, case_fqn: str) -> list[dict[str, Any]]:
     page = client.request("GET", RESULTS + urllib.parse.quote(case_fqn, safe=""))
     return sorted(page.get("data") or [], key=lambda r: r["timestamp"])
@@ -182,7 +189,7 @@ def _expect_no_other_stage_writes(
     stages = load_provider_contracts_or_raise(cfg).get("stages") or {}
     service = database_fqn.split(".", 1)[0]
     for other in sorted(set(stages) - {stage}):
-        fqn = f"{service}.lakehouse_{other}.{schema}.{table}.olf.floe.{WARN_RULE}"
+        fqn = case_fqn(f"{service}.lakehouse_{other}.{schema}.{table}", f"olf.floe.{WARN_RULE}")
         try:
             client.request(
                 "GET", "/api/v1/dataQuality/testCases/name/" + urllib.parse.quote(fqn, safe=""), ok_statuses=(404,)

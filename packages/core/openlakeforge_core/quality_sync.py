@@ -215,6 +215,9 @@ class SyncSummary:
     pending: int = 0
     failed: int = 0
     synced: int = 0
+    # Runs whose manifest exists but has not been read yet (a bounded pass stopped before them): their results
+    # are unpublished and uncounted, and their age counts toward the lag.
+    unread_runs: int = 0
     oldest_pending_at: datetime | None = None
     last_success_at: datetime | None = None
     last_failure_at: datetime | None = None
@@ -234,6 +237,7 @@ class SyncSummary:
             "pending": self.pending,
             "failed": self.failed,
             "synced": self.synced,
+            "unread_runs": self.unread_runs,
             "lag_seconds": self.lag_seconds,
             "oldest_pending_at": _format(self.oldest_pending_at),
             "last_success_at": _format(self.last_success_at),
@@ -254,6 +258,7 @@ class SyncSummary:
                 pending=int(data["pending"]),
                 failed=int(data["failed"]),
                 synced=int(data["synced"]),
+                unread_runs=int(data.get("unread_runs", 0)),
                 oldest_pending_at=_parse(data.get("oldest_pending_at")),
                 last_success_at=_parse(data.get("last_success_at")),
                 last_failure_at=_parse(data.get("last_failure_at")),
@@ -263,11 +268,18 @@ class SyncSummary:
             raise QualityRecordError(f"quality sync summary is invalid: {exc}") from exc
 
 
-def summarize(stage: str, runs: list[RunSync], *, now: datetime, last_error: str | None = None) -> SyncSummary:
+def summarize(
+    stage: str,
+    runs: list[RunSync],
+    *,
+    now: datetime,
+    last_error: str | None = None,
+    unread: list[datetime] | None = None,
+) -> SyncSummary:
+    unread = unread or []
     oldest = [
-        run.observed_at
-        for run in runs
-        if run.count(ResultState.PENDING) or run.count(ResultState.FAILED)
+        *unread,
+        *(run.observed_at for run in runs if run.count(ResultState.PENDING) or run.count(ResultState.FAILED)),
     ]
     successes = [r.last_success_at for r in runs if r.last_success_at]
     failures = [r.last_failure_at for r in runs if r.last_failure_at]
@@ -277,6 +289,7 @@ def summarize(stage: str, runs: list[RunSync], *, now: datetime, last_error: str
         pending=sum(run.count(ResultState.PENDING) for run in runs),
         failed=sum(run.count(ResultState.FAILED) for run in runs),
         synced=sum(run.count(ResultState.SYNCED) for run in runs),
+        unread_runs=len(unread),
         oldest_pending_at=min(oldest) if oldest else None,
         last_success_at=max(successes) if successes else None,
         last_failure_at=max(failures) if failures else None,

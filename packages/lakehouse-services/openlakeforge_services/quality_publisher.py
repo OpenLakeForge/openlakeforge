@@ -100,9 +100,13 @@ class QualityCatalog:
             ok_statuses=(200, 201),
         )
 
-    def upsert_case(self, *, name: str, definition: str, table_fqn: str, column: str | None, description: str) -> None:
+    def upsert_case(
+        self, *, name: str, definition: str, table_fqn: str, column: str | None, description: str
+    ) -> str:
+        """The case's FQN as OpenMetadata names it. It is not `<table>.<name>`: `FullyQualifiedName.add` quotes a
+        segment that contains a dot, and case names do, so every later call addresses the case by this value."""
         link = f"<#E::table::{table_fqn}" + (f"::columns::{column}>" if column else ">")
-        self._client.request(
+        case = self._client.request(
             "PUT",
             "/api/v1/dataQuality/testCases",
             json_body={
@@ -115,6 +119,10 @@ class QualityCatalog:
             },
             ok_statuses=(200, 201),
         )
+        fqn = case.get("fullyQualifiedName")
+        if not isinstance(fqn, str) or not fqn:
+            raise OpenMetadataError("OpenMetadata did not name the test case it stored")
+        return fqn
 
     def has_result(self, case_fqn: str, timestamp: int) -> bool:
         page = self._client.request(
@@ -196,14 +204,18 @@ class QualityPublisher:
         now = (now or datetime.now(UTC)).astimezone(UTC)
         if limit < 1:
             raise ValueError("limit must be at least 1")
-        refs = [r for r in self._list_manifests() if run_id is None or r.dagster_run_id == run_id]
-        if run_id is None:
-            refs = [r for r in refs if now - r.modified <= self._max_age]
+        # The summary is the whole stage's backlog, so every run in the scan window is read, whatever this pass works
+        # on; a replay of one run must not hide another run's failure.
+        listed = self._list_manifests()
+        refs = [r for r in listed if now - r.modified <= self._max_age or r.dagster_run_id == run_id]
         states = {_id(ref): self._read_state(ref) for ref in refs}
         work: list[tuple[ManifestRef, RunSync | None]] = []
         for ref in sorted(refs, key=lambda r: r.modified):
             state = states[_id(ref)]
-            if run_id is not None or retry_failed or _needs_work(ref, state, now):
+            if run_id is not None:
+                if ref.dagster_run_id == run_id:
+                    work.append((ref, state))
+            elif _needs_work(ref, state, now) or (retry_failed and _has_failed(state)):
                 work.append((ref, state))
         outcome = _Pass()
         examined = 0
@@ -215,7 +227,9 @@ class QualityPublisher:
             if outcome.interrupted:
                 break
         runs = [s for s in states.values() if s is not None]
-        summary = summarize(self._stage, runs, now=now, last_error=_last_error(runs))
+        # A manifest with no state and not worked on is unpublished work no state object describes yet.
+        unread = [r.modified for r in refs if states[_id(r)] is None]
+        summary = summarize(self._stage, runs, now=now, last_error=_last_error(runs), unread=unread)
         self._put(self._key(SUMMARY_KEY), summary.to_json())
         return ReconcileReport(
             runs_examined=examined,
@@ -296,10 +310,9 @@ class QualityPublisher:
                 outcome.deferred += 1
                 return sync.retry(now, "column not registered in OpenMetadata")
             name = case_name(result)
-            case_fqn = f"{table_fqn}.{column + '.' if column else ''}{name}"
             timestamp = epoch_millis(result.observed_at)
             self._catalog.ensure_definition(definition_name(result), column=column is not None)
-            self._catalog.upsert_case(
+            case_fqn = self._catalog.upsert_case(
                 name=name,
                 definition=definition_name(result),
                 table_fqn=table_fqn,
@@ -480,3 +493,7 @@ def _path(fqn: str) -> str:
 
 def _id(ref: ManifestRef) -> tuple[str, str, str]:
     return (ref.domain, ref.product, ref.dagster_run_id)
+
+
+def _has_failed(state: RunSync | None) -> bool:
+    return state is not None and state.count(ResultState.FAILED) > 0
