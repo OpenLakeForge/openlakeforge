@@ -275,6 +275,7 @@ module "seaweedfs" {
     ops_bucket_name         = var.ops_bucket_name
     prefix                  = local.alerts_prefix
     quality_prefixes        = [for name in sort(keys(local.enabled_stages)) : "activations/${name}/run-artifacts/quality/"]
+    policy_stages           = sort(keys(local.enabled_stages))
   } : null
 
   depends_on = [

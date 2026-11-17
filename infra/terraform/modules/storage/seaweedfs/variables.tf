@@ -148,13 +148,14 @@ variable "log_collector_credentials" {
 }
 
 variable "alerts_credentials" {
-  description = "The alert evaluator's identity (ADR 0023, decision 3): Read, Write and List on one prefix of the ops bucket, where its state and history live, and Read and List on each quality prefix, where the stages write run manifests. Null when no alert receiver is declared."
+  description = "The alert evaluator's identity (ADR 0023, decision 3): Read, Write and List on one prefix of the ops bucket, where its state and history live, Read and List on each quality prefix, where the stages write run manifests, and Read on each policy stage's ACTIVE.json and activation records and on the frozen project revisions, where the alert policy is read. Null when no alert receiver is declared."
   type = object({
     namespace               = string
     credentials_secret_name = string
     ops_bucket_name         = string
     prefix                  = string
     quality_prefixes        = list(string)
+    policy_stages           = list(string)
   })
   default = null
 

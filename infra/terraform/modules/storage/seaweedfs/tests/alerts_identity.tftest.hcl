@@ -23,6 +23,7 @@ run "a_receiver_gets_a_minted_and_readable_key" {
       ops_bucket_name         = "ops"
       prefix                  = "alerts/"
       quality_prefixes        = ["activations/dev/run-artifacts/quality/"]
+      policy_stages           = ["dev"]
     }
   }
 
@@ -43,6 +44,26 @@ run "a_receiver_gets_a_minted_and_readable_key" {
       && !strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "Write:ops/activations/dev/run-artifacts/quality/*")
     )
     error_message = "read-write on its own prefix, read-only on the quality manifests"
+  }
+
+  # ADR 0023, decision 10: the alert policy is read from the active revision, read-only and without List.
+  assert {
+    condition = (
+      strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "Read:ops/activations/dev/ACTIVE.json")
+      && strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "Read:ops/activations/dev/revisions/*")
+      && strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "Read:ops/project/revisions/*")
+    )
+    error_message = "the evaluator reads each stage's pointer and activations and the frozen revisions"
+  }
+
+  assert {
+    condition = (
+      !strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "Write:ops/project")
+      && !strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "List:ops/project")
+      && !strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "Write:ops/activations/dev/ACTIVE.json")
+      && !strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "List:ops/activations/dev/revisions")
+    )
+    error_message = "the policy grant is Read only: no Write, no List"
   }
 
   assert {

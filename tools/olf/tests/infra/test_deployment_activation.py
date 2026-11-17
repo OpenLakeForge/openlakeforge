@@ -213,9 +213,7 @@ def harness(external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr("olf.common.contract_state.load_provider_contracts", lambda *a, **k: contract)
     image_calls: list[str] = []
-    monkeypatch.setattr(
-        activation_module, "_ensure_image", lambda provider, image, **k: image_calls.append(image)
-    )
+    monkeypatch.setattr(activation_module, "_ensure_image", lambda provider, image, **k: image_calls.append(image))
     monkeypatch.setattr(activation_module, "prepare_chart", lambda *a, **k: None)
     monkeypatch.setattr(activation_module, "deploy_optional_layer_artifacts", lambda *a, **k: None)
     monkeypatch.setattr(activation_module, "_user_chart", lambda chart, work_root: work_root)
@@ -295,9 +293,7 @@ def _contract_with_reporting() -> dict:
 _MUTATION_MARKER = "MUTATED AFTER PUBLISH -- must never reach Superset"
 
 
-def _build_report_harness(
-    contract: dict, *, external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def _build_report_harness(contract: dict, *, external_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Publish before mutating the checkout so its report bundle differs from the revision."""
     monkeypatch.setenv("OPENLAKEFORGE_REPO_ROOT", str(external_project))
     monkeypatch.setenv("OPENLAKEFORGE_PROJECT_ROOT", str(external_project))
@@ -526,7 +522,8 @@ def test_reapplying_the_active_revision_changes_nothing(harness) -> None:  # noq
 
 
 def test_the_same_revision_on_a_newer_distribution_is_rolled_out_again(
-    harness, monkeypatch: pytest.MonkeyPatch  # noqa: ANN001
+    harness,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
 ) -> None:
     first = harness.deploy("dev")
     monkeypatch.setattr(activation_module, "distribution_version_at", lambda root: "9.9.9-alpha.1")
@@ -678,9 +675,7 @@ def test_failed_rollout_leaves_the_previous_revision_active(harness) -> None:  #
     assert project_activation.active(harness.store, stage=StageName.PROD) is None
 
 
-def test_a_pointer_that_will_not_commit_uninstalls_a_first_activation(
-    harness, monkeypatch: pytest.MonkeyPatch
-) -> None:  # noqa: ANN001
+def test_a_pointer_that_will_not_commit_uninstalls_a_first_activation(harness, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     """The release is live before ACTIVE.json moves. If the pointer never lands,
     a stage with no previous activation must not be left running an unreferenced one."""
     monkeypatch.setattr(
@@ -1043,9 +1038,7 @@ def test_reapplying_reconciles_globals_the_platform_rebound(harness) -> None:  #
 
     assert reapplied == activation
     assert len(harness.helm.rollouts) == 2
-    assert harness.helm.installed["olf-dev"]["global"] == {
-        "postgresqlSecretName": "postgresql-dagster-olf-dev-rotated"
-    }
+    assert harness.helm.installed["olf-dev"]["global"] == {"postgresqlSecretName": "postgresql-dagster-olf-dev-rotated"}
 
 
 @pytest.mark.parametrize(
@@ -1218,8 +1211,7 @@ def test_each_stage_gets_its_own_contracted_code_locations(harness) -> None:  # 
     harness.deploy("prod")
 
     rendered = {
-        namespace: [entry["name"] for entry in values["deployments"]]
-        for namespace, values in harness.helm.rollouts
+        namespace: [entry["name"] for entry in values["deployments"]] for namespace, values in harness.helm.rollouts
     }
 
     assert rendered == {"olf-dev": ["openlakeforge-dagster"], "olf-prod": ["sales"]}
@@ -1239,9 +1231,7 @@ def test_changing_the_code_locations_rolls_the_stage_out_again(harness) -> None:
     assert [entry["name"] for entry in harness.helm.rollouts[1][1]["deployments"]] == ["acme-dagster"]
 
 
-def test_a_rollback_restores_the_pairs_the_previous_release_ran(
-    harness, monkeypatch: pytest.MonkeyPatch
-) -> None:  # noqa: ANN001
+def test_a_rollback_restores_the_pairs_the_previous_release_ran(harness, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     """A deploy that changes `definitions_module` and then fails to commit must
     put back the pair that was actually running.
 
@@ -1329,9 +1319,7 @@ def test_a_rollback_matches_modules_by_name_not_position(harness, monkeypatch: p
     assert restored == {"alpha-dagster": "lakehouse_code.alpha", "beta-dagster": "lakehouse_code.beta"}
 
 
-def test_an_unreadable_release_refuses_the_upgrade_before_it_starts(
-    harness, monkeypatch: pytest.MonkeyPatch
-) -> None:  # noqa: ANN001
+def test_an_unreadable_release_refuses_the_upgrade_before_it_starts(harness, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     """With no way to learn what the release runs, there is no safe rollback.
 
     Failing here costs nothing -- the upgrade has not begun. Proceeding would
@@ -1346,9 +1334,7 @@ def test_an_unreadable_release_refuses_the_upgrade_before_it_starts(
     monkeypatch.setattr(
         harness.helm,
         "get_values",
-        lambda release, **k: original(release, **k)
-        if release == "dagster"
-        else SimpleNamespace(ok=False, stdout=""),
+        lambda release, **k: original(release, **k) if release == "dagster" else SimpleNamespace(ok=False, stdout=""),
     )
 
     with pytest.raises(activation_module.ActivationError, match="Refusing to upgrade"):
@@ -1357,9 +1343,7 @@ def test_an_unreadable_release_refuses_the_upgrade_before_it_starts(
     assert len(harness.helm.rollouts) == rollouts
 
 
-def test_a_rollback_does_not_give_the_previous_image_a_new_module(
-    harness, monkeypatch: pytest.MonkeyPatch
-) -> None:  # noqa: ANN001
+def test_a_rollback_does_not_give_the_previous_image_a_new_module(harness, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     """Growing a stage from one code location to two must not break recovery.
 
     The added name has no module in the running release, so pairing it with
@@ -1385,9 +1369,7 @@ def test_a_rollback_does_not_give_the_previous_image_a_new_module(
     assert all("lakehouse_code.brand_new" not in entry["dagsterApiGrpcArgs"] for entry in restored)
 
 
-def test_a_rollback_restores_the_image_that_ran_the_modules(
-    harness, monkeypatch: pytest.MonkeyPatch
-) -> None:  # noqa: ANN001
+def test_a_rollback_restores_the_image_that_ran_the_modules(harness, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     """The rollback target is one observation, not two sources spliced.
 
     A release manually rolled back to another activation runs modules the
@@ -1420,9 +1402,7 @@ def test_a_rollback_restores_the_image_that_ran_the_modules(
     assert {entry["image"]["digest"] for entry in restored} == {digest}
 
 
-def test_a_deleted_release_is_uninstalled_rather_than_restored(
-    harness, monkeypatch: pytest.MonkeyPatch
-) -> None:  # noqa: ANN001
+def test_a_deleted_release_is_uninstalled_rather_than_restored(harness, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
     """A pointer is not a running deployment.
 
     With `ACTIVE.json` naming an activation whose release was deleted, there is
@@ -1668,7 +1648,8 @@ def test_a_registry_image_revision_keeps_pulling_when_missing(harness) -> None: 
 
 @pytest.mark.parametrize("provider_kind", [Provider.AWS, Provider.AZURE])
 def test_a_local_image_revision_is_refused_where_a_registry_serves_the_stage(
-    harness, provider_kind: Provider  # noqa: ANN001
+    harness,
+    provider_kind: Provider,  # noqa: ANN001
 ) -> None:
     revision = _publish_local_image_revision(harness)
 
@@ -1691,3 +1672,106 @@ def test_a_local_image_is_put_back_on_the_nodes_not_pulled(monkeypatch: pytest.M
 
     assert loaded == [image]
     assert provider.tools.docker.pulls == []
+
+
+_ALERTS = """\
+apiVersion: openlakeforge.io/v1beta1
+kind: AlertPolicy
+routes:
+  on-call: pager
+defaults:
+  notify: [on-call]
+rules:
+  - match: {domain: "*", product: "*"}
+    when:
+      run_failed: {}
+"""
+
+
+def _with_receivers(provider, *names: str) -> None:  # noqa: ANN001
+    from olf.common.profile import AlertReceiver, SecretRef
+
+    topology = provider.context.topology
+    receivers = tuple(AlertReceiver(name, "webhook", SecretRef("hook", "url")) for name in names)
+    observability = replace(topology.observability, alert_receivers=receivers)
+    provider.context = replace(provider.context, topology=replace(topology, observability=observability))
+
+
+def _publish_with_alerts(harness, external_project: Path) -> str:  # noqa: ANN001
+    (external_project / "lakehouse_code" / "alerts.yml").write_text(_ALERTS)
+    manifest = project_revision.build_project_revision(
+        harness.spec,
+        image=_IMAGE,
+        distribution_version=distribution_version_at(ROOT),
+        runtime_contract_version=runtime_contract_at(ROOT).version,
+    )
+    project_revision.publish(harness.store, manifest, harness.spec)
+    return manifest.revision
+
+
+def test_activation_refuses_a_route_to_a_receiver_the_profile_does_not_declare(harness, external_project: Path) -> None:  # noqa: ANN001
+    revision = _publish_with_alerts(harness, external_project)
+    provider = harness.make_provider("dev")
+    _with_receivers(provider, "chat")
+
+    with pytest.raises(activation_module.ActivationError, match=r"on-call -> pager.*declared receivers: chat"):
+        activation_module.deploy_revision(provider, revision=revision, store=harness.store, profile_name="acceptance")
+
+    assert project_activation.active(harness.store, stage=StageName.DEV) is None
+
+
+def test_activation_accepts_routes_to_declared_receivers(harness, external_project: Path) -> None:  # noqa: ANN001
+    revision = _publish_with_alerts(harness, external_project)
+    provider = harness.make_provider("dev")
+    _with_receivers(provider, "chat", "pager")
+
+    activation_module.deploy_revision(provider, revision=revision, store=harness.store, profile_name="acceptance")
+
+    assert project_activation.active(harness.store, stage=StageName.DEV) is not None
+
+
+def test_activation_skips_the_route_check_when_the_profile_declares_no_receiver(
+    harness, external_project: Path
+) -> None:  # noqa: ANN001
+    revision = _publish_with_alerts(harness, external_project)
+
+    activation_module.deploy_revision(
+        harness.make_provider("dev"), revision=revision, store=harness.store, profile_name="acceptance"
+    )
+
+    assert project_activation.active(harness.store, stage=StageName.DEV) is not None
+
+
+def test_activation_refuses_an_alerts_yml_it_cannot_read_when_receivers_exist(harness, external_project: Path) -> None:  # noqa: ANN001
+    (external_project / "lakehouse_code" / "alerts.yml").write_text("kind: nope\n")
+    manifest = project_revision.build_project_revision(
+        harness.spec,
+        image=_IMAGE,
+        distribution_version=distribution_version_at(ROOT),
+        runtime_contract_version=runtime_contract_at(ROOT).version,
+    )
+    project_revision.publish(harness.store, manifest, harness.spec)
+    provider = harness.make_provider("dev")
+    _with_receivers(provider, "pager")
+
+    with pytest.raises(activation_module.ActivationError, match="alerts.yml cannot be read"):
+        activation_module.deploy_revision(
+            provider, revision=manifest.revision, store=harness.store, profile_name="acceptance"
+        )
+
+
+def test_a_redeploy_rechecks_routes_after_the_profile_drops_a_receiver(harness, external_project: Path) -> None:  # noqa: ANN001
+    revision = _publish_with_alerts(harness, external_project)
+    first = harness.make_provider("dev")
+    _with_receivers(first, "pager")
+    activation_module.deploy_revision(first, revision=revision, store=harness.store, profile_name="acceptance")
+    active = project_activation.active(harness.store, stage=StageName.DEV)
+    assert active is not None
+
+    # Only the receivers change: the binding digest ignores them, so the inputs still match the active record.
+    second = harness.make_provider("dev")
+    _with_receivers(second, "chat")
+    with pytest.raises(activation_module.ActivationError, match=r"on-call -> pager"):
+        activation_module.deploy_revision(second, revision=revision, store=harness.store, profile_name="acceptance")
+
+    assert project_activation.active(harness.store, stage=StageName.DEV) == active

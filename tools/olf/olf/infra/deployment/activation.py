@@ -16,6 +16,8 @@ from typing import Any
 
 import yaml
 from openlakeforge_core import load_lakehouse_inventory
+from openlakeforge_core.alert_policy import parse_alert_policy
+from openlakeforge_core.descriptors import LakehouseDescriptorError
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
 
@@ -31,7 +33,7 @@ from olf.common.runtime_contract import RUNTIME_ENV as _RUNTIME_ENV
 from olf.common.runtime_contract import RuntimeContractError, runtime_contract_at
 from olf.common.tooling import docker as docker_tooling
 from olf.infra import k8s
-from olf.infra.artifact_store import RevisionStore
+from olf.infra.artifact_store import ArtifactStoreError, RevisionStore
 from olf.infra.deployment import contract_env
 from olf.infra.deployment.artifact_steps import deploy_optional_layer_artifacts, sync_catalog_namespaces
 from olf.infra.deployment.engine import DeploymentProvider, is_cloud_provider, is_local_provider
@@ -39,7 +41,7 @@ from olf.infra.deployment.source_bindings import source_binding_status
 from olf.infra.project_activation import ProjectActivation, ProjectActivationError, commit_active
 from olf.infra.project_activation import active as active_activation
 from olf.infra.project_activation import publish as publish_activation
-from olf.infra.project_revision import ProjectRevisionError, is_local_image, materialize, verify
+from olf.infra.project_revision import ProjectRevisionError, is_local_image, materialize, revision_prefix, verify
 
 _RELEASE = "openlakeforge-project"
 _LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
@@ -154,7 +156,11 @@ def _binding_digest(deployment: Mapping[str, Any], selected: StageContract) -> s
 
 
 def stage_code_locations(
-    raw_contract: Mapping[str, Any], *, topology, stage: StageName, distribution_root: Path | None = None  # noqa: ANN001
+    raw_contract: Mapping[str, Any],
+    *,
+    topology,
+    stage: StageName,
+    distribution_root: Path | None = None,  # noqa: ANN001
 ) -> tuple[CodeLocation, ...]:
     """The stage's contracted code locations, for callers comparing a release
     against the set it is supposed to be running."""
@@ -294,9 +300,7 @@ def _user_values(
     jwt_secret = contract_environ.get("OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_SECRET_NAME", "")
     jwt_key = contract_environ.get("OPENLAKEFORGE_GOVERNANCE_INGESTION_BOT_JWT_KEY", "")
     if activation.capabilities.get("governance") and jwt_secret and jwt_key:
-        env.append(
-            {"name": "OPENLINEAGE_API_KEY", "valueFrom": {"secretKeyRef": {"name": jwt_secret, "key": jwt_key}}}
-        )
+        env.append({"name": "OPENLINEAGE_API_KEY", "valueFrom": {"secretKeyRef": {"name": jwt_secret, "key": jwt_key}}})
     storage_secret = contract_environ.get("OPENLAKEFORGE_STORAGE_CREDENTIALS_SECRET_NAME", "")
     secrets = sorted(
         {
@@ -308,7 +312,8 @@ def _user_values(
     )
     return {
         "global": dict(platform_globals),
-        "extraManifests": [_log_archive_manifest(
+        "extraManifests": [
+            _log_archive_manifest(
                 activation,
                 namespace=namespace,
                 env=_archive_env(contract_environ, namespace=namespace),
@@ -318,7 +323,8 @@ def _user_values(
                 # would widen what a compromised log container reaches.
                 secrets=[storage_secret] if storage_secret else [],
                 pull_secret=pull_secret,
-            )],
+            )
+        ],
         # The subchart puts this on every code server and, through the
         # container context of includeConfigInLaunchedRuns, on the run pods.
         **({"imagePullSecrets": [{"name": pull_secret}]} if pull_secret else {}),
@@ -378,6 +384,42 @@ def _require_source_bindings(
             + "\n  ".join(problems)
             + "\nRun these commands with --set KEY=VALUE and --secret-from-env KEY=VAR as declared by each source:\n  "
             + "\n  ".join(commands)
+        )
+
+
+def _require_alert_receivers(provider: DeploymentProvider, *, store: RevisionStore, revision: str) -> None:
+    """A route of the revision's `alerts.yml` names a receiver the profile declares (ADR 0023, decision 4).
+
+    Skipped when the profile declares no receiver: no evaluator exists then, nothing reads the policy, and a
+    project template that ships an `alerts.yml` must still activate. `olf check contracts` cannot make this check,
+    it has no profile. It runs before the no-op fast path because the binding digest leaves the receivers out: a
+    profile that drops a receiver changes nothing else, and the active revision would keep routing to it.
+    """
+    declared = {receiver.name for receiver in provider.context.topology.observability.alert_receivers}
+    if not declared:
+        return
+    key = f"{revision_prefix(revision)}/descriptors/lakehouse_code/alerts.yml"
+    try:
+        content = store.read(key)
+        if content is None:
+            return
+        document = yaml.safe_load(content.decode("utf-8"))
+        if not isinstance(document, dict):
+            raise LakehouseDescriptorError("alerts.yml must contain a YAML object")
+        policy = parse_alert_policy(document)
+    except (LakehouseDescriptorError, yaml.YAMLError, UnicodeDecodeError, ArtifactStoreError) as exc:
+        raise ActivationError(
+            f"the revision's alerts.yml cannot be read, so its routes cannot be checked: {exc}"
+        ) from exc
+    missing = sorted({receiver for receiver in policy.routes.values() if receiver not in declared})
+    if missing:
+        routes = ", ".join(
+            f"{route} -> {receiver}" for route, receiver in sorted(policy.routes.items()) if receiver in missing
+        )
+        raise ActivationError(
+            f"alerts.yml routes to receivers the profile does not declare ({routes}); declared receivers: "
+            f"{', '.join(sorted(declared))}. Declare them under spec.observability.alerts.receivers in "
+            "openlakeforge.yaml, or change the route in alerts.yml and rebuild the revision."
         )
 
 
@@ -673,9 +715,7 @@ class _RollbackTarget:
     pull_secret: str | None = None
 
 
-def _rollback_target(
-    provider: DeploymentProvider, *, namespace: str, env: Mapping[str, str]
-) -> _RollbackTarget | None:
+def _rollback_target(provider: DeploymentProvider, *, namespace: str, env: Mapping[str, str]) -> _RollbackTarget | None:
     """What the live release is running, or None when there is no release.
 
     A rollback may only redeploy a state that existed. Taking the modules from
@@ -861,6 +901,7 @@ def deploy_revision(
     # on a newer distribution whose Dagster subchart and rendered values differ, so re-activating it there must
     # not match the earlier activation and skip the rollout.
     activation_distribution_version = running_version or manifest.distribution_version
+    _require_alert_receivers(provider, store=store, revision=manifest.revision)
     previous = active_activation(store, stage=context.stage)
     if (
         previous is not None

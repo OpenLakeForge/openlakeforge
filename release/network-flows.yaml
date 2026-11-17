@@ -279,7 +279,7 @@ flows:
   - id: F39
     from: {scope: shared, pods: {openlakeforge.io/job: alert-evaluator}}
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs, app.kubernetes.io/component: s3}}
-    ports: [8333] # state and history under alerts/, and the quality manifests, with the key openlakeforge-alerts
+    ports: [8333] # state and history under alerts/, the quality manifests and the alert policy's revisions, with the key openlakeforge-alerts
     tag: T # needs an evaluation on a running cluster
   - id: F40
     from: {scope: shared, pods: {openlakeforge.io/job: alert-evaluator}}
