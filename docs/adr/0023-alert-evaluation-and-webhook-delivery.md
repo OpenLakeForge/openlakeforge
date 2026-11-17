@@ -700,9 +700,12 @@ policy and one warning, never to silence across stages.
 
 ### The read grant
 
-`Read` on `activations/<stage>/ACTIVE.json` and
+`Read` on `activations/<stage>/ACTIVE.json*` and
 `activations/<stage>/revisions/*` for each enabled stage, and `Read` on
-`project/revisions/*`. No `List` and no `Write`. It is a row change in
+`project/revisions/*`. No `List` and no `Write`. The pointer's grant ends in
+`*` because SeaweedFS denies an action that names an exact object **[V: kind,
+2026-11-17]**; the `*` also covers any key that begins with `ACTIVE.json`, which
+nothing writes. It is a row change in
 `credentials.tf` and a text change to flow F39 in ADR 0017; no new flow, since
 the evaluator already reaches SeaweedFS on 8333.
 
@@ -1066,3 +1069,6 @@ most. The new route returns the probes' `services` list alone, bounded by their 
 evaluator's service principal may call (ADR 0021).
 
 2026-11-17: alert policy slice AP-d built: the alerts guide (migration callout, policy, options, platform conditions), the policy reference, the health-signals note and the release note. No deviation from the decisions above.
+
+2026-11-17: the pointer grant became `activations/<stage>/ACTIVE.json*`. On kind, SeaweedFS answered the exact-object
+grant with AccessDenied, so every stage's policy read failed and no product alert could fire.
