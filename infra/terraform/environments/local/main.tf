@@ -321,6 +321,7 @@ module "alerts" {
       secret_name = var.alert_receiver_secrets[receiver.name].secret_name
       secret_key  = var.alert_receiver_secrets[receiver.name].key
       stages      = receiver.stages
+      platform    = var.alert_receiver_secrets[receiver.name].platform
     }
   ] : []
   ca_configmap_name     = local.route_tls ? module.in_cluster_resolution[0].ca_configmap_name : null

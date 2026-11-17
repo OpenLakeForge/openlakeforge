@@ -91,7 +91,8 @@ def observability_variables(context: DeploymentContext) -> dict[str, str]:
 
 
 def alert_receiver_secrets_variables(context: DeploymentContext) -> dict[str, str]:
-    """Each receiver's Secret name and key, as the local root's `alert_receiver_secrets` input.
+    """Each receiver's Secret name and key, and whether it gets platform conditions, as the local root's
+    `alert_receiver_secrets` input.
 
     The reference (name and key, never the value) enters Terraform state, because the evaluator's pod reads the
     webhook URL through `secretKeyRef`; the value never does (ADR 0023, decision 4). Separate from
@@ -100,7 +101,11 @@ def alert_receiver_secrets_variables(context: DeploymentContext) -> dict[str, st
     receivers = context.topology.observability.alert_receivers
     if not receivers:
         return {}
-    secrets = {r.name: {"secret_name": r.secret_ref.name, "key": r.secret_ref.key} for r in receivers}
+    platform = context.topology.observability.alert_platform_receivers
+    secrets = {
+        r.name: {"secret_name": r.secret_ref.name, "key": r.secret_ref.key, "platform": r.name in platform}
+        for r in receivers
+    }
     return {"alert_receiver_secrets": json.dumps(secrets, sort_keys=True, separators=(",", ":"))}
 
 

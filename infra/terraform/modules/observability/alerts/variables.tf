@@ -48,6 +48,8 @@ variable "receivers" {
     secret_name = string
     secret_key  = string
     stages      = optional(list(string), [])
+    # Whether platform conditions (stage_unreadable, policy_unreadable) go to this receiver (ADR 0023, decision 11).
+    platform = optional(bool, true)
   }))
 
   validation {

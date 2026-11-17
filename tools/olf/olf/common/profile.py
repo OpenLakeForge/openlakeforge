@@ -103,7 +103,7 @@ _LOGS_FIELDS = {"archive", "search"}
 _ARCHIVE_FIELDS = {"retention_days"}
 _ENABLED_FIELDS = {"enabled"}
 _METRICS_FIELDS = {"enabled", "retention_days"}
-_ALERTS_FIELDS = {"receivers"}
+_ALERTS_FIELDS = {"receivers", "platform_receivers"}
 _RECEIVER_FIELDS = {"name", "type", "secret_ref", "stages"}
 _RECEIVER_REQUIRED_FIELDS = {"name", "type", "secret_ref"}
 _RECEIVER_TYPES = ("webhook",)
@@ -349,6 +349,8 @@ class ObservabilitySpec:
     metrics_retention_days: int | None = None
     grafana_enabled: bool = False
     alert_receivers: tuple[AlertReceiver, ...] = ()
+    # The receivers told about platform conditions; `None` (omitted) means every receiver.
+    alert_platform_receivers: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -361,6 +363,8 @@ class ResolvedObservability:
     metrics_retention_days: int = DEFAULT_METRICS_RETENTION_DAYS
     grafana_enabled: bool = False
     alert_receivers: tuple[AlertReceiver, ...] = ()
+    # Always explicit once resolved: every receiver's name when the profile omitted the field.
+    alert_platform_receivers: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -379,7 +383,8 @@ class ResolvedObservability:
                         "stages": [stage.value for stage in r.stages or ()],
                     }
                     for r in self.alert_receivers
-                ]
+                ],
+                "platform_receivers": list(self.alert_platform_receivers),
             },
         }
 
@@ -997,6 +1002,9 @@ def _validate_observability(
     names = [receiver.name for receiver in parsed]
     if len(set(names)) != len(names):
         raise DeploymentProfileError(f"{where}.alerts.receivers must not repeat a name")
+    platform = _platform_receivers(
+        alerts.get("platform_receivers"), where=f"{where}.alerts.platform_receivers", declared=names
+    )
 
     return ObservabilitySpec(
         archive_retention_days=_retention_days(archive, where=f"{where}.logs.archive"),
@@ -1005,7 +1013,21 @@ def _validate_observability(
         metrics_retention_days=_retention_days(metrics, where=f"{where}.metrics"),
         grafana_enabled=bool(_optional_flag(grafana, where=f"{where}.grafana")),
         alert_receivers=parsed,
+        alert_platform_receivers=platform,
     )
+
+
+def _platform_receivers(document: object, *, where: str, declared: list[str]) -> tuple[str, ...] | None:
+    if document is None:
+        return None
+    if not isinstance(document, list) or not document:
+        raise DeploymentProfileError(f"{where} must be a non-empty list of receiver names {declared!r}")
+    for index, name in enumerate(document):
+        if name not in declared:
+            raise DeploymentProfileError(f"{where}[{index}] must name a declared receiver, one of {declared!r}")
+    if len(set(document)) != len(document):
+        raise DeploymentProfileError(f"{where} must not repeat a receiver")
+    return tuple(document)
 
 
 def validate_deployment_profile(
@@ -1161,6 +1183,9 @@ def _resolve_observability(profile: DeploymentProfile) -> ResolvedObservability:
         alert_receivers=tuple(
             replace(receiver, stages=receiver.stages or every_enabled_stage) for receiver in written.alert_receivers
         ),
+        alert_platform_receivers=written.alert_platform_receivers
+        if written.alert_platform_receivers is not None
+        else tuple(receiver.name for receiver in written.alert_receivers),
     )
 
 

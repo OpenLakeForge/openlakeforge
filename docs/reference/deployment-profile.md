@@ -380,6 +380,7 @@ component yet.
 | `metrics.retention_days` | integer, 1 to 3650 | `7` | How long metrics history is kept. |
 | `grafana.enabled` | boolean | `false` | Grafana for operators. |
 | `alerts.receivers` | list | empty | Where alert notifications go; see below. |
+| `alerts.platform_receivers` | list of receiver names | every receiver | The receivers told about platform conditions: a stage whose Dagster cannot be read and an alert policy the evaluator cannot use. A project's `alerts.yml` cannot route these. Each name must be a declared receiver; the list is non-empty and has no repeats. |
 
 A receiver takes `name` (lowercase, same pattern as `metadata.name`, unique in
 the list), `type` (only `webhook` today: a generic HTTPS endpoint; `email` and `slack` are rejected until they exist) and `secret_ref`, all
@@ -391,6 +392,12 @@ A receiver may also take `stages`, a non-empty list of stage names without
 repeats (`dev`, `uat`, `prod`), each of which must be enabled in `spec.stages`.
 It limits the receiver to alerts from those stages. Leaving it out means every
 enabled stage, and `olf profile resolve --json` always shows the effective list.
+
+`alerts.platform_receivers` lists the receivers that get platform conditions.
+A receiver left out still gets the alerts a project's `alerts.yml` routes to
+it. `olf profile resolve --json` shows the effective list as
+`observability.alerts.platform_receivers`. A receiver's `stages` limits platform
+conditions too, so a `prod`-only receiver never hears about `dev`.
 
 ```yaml
 observability:
@@ -407,6 +414,12 @@ observability:
         secret_ref:
           name: alert-webhooks
           key: webhook-url
+      - name: data-eng
+        type: webhook
+        secret_ref:
+          name: alert-webhooks
+          key: chat-url
+    platform_receivers: [on-call]
 ```
 
 ### `spec.access`

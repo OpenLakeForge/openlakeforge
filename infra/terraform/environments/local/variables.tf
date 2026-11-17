@@ -38,6 +38,9 @@ variable "alert_receiver_secrets" {
   type = map(object({
     secret_name = string
     key         = string
+    # Whether the receiver gets platform conditions (spec.observability.alerts.platform_receivers; ADR 0023,
+    # decision 11). olf always sets it; the default is the profile's "omitted means every receiver".
+    platform = optional(bool, true)
   }))
   default = {}
 }
