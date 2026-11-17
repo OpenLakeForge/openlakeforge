@@ -97,15 +97,13 @@ def read_stage_policy(
         if cached is not None and cached.revision == active.activation_revision:
             return _finish(stage, cached, receivers, None)
         fresh = _read_revision(store, active.activation_revision, active.project_revision)
-    except (StoreError, ProjectActivationError, ProjectRevisionError, _PolicyUnusable, ValueError) as error:
-        # ValueError covers bytes that are not UTF-8 or JSON. Nothing a stage's objects hold may escape: one bad
-        # stage would otherwise stop the evaluation, and the alerts, of every other.
-        return _fallback(
-            stage,
-            cached,
-            receivers,
-            f"{type(error).__name__}: {error}" if isinstance(error, ValueError) else str(error),
-        )
+    except (StoreError, ProjectActivationError, ProjectRevisionError, _PolicyUnusable) as error:
+        return _fallback(stage, cached, receivers, str(error))
+    except Exception as error:  # noqa: BLE001 - the guard that keeps one stage's data from stopping the others
+        # Bytes that are not UTF-8, a field of the wrong type, anything the readers did not foresee: it degrades
+        # this stage to its last good policy and a warning, and the evaluation of every other stage goes on.
+        log.warning("alert policy of stage %s failed unexpectedly", stage, exc_info=True)
+        return _fallback(stage, cached, receivers, f"unexpected {type(error).__name__}: {error}")
     _write_cache(stage, store, fresh, now)
     return _finish(stage, fresh, receivers, None)
 
@@ -205,7 +203,7 @@ def _read_cache(stage: str, store: PolicyStore) -> _Cached | None:
         cached = _Cached(str(document["revision"]), document["alerts"], dict(document["governance"]))
         if cached.alerts is not None:
             validate_alert_policy(parse_alert_policy(cached.alerts), cached.governance)
-    except (StoreError, ValueError, KeyError, TypeError, LakehouseDescriptorError) as error:
+    except Exception as error:  # noqa: BLE001 - a cache of any shape is no worse than none
         # A cache that cannot be used is no worse than none: the next clean read rewrites it.
         log.warning("cached alert policy of stage %s is unusable: %s", stage, error)
         return None
