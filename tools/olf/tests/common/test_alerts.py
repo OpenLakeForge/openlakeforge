@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 from _alerts_support import evaluate
 from openlakeforge_core import (
+    ALERT_POLICY,
     DAGSTER_PIPELINES,
     DAGSTER_READ_API,
     UNREADABLE_THRESHOLD,
@@ -458,6 +459,7 @@ def _opening(kind: AlertKind) -> Signal:
         AlertKind.STALE_OUTPUT: _stale(),
         AlertKind.QUALITY: _quality(HealthState.WARNING),
         AlertKind.STAGE_UNREADABLE: _dagster(HealthState.UNKNOWN),
+        AlertKind.POLICY_UNREADABLE: _dagster(HealthState.WARNING, component=ALERT_POLICY),
     }[kind]
 
 
@@ -480,6 +482,7 @@ def test_payload_of_every_condition_and_event_matches_the_adr_field_table(kind: 
         AlertKind.STALE_OUTPUT: _signal(HealthState.HEALTHY, SignalKind.FRESHNESS, run=None),
         AlertKind.QUALITY: recovered,
         AlertKind.STAGE_UNREADABLE: _dagster(HealthState.HEALTHY),
+        AlertKind.POLICY_UNREADABLE: _dagster(HealthState.HEALTHY, component=ALERT_POLICY),
     }[kind]
     sent += _run(state, [resolving], 20)[1]
 

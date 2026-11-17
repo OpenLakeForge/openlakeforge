@@ -18,13 +18,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from openlakeforge_core.alert_policy import ResolvedPolicy
-from openlakeforge_core.alerts import DAGSTER_READ_API, AlertState, HistoryEvent, Incident, evaluate
+from openlakeforge_core.alerts import ALERT_POLICY, DAGSTER_READ_API, AlertState, HistoryEvent, Incident, evaluate
 from openlakeforge_core.alerts_state import drop_notification, expire_outbox, record_attempt, record_delivery
 from openlakeforge_core.health import HealthState, Scope, Signal, service_signal
 from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.notify import Notifier
 
-from openlakeforge_platform_api.alerting.policy import read_stage_policy
+from openlakeforge_platform_api.alerting.policy import StagePolicy, read_stage_policy
+from openlakeforge_platform_api.alerting.routing import routed_receivers
 from openlakeforge_platform_api.alerting.settings import EvaluatorSettings, LinkSettings
 from openlakeforge_platform_api.alerting.store import AlertStore, PendingRecord
 from openlakeforge_platform_api.pipeline_health import read_stage_pipelines
@@ -67,8 +68,10 @@ def run_once(
     previous = store.read_state(now)
     # Transitions of the stored state whose history writes did not all land last run: replay them now.
     _flush_history(store, store.read_pending_history(previous))
-    policy_unreadable, policy = _read_policies(settings, store, now)
+    policy_unreadable, stage_policies = _read_policies(settings, store, now)
+    policy = {stage: found.resolved for stage, found in stage_policies.items() if _usable(found)}
     signals, scopes = _read_stages(settings, dagster, quality or {}, previous, now, policy)
+    signals += [_policy_signal(stage, stage in policy_unreadable, now) for stage in settings.stages]
     evaluation = evaluate(
         previous,
         signals,
@@ -99,7 +102,7 @@ def run_once(
         if out_of_time:
             break
         notification = entry.notification
-        routed = {receiver.name for receiver in settings.receivers if receiver.routes(notification.scope.stage)}
+        routed = routed_receivers(notification, settings, stage_policies)
         if not routed or routed <= entry.delivered:
             # Nobody to send to, or every receiver still routed to it has it (a route can change between runs).
             state = drop_notification(state, notification.id)
@@ -152,11 +155,7 @@ def run_once(
                 "schema": HISTORY_SCHEMA,
                 "record": "undeliverable",
                 "notification_id": entry.notification.id,
-                "receivers": sorted(
-                    receiver.name
-                    for receiver in settings.receivers
-                    if receiver.routes(entry.notification.scope.stage) and receiver.name not in entry.delivered
-                ),
+                "receivers": sorted(routed_receivers(entry.notification, settings, stage_policies) - entry.delivered),
                 "attempts": dict(sorted(entry.attempts.items())),
                 "runs": entry.runs,
                 "at": now.isoformat(),
@@ -168,24 +167,35 @@ def run_once(
 
 def _read_policies(
     settings: EvaluatorSettings, store: AlertStore, now: datetime
-) -> tuple[tuple[str, ...], dict[str, ResolvedPolicy]]:
-    """Every stage's policy (ADR 0023, decision 10): the stages whose policy is not fully usable, and what to apply.
-
-    A stage with no policy at all, never read and not readable now, is left out so its open incidents are held: an
-    object store hiccup on the first read after the cache was lost must not resolve what is firing.
-    """
+) -> tuple[tuple[str, ...], dict[str, StagePolicy]]:
+    """Every stage's policy (ADR 0023, decision 10), and the stages whose policy is not fully usable."""
     names = [receiver.name for receiver in settings.receivers]
     unreadable = []
-    resolved: dict[str, ResolvedPolicy] = {}
+    found: dict[str, StagePolicy] = {}
     for stage in settings.stages:
-        found = read_stage_policy(stage, store, now, receivers=names)
-        if found.unreadable:
+        found[stage] = read_stage_policy(stage, store, now, receivers=names)
+        if found[stage].unreadable:
             unreadable.append(stage)
         else:
-            log.info("alert policy of stage %s: %s", stage, found.revision or "none")
-        if found.revision is not None or not found.unreadable:
-            resolved[stage] = found.resolved
-    return tuple(unreadable), resolved
+            log.info("alert policy of stage %s: %s", stage, found[stage].revision or "none")
+    return tuple(unreadable), found
+
+
+def _usable(found: StagePolicy) -> bool:
+    """A stage with no policy at all, never read and not readable now, is left out of `evaluate` so its open incidents
+    are held: an object store hiccup on the first read after the cache was lost must not resolve what is firing."""
+    return found.revision is not None or not found.unreadable
+
+
+def _policy_signal(stage: str, unreadable: bool, now: datetime) -> Signal:
+    return service_signal(
+        Scope(stage=stage),
+        ALERT_POLICY,
+        HealthState.WARNING if unreadable else HealthState.HEALTHY,
+        "alert policy could not be used" if unreadable else "alert policy read cleanly",
+        now=now,
+        max_age=_READ_SIGNAL_MAX_AGE,
+    )
 
 
 def _flush_history(store: AlertStore, pending: list[PendingRecord]) -> None:

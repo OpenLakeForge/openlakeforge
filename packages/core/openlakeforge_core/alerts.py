@@ -36,6 +36,9 @@ UNREADABLE_THRESHOLD = 3
 DAGSTER_READ_API = "dagster.read-api"
 DAGSTER_PIPELINES = "dagster.pipelines"
 UNREADABLE_COMPONENTS = frozenset({DAGSTER_READ_API, DAGSTER_PIPELINES})
+# The SERVICE component the evaluator reports for a stage's alert policy: WARNING while it cannot be used, HEALTHY once
+# it reads cleanly.
+ALERT_POLICY = "alert-policy"
 # Bounds the state document: a pipeline failing every five minutes must not grow its incident forever.
 MAX_RUN_IDS = 20
 
@@ -47,6 +50,12 @@ class AlertKind(StrEnum):
     STALE_OUTPUT = "stale_output"
     QUALITY = "quality"
     STAGE_UNREADABLE = "stage_unreadable"
+    POLICY_UNREADABLE = "policy_unreadable"
+
+
+# Conditions about the platform, not a product: no rule in alerts.yml governs them and they go to the profile's platform
+# receivers (ADR 0023, decision 11).
+PLATFORM_KINDS = frozenset({AlertKind.STAGE_UNREADABLE, AlertKind.POLICY_UNREADABLE})
 
 
 class AlertSeverity(StrEnum):
@@ -91,6 +100,7 @@ _REASONS = frozenset(
         "data is stale",
         "schedule does not match its descriptor",
         "stage could not be read",
+        "alert policy could not be used",
         "recovered",
     }
 )
@@ -101,6 +111,7 @@ _DEFAULT_REASON = {
     AlertKind.STALE_OUTPUT: "data is stale",
     AlertKind.QUALITY: "a blocking quality check failed",
     AlertKind.STAGE_UNREADABLE: "stage could not be read",
+    AlertKind.POLICY_UNREADABLE: "alert policy could not be used",
 }
 _RECOVERED = "recovered"
 _WITHIN_GRACE = "the expected run is within its grace period"
@@ -452,6 +463,8 @@ def _kinds_of(signal: Signal) -> tuple[AlertKind, ...]:
         return (AlertKind.QUALITY,)
     if signal.kind is SignalKind.SERVICE and signal.component in UNREADABLE_COMPONENTS:
         return (AlertKind.STAGE_UNREADABLE,)
+    if signal.kind is SignalKind.SERVICE and signal.component == ALERT_POLICY:
+        return (AlertKind.POLICY_UNREADABLE,)
     return ()
 
 
@@ -469,6 +482,8 @@ def _state_under(kind: AlertKind, signal: Signal, options: ConditionOptions | No
 
 
 def _severity_of(kind: AlertKind, state: HealthState, options: ConditionOptions | None) -> AlertSeverity | None:
+    if kind is AlertKind.POLICY_UNREADABLE:
+        return AlertSeverity.WARNING if state is HealthState.WARNING else None
     if kind is AlertKind.STAGE_UNREADABLE:
         # Becomes critical only through the consecutive-unknown counter, never from a single signal.
         return AlertSeverity.CRITICAL if state is HealthState.UNKNOWN else None

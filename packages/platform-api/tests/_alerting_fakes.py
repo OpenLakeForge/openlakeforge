@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from botocore.exceptions import ClientError, EndpointConnectionError
@@ -70,10 +71,24 @@ rules:
 """
 
 
-EVERYTHING = POLICY.replace(
-    "      run_failed: {}\n",
-    "      run_failed: {}\n      missed_run: {}\n      freshness: {}\n      quality: {}\n      schedule_mismatch: {}\n",
-)
+def everything(receivers: Sequence[str] = ("ops",)) -> str:
+    """A policy that turns every product condition on and notifies every named receiver, route name = receiver name."""
+    routes = "".join(f"  {name}: {name}\n" for name in receivers)
+    return f"""\
+apiVersion: openlakeforge.io/v1beta1
+kind: AlertPolicy
+routes:
+{routes}defaults:
+  notify: [{", ".join(receivers)}]
+rules:
+  - match: {{domain: "*", product: "*"}}
+    when:
+      run_failed: {{}}
+      missed_run: {{}}
+      freshness: {{}}
+      quality: {{}}
+      schedule_mismatch: {{}}
+"""
 
 
 def _bytes(content: str | bytes) -> bytes:
@@ -129,9 +144,9 @@ def publish(
     return activation
 
 
-def declare_everything(bucket: FakeBucket, stages: tuple[str, ...]) -> None:
+def declare_everything(bucket: FakeBucket, stages: tuple[str, ...], receivers: Sequence[str] = ("ops",)) -> None:
     """Give each stage that has no activation a policy that turns every product condition on. Alerts are silent
     unless declared, and most evaluator tests are about incidents, not the policy."""
     for stage in stages:
         if active_key(stage) not in bucket.objects:
-            publish(bucket, stage=stage, alerts=EVERYTHING)
+            publish(bucket, stage=stage, alerts=everything(receivers))
