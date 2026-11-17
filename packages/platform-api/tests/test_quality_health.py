@@ -548,3 +548,14 @@ def test_a_quality_prefix_for_a_stage_that_is_not_enabled_is_refused(settings: S
         _api_settings(settings, quality_manifests={"staging": "s3://ops/activations/staging/"})
     with pytest.raises(SettingsError, match="ending in /"):
         _api_settings(settings, quality_manifests={"dev": "s3://ops/activations/dev"})
+
+
+def test_a_warn_before_a_non_blocking_error_in_one_manifest_still_reports_the_error() -> None:
+    warn = _result(QualityOutcome.WARN, check="a_warn")
+    error = _result(QualityOutcome.ERROR, PipelineOutcome.CONTINUED, check="b_error")
+
+    for results in ((warn, error), (error, warn)):
+        _, (pipeline,) = read_stage_pipelines(FakeDagster([_run()]), "dev", NOW, QualityReader(_store(*results), BASE))
+        (quality,) = [s for s in pipeline.signals if s.kind.value == "quality"]
+
+        assert (quality.state.value, quality.outcome) == ("warning", QualityOutcome.ERROR)

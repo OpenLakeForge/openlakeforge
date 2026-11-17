@@ -103,6 +103,7 @@ _DEFAULT_REASON = {
     AlertKind.STAGE_UNREADABLE: "stage could not be read",
 }
 _RECOVERED = "recovered"
+_WITHIN_GRACE = "the expected run is within its grace period"
 # `health.py` calls a retry in progress, and a due run still inside its grace period, healthy. Neither is
 # evidence that the cause is gone, so these kinds resolve on their own reason only; anything else holds.
 _RECOVERY_REASONS = {
@@ -284,6 +285,10 @@ def evaluate(
     # Causes first, so a stale output can see whether one of them is open.
     for key, item in sorted(observed.items(), key=lambda pair: pair[1].kind is AlertKind.STALE_OUTPUT):
         current = incidents.get(key)
+        if current and item.grace_due and item.grace_due <= current.opened_at:
+            # The incident opened for this very occurrence, which now reads as inside its grace: a rule raised the
+            # grace. A later occurrence came due after the incident opened, and does not clear an older miss.
+            item = replace(item, health=HealthState.HEALTHY)
         if (
             item.kind is AlertKind.STAGE_UNREADABLE
             and unknown_counts.get(_unreadable_key(item), 0) >= unreadable_threshold
@@ -335,6 +340,8 @@ class _Observed:
     reason: str
     run_id: str | None
     fingerprint: str
+    # Set for a missed-run observation that is only inside its grace period: when its occurrence came due.
+    grace_due: datetime | None = None
 
 
 # Firing outranks unknown, which outranks healthy, which outranks disabled: when several signals share a
@@ -423,6 +430,7 @@ def _observe(signal: Signal, policy: Mapping[str, ResolvedPolicy]) -> list[_Obse
                 reason=signal.reason if signal.reason in _REASONS else _DEFAULT_REASON[kind],
                 run_id=signal.run,
                 fingerprint=fingerprint(scope, kind, component),
+                grace_due=signal.due if kind is AlertKind.MISSED_RUN and signal.reason == _WITHIN_GRACE else None,
             )
         )
     return observed
@@ -448,14 +456,15 @@ def _kinds_of(signal: Signal) -> tuple[AlertKind, ...]:
 
 
 def _state_under(kind: AlertKind, signal: Signal, options: ConditionOptions | None) -> HealthState:
-    """`level: error` does not alert on a WARN: the condition no longer holds, which resolves an incident it opened."""
+    """`level: error` does not alert on a WARN. An ignored WARN is no evidence either way, so it must not resolve an
+    incident: a retry still running can WARN before the check that failed has rerun."""
     if (
         kind is AlertKind.QUALITY
         and isinstance(options, Quality)
         and options.level == "error"
         and signal.outcome is QualityOutcome.WARN
     ):
-        return HealthState.HEALTHY
+        return HealthState.UNKNOWN
     return signal.state
 
 

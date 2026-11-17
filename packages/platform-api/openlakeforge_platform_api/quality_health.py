@@ -25,7 +25,13 @@ from openlakeforge_core.health import (
     evaluate_quality,
     worst_state,
 )
-from openlakeforge_core.quality import QualityManifest, QualityRecordError, health_quality_fields, manifest_key
+from openlakeforge_core.quality import (
+    QualityManifest,
+    QualityOutcome,
+    QualityRecordError,
+    health_quality_fields,
+    manifest_key,
+)
 
 log = logging.getLogger(__name__)
 
@@ -161,5 +167,8 @@ def _summarize(scope: Scope, manifest: QualityManifest | None, *, now: datetime,
         # A check that never reported cannot be averaged into a pass, nor can a manifest the run did not finish
         # writing (dbt's results are added last); a failure still stands.
         if not (worst is HealthState.HEALTHY and (unreported or not (manifest and manifest.complete))):
-            return next(signal for signal in signals if signal.state is worst)
+            # A WARN and a non-blocking ERROR are both warnings: the ERROR speaks, so a policy that ignores WARNs does
+            # not depend on the order of the manifest's checks.
+            candidates = [signal for signal in signals if signal.state is worst]
+            return next((s for s in candidates if s.outcome is QualityOutcome.ERROR), candidates[0])
     return evaluate_quality(scope, None, now=now, max_age=max_age)

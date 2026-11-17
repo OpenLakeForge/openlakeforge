@@ -89,6 +89,9 @@ class Signal:
     # What a QUALITY signal saw. Its state alone cannot tell a WARN from a non-blocking ERROR, and the alert policy's
     # `level` chooses between them.
     outcome: QualityOutcome | None = None
+    # When the occurrence an EXPECTED_RUN signal speaks about came due; the alert evaluator uses it to tell a raised
+    # grace on the same occurrence from a new one.
+    due: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.stage:
@@ -208,7 +211,7 @@ def evaluate_expected_run(
         state, reason = HealthState.HEALTHY, "the expected run is within its grace period"
     else:
         state, reason = HealthState.CRITICAL, "an expected run did not start"
-    return _signal(SignalKind.EXPECTED_RUN, scope, state, reason, schedule, max_age)
+    return _signal(SignalKind.EXPECTED_RUN, scope, state, reason, schedule, max_age, due=schedule.last_expected_at)
 
 
 def evaluate_freshness(
@@ -440,6 +443,7 @@ def _signal(
     run: str | None = None,
     expires: bool = True,
     outcome: QualityOutcome | None = None,
+    due: datetime | None = None,
 ) -> Signal:
     observed_at = observation.observed_at if observation else None
     return Signal(
@@ -456,4 +460,5 @@ def _signal(
         expires_at=observed_at + max_age if observed_at and expires else None,
         evidence_uri=observation.evidence_uri if observation else None,
         outcome=outcome,
+        due=due,
     )

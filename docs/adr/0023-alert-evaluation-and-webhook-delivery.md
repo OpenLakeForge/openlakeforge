@@ -926,8 +926,11 @@ severity the rule changes is re-evaluated on the next run (one `escalated` notif
 falls). `read_stage_pipelines` takes the policy and applies `missed_run`'s `grace` (also moving the evidence bound) and
 `freshness`'s `grace` or `warn_after`/`critical_after`, the latter through the new `evaluate_freshness_age`, in any
 schedule state; the health routes pass no policy. `Signal` carries the quality `outcome`, which answers the earlier
-**[T]**: `level: error` ignores a WARN, and an incident a WARN opened under `level: warn` resolves with a notification
-when the rule changes to `level: error`, because its condition no longer holds. Two details this record left open: a
+**[T]**: `level: error` ignores a WARN, and an ignored WARN is no evidence of recovery, so an open incident stays open
+until a run passes (a retry still running can WARN before the failed check reruns). A manifest holding both a WARN and a
+non-blocking ERROR reports the ERROR, whatever the order of its checks. A raised `missed_run` grace resolves the incident
+opened for the same occurrence (the signal carries when its occurrence came due), while a later occurrence inside its
+grace still clears nothing. Two details this record left open: a
 stage whose policy has never read cleanly and cannot be read now is left out of the evaluation's policy, so its open
 product incidents are held rather than resolved silently, and nothing new opens for it; and a severity that falls
 is not written to history, which has no event for it (the incident's stored severity is updated).

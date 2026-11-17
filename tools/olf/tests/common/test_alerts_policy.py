@@ -117,15 +117,18 @@ def test_quality_level_chooses_which_outcomes_alert(level, outcome, blocking, ex
     assert [n.severity for n in sent] == ([expected] if expected else [])
 
 
-def test_a_warning_that_level_error_no_longer_alerts_on_resolves_with_a_notification() -> None:
-    warn = policy_for({"match": {"domain": "*", "product": "*"}, "when": {"quality": {}}})
+def test_a_warn_that_level_error_ignores_never_resolves_an_incident() -> None:
     error = policy_for({"match": {"domain": "*", "product": "*"}, "when": {"quality": {"level": "error"}}})
-    state, _ = _firing([_quality(QualityOutcome.WARN)], warn)
+    state, sent = _firing([_quality(QualityOutcome.ERROR)], error)
+    assert [n.severity for n in sent] == [AlertSeverity.CRITICAL]
 
+    # A retry still running can WARN before the check that failed has rerun: that is no evidence of recovery.
     state, sent = _firing([_quality(QualityOutcome.WARN)], error, state, 5)
 
+    assert sent == []
+    assert [i.kind for i in state.incidents] == [AlertKind.QUALITY]
+    state, sent = _firing([_quality(QualityOutcome.PASSED)], error, state, 10)
     assert [n.event for n in sent] == [AlertEvent.RESOLVED]
-    assert state.incidents == ()
 
 
 def test_severity_option_sets_missed_run_and_schedule_mismatch() -> None:
@@ -175,6 +178,28 @@ def test_freshness_thresholds_warn_then_escalate_once_and_recover() -> None:
     assert state.incidents[0].severity is AlertSeverity.WARNING
     state, sent = _firing([_age(1)], policy, state, 20)
     assert [n.event for n in sent] == [AlertEvent.RESOLVED]
+
+
+def _due_signal(reason: str, state: HealthState, due: datetime) -> Signal:
+    return Signal(SignalKind.EXPECTED_RUN, state, "prod", reason, product=ORDERS.product, due=due)
+
+
+def test_raising_the_grace_of_an_open_missed_run_resolves_it_but_a_new_occurrence_does_not() -> None:
+    policy = policy_for({"match": {"domain": "*", "product": "*"}, "when": {"missed_run": {}}})
+    due = T0 - timedelta(minutes=20)
+    state, sent = _firing([_due_signal("an expected run did not start", HealthState.CRITICAL, due)], policy)
+    assert [n.event for n in sent] == [AlertEvent.OPENED]
+    within = "the expected run is within its grace period"
+
+    # Tomorrow's occurrence came due after the incident opened: an ordinary within-grace read clears nothing.
+    tomorrow = T0 + timedelta(hours=24)
+    held, sent = _firing([_due_signal(within, HealthState.HEALTHY, tomorrow)], policy, state, 24 * 60)
+    assert (sent, [i.kind for i in held.incidents]) == ([], [AlertKind.MISSED_RUN])
+
+    # The same occurrence reads as inside its grace because a rule raised the grace.
+    state, sent = _firing([_due_signal(within, HealthState.HEALTHY, due)], policy, state, 5)
+    assert [n.event for n in sent] == [AlertEvent.RESOLVED]
+    assert state.incidents == ()
 
 
 def test_cadence_staleness_takes_its_severity_from_the_rule() -> None:
