@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -173,6 +174,23 @@ def test_the_platform_api_answers_each_role_through_the_perimeter() -> None:
 def test_a_wrong_platform_api_answer_fails(change: dict[str, Any], match: str) -> None:
     with pytest.raises(E2EError, match=match):
         _api_check({**HEALTHY, **change})
+
+
+@pytest.mark.parametrize(
+    ("stage", "admitted"),
+    [("dev", ["platform-admin", "data-engineer"]), ("prod", ["platform-admin"])],
+)
+def test_the_logs_row_limits_a_data_engineer_to_dev(stage: str, admitted: list[str]) -> None:
+    roles = ["platform-admin", "data-engineer", "analyst", "viewer"]
+    admits = bearer.logs_admits(roles, stage)
+    assert [role for role in roles if admits(role)] == admitted
+
+
+def test_the_logs_constants_match_the_platform_api_permission_row() -> None:
+    matrix = Path(__file__).parents[4] / "packages/platform-api/openlakeforge_platform_api/permissions.toml"
+    row = tomllib.loads(matrix.read_text(encoding="utf-8"))["operations"]["list_logs"]
+    assert row["role"] == bearer.LOGS_FLOOR
+    assert {role: tuple(stages) for role, stages in row.get("role_stages", {}).items()} == bearer.LOGS_ROLE_STAGES
 
 
 def test_on_a_stage_outside_the_launch_row_every_role_is_refused() -> None:

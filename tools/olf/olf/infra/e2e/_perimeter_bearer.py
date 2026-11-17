@@ -36,6 +36,8 @@ SCOPE = "openid email profile groups"
 PLATFORM_API_HOST_REF = "shared/portal"
 # The logs and launch routes' rows in packages/platform-api's permissions.toml.
 LOGS_FLOOR = "data-engineer"
+# The logs row's `role_stages`: a role named here reads only these stages' archives (ADR 0022, decision 3).
+LOGS_ROLE_STAGES: dict[str, tuple[str, ...]] = {"data-engineer": ("dev",)}
 # The read routes' rows: Dagster's at data-engineer on every stage, OpenMetadata's at viewer with no stage.
 DAGSTER_READS_FLOOR = "data-engineer"
 OPENMETADATA_READS_FLOOR = "viewer"
@@ -121,6 +123,18 @@ def issue_id_token(
     if reply.status_code != 200 or "id_token" not in reply.json():
         raise E2EError(f"{login}: the {client_id} token exchange got HTTP {reply.status_code}")
     return str(reply.json()["id_token"])
+
+
+def logs_admits(precedence: Sequence[str], stage: str) -> Callable[[str], bool]:
+    """Whether a role may read `stage`'s archived logs: at or above the row's floor, and on a stage its
+    `role_stages` limit names when it has one, so a data-engineer is refused (403) on PROD."""
+    floor = precedence.index(LOGS_FLOOR)
+
+    def admits(role: str) -> bool:
+        limit = LOGS_ROLE_STAGES.get(role)
+        return precedence.index(role) <= floor and (limit is None or stage in limit)
+
+    return admits
 
 
 def tamper_signature(token: str) -> str:
@@ -262,8 +276,7 @@ def check_platform_api(
     # object store refuses is a 502, so this also proves the SeaweedFS grant. Today's
     # partition may still be empty, which is still a 200.
     logs = f"{base_url}/api/v1/stages/{stage}/logs?date={datetime.now(UTC).date().isoformat()}&limit=1"
-    floor = precedence.index(LOGS_FLOOR)
-    check_bearer_decisions(route, logs, roles, lambda role: precedence.index(role) <= floor, cli_token, other_token)
+    check_bearer_decisions(route, logs, roles, logs_admits(precedence, stage), cli_token, other_token)
     check_platform_reads(route, base_url, roles, cli_token, other_token, stage=stage, precedence=precedence)
     check_launch_audit(route, base_url, roles, cli_token, stage=stage, precedence=precedence)
 
