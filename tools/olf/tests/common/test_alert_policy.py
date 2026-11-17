@@ -159,6 +159,19 @@ def test_model_rejects_structure(when: dict[str, Any], message: str) -> None:
         parse_alert_policy(_rules(_rule(when=when)))
 
 
+def test_names_that_yaml_reads_as_booleans_say_to_quote_them() -> None:
+    unquoted = yaml.safe_load("routes: {on: no}\ndefaults: {notify: [on]}\nrules: []\n")
+    assert unquoted["routes"] == {True: False}
+    for document, where in (
+        (_rules(_rule(), routes=unquoted["routes"]), "routes key"),
+        (_rules(_rule(), routes={"on-call": False}), "routes.on-call"),
+        (_rules(_rule(), defaults=unquoted["defaults"]), "defaults.notify"),
+        (_rules(_rule("*", False)), "match.product"),
+    ):
+        with pytest.raises(LakehouseDescriptorError, match=rf"{where}.*quote names like that"):
+            parse_alert_policy(document)
+
+
 @pytest.mark.parametrize("bad", [[{"on-call": "on-call"}], [["on-call"]], [1], [None]])
 def test_model_rejects_non_string_list_items_without_a_type_error(bad: list[object]) -> None:
     for fields in ({"defaults": {"notify": bad}}, {"defaults": {"stages": bad}}):
