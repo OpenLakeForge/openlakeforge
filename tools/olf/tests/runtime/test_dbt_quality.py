@@ -1,6 +1,6 @@
 """dbt test results to `quality_result` records.
 
-The fixtures follow the artifacts dbt-core 1.11.12 writes (run-results schema v6, manifest schema v12): the keys
+The fixtures follow the artifacts dbt-core 1.11.17 writes (run-results schema v6, manifest schema v12): the keys
 a test node and a result carry, and the `artifacts_incomplete.json` marker `product_dagster` uploads.
 """
 
