@@ -12,6 +12,7 @@ import pytest
 from _alerting_fakes import FakeBucket, declare_everything
 from conftest import Mint
 from fastapi.testclient import TestClient
+from openlakeforge_core import parse_alert_policy, resolve_policy
 from openlakeforge_core.quality import (
     PipelineOutcome,
     QualityManifest,
@@ -559,3 +560,69 @@ def test_a_warn_before_a_non_blocking_error_in_one_manifest_still_reports_the_er
         (quality,) = [s for s in pipeline.signals if s.kind.value == "quality"]
 
         assert (quality.state.value, quality.outcome) == ("warning", QualityOutcome.ERROR)
+
+
+def _level_error_signal(runs: list[DagsterRun], stored: list[QualityManifest]):
+    bucket = FakeBucket()
+    for manifest in stored:
+        bucket.objects[manifest.ops_key] = manifest.to_json().encode()
+    policy = parse_alert_policy(
+        {
+            "apiVersion": "openlakeforge.io/v1beta1",
+            "kind": "AlertPolicy",
+            "routes": {"ops": "ops"},
+            "defaults": {"notify": ["ops"]},
+            "rules": [{"match": {"domain": "*", "product": "*"}, "when": {"quality": {"level": "error"}}}],
+        }
+    )
+    resolved = resolve_policy(policy, {"domains": []}, "dev")
+    _, (pipeline,) = read_stage_pipelines(FakeDagster(runs), "dev", NOW, QualityReader(bucket, BASE), resolved)
+    return [signal for signal in pipeline.signals if signal.kind.value == "quality"]
+
+
+def test_level_error_does_not_let_a_newer_runs_warn_hide_an_older_runs_blocking_error() -> None:
+    failed = QualityManifest(
+        "dev",
+        "sales",
+        "orders",
+        "run-1",
+        (_result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1"),),
+        complete=True,
+    )
+    retry = QualityManifest(
+        "dev", "sales", "orders", "run-2", (_result(QualityOutcome.WARN, run_id="run-2"),), complete=False
+    )
+
+    (signal,) = _level_error_signal(_two_runs("FAILURE", "STARTED"), [failed, retry])
+
+    assert (signal.state.value, signal.run) == ("critical", "run-1")
+
+
+@pytest.mark.parametrize("order", [("a_warn", "b_error"), ("a_error", "b_warn")])
+def test_level_error_reads_a_warn_beside_a_non_blocking_error_as_the_error_whatever_the_order(
+    order: tuple[str, str],
+) -> None:
+    checks = {
+        "a_warn": _result(QualityOutcome.WARN, check="a_warn"),
+        "b_warn": _result(QualityOutcome.WARN, check="b_warn"),
+        "a_error": _result(QualityOutcome.ERROR, PipelineOutcome.CONTINUED, check="a_error"),
+        "b_error": _result(QualityOutcome.ERROR, PipelineOutcome.CONTINUED, check="b_error"),
+    }
+    manifest = QualityManifest("dev", "sales", "orders", "run-1", tuple(checks[name] for name in order), complete=True)
+
+    (signal,) = _level_error_signal([_run()], [manifest])
+
+    assert (signal.state.value, signal.outcome) == ("warning", QualityOutcome.ERROR)
+
+
+def test_level_error_reads_a_complete_manifest_of_only_warns_as_a_pass_and_an_incomplete_one_as_unknown() -> None:
+    warn = _result(QualityOutcome.WARN)
+
+    (complete,) = _level_error_signal(
+        [_run()], [QualityManifest("dev", "sales", "orders", "run-1", (warn,), complete=True)]
+    )
+    (partial,) = _level_error_signal(
+        [_run()], [QualityManifest("dev", "sales", "orders", "run-1", (warn,), complete=False)]
+    )
+
+    assert (complete.state.value, partial.state.value) == ("healthy", "unknown")

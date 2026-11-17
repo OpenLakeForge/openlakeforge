@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any, NamedTuple, Protocol, cast
 from urllib.parse import urlsplit
@@ -129,8 +130,12 @@ def quality_signal(
     *,
     now: datetime,
     max_age: timedelta,
+    level: str = "warn",
 ) -> QualityRead | None:
-    """The quality signal of `job`'s run, or None for a job that is not a product pipeline."""
+    """The quality signal of `job`'s run, or None for a job that is not a product pipeline.
+
+    `level` is the alert policy's quality level: with `error`, a WARN reads as a pass, so it neither alerts nor hides a
+    failure in the same manifest or in an older run."""
     domain = tags.get(DOMAIN_TAG)
     if domain is None or not job.endswith(PIPELINE_JOB_SUFFIX):
         return None
@@ -143,10 +148,12 @@ def quality_signal(
         # The store's message can name keys and endpoints: the log has it, the answer does not.
         log.warning("quality manifest of %s run %s in stage %s was not usable: %s", job, run_id, scope.stage, error)
         manifest = None
-    return QualityRead(_summarize(scope, manifest, now=now, max_age=max_age), unreadable)
+    return QualityRead(_summarize(scope, manifest, now=now, max_age=max_age, level=level), unreadable)
 
 
-def _summarize(scope: Scope, manifest: QualityManifest | None, *, now: datetime, max_age: timedelta) -> Signal:
+def _summarize(
+    scope: Scope, manifest: QualityManifest | None, *, now: datetime, max_age: timedelta, level: str = "warn"
+) -> Signal:
     signals: list[Signal] = []
     unreported = False
     for result in manifest.results if manifest else ():
@@ -161,7 +168,11 @@ def _summarize(scope: Scope, manifest: QualityManifest | None, *, now: datetime,
             run=fields.run,
             evidence_uri=fields.evidence_uri,
         )
-        signals.append(evaluate_quality(scope, observation, now=now, max_age=max_age))
+        signal = evaluate_quality(scope, observation, now=now, max_age=max_age)
+        if level == "error" and signal.outcome is QualityOutcome.WARN:
+            # Still subject to the rules below: a pass in an incomplete manifest proves nothing.
+            signal = replace(signal, state=HealthState.HEALTHY, reason="quality checks passed")
+        signals.append(signal)
     if signals:
         worst = worst_state(signal.state for signal in signals)
         # A check that never reported cannot be averaged into a pass, nor can a manifest the run did not finish

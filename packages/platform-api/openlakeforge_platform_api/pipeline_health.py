@@ -10,7 +10,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from openlakeforge_core.alert_policy import DEFAULT_GRACE, Freshness, MissedRun, ResolvedCondition, ResolvedPolicy
+from openlakeforge_core.alert_policy import (
+    DEFAULT_GRACE,
+    Freshness,
+    MissedRun,
+    Quality,
+    ResolvedCondition,
+    ResolvedPolicy,
+)
 from openlakeforge_core.health import (
     HealthState,
     RunObservation,
@@ -151,7 +158,13 @@ def _owed(schedule: DagsterSchedule | None, runs: list[DagsterRun], owed: dateti
 
 
 def _quality(
-    quality: QualityReader, scope: Scope, job: str, runs: list[DagsterRun], now: datetime, max_age: timedelta
+    quality: QualityReader,
+    scope: Scope,
+    job: str,
+    runs: list[DagsterRun],
+    now: datetime,
+    max_age: timedelta,
+    level: str = "warn",
 ) -> Signal | None:
     """The quality signal of the latest run's manifest, where a failed run's blocking errors are.
 
@@ -167,7 +180,7 @@ def _quality(
     """
     unreadable_seen = False
     for run in runs:
-        read = quality_signal(quality, scope, job, run.run_id, run.tags, now=now, max_age=max_age)
+        read = quality_signal(quality, scope, job, run.run_id, run.tags, now=now, max_age=max_age, level=level)
         if read is None:
             return None
         found = read.signal
@@ -214,6 +227,10 @@ def _evaluate(
     fresh_options = (conditions or {}).get("freshness")
     missed = missed_options.options if missed_options and isinstance(missed_options.options, MissedRun) else None
     freshness = fresh_options.options if fresh_options and isinstance(fresh_options.options, Freshness) else None
+    quality_options = (conditions or {}).get("quality")
+    level = (
+        quality_options.options.level if quality_options and isinstance(quality_options.options, Quality) else "warn"
+    )
     grace = missed.grace if missed else SCHEDULE_GRACE
     fresh_grace = freshness.grace if freshness else SCHEDULE_GRACE
     latest = _observation(runs[0]) if runs else None
@@ -238,7 +255,7 @@ def _evaluate(
         _freshness(scope, schedule, runs, success, state, now, freshness, fresh_grace),
     ]
     if quality is not None and runs:
-        found = _quality(quality, scope, job, runs, now, max_age)
+        found = _quality(quality, scope, job, runs, now, max_age, level)
         if found is not None:
             signals.append(found)
     return PipelineEvaluation(job, runs, schedule, due, signals)
