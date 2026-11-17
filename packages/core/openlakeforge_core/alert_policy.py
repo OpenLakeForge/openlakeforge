@@ -150,9 +150,19 @@ def _object(
     return value
 
 
+def _bool_hint(value: object) -> str:
+    return (
+        "; YAML reads unquoted on, off, yes, no, y and n as booleans, so quote names like that"
+        if isinstance(value, bool)
+        else ""
+    )
+
+
 def _name(value: object, *, where: str) -> str:
     if not isinstance(value, str) or not _NAME.fullmatch(value):
-        raise LakehouseDescriptorError(f"{where} must match '^[a-z]([a-z0-9-]{{0,61}}[a-z0-9])?$', got {value!r}")
+        raise LakehouseDescriptorError(
+            f"{where} must match '^[a-z]([a-z0-9-]{{0,61}}[a-z0-9])?$', got {value!r}{_bool_hint(value)}"
+        )
     return value
 
 
@@ -160,7 +170,8 @@ def _name_list(value: object, *, where: str, allowed: Sequence[str] | None = Non
     if not isinstance(value, list) or not value:
         raise LakehouseDescriptorError(f"{where} must be a non-empty list")
     if not all(isinstance(item, str) for item in value):
-        raise LakehouseDescriptorError(f"{where} must list strings, got {value!r}")
+        hint = _bool_hint(next((i for i in value if isinstance(i, bool)), None))
+        raise LakehouseDescriptorError(f"{where} must list strings, got {value!r}{hint}")
     items = tuple(value)
     if len(set(items)) != len(items):
         raise LakehouseDescriptorError(f"{where} must not repeat an entry")
@@ -230,7 +241,7 @@ def _condition(name: str, value: object, *, where: str) -> ConditionOptions | No
 
 def _selector(value: object, *, where: str) -> str:
     if value != WILDCARD and not (isinstance(value, str) and _SELECTOR.fullmatch(value)):
-        raise LakehouseDescriptorError(f"{where} must be an identifier or '*', got {value!r}")
+        raise LakehouseDescriptorError(f"{where} must be an identifier or '*', got {value!r}{_bool_hint(value)}")
     return str(value)
 
 
