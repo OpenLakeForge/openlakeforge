@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from openlakeforge_core.alert_policy import ResolvedPolicy
+from openlakeforge_core.alert_policy import AlertPolicy, ResolvedPolicy, resolve_policy
 from openlakeforge_core.alerts import ALERT_POLICY, DAGSTER_READ_API, AlertState, HistoryEvent, Incident, evaluate
 from openlakeforge_core.alerts_state import drop_notification, expire_outbox, record_attempt, record_delivery
 from openlakeforge_core.health import HealthState, Scope, Signal, service_signal
@@ -60,6 +60,7 @@ def run_once(
     notifiers: Mapping[str, Notifier],
     now: datetime,
     quality: Mapping[str, QualityReader] | None = None,
+    policy_override: AlertPolicy | None = None,
     delivery_budget: float = DELIVERY_BUDGET_SECONDS,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> RunSummary:
@@ -68,7 +69,7 @@ def run_once(
     previous = store.read_state(now)
     # Transitions of the stored state whose history writes did not all land last run: replay them now.
     _flush_history(store, store.read_pending_history(previous))
-    policy_unreadable, stage_policies = _read_policies(settings, store, now)
+    policy_unreadable, stage_policies = _read_policies(settings, store, now, policy_override)
     policy = {stage: found.resolved for stage, found in stage_policies.items() if _usable(found)}
     signals, scopes = _read_stages(settings, dagster, quality or {}, previous, now, policy)
     signals += [_policy_signal(stage, stage in policy_unreadable, now) for stage in settings.stages]
@@ -166,14 +167,22 @@ def run_once(
 
 
 def _read_policies(
-    settings: EvaluatorSettings, store: AlertStore, now: datetime
+    settings: EvaluatorSettings, store: AlertStore, now: datetime, override: AlertPolicy | None = None
 ) -> tuple[tuple[str, ...], dict[str, StagePolicy]]:
-    """Every stage's policy (ADR 0023, decision 10), and the stages whose policy is not fully usable."""
+    """Every stage's policy (ADR 0023, decision 10), and the stages whose policy is not fully usable.
+
+    `override` is the e2e's `--policy-file`: it replaces every stage's policy, matched against the governance of the
+    revision the stage is running, and nothing about it can be unreadable."""
     names = [receiver.name for receiver in settings.receivers]
     unreadable = []
     found: dict[str, StagePolicy] = {}
     for stage in settings.stages:
         found[stage] = read_stage_policy(stage, store, now, receivers=names)
+        if override is not None:
+            governance = found[stage].governance or {"domains": []}
+            found[stage] = StagePolicy(
+                stage, override, resolve_policy(override, governance, stage), found[stage].revision or "override"
+            )
         if found[stage].unreadable:
             unreadable.append(stage)
         else:

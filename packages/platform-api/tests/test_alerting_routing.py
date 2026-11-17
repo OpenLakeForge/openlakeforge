@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
-from _alerting_fakes import FakeBucket, publish
-from test_alerting import NOW, FakeDagster, FakeNotifier, _evaluate, _failed, _settings, _told
+from _alerting_fakes import FakeBucket, publish, settings_mapping
+from openlakeforge_core import AlertPolicy, parse_alert_policy
+from test_alerting import BASE, NOW, FakeDagster, FakeNotifier, _evaluate, _failed, _settings, _told
 
+from openlakeforge_platform_api.alerting import __main__ as entrypoint
+from openlakeforge_platform_api.alerting.run import run_once
 from openlakeforge_platform_api.alerting.settings import ReceiverSetting
+from openlakeforge_platform_api.alerting.store import AlertStore
 
 OPS = ReceiverSetting("ops", "OPS_URL")
 CHAT = ReceiverSetting("chat", "CHAT_URL")
@@ -114,3 +120,61 @@ def test_the_policy_clearing_resolves_policy_unreadable_to_the_same_receivers() 
     _evaluate(_settings(OPS), bucket, dagster, {"ops": ops}, NOW + timedelta(minutes=5))
 
     assert _told(ops) == [("dev", "policy_unreadable", "opened"), ("dev", "policy_unreadable", "resolved")]
+
+
+def _override(when: str, notify: str = "sales") -> AlertPolicy:
+    return parse_alert_policy(
+        {
+            "apiVersion": "openlakeforge.io/v1beta1",
+            "kind": "AlertPolicy",
+            "routes": {"on-call": "ops", "sales": "chat"},
+            "rules": [{"match": {"domain": "*", "product": "*"}, "notify": [notify], "when": {when: {}}}],
+        }
+    )
+
+
+def test_a_policy_override_replaces_the_revisions_rules_and_routes() -> None:
+    bucket = FakeBucket()
+    publish(bucket, alerts=_policy("on-call"))
+    ops, chat = FakeNotifier(), FakeNotifier()
+    settings = _settings(OPS, CHAT)
+
+    run_once(
+        settings=settings,
+        store=AlertStore(bucket, BASE),
+        dagster={"dev": FakeDagster([_failed()])},
+        notifiers={"ops": ops, "chat": chat},
+        now=NOW,
+        policy_override=_override("run_failed"),
+    )
+
+    assert (_told(ops), _told(chat)) == ([], [("dev", "run_failed", "opened")])
+
+
+def test_a_policy_override_that_does_not_declare_a_condition_silences_it_whatever_the_revision_says() -> None:
+    bucket = FakeBucket()
+    publish(bucket, alerts=_policy("on-call"))
+    ops = FakeNotifier()
+
+    run_once(
+        settings=_settings(OPS, CHAT),
+        store=AlertStore(bucket, BASE),
+        dagster={"dev": FakeDagster([_failed()])},
+        notifiers={"ops": ops, "chat": FakeNotifier()},
+        now=NOW,
+        policy_override=_override("quality", "on-call"),
+    )
+
+    assert ops.sent == []
+
+
+def test_the_entrypoint_takes_a_policy_file_and_refuses_one_that_is_not_a_policy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = tmp_path / "alerts.json"
+    settings.write_text(json.dumps(settings_mapping()))
+    monkeypatch.setenv("OPS_URL", "https://hooks.example.test/x")
+    broken = tmp_path / "alerts.yml"
+    broken.write_text("kind: not a policy\n")
+
+    assert entrypoint.main(["--settings", str(settings), "--policy-file", str(broken)]) == 2

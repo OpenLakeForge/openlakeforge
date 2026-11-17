@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 import boto3
 import certifi
 from botocore.config import Config
+from openlakeforge_core.alert_policy import load_alert_policy
+from openlakeforge_core.descriptors import LakehouseDescriptorError
 from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.notify import Notifier, WebhookNotifier, quiet_transport_logs
 
@@ -47,16 +49,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     # The two flags below are for the e2e only (ADR 0023, decision 3); the CronJob never passes them.
     parser.add_argument("--now", type=_aware, help="fix the evaluation clock")
     parser.add_argument("--state-prefix", help="keep state and history under this prefix of the ops bucket")
+    parser.add_argument("--policy-file", help="evaluate every stage by this alerts.yml instead of its revision's")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     quiet_transport_logs()
     try:
+        override = load_alert_policy(args.policy_file) if args.policy_file else None
         settings = EvaluatorSettings.from_file(args.settings)
         notifiers = _notifiers(settings)
         client = _object_store(settings)
         quality = _quality_readers(settings)
-    except (SettingsError, ValueError, OSError) as error:
+    except (SettingsError, ValueError, OSError, LakehouseDescriptorError) as error:
         log.error("alert evaluator is misconfigured: %s", error)
         return 2
 
@@ -69,6 +73,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             dagster=dagster,
             notifiers=notifiers,
             quality=quality,
+            policy_override=override,
             now=args.now or datetime.now(UTC),
         )
     except StoreError as error:

@@ -69,6 +69,8 @@ class StagePolicy:
     revision: str | None = None
     # Why the stage needs a `policy_unreadable` warning; None when the policy was read cleanly.
     unreadable: str | None = None
+    # The product ids of the revision's governance.yml, which `resolve_policy` needs to match a rule to a job.
+    governance: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -174,7 +176,12 @@ def _products(governance: dict[str, Any]) -> dict[str, Any]:
 def _finish(stage: str, cached: _Cached, receivers: Collection[str] | None, unreadable: str | None) -> StagePolicy:
     if cached.alerts is None:
         return StagePolicy(
-            stage, EMPTY_POLICY, resolve_policy(EMPTY_POLICY, _NO_GOVERNANCE, stage), cached.revision, unreadable
+            stage,
+            EMPTY_POLICY,
+            resolve_policy(EMPTY_POLICY, _NO_GOVERNANCE, stage),
+            cached.revision,
+            unreadable,
+            cached.governance,
         )
     policy = parse_alert_policy(cached.alerts)
     resolved = resolve_policy(policy, cached.governance, stage)
@@ -183,7 +190,7 @@ def _finish(stage: str, cached: _Cached, receivers: Collection[str] | None, unre
         if missing:
             unreadable = f"routes name receivers the profile does not declare: {', '.join(missing)}"
             log.warning("alert policy of stage %s cannot be fully used: %s", stage, unreadable)
-    return StagePolicy(stage, policy, resolved, cached.revision, unreadable)
+    return StagePolicy(stage, policy, resolved, cached.revision, unreadable, cached.governance)
 
 
 def _fallback(stage: str, cached: _Cached | None, receivers: Collection[str] | None, reason: str) -> StagePolicy:

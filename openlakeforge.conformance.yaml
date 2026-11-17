@@ -45,7 +45,7 @@ spec:
   observability:
     alerts:
       receivers:
-        - name: e2e-receiver
+        - name: on-call
           type: webhook
           secret_ref:
             name: olf-e2e-alert-receiver

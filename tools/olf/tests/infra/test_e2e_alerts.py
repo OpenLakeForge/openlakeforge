@@ -91,7 +91,7 @@ def test_the_evaluation_job_can_read_its_own_settings_and_ca() -> None:
 
 
 def test_the_e2e_settings_trust_the_stubs_ca_and_change_nothing_else() -> None:
-    original = {"ca_file": None, "receivers": [{"name": "e2e-receiver"}], "s3_region": "r"}
+    original = {"ca_file": None, "receivers": [{"name": "on-call"}], "s3_region": "r"}
     assert json.loads(_alerts.e2e_settings(json.dumps(original))) == {**original, "ca_file": "/e2e/ca.crt"}
     assert (
         json.loads(_alerts.e2e_settings(json.dumps({**original, "ca_file": "/ca/ca.crt"})))["ca_file"] == "/e2e/ca.crt"
