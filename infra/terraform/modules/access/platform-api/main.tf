@@ -27,7 +27,9 @@ locals {
     trino_urls       = var.trino_urls
     # The log collector's spool probes (ADR 0022, decision 2), over F42.
     log_collector_probe_url = var.log_collector_probe_url
-    openmetadata_url        = var.openmetadata_url
+    # Polaris's readiness check on its management port (ADR 0021, decision 7), over F43.
+    polaris_health_url = var.polaris_health_url
+    openmetadata_url   = var.openmetadata_url
     # Read with the key in log_reader_secret_name, which never enters this file.
     log_archives    = var.log_archives
     s3_endpoint_url = var.s3_endpoint_url
