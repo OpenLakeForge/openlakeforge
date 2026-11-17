@@ -291,7 +291,7 @@ rules:
   - match: {domain: "*", product: "*"}
     when:
       run_failed: {}
-      quality: {on: error}
+      quality: {level: error}
 ```
 
 | Field | Type | Required | Meaning |
@@ -309,7 +309,7 @@ rules:
 | `run_failed` | `severity`: `warning` or `critical` | `critical` |
 | `missed_run` | `grace`: a duration; `severity` | `15m`; `critical` |
 | `freshness` | `warn_after`, `critical_after`: durations since the last success. Without them, `grace` and `severity` apply to cadence-derived staleness | `15m`; `critical` |
-| `quality` | `on`: `warn` or `error` | `warn` |
+| `quality` | `level`: `warn` or `error` | `warn` |
 | `schedule_mismatch` | `severity` | `warning` |
 
 `{}` turns a condition on with its defaults. A duration is a positive integer
@@ -324,7 +324,7 @@ the same specificity that set the same condition for an overlapping stage are
 an error. A job that is no product's, such as `gold_maintenance`, is matched
 by the global rule only.
 
-`alerts.yml` is read with YAML 1.2 booleans, so `on` in `quality: {on: error}`
+`alerts.yml` is read with YAML 1.2 booleans, so `on` in `quality: {level: error}`
 stays a key. `olf check contracts` does not check receiver names, because only
 activation has the profile.
 

@@ -24,7 +24,7 @@ rules:
   - match: {domain: sales, product: "*"}
     notify: [sales]
     when:
-      quality: {on: error}
+      quality: {level: error}
   - match: {domain: sales, product: order_revenue}
     when:
       freshness: {warn_after: 26h}
@@ -71,3 +71,17 @@ def test_contracts_check_does_not_check_receiver_names(tmp_path: Path) -> None:
 def test_contracts_check_rejects(tmp_path: Path, text: str, fragment: str) -> None:
     result = _check_alert_policy_conformance(_project(tmp_path, text), schema_root=SCHEMAS)
     assert not result.ok and fragment in result.detail
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        EXAMPLE.replace("notify: [on-call]", "notify: [{on-call: on-call}]"),
+        EXAMPLE.replace("stages: [dev]", "stages: [[dev]]"),
+        EXAMPLE.replace("quality: {level: error}", "quality: {on: error}"),
+        "- a list\n",
+    ],
+)
+def test_contracts_check_reports_schema_errors_instead_of_raising(tmp_path: Path, text: str) -> None:
+    result = _check_alert_policy_conformance(_project(tmp_path, text), schema_root=SCHEMAS)
+    assert not result.ok and "schema violation" in result.detail

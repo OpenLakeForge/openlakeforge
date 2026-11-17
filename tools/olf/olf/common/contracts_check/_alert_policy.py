@@ -10,7 +10,6 @@ import yaml
 from openlakeforge_core import (
     LakehouseDescriptorError,
     load_alert_policy,
-    load_alert_policy_document,
     load_governance_descriptor,
 )
 
@@ -28,19 +27,20 @@ def _check_alert_policy_conformance(repo_root: Path, *, schema_root: Path | None
     schema_path = (schema_root or repo_root / "docs/schema") / "alert-policy.schema.json"
     validator = jsonschema.Draft202012Validator(json.loads(schema_path.read_text(encoding="utf-8")))
     try:
-        document = load_alert_policy_document(path.read_text(encoding="utf-8"))
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         return CheckResult(name, ok=False, detail=f"alerts.yml: {exc}")
     errors = [
         f"schema violation at {'/'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
         for error in validator.iter_errors(document)
     ]
+    # The model assumes the document's shape, so it only runs on one the schema accepted.
+    if errors:
+        return CheckResult(name, ok=False, detail="; ".join(errors))
     governance_path = code / "governance.yml"
     try:
         governance = load_governance_descriptor(governance_path) if governance_path.is_file() else None
         load_alert_policy(path, governance)
     except LakehouseDescriptorError as exc:
-        errors.append(str(exc))
-    if errors:
-        return CheckResult(name, ok=False, detail="; ".join(errors))
+        return CheckResult(name, ok=False, detail=str(exc))
     return CheckResult(name, ok=True, detail="alerts.yml valid")
