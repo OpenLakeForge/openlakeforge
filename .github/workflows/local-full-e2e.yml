@@ -95,7 +95,8 @@ on:
           short-lived pod and restart, secret rotation).
           'all' runs them, in the DEV suite only -- PROD always runs 'core'.
           'none' deploys and activates and runs no e2e assertions in either
-          stage, to leave a running platform to test a feature against.
+          stage, to leave a running platform to test a feature against. The
+          lake stays empty, so it cannot be combined with restore_drill.
           The nightly schedule always uses 'all'.
         type: choice
         options:
@@ -315,6 +316,11 @@ jobs:
           PROFILE_PATH: ${{ inputs.profile_path }}
         run: |
           set -euo pipefail
+          if [ "${{ inputs.checks }}" = "none" ] && [ "${{ inputs.restore_drill }}" = "true" ]; then
+            # The drill's baseline needs the default product's Silver and Gold tables, which only the suite's pipelines build.
+            echo "::error::restore_drill needs data in the lake: use checks core or all, not none"
+            exit 1
+          fi
           mkdir -p "${PROJECT_DIR}"
           cd "${PROJECT_DIR}"
           olf version --json
