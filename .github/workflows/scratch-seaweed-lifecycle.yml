@@ -1,0 +1,54 @@
+name: scratch seaweed lifecycle probe
+on:
+  push:
+    branches: [scratch/seaweed-lifecycle-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Start SeaweedFS 4.48
+        run: |
+          docker run -d --name sw -p 8333:8333 chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d server -s3 -dir=/data -volume.max=8
+          sleep 20
+          docker logs sw 2>&1 | tail -5
+      - name: Probe lifecycle
+        run: |
+          pip install -q boto3
+          cat > probe.py <<'PY'
+          import boto3, time, subprocess, json
+          from botocore.config import Config
+          s3 = boto3.client("s3", endpoint_url="http://127.0.0.1:8333", aws_access_key_id="x", aws_secret_access_key="y", region_name="us-east-1", config=Config(s3={"addressing_style":"path"}))
+          s3.create_bucket(Bucket="ops")
+          def sh(cmd):
+              r = subprocess.run(["docker","exec","-i","sw","/usr/bin/weed","shell"], input=cmd+"\n", text=True, capture_output=True)
+              print("SHELL", cmd, "->", r.stdout[-1500:], r.stderr[-500:])
+          try:
+              s3.put_bucket_lifecycle_configuration(Bucket="ops", LifecycleConfiguration={"Rules":[{"ID":"logs","Status":"Enabled","Filter":{"Prefix":"activations/dev/logs/v2/"},"Expiration":{"Days":30}}]})
+              print("PUT lifecycle OK")
+          except Exception as e:
+              print("PUT lifecycle FAILED", repr(e))
+          try:
+              print("GET lifecycle", json.dumps(s3.get_bucket_lifecycle_configuration(Bucket="ops")["Rules"]))
+          except Exception as e:
+              print("GET lifecycle FAILED", repr(e))
+          sh("fs.configure")
+          s3.put_object(Bucket="ops", Key="activations/dev/logs/v2/a.txt", Body=b"hello")
+          print("HEAD", {k:v for k,v in s3.head_object(Bucket="ops", Key="activations/dev/logs/v2/a.txt").items() if k!="ResponseMetadata"})
+          sh("fs.configure -locationPrefix=/buckets/ops/short/ -ttl=1m -apply")
+          sh("fs.configure")
+          s3.put_object(Bucket="ops", Key="short/b.txt", Body=b"bye")
+          print("short HEAD", s3.head_object(Bucket="ops", Key="short/b.txt")["ResponseMetadata"]["HTTPHeaders"])
+          for i in range(8):
+              time.sleep(30)
+              keys=[o["Key"] for o in s3.list_objects_v2(Bucket="ops", Prefix="short/").get("Contents",[])]
+              try:
+                  s3.get_object(Bucket="ops", Key="short/b.txt"); got="present"
+              except Exception as e:
+                  got="gone "+type(e).__name__
+              print(f"t+{(i+1)*30}s list={keys} get={got}")
+          print("long-ttl object still there:", [o["Key"] for o in s3.list_objects_v2(Bucket="ops", Prefix="activations/").get("Contents",[])])
+          PY
+          python probe.py
