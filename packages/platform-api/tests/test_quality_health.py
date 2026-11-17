@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from _alerting_fakes import FakeBucket
+from _alerting_fakes import FakeBucket, declare_everything
 from conftest import Mint
 from fastapi.testclient import TestClient
 from openlakeforge_core.quality import (
@@ -80,6 +80,12 @@ def _result(
         observed_at=NOW - timedelta(minutes=20),
         dagster_run_id=run_id,
     )
+
+
+def _declared() -> FakeBucket:
+    bucket = FakeBucket()
+    declare_everything(bucket, ("dev",))
+    return bucket
 
 
 def _store(*results: QualityResult, run_id: str = "run-1", complete: bool = True) -> FakeBucket:
@@ -216,7 +222,7 @@ def test_without_a_reader_a_pipeline_carries_no_quality_signal() -> None:
 
 
 def test_the_alert_evaluator_opens_a_quality_incident_from_a_blocking_error_manifest() -> None:
-    state, notifier = FakeBucket(), FakeNotifier()
+    state, notifier = _declared(), FakeNotifier()
     manifests = QualityReader(_store(_result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED)), BASE)
 
     run_once(
@@ -238,7 +244,7 @@ def test_the_alert_evaluator_opens_nothing_for_a_pipeline_whose_manifest_passed_
         notifier = FakeNotifier()
         run_once(
             settings=_settings(A),
-            store=AlertStore(FakeBucket(), "s3://ops/alerts/"),
+            store=AlertStore(_declared(), "s3://ops/alerts/"),
             dagster={"dev": FakeDagster([_run()])},
             notifiers={"ops": notifier},
             now=NOW,
@@ -363,7 +369,7 @@ def test_a_finished_run_after_a_running_one_resolves_through_its_own_manifest() 
 
 
 def test_a_running_retry_does_not_resolve_an_open_quality_incident_and_a_completed_one_does() -> None:
-    state, notifier = FakeBucket(), FakeNotifier()
+    state, notifier = _declared(), FakeNotifier()
     store = AlertStore(state, "s3://ops/alerts/")
     failed = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
 
@@ -419,7 +425,7 @@ def test_a_running_retry_does_not_resolve_an_open_quality_incident_and_a_complet
 
 
 def test_an_unreadable_failed_manifest_keeps_an_open_incident_open_and_silent() -> None:
-    store = AlertStore(FakeBucket(), "s3://ops/alerts/")
+    store = AlertStore(_declared(), "s3://ops/alerts/")
     notifier = FakeNotifier()
     old = _result(QualityOutcome.PASSED, run_id="run-1")
     blocked = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-2")

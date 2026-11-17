@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
+from _alerts_support import evaluate
 from openlakeforge_core import (
     DAGSTER_PIPELINES,
     DAGSTER_READ_API,
@@ -22,7 +23,6 @@ from openlakeforge_core import (
     Scope,
     Signal,
     SignalKind,
-    evaluate,
     evaluate_execution,
     evaluate_expected_run,
     evaluate_quality,

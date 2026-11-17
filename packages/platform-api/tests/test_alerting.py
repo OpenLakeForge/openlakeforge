@@ -13,7 +13,7 @@ from typing import Any
 
 import certifi
 import pytest
-from _alerting_fakes import FakeBucket, publish, settings_mapping
+from _alerting_fakes import POLICY, FakeBucket, declare_everything, publish, settings_mapping
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -106,6 +106,7 @@ def _evaluate(
     notifiers: Mapping[str, FakeNotifier],
     now: datetime = NOW,
 ) -> Any:
+    declare_everything(bucket, settings.stages)
     return run_once(
         settings=settings,
         store=AlertStore(bucket, BASE),
@@ -137,15 +138,111 @@ def test_two_evaluations_of_the_same_dagster_state_send_one_notification() -> No
     assert bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["outbox"] == []
 
 
-def test_the_stage_policy_is_read_but_does_not_change_what_alerts_yet() -> None:
+def _policy(when: str) -> str:
+    """The sample policy with its one global rule's conditions replaced; each line of `when` is a `when` entry."""
+    return POLICY.replace("      run_failed: {}\n", "".join(f"      {line}\n" for line in when.splitlines()))
+
+
+def _succeeded(run_id: str, hours_ago: float) -> DagsterRun:
+    stamp = (NOW - timedelta(hours=hours_ago)).timestamp()
+    return DagsterRun(run_id, "orders_job", "SUCCESS", stamp - 60, stamp - 59, stamp)
+
+
+def test_a_condition_no_rule_declares_does_not_alert() -> None:
     bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
-    activation = publish(bucket, alerts="kind: not a policy\n")
-    # The policy names no `run_failed` rule and cannot even be parsed, yet the failed run still notifies.
+    publish(bucket, alerts=_policy("quality: {}"))
+
+    summary = _evaluate(_settings(A), bucket, dagster, {"ops": notifier})
+
+    assert (summary.notifications, notifier.sent) == (0, [])
+
+
+def test_a_project_without_a_policy_gets_no_product_alerts() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    publish(bucket, alerts=None)
+
+    assert _evaluate(_settings(A), bucket, dagster, {"ops": notifier}).notifications == 0
+    assert notifier.sent == []
+
+
+def test_a_policy_that_never_read_cleanly_alerts_nothing_and_is_reported() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    publish(bucket, alerts="kind: not a policy\n")
+
     summary = _evaluate(_settings(A), bucket, dagster, {"ops": notifier})
 
     assert summary.policy_unreadable == ("dev",)
-    assert [payload["condition"] for _, payload in notifier.sent] == ["run_failed"]
-    assert activation.activation_revision
+    assert notifier.sent == []
+
+
+def test_a_stage_keeps_its_last_good_policy_when_a_newer_revision_is_unusable() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    publish(bucket)
+    settings = _settings(A)
+    _evaluate(settings, bucket, dagster, {"ops": notifier})
+    dagster["dev"].finish("run-2", "SUCCESS", NOW + timedelta(minutes=2))
+    publish(bucket, alerts="kind: not a policy\n", seed="b")
+
+    summary = _evaluate(settings, bucket, dagster, {"ops": notifier}, NOW + timedelta(minutes=5))
+
+    assert summary.policy_unreadable == ("dev",)
+    # Under an empty policy the incident would have closed silently; the old rules still tell the receiver.
+    assert [p["event"] for _, p in notifier.sent] == ["opened", "resolved"]
+
+
+def test_a_rule_that_disappears_resolves_its_incident_without_a_notification() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    publish(bucket)
+    settings = _settings(A)
+    _evaluate(settings, bucket, dagster, {"ops": notifier})
+    publish(bucket, alerts=_policy("quality: {}"), seed="b")
+
+    _evaluate(settings, bucket, dagster, {"ops": notifier}, NOW + timedelta(minutes=5))
+
+    assert [p["event"] for _, p in notifier.sent] == ["opened"]
+    assert bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["incidents"] == []
+    events = [r["event"] for r in bucket.under("alerts/history/").values() if r["record"] == "event"]
+    assert sorted(events) == ["opened", "resolved_silently"]
+
+
+def test_a_policy_that_cannot_be_read_and_was_never_cached_holds_the_open_incident() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    publish(bucket)
+    settings = _settings(A)
+    _evaluate(settings, bucket, dagster, {"ops": notifier})
+    del bucket.objects["alerts/state/v1/policy/dev.json"]
+    bucket.objects["activations/dev/ACTIVE.json"] = b"\xff\xfe"
+
+    summary = _evaluate(settings, bucket, dagster, {"ops": notifier}, NOW + timedelta(minutes=5))
+
+    assert summary.policy_unreadable == ("dev",)
+    assert len(bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["incidents"]) == 1
+    assert [p["event"] for _, p in notifier.sent] == ["opened"]
+
+
+def test_a_rule_sets_the_severity_of_the_notification() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    publish(bucket, alerts=_policy("run_failed: {severity: warning}"))
+
+    _evaluate(_settings(A), bucket, dagster, {"ops": notifier})
+
+    assert [p["severity"] for _, p in notifier.sent] == ["warning"]
+
+
+def test_freshness_bounds_alert_on_the_age_of_the_last_success_with_no_schedule() -> None:
+    bucket, notifier = FakeBucket(), FakeNotifier()
+    dagster = {"dev": FakeDagster([_succeeded("run-1", 27)])}
+    publish(bucket, alerts=_policy("freshness: {warn_after: 26h, critical_after: 30h}"))
+    settings = _settings(A)
+
+    _evaluate(settings, bucket, dagster, {"ops": notifier})
+    dagster["dev"].runs = [_succeeded("run-1", 31)]
+    _evaluate(settings, bucket, dagster, {"ops": notifier}, NOW + timedelta(minutes=5))
+
+    assert [(p["event"], p["condition"], p["severity"]) for _, p in notifier.sent] == [
+        ("opened", "stale_output", "warning"),
+        ("escalated", "stale_output", "critical"),
+    ]
 
 
 def test_one_stage_with_unusable_objects_does_not_stop_the_others() -> None:
@@ -487,6 +584,7 @@ def test_one_or_two_unreadable_evaluations_do_not_alert() -> None:
 def test_a_fixed_clock_names_the_incident_and_the_history_day() -> None:
     bucket = FakeBucket()
     store = AlertStore(bucket, BASE, prefix="e2e/alerts")
+    declare_everything(bucket, ("dev",))
 
     run_once(
         settings=_settings(A),
@@ -544,6 +642,7 @@ def test_a_run_stops_starting_sends_at_the_budget_and_the_next_run_continues_wit
     bucket, dagster = FakeBucket(), {"dev": FakeDagster([_failed()])}
     settings, notifiers = _three_receivers()
 
+    declare_everything(bucket, settings.stages)
     # Reads: start, then one per send. Step 40 against a 100 budget: two sends fit, the third does not start.
     first = run_once(
         settings=settings,
@@ -572,6 +671,7 @@ def test_a_starved_entry_still_counts_its_runs_and_expires() -> None:
     bucket, dagster = FakeBucket(), {"dev": FakeDagster([_failed()])}
     settings, notifiers = _three_receivers()
 
+    declare_everything(bucket, settings.stages)
     for minutes in range(MAX_OUTBOX_RUNS + 1):
         summary = run_once(
             settings=settings,

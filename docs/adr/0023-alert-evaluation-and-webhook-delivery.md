@@ -7,13 +7,14 @@ built on the local provider by slices #1168 to #1173 (see "Build order"): a
 CronJob in `olf-system`, state kept as objects in the ops bucket, and one
 generic HTTPS webhook adapter. Local reports `alerts.supported = true`; AWS and
 Azure keep `false`. Not built: the history retention rule (see "Retention"),
-and the alert policy, slices AP-a to AP-d.
+and the last slices of the alert policy (AP-c's routing, then AP-d).
 
 The alert policy is decided: a project's `lakehouse_code/alerts.yml` declares
 which conditions alert per product and stage, with which thresholds, and who
-is told (Decisions 2 and 8 to 11). Until slice AP-c lands, the built evaluator
-alerts on every condition at the default severity of Decision 2, for every
-product, to every receiver whose `stages` include the incident's stage.
+is told (Decisions 2 and 8 to 11). The evaluator applies the declared
+conditions, severities and thresholds, and is silent for everything else. Until
+the routing slice of AP-c lands, a notification still goes to every receiver
+whose `stages` include the incident's stage, whatever route the rule names.
 
 Tags used below: **[V]** checked in this repository at the commit the claim
 was written against, or in the pinned upstream package named beside it;
@@ -510,8 +511,8 @@ cadence options do not mix in one rule.
 - **`quality`** with `level: warn` alerts on a WARN or a non-blocking ERROR at
   `warning` and a blocking ERROR at `critical`. With `level: error`, a WARN alone
   does not alert. The signal says which outcome it saw, not only its state
-  **[T: today the two warning cases differ only by their reason string; slice
-  AP-c carries the outcome on the signal instead of parsing text]**. Floe and
+  The signal carries the outcome it saw (`Signal.outcome`), so the
+  evaluator never parses the reason. Floe and
   dbt keep their own thresholds; `level` only chooses which outcome alerts.
 - **`missed_run`**'s `grace` replaces `SCHEDULE_GRACE` for that product, which
   also moves the evidence bound it feeds (`_evidence_bound`). Detection still
@@ -672,7 +673,9 @@ fails, a digest does not match, the file fails validation (a revision built by
 a newer distribution) or a route names a receiver the profile no longer has. It
 is a `warning`, and resolves on the first evaluation that reads the stage's
 policy cleanly. With no last good policy at all (the first evaluation after a
-deploy), the stage evaluates with an empty policy and still raises the warning.
+deploy), the stage evaluates with an empty policy and still raises the warning;
+a product incident already open for it is held, not resolved, because a policy
+that could not be read is not a rule that disappeared.
 A policy error in one stage therefore degrades that stage to its last good
 policy and one warning, never to silence across stages.
 
@@ -795,7 +798,7 @@ None stays open.
 | 23-e | #1172 | The CronJob, the key, the flow rows, the Secret check, `alerts.supported = true` locally | ADR 0017 flow table, ADR 0021 |
 | 23-f | #1173 | E2e: failed, missed, stale and quality incidents into a stub; the alerts documentation and runbook anchors | `docs/reference/`, `docs/technical-debt.md` |
 
-### The alert policy (AP-a and AP-b built)
+### The alert policy (AP-a and AP-b built, AP-c in progress)
 
 Each slice stays under the 15-file, 600-line cap in AGENTS.md. AP-c is where
 behaviour changes, so the sample policy (AP-a), the read path (AP-b) and the
@@ -915,3 +918,16 @@ skipped when the profile declares no receiver **[V]**; it also refuses an `alert
 receivers exist, because its routes cannot then be checked. Still open **[T]**: whether SeaweedFS honours a `*` in the
 middle of an action path. It could not be run without a cluster, so the accepted `project/revisions/*` grant stands and
 the narrowing to `project/revisions/sha256/*/descriptors/*` is not done.
+
+2026-11-17: alert policy slice AP-c, part one: the evaluator applies the policy. `alerts.evaluate` takes each stage's
+`ResolvedPolicy`: a product condition opens only where a rule enables it for the job, takes its severity from the
+rule's options, and an incident whose condition stops being enabled resolves silently; fingerprints are unchanged and a
+severity the rule changes is re-evaluated on the next run (one `escalated` notification when it rises, none when it
+falls). `read_stage_pipelines` takes the policy and applies `missed_run`'s `grace` (also moving the evidence bound) and
+`freshness`'s `grace` or `warn_after`/`critical_after`, the latter through the new `evaluate_freshness_age`, in any
+schedule state; the health routes pass no policy. `Signal` carries the quality `outcome`, which answers the earlier
+**[T]**: `level: error` ignores a WARN, and an incident a WARN opened under `level: warn` resolves with a notification
+when the rule changes to `level: error`, because its condition no longer holds. Two details this record left open: a
+stage whose policy has never read cleanly and cannot be read now is left out of the evaluation's policy, so its open
+product incidents are held rather than resolved silently, and nothing new opens for it; and a severity that falls
+is not written to history, which has no event for it (the incident's stored severity is updated).

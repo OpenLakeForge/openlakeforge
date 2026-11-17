@@ -18,7 +18,9 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, NamedTuple
 
+from .alert_policy import ConditionOptions, Freshness, Quality, ResolvedPolicy
 from .health import HealthState, Scope, Signal, SignalKind
+from .quality import QualityOutcome
 
 PAYLOAD_SCHEMA = "openlakeforge.alert.v1"
 FINGERPRINT_VERSION = "1"
@@ -64,6 +66,16 @@ class AlertEvent(StrEnum):
     # History only: no receiver is told, so a `Notification` never carries it.
     RESOLVED_SILENTLY = "resolved_silently"
 
+
+# The `when` key of `alerts.yml` that turns each product condition on. The platform conditions
+# (`stage_unreadable`) are absent: no rule governs them (ADR 0023, decision 11).
+POLICY_CONDITION = {
+    AlertKind.RUN_FAILED: "run_failed",
+    AlertKind.MISSED_RUN: "missed_run",
+    AlertKind.STALE_OUTPUT: "freshness",
+    AlertKind.QUALITY: "quality",
+    AlertKind.SCHEDULE_MISMATCH: "schedule_mismatch",
+}
 
 _SEVERITY_RANK = {AlertSeverity.WARNING: 0, AlertSeverity.CRITICAL: 1}
 
@@ -219,6 +231,7 @@ def evaluate(
     signals: Iterable[Signal],
     now: datetime,
     *,
+    policy: Mapping[str, ResolvedPolicy],
     links: Callable[[Incident], Mapping[str, str]] | None = None,
     unreadable_threshold: int = UNREADABLE_THRESHOLD,
     active_stages: Collection[str] | None = None,
@@ -229,12 +242,19 @@ def evaluate(
     `active_stages` and `active_scopes` (stage, domain and product; `table` is ignored) name what still exists.
     An open incident outside them resolves silently and their signals are ignored, so a deleted product or a
     disabled stage cannot stay firing forever. Stage-wide incidents are checked against the stages only.
+
+    `policy` is each stage's resolved alert policy (ADR 0023, decisions 2, 8 and 9). A product condition alerts only
+    where a rule enables it for the signal's job, and takes its severity and thresholds from that rule's options. An
+    open incident whose condition is no longer enabled resolves silently. A stage absent from `policy` has no policy
+    that could be read: nothing new opens there and its open product incidents are held, as for an unreadable stage.
     """
     if now.tzinfo is None:
         raise ValueError("alert timestamps must be timezone-aware")
     now = now.astimezone(UTC)
     observed = {
-        key: item for key, item in _classify(signals).items() if _is_active(item.scope, active_stages, active_scopes)
+        key: item
+        for key, item in _classify(signals, policy).items()
+        if _is_active(item.scope, active_stages, active_scopes)
     }
     incidents = {incident.fingerprint: incident for incident in previous.incidents}
     sequences = dict(previous.sequences)
@@ -249,7 +269,7 @@ def evaluate(
             notifications.append(_notify(event, incident, now, run_id, links, reason or incident.reason))
 
     for key, incident in list(incidents.items()):
-        if not _is_active(incident.scope, active_stages, active_scopes):
+        if not _is_active(incident.scope, active_stages, active_scopes) or _undeclared(incident, policy):
             del incidents[key]
             record(AlertEvent.RESOLVED_SILENTLY, _close(incident, now), notify=False)
 
@@ -328,10 +348,10 @@ _PRECEDENCE = {
 }
 
 
-def _classify(signals: Iterable[Signal]) -> dict[str, _Observed]:
+def _classify(signals: Iterable[Signal], policy: Mapping[str, ResolvedPolicy]) -> dict[str, _Observed]:
     observed: dict[str, _Observed] = {}
     for signal in signals:
-        for item in _observe(signal):
+        for item in _observe(signal, policy):
             existing = observed.get(item.fingerprint)
             winner = item if existing is None or _rank(item) > _rank(existing) else existing
             run_id = winner.run_id or item.run_id or (existing.run_id if existing else None)
@@ -346,12 +366,35 @@ def _rank(item: _Observed) -> tuple[int, int]:
     return _PRECEDENCE[item.health], 1 if item.severity is AlertSeverity.CRITICAL else 0
 
 
-def _observe(signal: Signal) -> list[_Observed]:
+def _declared(policy: Mapping[str, ResolvedPolicy], scope: Scope, kind: AlertKind) -> ConditionOptions | None:
+    """The options of the rule that enables `kind` for the scope's job; None when no rule does or the stage has none."""
+    resolved = policy.get(scope.stage)
+    if resolved is None:
+        return None
+    conditions = resolved.for_job(scope.product) if scope.product is not None else resolved.unmatched
+    found = conditions.get(POLICY_CONDITION[kind])
+    return found.options if found else None
+
+
+def _undeclared(incident: Incident, policy: Mapping[str, ResolvedPolicy]) -> bool:
+    """Whether a rule change has switched the incident's condition off. A stage with no policy holds its incidents."""
+    return (
+        incident.kind in POLICY_CONDITION
+        and incident.scope.stage in policy
+        and _declared(policy, incident.scope, incident.kind) is None
+    )
+
+
+def _observe(signal: Signal, policy: Mapping[str, ResolvedPolicy]) -> list[_Observed]:
     scope = Scope(stage=signal.stage, domain=signal.domain, product=signal.product, table=signal.table)
     observed: list[_Observed] = []
     for kind in _kinds_of(signal):
-        severity = _severity_of(kind, signal.state)
-        health = signal.state
+        options = _declared(policy, scope, kind) if kind in POLICY_CONDITION else None
+        if kind in POLICY_CONDITION and options is None:
+            continue
+        state = _state_under(kind, signal, options)
+        severity = _severity_of(kind, state, options)
+        health = state
         if health in (HealthState.WARNING, HealthState.CRITICAL) and severity is None:
             if kind is not AlertKind.STAGE_UNREADABLE:
                 # A state this kind does not alert on (a canceled run, a freshness warning) says nothing either way.
@@ -404,15 +447,30 @@ def _kinds_of(signal: Signal) -> tuple[AlertKind, ...]:
     return ()
 
 
-def _severity_of(kind: AlertKind, state: HealthState) -> AlertSeverity | None:
-    if kind is AlertKind.QUALITY:
-        return {HealthState.WARNING: AlertSeverity.WARNING, HealthState.CRITICAL: AlertSeverity.CRITICAL}.get(state)
-    if kind is AlertKind.SCHEDULE_MISMATCH:
-        return AlertSeverity.WARNING if state is HealthState.WARNING else None
+def _state_under(kind: AlertKind, signal: Signal, options: ConditionOptions | None) -> HealthState:
+    """`level: error` does not alert on a WARN: the condition no longer holds, which resolves an incident it opened."""
+    if (
+        kind is AlertKind.QUALITY
+        and isinstance(options, Quality)
+        and options.level == "error"
+        and signal.outcome is QualityOutcome.WARN
+    ):
+        return HealthState.HEALTHY
+    return signal.state
+
+
+def _severity_of(kind: AlertKind, state: HealthState, options: ConditionOptions | None) -> AlertSeverity | None:
     if kind is AlertKind.STAGE_UNREADABLE:
         # Becomes critical only through the consecutive-unknown counter, never from a single signal.
         return AlertSeverity.CRITICAL if state is HealthState.UNKNOWN else None
-    return AlertSeverity.CRITICAL if state is HealthState.CRITICAL else None
+    if kind is AlertKind.QUALITY:
+        return {HealthState.WARNING: AlertSeverity.WARNING, HealthState.CRITICAL: AlertSeverity.CRITICAL}.get(state)
+    if isinstance(options, Freshness) and (options.warn_after is not None or options.critical_after is not None):
+        # Age bounds carry their own severity: past warn_after is a warning, past critical_after is critical.
+        return {HealthState.WARNING: AlertSeverity.WARNING, HealthState.CRITICAL: AlertSeverity.CRITICAL}.get(state)
+    firing = HealthState.WARNING if kind is AlertKind.SCHEDULE_MISMATCH else HealthState.CRITICAL
+    severity = getattr(options, "severity", None)
+    return AlertSeverity(severity) if state is firing and severity else None
 
 
 def _unreadable_key(item: _Observed) -> str:
