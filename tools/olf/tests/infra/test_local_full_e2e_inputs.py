@@ -57,9 +57,51 @@ def test_every_prod_step_keys_off_the_profile_not_the_stage_scope_input() -> Non
             assert "inputs.stage_scope" not in step["if"], step["name"]
 
 
-def test_checks_none_leaves_the_stage_e2e_environment_empty() -> None:
-    expression = _step("Activate the revision in DEV")["with"]["e2e-env"]
+def _evaluate(expression: str, checks: str | None) -> str:
+    """Evaluate the `${{ a == 'x' && 'y' || 'z' }}` forms this workflow uses, with GitHub's semantics.
 
-    # `cond && '' || 'local'` is always 'local': an empty string is falsy in the expression language.
-    assert "&& ''" not in expression
-    assert expression.endswith("|| '' }}")
+    `&&` and `||` return an operand rather than a boolean, and an empty string or null is falsy, so
+    `cond && '' || 'z'` is always `z`.
+    """
+    body = expression.removeprefix("${{").removesuffix("}}").strip()
+
+    def operand(text: str) -> str | None:
+        text = text.strip()
+        if text.startswith("'"):
+            return text.strip("'")
+        for operator in ("==", "!="):
+            if operator in text:
+                left, right = (side.strip() for side in text.split(operator))
+                assert left == "inputs.checks", left
+                return str((checks == right.strip("'")) == (operator == "==")).lower()
+        assert text == "inputs.checks", text
+        return checks
+
+    def truthy(value: str | None) -> bool:
+        return value not in (None, "", "false")
+
+    def conjunction(text: str) -> str | None:
+        value: str | None = None
+        for part in text.split("&&"):
+            value = operand(part)
+            if not truthy(value):
+                return value
+        return value
+
+    value: str | None = None
+    for part in body.split("||"):
+        value = conjunction(part)
+        if truthy(value):
+            return value or ""
+    return value or ""
+
+
+def test_checks_none_deploys_without_the_e2e_suite_and_the_other_choices_run_it() -> None:
+    with_ = _step("Activate the revision in DEV")["with"]
+
+    # `None` is the scheduled run, where every input is null.
+    environments = {checks: _evaluate(with_["e2e-env"], checks) for checks in ("none", "core", "all", None)}
+    levels = {checks: _evaluate(with_["e2e-checks"], checks) for checks in ("core", "all", None)}
+
+    assert environments == {"none": "", "core": "local", "all": "local", None: "local"}
+    assert levels == {"core": "core", "all": "all", None: "all"}
