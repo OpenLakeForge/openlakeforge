@@ -48,8 +48,10 @@ readable with `olf logs` while delivery is down.
 
 ### Metrics scrape staleness and quality publisher lag
 
-Not reported yet. There is no metrics source connected to the API (#21) and no quality publisher (#797), so neither
-is probed; the stage does not show a publisher that does not exist as failed.
+Not reported yet. There is no metrics source connected to the API (#21). Quality manifests are already published:
+each product run's hooks upload its Floe and dbt results to the ops bucket, and the `quality` signal reads them. What
+is missing is a lag signal for that publication and for the OpenMetadata publisher (#797), which is not built. Neither
+lag is probed, so the stage shows no lag signal rather than a failed one.
 
 ## The limit of in-app monitoring
 
