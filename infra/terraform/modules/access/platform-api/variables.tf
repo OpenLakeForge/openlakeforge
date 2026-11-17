@@ -217,3 +217,9 @@ variable "log_collector_probe_url" {
   type        = string
   default     = null
 }
+
+variable "polaris_health_url" {
+  description = "Base URL of Polaris's management port; the service probe reads /q/health/ready from it without a credential, over F43. Null leaves the Polaris signal disabled."
+  type        = string
+  default     = null
+}

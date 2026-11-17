@@ -109,6 +109,9 @@ class Settings:
     # Base URL of the log collector's spool probes, a headless Service with one address per collector pod (ADR 0022,
     # decision 2). Without it the spool signals are `disabled`.
     log_collector_probe_url: str | None = None
+    # The catalog's management base URL; the health probe appends /q/health/ready and sends no credential. Without it
+    # the Polaris signal is `disabled`.
+    polaris_health_url: str | None = None
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -160,6 +163,7 @@ class Settings:
                 stage_namespaces={str(stage): str(ns) for stage, ns in (data.get("stage_namespaces") or {}).items()},
                 trino_urls={str(stage): str(url) for stage, url in (data.get("trino_urls") or {}).items()},
                 log_collector_probe_url=data.get("log_collector_probe_url") or None,
+                polaris_health_url=data.get("polaris_health_url") or None,
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -237,6 +241,9 @@ class Settings:
         probe = urlsplit(self.log_collector_probe_url or "http://x:1")
         if probe.scheme != "http" or not probe.hostname or probe.port is None:
             raise SettingsError("log_collector_probe_url must be an http://<host>:<port> base URL")
+        polaris = urlsplit(self.polaris_health_url or "http://x")
+        if polaris.scheme not in ("http", "https") or not polaris.netloc:
+            raise SettingsError("polaris_health_url must be an http(s) base URL")
         stray = sorted(set(self.quality_manifests) - set(self.stages))
         if stray:
             raise SettingsError(f"quality_manifests names stages that are not enabled: {', '.join(stray)}")

@@ -33,6 +33,7 @@ ALL = StageTargets(
     namespace="olf-dev",
     dagster_graphql_url="http://dagster.olf-dev/graphql",
     trino_url="http://trino.olf-dev:8080",
+    polaris_health_url="http://polaris-mgmt.olf-system.svc:8182",
     bucket="ops",
     log_archive_base_uri="s3://ops/activations/dev/logs",
     log_archive_namespace="olf-dev",
@@ -139,6 +140,7 @@ def probes(
     cluster: Callable[[str], Mapping[str, Any]] | None = None,
     *,
     info: Callable[[], Mapping[str, Any]] = lambda: {"starting": False},
+    polaris: Callable[[str], Mapping[str, Any]] = lambda url: {"status": "UP", "checks": []},
     dagster: Callable[[], Mapping[str, Any]] = lambda: REPOSITORIES,
     store: Store | None = None,
     archive: Archive | None = None,
@@ -147,7 +149,7 @@ def probes(
 ) -> ServiceProbes:
     return ServiceProbes(
         kube_list=cluster or healthy_cluster(),
-        http_get_json=lambda url, _timeout: info(),
+        http_get_json=lambda url, _timeout: polaris(url) if url.endswith("/q/health/ready") else info(),
         dagster_query=lambda url, query: dagster(),
         store=store or Store(),
         archive_store=archive or fresh_archive(),
@@ -264,6 +266,7 @@ def test_a_stage_without_dagster_trino_or_a_store_reports_disabled_and_probes_no
         "dagster.read-api",
         "trino.workloads",
         "trino.readiness",
+        "polaris.readiness",
         "object-store.list",
         "log-archive.spool-age",
         "log-archive.spool-size",
@@ -291,6 +294,82 @@ def test_trino_that_is_still_starting_is_a_warning_and_one_that_is_down_is_unkno
 def test_trino_answering_something_that_is_not_its_info_document_is_unknown() -> None:
     signals = by_component(probes(info=lambda: {"html": "login"}).probe(ALL))
     assert signals["trino.readiness"].state is HealthState.UNKNOWN
+
+
+def _refusal(status: int, body: str) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status
+    response._content = body.encode()
+    return requests.HTTPError("secret_token=abc", response=response)
+
+
+def test_polaris_answering_ready_is_healthy_from_its_management_port_with_no_credential() -> None:
+    seen: list[str] = []
+
+    def ready(url: str) -> Mapping[str, Any]:
+        seen.append(url)
+        return {"status": "UP", "checks": []}
+
+    signal = by_component(probes(polaris=ready).probe(ALL))["polaris.readiness"]
+    assert signal.state is HealthState.HEALTHY
+    assert seen == ["http://polaris-mgmt.olf-system.svc:8182/q/health/ready"]
+    assert signal.observed_at == NOW and signal.expires_at == NOW + TTL
+
+
+@pytest.mark.parametrize(
+    "unhealthy",
+    [
+        lambda url: {"status": "DOWN", "checks": [{"name": "db", "status": "DOWN"}]},
+        lambda url: (_ for _ in ()).throw(_refusal(503, '{"status": "DOWN", "checks": []}')),
+    ],
+)
+def test_polaris_reporting_itself_not_ready_is_critical(unhealthy: Callable[[str], Mapping[str, Any]]) -> None:
+    signal = by_component(probes(polaris=unhealthy).probe(ALL))["polaris.readiness"]
+    assert signal.state is HealthState.CRITICAL
+    assert signal.reason == "Polaris reports itself not ready"
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        lambda url: (_ for _ in ()).throw(_refusal(502, "<html>secret_token=abc</html>")),
+        lambda url: (_ for _ in ()).throw(_refusal(503, "upstream down")),
+        lambda url: (_ for _ in ()).throw(requests.ConnectionError("secret_token=abc")),
+        lambda url: {"html": "login"},
+    ],
+)
+def test_polaris_not_answering_as_polaris_is_unknown_and_leaks_nothing(
+    answer: Callable[[str], Mapping[str, Any]],
+) -> None:
+    signal = by_component(probes(polaris=answer).probe(ALL))["polaris.readiness"]
+    assert signal.state is HealthState.UNKNOWN
+    assert "secret_token" not in signal.reason and "upstream" not in signal.reason
+
+
+def test_a_polaris_that_never_answers_times_out_to_unknown_without_holding_the_others() -> None:
+    release = threading.Event()
+
+    def hang(url: str) -> Mapping[str, Any]:
+        release.wait(5)
+        return {"status": "UP"}
+
+    try:
+        signals = by_component(probes(polaris=hang, timeout=timedelta(milliseconds=100)).probe(ALL))
+    finally:
+        release.set()
+    assert signals["polaris.readiness"].state is HealthState.UNKNOWN
+    assert signals["polaris.readiness"].reason == "probe timed out"
+    assert signals["trino.readiness"].state is HealthState.HEALTHY
+
+
+def test_a_profile_without_polaris_reports_it_disabled_and_never_calls_it() -> None:
+    def forbidden(url: str) -> Mapping[str, Any]:
+        raise AssertionError("an undeployed catalog must not be probed")
+
+    targets = StageTargets(stage="dev", namespace="olf-dev", trino_url="http://trino.olf-dev:8080")
+    signals = by_component(probes(polaris=forbidden).probe(targets))
+    assert signals["polaris.readiness"].state is HealthState.DISABLED
+    assert signals["trino.readiness"].state is HealthState.HEALTHY
 
 
 @pytest.mark.parametrize(
@@ -524,7 +603,7 @@ def cached_probes(clock: Ticking, calls: list[int]) -> ServiceProbes:
 
     return ServiceProbes(
         kube_list=healthy_cluster(),
-        http_get_json=lambda url, _timeout: info(),
+        http_get_json=lambda url, _timeout: info() if url.endswith("/v1/info") else {"status": "UP"},
         dagster_query=lambda url, query: REPOSITORIES,
         store=Store(),
         ttl=TTL,

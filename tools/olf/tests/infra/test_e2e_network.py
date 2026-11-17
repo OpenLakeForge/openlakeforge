@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from olf.infra.e2e import _network
-from olf.infra.e2e._network import PROTECTED, positive_probes, rbac_denials, stage_wide, workload_ports
+from olf.infra.e2e._network import PROTECTED, judge_probes, positive_probes, rbac_denials, stage_wide, workload_ports
 from olf.infra.e2e._shell import E2EError
 
 FLOWS = yaml.safe_load((Path(__file__).parents[4] / "release/network-flows.yaml").read_text())
@@ -20,10 +20,17 @@ def test_positive_probes_cover_pod_to_pod_t_rows() -> None:
     assert any(scope == "stage" and not labels and port == 8181 for scope, labels, _, port in probes)
 
 
+def test_only_the_platform_api_is_probed_against_polaris_management_port() -> None:
+    probes = positive_probes(FLOWS)
+    to_polaris = FLOWS["workloads"]["polaris"]
+    sources = [labels for _, labels, destination, port in probes if port == 8182 and destination["pods"] == to_polaris]
+    assert sources == [{"app.kubernetes.io/name": "platform-api"}]
+
+
 def test_every_protected_backend_has_a_port() -> None:
     assert {workload: workload_ports(FLOWS, workload) for workload in PROTECTED} == {
         "postgresql": [5432],
-        "polaris": [8181],
+        "polaris": [8181, 8182],
         "openmetadata": [8585],
         "dex": [5556],
     }
@@ -37,7 +44,21 @@ def test_rbac_denials_exempt_only_documented_cluster_secret_readers() -> None:
 
 
 def test_stage_wide_backends_are_the_f6_f9_f12_destinations() -> None:
-    assert stage_wide(FLOWS) == {"postgresql", "polaris", "openmetadata"}
+    assert {workload for workload, _ in stage_wide(FLOWS)} == {"postgresql", "polaris", "openmetadata"}
+    assert ("polaris", 8181) in stage_wide(FLOWS) and ("polaris", 8182) not in stage_wide(FLOWS)
+
+
+def test_a_stage_pod_reaching_polaris_management_port_is_an_isolation_breach() -> None:
+    allowed = stage_wide(FLOWS)
+    dropped = 28  # curl: an HTTP answer is 0, a drop 28
+    breach = judge_probes("olf-dev", "polaris", "10.0.0.1", {8181: 0, 8182: 0}, allowed)
+    assert breach == ["olf-dev -> polaris 10.0.0.1:8182 was not dropped (rc=0)"]
+    assert judge_probes("olf-dev", "polaris", "10.0.0.1", {8181: 0, 8182: dropped}, allowed) == []
+
+
+def test_a_stage_pod_that_cannot_reach_polaris_rest_port_fails_the_control() -> None:
+    problems = judge_probes("olf-dev", "polaris", "10.0.0.1", {8181: 28, 8182: 28}, stage_wide(FLOWS))
+    assert len(problems) == 1 and problems[0].startswith("control olf-dev -> polaris:[8181]")
 
 
 @pytest.mark.parametrize(
