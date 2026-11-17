@@ -150,7 +150,8 @@ locals {
         # `project/revisions/sha256/*/descriptors/*`, is still untested (ADR 0023, History).
         flatten([
           for stage in var.alerts_credentials.policy_stages : [
-            "Read:${var.alerts_credentials.ops_bucket_name}/activations/${stage}/ACTIVE.json",
+            # Trailing `*`: SeaweedFS denies an action naming an exact object (verified on kind, 2026-11-17).
+            "Read:${var.alerts_credentials.ops_bucket_name}/activations/${stage}/ACTIVE.json*",
             "Read:${var.alerts_credentials.ops_bucket_name}/activations/${stage}/revisions/*",
           ]
         ]),

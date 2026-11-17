@@ -16,22 +16,29 @@ models:
               - region
     columns:
       - name: order_date
+        data_type: date
         description: Order date.
         data_tests:
           - not_null
       - name: region
+        data_type: varchar
         description: Order region.
         data_tests:
           - not_null
       - name: order_count
+        data_type: bigint
         description: Distinct fulfilled orders.
       - name: units_sold
+        data_type: bigint
         description: Units on the order lines.
       - name: gross_revenue
+        data_type: double
         description: Quantity times unit price, before discounts.
       - name: discount_amount
+        data_type: double
         description: Discounts on the order lines.
       - name: net_revenue
+        data_type: double
         description: Gross revenue minus discounts.
   - name: mart_order_revenue_by_channel
     description: Net revenue and discount amount by sales channel and promotion type. One row per channel, channel type, discount type and region, fulfilled orders only.
@@ -45,26 +52,33 @@ models:
               - region
     columns:
       - name: channel_name
+        data_type: varchar
         description: Sales channel name.
         data_tests:
           - not_null
       - name: channel_type
+        data_type: varchar
         description: Sales channel type.
         data_tests:
           - not_null
       - name: discount_type
+        data_type: varchar
         description: Promotion discount type.
         data_tests:
           - not_null
       - name: region
+        data_type: varchar
         description: Order region.
         data_tests:
           - not_null
       - name: order_count
+        data_type: bigint
         description: Distinct fulfilled orders.
       - name: net_revenue
+        data_type: double
         description: Quantity times unit price minus discounts.
       - name: discount_amount
+        data_type: double
         description: Discounts on the order lines.
   - name: mart_order_revenue_margin_by_product
     description: Product revenue, cost, and gross margin for order lines. One row per product.
@@ -77,26 +91,34 @@ models:
               - category
     columns:
       - name: product_id
+        data_type: varchar
         description: Product identifier; the grain.
         data_tests:
           - not_null
       - name: product_name
+        data_type: varchar
         description: Product display name.
         data_tests:
           - not_null
       - name: category
+        data_type: varchar
         description: Product category.
         data_tests:
           - not_null
       - name: line_count
+        data_type: bigint
         description: Order lines for the product.
       - name: units_sold
+        data_type: bigint
         description: Units on the order lines.
       - name: net_revenue
+        data_type: double
         description: Quantity times unit price minus discounts.
       - name: total_cost
+        data_type: double
         description: Quantity times unit cost.
       - name: gross_margin
+        data_type: double
         description: Net revenue minus total cost.
   - name: mart_order_revenue_by_account_segment
     description: Net revenue and order count by account segment and region. One row per segment and account region, fulfilled orders only.
@@ -108,14 +130,18 @@ models:
               - region
     columns:
       - name: segment
+        data_type: varchar
         description: Account segment.
         data_tests:
           - not_null
       - name: region
+        data_type: varchar
         description: Account region.
         data_tests:
           - not_null
       - name: order_count
+        data_type: bigint
         description: Distinct fulfilled orders.
       - name: net_revenue
+        data_type: double
         description: Quantity times unit price minus discounts.

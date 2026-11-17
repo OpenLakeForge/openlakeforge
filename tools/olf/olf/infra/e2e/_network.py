@@ -193,6 +193,11 @@ def _probe_pod(cfg: E2EConfig, namespace: str, labels: dict[str, str], name: str
     run = ["run", name, "-n", namespace, "--restart=Never", f"--image={image}"]
     if labels:
         run.append(f"--labels={_selector(labels)}")
+        # A bare pod with a workload's labels is adopted, then deleted as excess, by that workload's controller (the
+        # log-collector DaemonSet did). Controllers never adopt a pod that already has one, so the namespace owns it.
+        uid = kubectl(cfg, ["get", "namespace", namespace, "-o", "jsonpath={.metadata.uid}"], capture=True).strip()
+        owner = {"apiVersion": "v1", "kind": "Namespace", "name": namespace, "uid": uid, "controller": True}
+        run.append("--overrides=" + json.dumps({"apiVersion": "v1", "metadata": {"ownerReferences": [owner]}}))
     kubectl(cfg, [*run, "--", "sleep", "600"])
     try:
         kubectl(cfg, ["wait", "--for=condition=Ready", f"pod/{name}", "-n", namespace, "--timeout=120s"])

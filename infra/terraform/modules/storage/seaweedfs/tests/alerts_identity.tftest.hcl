@@ -49,7 +49,7 @@ run "a_receiver_gets_a_minted_and_readable_key" {
   # ADR 0023, decision 10: the alert policy is read from the active revision, read-only and without List.
   assert {
     condition = (
-      strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "Read:ops/activations/dev/ACTIVE.json")
+      strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "Read:ops/activations/dev/ACTIVE.json*")
       && strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "Read:ops/activations/dev/revisions/*")
       && strcontains(kubernetes_job_v1.credentials.spec[0].template[0].spec[0].container[0].args[0], "Read:ops/project/revisions/*")
     )

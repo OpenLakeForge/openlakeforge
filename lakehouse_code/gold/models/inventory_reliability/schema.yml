@@ -16,52 +16,71 @@ models:
               - warehouse_id
     columns:
       - name: product_id
+        data_type: varchar
         description: Product identifier.
         data_tests:
           - not_null
       - name: warehouse_id
+        data_type: varchar
         description: Warehouse identifier.
         data_tests:
           - not_null
       - name: warehouse_name
+        data_type: varchar
         description: Warehouse display name.
       - name: region
+        data_type: varchar
         description: Warehouse region.
       - name: snapshot_date
+        data_type: date
         description: Date of the latest snapshot for the product and warehouse.
       - name: on_hand_units
+        data_type: integer
         description: Units on hand at the snapshot.
       - name: allocated_units
+        data_type: integer
         description: Units allocated to open orders.
       - name: available_units
+        data_type: integer
         description: On-hand units minus allocated units.
       - name: reorder_point
+        data_type: integer
         description: Available units at or below which stock is reordered.
       - name: inventory_status
+        data_type: varchar
         description: reorder when available units are at or below the reorder point, otherwise healthy.
   - name: mart_supplier_delivery_reliability
     description: Supplier delivery lateness, fill rate, and on-time performance. One row per supplier.
     columns:
       - name: supplier_id
+        data_type: varchar
         description: Supplier identifier; the grain.
         data_tests:
           - unique
           - not_null
       - name: supplier_name
+        data_type: varchar
         description: Supplier display name.
       - name: country
+        data_type: varchar
         description: Supplier country.
       - name: risk_tier
+        data_type: varchar
         description: Supplier risk tier.
       - name: purchase_order_count
+        data_type: bigint
         description: Delivered purchase orders.
       - name: ordered_units
+        data_type: bigint
         description: Units ordered.
       - name: received_units
+        data_type: bigint
         description: Units received.
       - name: avg_days_late
+        data_type: double
         description: Average days between expected and delivered date; negative when early.
       - name: on_time_rate
+        data_type: double
         description: Share of deliveries on or before the expected date.
   - name: mart_stockout_risk
     description: Stockout risk by product and warehouse using current inventory and stockout history. One row per product and warehouse.
@@ -73,26 +92,36 @@ models:
               - warehouse_id
     columns:
       - name: product_id
+        data_type: varchar
         description: Product identifier.
         data_tests:
           - not_null
       - name: warehouse_id
+        data_type: varchar
         description: Warehouse identifier.
         data_tests:
           - not_null
       - name: warehouse_name
+        data_type: varchar
         description: Warehouse display name.
       - name: region
+        data_type: varchar
         description: Warehouse region.
       - name: available_units
+        data_type: integer
         description: Available units at the latest snapshot.
       - name: reorder_point
+        data_type: integer
         description: Reorder point at the latest snapshot.
       - name: inventory_status
+        data_type: varchar
         description: reorder or healthy, from mart_inventory_position.
       - name: stockout_event_count
+        data_type: bigint
         description: Recorded stockout events.
       - name: lost_units
+        data_type: bigint
         description: Units lost to stockouts.
       - name: stockout_risk
+        data_type: varchar
         description: high, medium or low from inventory status and stockout history.
