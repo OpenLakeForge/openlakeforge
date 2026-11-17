@@ -34,6 +34,20 @@ Check `dagster.workloads` first. A loaded stack with no code location needs `olf
 The Trino pods are unhealthy, or the coordinator did not answer `/v1/info` or is still starting. Readiness does not
 prove workers, catalogs or Polaris access: a green row is not a passing query.
 
+### polaris.readiness
+
+The Polaris catalog did not answer its readiness check (`/q/health/ready` on management port 8182) or reported `DOWN`.
+The check is unauthenticated, so a green row proves only that the service is up, not that catalog reads or grants
+work. Polaris runs in the platform namespace:
+
+```bash
+kubectl -n olf-system get pods -l app.kubernetes.io/name=polaris
+kubectl -n olf-system logs <pod>
+```
+
+A pod that is not ready or restarts points at its log; a running pod that answers `DOWN` names the failing check in
+the readiness response body.
+
 ### object-store.list
 
 The stage's bucket could not be listed: the endpoint is unreachable, the key is refused, or the bucket is missing. It
