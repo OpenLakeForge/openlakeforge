@@ -71,9 +71,14 @@ class AlertEvent(StrEnum):
     OPENED = "opened"
     ESCALATED = "escalated"
     RESOLVED = "resolved"
-    # History only: no receiver is told, so a `Notification` never carries it.
+    # History only: no receiver is told, so a `Notification` never carries either.
     RESOLVED_SILENTLY = "resolved_silently"
+    # An open incident's severity moved without a notification: a fall (critical to warning), or a rise back to a
+    # severity already notified. ADR 0023, decision 3.
+    SEVERITY_CHANGED = "severity_changed"
 
+
+HISTORY_ONLY_EVENTS = frozenset({AlertEvent.RESOLVED_SILENTLY, AlertEvent.SEVERITY_CHANGED})
 
 # The `when` key of `alerts.yml` that turns each product condition on. The platform conditions
 # (`stage_unreadable`) are absent: no rule governs them (ADR 0023, decision 11).
@@ -162,8 +167,8 @@ class Notification:
     links: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
-        if self.event is AlertEvent.RESOLVED_SILENTLY:
-            raise ValueError("a silent resolve is recorded in history, never notified")
+        if self.event in HISTORY_ONLY_EVENTS:
+            raise ValueError(f"{self.event.value} is recorded in history, never notified")
 
     def payload(self) -> dict[str, Any]:
         """The webhook body. Built field by field, absent fields omitted: nothing unlisted can reach a receiver."""
@@ -226,7 +231,7 @@ class Evaluation(NamedTuple):
     state: AlertState
     # To deliver: opened, escalated and resolved.
     notifications: list[Notification]
-    # To record: every transition, including `resolved_silently`.
+    # To record: every transition, including `resolved_silently` and `severity_changed`.
     events: list[HistoryEvent]
 
 
@@ -319,6 +324,8 @@ def evaluate(
             if _SEVERITY_RANK[item.severity] > _SEVERITY_RANK[current.notified_severity]:
                 updated = replace(updated, notified_severity=item.severity, reason=item.reason)
                 record(AlertEvent.ESCALATED, updated, item.run_id)
+            elif item.severity is not current.severity:
+                record(AlertEvent.SEVERITY_CHANGED, updated, item.run_id, notify=False)
             incidents[key] = updated
         elif current is not None and item.health is HealthState.HEALTHY:
             resolved = _close(current, now, item.run_id)

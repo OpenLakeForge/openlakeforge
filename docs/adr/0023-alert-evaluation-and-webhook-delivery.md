@@ -251,7 +251,11 @@ An incident whose severity rises for the same fingerprint keeps its key and id:
 a `quality` warning that becomes a blocking error, or a `stale_output` past
 `warn_after` that passes `critical_after`. The escalation sends **one**
 notification (`event: escalated`) and no repeat reminders. A move from
-`critical` to `warning` sends nothing; the history records it. Default, revisit.
+`critical` to `warning` sends nothing; the history records it as
+`severity_changed` (the record's `severity` is the new one). So does a rise back
+to a severity a receiver was already told about, after such a drop: escalation
+compares against the highest severity notified, so a flapping incident sends
+one `escalated` and no more. Default, revisit.
 
 ### A policy that changes while an incident is open
 
@@ -259,7 +263,7 @@ notification (`event: escalated`) and no repeat reminders. A move from
 | --- | --- |
 | The condition stops being declared for the scope and stage (rule removed, `false`, stage dropped, `alerts.yml` removed) | The incident resolves **silently**: `resolved_silently` in history, no notification. Its signals are ignored from then on, through the mechanism that already closes the incidents of a removed product (`active_scopes` in `alerts.evaluate`) **[V]** |
 | Severity rises (`severity` option, or a freshness threshold crossed) | Re-evaluated on the next run: one `escalated` notification |
-| Severity falls | No notification; history records it |
+| Severity falls | No notification; history records `severity_changed` |
 | Routes change | Routing is computed when a notification is sent (`run_once` recomputes the routed set every attempt **[V]**). An open incident's later `resolved` goes to the routes of the rule that wins then. A queued notification whose new routes are all delivered or empty leaves the outbox |
 | A threshold or grace changes | Applies from the next evaluation; an incident whose condition no longer holds resolves with a notification |
 
@@ -279,7 +283,7 @@ adds the reads the alert policy needs.
 | --- | --- |
 | `alerts/state/v1/state.json` | `schema_version`, `evaluated_at` (written by the evaluator), the open incidents only (fingerprint, id, severity, notified severity, opened_at, last_seen, last run), the per-fingerprint id sequence, the per-stage count of consecutive unreadable evaluations, and an **outbox** of notifications not yet delivered |
 | `alerts/state/v1/policy/<stage>.json` | the stage's last good alert policy: the activation revision it came from, the validated policy and the job map (Decision 10) |
-| `alerts/history/v1/date=<YYYY-MM-DD>/<incident-id>-<seq>-<event>.json` | one object per event (`opened`, `escalated`, `resolved`, `resolved_silently`) and per delivery attempt (receiver name, attempt number, HTTP status or error class, time). No payload body and no URL |
+| `alerts/history/v1/date=<YYYY-MM-DD>/<incident-id>-<seq>-<event>.json` | one object per event (`opened`, `escalated`, `severity_changed`, `resolved`, `resolved_silently`) and per delivery attempt (receiver name, attempt number, HTTP status or error class, time). No payload body and no URL |
 | `alerts/state/v1/corrupt/<UTC time>.json` | a state object that failed to parse, kept for the operator |
 
 Event status and delivery status are separate: an incident can be `firing` with
@@ -514,10 +518,13 @@ cadence options do not mix in one rule.
   (`condition: stale_output`) and the guide's runbook anchors do not change.
 - **`quality`** with `level: warn` alerts on a WARN or a non-blocking ERROR at
   `warning` and a blocking ERROR at `critical`. With `level: error`, a WARN alone
-  does not alert. The signal says which outcome it saw, not only its state
-  The signal carries the outcome it saw (`Signal.outcome`), so the
-  evaluator never parses the reason. Floe and
-  dbt keep their own thresholds; `level` only chooses which outcome alerts.
+  does not alert. `level` is applied where the manifest is read
+  (`quality_signal(level=)`), not by rewriting the signal in the evaluator, so
+  every safeguard of that read (a retry in progress, an incomplete manifest, an
+  older run's blocking error) holds for `level: error` as well. The signal
+  carries the outcome it saw (`Signal.outcome`), so the evaluator never parses
+  the reason. Floe and dbt keep their own thresholds; `level` only chooses
+  which outcome alerts.
 - **`missed_run`**'s `grace` replaces `SCHEDULE_GRACE` for that product, which
   also moves the evidence bound it feeds (`_evidence_bound`). Detection still
   waits for the next 5-minute evaluation.
@@ -655,7 +662,7 @@ is repetition: a product rule that wants the on-call too must say so.
 | Maintainer | A stage whose policy cannot be used keeps its **last good policy**, cached at `alerts/state/v1/policy/<stage>.json`, and raises a stage-scoped `policy_unreadable` warning to the platform receivers (Decision 11). |
 | Maintainer | A new read grant on the `openlakeforge-alerts` key covers `project/revisions/*` (see "The read grant"). Slice AP-b tests whether SeaweedFS honours a wildcard in the middle of an action path and, if it does, narrows the grant to the `descriptors` component. |
 | Proposed | The evaluator also reads the same revision's `governance.yml`, to map jobs to product ids and domains, and the revision's sidecar, to check both files' sha256 against the manifest. |
-| Proposed, accepted by default 2026-11-17 (maintainer may revisit) | A stage with no activation, or whose revision has no `alerts.yml`, has an empty policy, and no warning: both are normal states. |
+| Proposed, accepted by default 2026-11-17 (maintainer may revisit) | A stage with no activation, or whose revision has no `alerts.yml`, has an empty policy, and no warning: both are normal states. A revision without `alerts.yml` still carries its `governance.yml` when it has one, so `--policy-file` (Decision 3) resolves its rules against the revision's products. |
 
 The read path, per stage and evaluation:
 
@@ -677,9 +684,14 @@ fails, a digest does not match, the file fails validation (a revision built by
 a newer distribution) or a route names a receiver the profile no longer has. It
 is a `warning`, and resolves on the first evaluation that reads the stage's
 policy cleanly. With no last good policy at all (the first evaluation after a
-deploy), the stage evaluates with an empty policy and still raises the warning;
-a product incident already open for it is held, not resolved, because a policy
-that could not be read is not a rule that disappeared.
+deploy, or after the cache was lost), the stage is left out of the evaluation's
+policy and still raises the warning: its open product incidents are held, not
+resolved, and nothing new opens for it, because a policy that could not be read
+is not a rule that disappeared. A stage evaluated with an empty policy would
+resolve them silently. A product notification already queued for such a stage
+stays queued while neither the policy nor its cache can be read: with no rule to
+route it by, nobody can be said to be routed or not, and it ages out of the
+outbox like any other undelivered entry.
 A policy error in one stage therefore degrades that stage to its last good
 policy and one warning, never to silence across stages.
 
@@ -704,7 +716,7 @@ middle of an action path, which would narrow it to
 | Basis | Decision |
 | --- | --- |
 | Maintainer | `alerts.yml` cannot name a platform condition (`stage_unreadable`, `policy_unreadable`, `service_degraded`); the schema rejects them as unknown `when` keys. |
-| Maintainer | They go to the profile's platform receivers: `spec.observability.alerts.platform_receivers`, a list of receiver names. Omitted means every receiver, which is how they were routed before the policy. Each receiver's `stages` ceiling still applies. |
+| Maintainer | They go to the profile's platform receivers: `spec.observability.alerts.platform_receivers`, a list of receiver names. Omitted means every receiver, which is how they were routed before the policy; a list that is present must be non-empty, because an empty one would silence every platform condition and omitting the field is the way to say "all". Each receiver's `stages` ceiling still applies. |
 | Maintainer (2026-11-17) | Platform service conditions alert too, routed only to the platform receivers, with the open, resolve and no-reminder rules of Decision 3. They are `service_degraded` incidents, one per stage and component: Dagster and Trino workloads degraded (`dagster.workloads`, `trino.workloads`: `warning` or `critical`, at the signal's state), the object store unreachable (`object-store.list`), and the log archive's delivery signals (`log-archive.spool-age`, `log-archive.spool-size`, `log-archive.newest-object`), the last three at `critical` only. An `unknown` signal neither opens nor resolves, as everywhere else. |
 
 The product team owns `alerts.yml`; the ops team owns the cluster, the
@@ -979,3 +991,14 @@ PROD, the only stage with a schedule. `--policy-file` is built (`run_once(policy
 e2e does not use it: the Job runs the evaluator image with no way to mount a file, and the cases for silence,
 precedence, thresholds and routing are unit tests (`test_alerting*.py`, `test_alerts_policy.py`,
 `test_pipeline_health.py`). The alerts guide's migration callout and the release note are AP-d.
+
+2026-11-17: alert policy slice AP-c, part four: severity history and review-driven departures. An incident whose severity
+moves without a notification (a fall from `critical` to `warning`, or a rise back to a severity already notified) is
+recorded as the history-only event `severity_changed` (`AlertEvent.SEVERITY_CHANGED`), as Decision 3 says history
+does; the previous build only updated the stored severity. Nothing is sent for it, as Decision 3 says. Written into the
+decisions above as behaviour, where this record had said otherwise or nothing: a stage whose policy never read cleanly
+and is unreadable keeps its open product incidents held instead of evaluating with an empty policy (Decision 10); a
+product notification stays queued while its stage's policy and cache are both unreadable (Decision 10);
+quality `level: error` is applied inside the manifest reader (Decision 8); `platform_receivers` must be non-empty
+when present (Decision 11); a revision without `alerts.yml` still carries its governance for `--policy-file`
+(Decision 10).

@@ -18,7 +18,15 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from openlakeforge_core.alert_policy import AlertPolicy, ResolvedPolicy, resolve_policy
-from openlakeforge_core.alerts import ALERT_POLICY, DAGSTER_READ_API, AlertState, HistoryEvent, Incident, evaluate
+from openlakeforge_core.alerts import (
+    ALERT_POLICY,
+    DAGSTER_READ_API,
+    AlertEvent,
+    AlertState,
+    HistoryEvent,
+    Incident,
+    evaluate,
+)
 from openlakeforge_core.alerts_state import drop_notification, expire_outbox, record_attempt, record_delivery
 from openlakeforge_core.health import HealthState, Scope, Signal, service_signal
 from openlakeforge_services.dagster import DagsterClient
@@ -89,7 +97,7 @@ def run_once(
     # dropped instead of recording incident ids the next evaluation will mint afresh. Each record is filed under
     # its own event's day, so a replay lands where the first attempt would have.
     pending = [
-        (f"{event.event_at.astimezone(UTC):%Y-%m-%d}", f"{event.incident.id}-{event.event.value}", _event_record(event))
+        (f"{event.event_at.astimezone(UTC):%Y-%m-%d}", _event_name(event), _event_record(event))
         for event in evaluation.events
     ]
     if pending:
@@ -269,6 +277,14 @@ def _links(links: LinkSettings, incident: Incident) -> dict[str, str]:
     if links.runbook_base_url:
         found["runbook"] = f"{links.runbook_base_url}#{incident.kind.value}"
     return found
+
+
+def _event_name(event: HistoryEvent) -> str:
+    name = f"{event.incident.id}-{event.event.value}"
+    if event.event is AlertEvent.SEVERITY_CHANGED:
+        # An incident can fall and rise repeatedly; the other events happen once per incident.
+        return f"{name}-{int(event.event_at.timestamp())}"
+    return name
 
 
 def _event_record(event: HistoryEvent) -> dict[str, Any]:
