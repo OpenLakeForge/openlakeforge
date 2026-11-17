@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from contextlib import contextmanager
 
 import pytest
@@ -71,3 +72,12 @@ def test_a_non_stage_catalog_is_refused():
             {**ENV, "OPENLAKEFORGE_CATALOG_NAME": "polaris"}, open_store=_forbidden, open_catalog=_forbidden
         )
 
+
+
+def test_a_malformed_schema_mapping_is_refused():
+    with pytest.raises(QualitySyncError):
+        run_quality_sync(
+            {**ENV, "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "[1]"},
+            open_store=lambda bucket: contextlib.nullcontext(object()),
+            open_catalog=lambda: contextlib.nullcontext(object()),  # type: ignore[arg-type,return-value]
+        )

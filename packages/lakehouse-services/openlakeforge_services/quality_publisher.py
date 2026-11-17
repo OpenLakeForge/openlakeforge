@@ -174,6 +174,8 @@ class QualityPublisher:
         database_fqn: str,
         warn_status: OmStatus = OmStatus.ABORTED,
         max_age: timedelta = DEFAULT_MAX_AGE,
+        silver_schemas: Mapping[str, str] | None = None,
+        gold_schemas: Mapping[str, str] | None = None,
     ) -> None:
         parts = urlsplit(base_uri)
         if parts.scheme != "s3" or not parts.netloc:
@@ -190,6 +192,11 @@ class QualityPublisher:
         self._database = database_fqn
         self._warn = warn_status
         self._max_age = max_age
+        # Domain -> Silver schema FQN and product -> Gold schema FQN from the provider contract. A provider that
+        # prefixes physical schemas per stage (AWS Glue) is only reachable through them, never by rebuilding
+        # `<domain>_silver` from the logical name.
+        self._silver = _scoped(silver_schemas, database_fqn)
+        self._gold = _scoped(gold_schemas, database_fqn)
 
     def reconcile(
         self,
@@ -244,7 +251,20 @@ class QualityPublisher:
     def _reconcile_run(
         self, ref: ManifestRef, state: RunSync | None, now: datetime, outcome: _Pass, *, force: bool, retry_failed: bool
     ) -> RunSync | None:
-        manifest = self._read_manifest(ref)
+        manifest, rejected = self._read_manifest(ref)
+        if rejected is not None:
+            observed = state.observed_at if state else ref.modified
+            run = RunSync(
+                stage=self._stage,
+                domain=ref.domain,
+                product=ref.product,
+                dagster_run_id=ref.dagster_run_id,
+                observed_at=observed,
+                manifest_etag=ref.etag,
+                rejected=rejected,
+            )
+            self._put(self._state_key(ref), run.to_json())
+            return run
         if manifest is None:
             return state
         run = self._merge(manifest, ref, state, now, reset=force, retry_failed=retry_failed)
@@ -335,13 +355,24 @@ class QualityPublisher:
         table = result.table
         if not table:
             return None
-        if "." not in table:
-            if result.engine != "floe" or not result.domain:
-                return None
-            table = f"{result.domain}_silver.{table}"
-        if table.count(".") != 1:
+        schema, _, name = table.rpartition(".")
+        if not name or schema.count(".") or (not schema and (result.engine != "floe" or not result.domain)):
             return None
-        return f"{self._database}.{table}", result.column
+        schema = schema or f"{result.domain}_silver"
+        fqn = self._schema_fqn(schema, result)
+        return (f"{fqn}.{name}", result.column) if fqn else None
+
+    def _schema_fqn(self, schema: str, result: QualityResult) -> str | None:
+        """The registered schema FQN of a logical (`<domain>_silver`, `<product>_gold`) or physical schema name."""
+        if not self._silver and not self._gold:
+            return f"{self._database}.{schema}"
+        known: dict[str, str] = {}
+        for domain, fqn in self._silver.items():
+            known[f"{domain}_silver"] = fqn
+        for product, fqn in self._gold.items():
+            known[f"{product}_gold"] = fqn
+        known.update({fqn.rsplit(".", 1)[1]: fqn for fqn in (*self._silver.values(), *self._gold.values())})
+        return known.get(schema)
 
     def _list_manifests(self) -> list[ManifestRef]:
         refs: list[ManifestRef] = []
@@ -376,16 +407,17 @@ class QualityPublisher:
             if not token:
                 return
 
-    def _read_manifest(self, ref: ManifestRef) -> QualityManifest | None:
+    def _read_manifest(self, ref: ManifestRef) -> tuple[QualityManifest | None, str | None]:
+        """The manifest, or the reason it is rejected; neither when the object vanished since it was listed."""
         key = self._key(MANIFEST_PREFIX, ref.domain, ref.product, ref.dagster_run_id, "manifest.json")
         body = self._get(key)
         if body is None:
-            return None
+            return None, None
         try:
             manifest = QualityManifest.from_json(body)
         except QualityRecordError as exc:
             log.warning("quality manifest %s is not usable and is not published: %s", key, exc)
-            return None
+            return None, "the manifest is malformed or of an unsupported version"
         if (manifest.stage, manifest.domain, manifest.product, manifest.dagster_run_id) != (
             self._stage,
             ref.domain,
@@ -393,8 +425,8 @@ class QualityPublisher:
             ref.dagster_run_id,
         ):
             log.warning("quality manifest %s describes another stage, product or run and is not published", key)
-            return None
-        return manifest
+            return None, "the manifest describes another stage, product or run"
+        return manifest, None
 
     def _read_state(self, ref: ManifestRef) -> RunSync | None:
         key = self._state_key(ref)
@@ -460,6 +492,8 @@ def result_body(result: QualityResult, status: OmStatus, timestamp: int) -> dict
 def _needs_work(ref: ManifestRef, state: RunSync | None, now: datetime) -> bool:
     if state is None or state.manifest_etag != ref.etag:
         return True
+    if state.rejected:
+        return False
     return any(r.due(now) for r in state.results.values())
 
 
@@ -497,3 +531,12 @@ def _id(ref: ManifestRef) -> tuple[str, str, str]:
 
 def _has_failed(state: RunSync | None) -> bool:
     return state is not None and state.count(ResultState.FAILED) > 0
+
+
+def _scoped(schemas: Mapping[str, str] | None, database_fqn: str) -> dict[str, str]:
+    """The mapping, refusing a schema that is not under this stage's database root."""
+    scoped = dict(schemas or {})
+    for fqn in scoped.values():
+        if not fqn.startswith(f"{database_fqn}.") or fqn.count(".") != 2:
+            raise ValueError(f"schema FQN {fqn!r} is not under {database_fqn!r}")
+    return scoped

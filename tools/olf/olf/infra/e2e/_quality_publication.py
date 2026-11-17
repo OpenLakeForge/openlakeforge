@@ -18,9 +18,10 @@ from openlakeforge_services.quality_publisher import QualityCatalog, QualityPubl
 
 from olf.common import config, log
 from olf.infra.e2e._artifacts import ops_bucket_client
-from olf.infra.e2e._assertions import openmetadata_client
+from olf.infra.e2e._assertions import _openmetadata_e2e_login, openmetadata_client
 from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import product_gold_tables, stage_catalog_name
+from olf.infra.openmetadata._auth import admin_password
 
 WARN_RULE = "e2e_warn_rule"
 ERROR_RULE = "e2e_error_rule"
@@ -56,7 +57,13 @@ def check_quality_publication(cfg: E2EConfig) -> None:
         case_fqn(gold, f"olf.dbt.{DBT_RULE}"): "Success",
     }
 
-    with ops_bucket_client(cfg) as (s3, bucket), openmetadata_client(cfg) as (client, _token):
+    with ops_bucket_client(cfg) as (s3, bucket), openmetadata_client(cfg) as (client, token):
+        # Without SSO there is no automation bot and the client carries no token: log in as the admin, as the
+        # governance-assets check does.
+        password = (
+            "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ)
+        )
+        _openmetadata_e2e_login(client, password)
         base = f"activations/{stage}"
         publisher = QualityPublisher(
             store=s3,

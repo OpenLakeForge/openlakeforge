@@ -149,6 +149,9 @@ class RunSync:
     manifest_etag: str | None = None
     last_success_at: datetime | None = None
     last_failure_at: datetime | None = None
+    # Why the manifest cannot be published (malformed, foreign, unsupported version). Terminal for this ETag: the
+    # run is looked at again only when the object changes.
+    rejected: str | None = None
 
     @property
     def key(self) -> str:
@@ -173,6 +176,7 @@ class RunSync:
             "manifest_etag": self.manifest_etag,
             "last_success_at": _format(self.last_success_at),
             "last_failure_at": _format(self.last_failure_at),
+            "rejected": self.rejected,
             "results": [r.to_dict() for _, r in sorted(self.results.items())],
         }
         return json.dumps(document, indent=2, sort_keys=True) + "\n"
@@ -194,6 +198,7 @@ class RunSync:
                 manifest_etag=data.get("manifest_etag"),
                 last_success_at=_parse(data.get("last_success_at")),
                 last_failure_at=_parse(data.get("last_failure_at")),
+                rejected=data.get("rejected"),
             )
         except (json.JSONDecodeError, KeyError, TypeError, AttributeError, ValueError) as exc:
             raise QualityRecordError(f"quality sync state is invalid: {exc}") from exc
@@ -218,6 +223,8 @@ class SyncSummary:
     # Runs whose manifest exists but has not been read yet (a bounded pass stopped before them): their results
     # are unpublished and uncounted, and their age counts toward the lag.
     unread_runs: int = 0
+    # Manifests that cannot be published at all; counted so a broken writer is visible, never retried.
+    rejected_runs: int = 0
     oldest_pending_at: datetime | None = None
     last_success_at: datetime | None = None
     last_failure_at: datetime | None = None
@@ -238,6 +245,7 @@ class SyncSummary:
             "failed": self.failed,
             "synced": self.synced,
             "unread_runs": self.unread_runs,
+            "rejected_runs": self.rejected_runs,
             "lag_seconds": self.lag_seconds,
             "oldest_pending_at": _format(self.oldest_pending_at),
             "last_success_at": _format(self.last_success_at),
@@ -259,6 +267,7 @@ class SyncSummary:
                 failed=int(data["failed"]),
                 synced=int(data["synced"]),
                 unread_runs=int(data.get("unread_runs", 0)),
+                rejected_runs=int(data.get("rejected_runs", 0)),
                 oldest_pending_at=_parse(data.get("oldest_pending_at")),
                 last_success_at=_parse(data.get("last_success_at")),
                 last_failure_at=_parse(data.get("last_failure_at")),
@@ -290,6 +299,7 @@ def summarize(
         failed=sum(run.count(ResultState.FAILED) for run in runs),
         synced=sum(run.count(ResultState.SYNCED) for run in runs),
         unread_runs=len(unread),
+        rejected_runs=sum(1 for run in runs if run.rejected),
         oldest_pending_at=min(oldest) if oldest else None,
         last_success_at=max(successes) if successes else None,
         last_failure_at=max(failures) if failures else None,

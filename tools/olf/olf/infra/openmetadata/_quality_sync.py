@@ -7,6 +7,7 @@ neither the cluster nor the bucket, so Slim needs no credential for this command
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -59,14 +60,31 @@ def run_quality_sync(
     )
     if not (base_uri and bucket and service):
         raise QualitySyncError("the contract environment has no artifact base URI, ops bucket or catalog service")
+    database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", environ=environ) or f"{service}.{catalog_name}"
     with open_store(bucket) as store, open_catalog() as client:
         publisher = QualityPublisher(
             store=store,
             base_uri=base_uri,
             stage=stage,
             catalog=QualityCatalog(client),
-            database_fqn=f"{service}.{catalog_name}",
+            database_fqn=database_fqn,
+            silver_schemas=_schema_map("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", environ),
+            gold_schemas=_schema_map("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", environ),
             warn_status=warn_status,
         )
         report = publisher.reconcile(limit=limit, run_id=run_id, retry_failed=retry_failed)
     return QualitySyncOutcome(stage=stage, governance_enabled=True, report=report)
+
+
+def _schema_map(name: str, environ: Mapping[str, str]) -> dict[str, str] | None:
+    """The provider contract's logical name -> physical schema FQN, as `deploy-metadata` registers tables under."""
+    raw = config.env(name, environ=environ)
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise QualitySyncError(f"{name} is not valid JSON") from exc
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        raise QualitySyncError(f"{name} must map names to schema FQNs")
+    return value

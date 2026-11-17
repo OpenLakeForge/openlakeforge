@@ -412,3 +412,55 @@ def test_retry_failed_is_not_spent_on_settled_runs(bucket, om):
     report = pub.reconcile(now=now + timedelta(days=2), limit=25, retry_failed=True)
     assert report.published == 1
     assert summary(bucket).failed == 0
+
+
+def test_a_stage_prefixed_provider_schema_is_resolved_through_the_contract_mapping(bucket):
+    glue_db = "aws_glue.lakehouse_dev"
+    silver = f"{glue_db}.lakehouse_dev_sales_silver.orders"
+    gold = f"{glue_db}.lakehouse_dev_revenue_gold.revenue"
+    om = FakeOpenMetadata({silver: ["id"], gold: ["id"]})
+    put_manifest(
+        bucket,
+        [
+            result("floe_not_null"),
+            result("not_null_revenue_id", engine="dbt", table="revenue_gold.revenue"),
+            result("unique_revenue_id", engine="dbt", table="lakehouse_dev_revenue_gold.revenue"),
+            result("t", engine="dbt", table="elsewhere.revenue"),
+        ],
+    )
+    pub = publisher(
+        bucket,
+        om,
+        database_fqn=glue_db,
+        silver_schemas={"sales": f"{glue_db}.lakehouse_dev_sales_silver"},
+        gold_schemas={"revenue": f"{glue_db}.lakehouse_dev_revenue_gold"},
+    )
+    report = pub.reconcile(now=T0)
+    assert report.published == 3
+    assert report.skipped == 1
+    assert f'{silver}."olf.floe.floe_not_null"' in om.cases
+    assert f'{gold}."olf.dbt.not_null_revenue_id"' in om.cases
+    assert not any("sales_silver.orders" in path and "lakehouse_dev_sales" not in path for _, path in om.calls)
+
+
+def test_a_mapping_outside_the_stage_root_is_refused(bucket, om):
+    with pytest.raises(ValueError, match="not under"):
+        publisher(bucket, om, silver_schemas={"sales": "polaris.lakehouse_prod.sales_silver"})
+
+
+def test_an_unusable_manifest_is_rejected_once_and_does_not_starve_valid_runs(bucket, om):
+    bucket.put(MANIFEST_KEY.replace("run-1", "run-0"), "{not json", T0)
+    put_manifest(bucket, [result("floe_not_null")], run="run-1", modified=T0 + timedelta(hours=1))
+    pub = publisher(bucket, om)
+    now = T0 + timedelta(days=1)
+
+    assert pub.reconcile(now=now, limit=1).published == 0
+    assert summary(bucket).rejected_runs == 1
+    assert pub.reconcile(now=now, limit=1).published == 1
+    assert summary(bucket).rejected_runs == 1
+    assert summary(bucket).pending == 0
+
+    # A changed object is looked at again.
+    put_manifest(bucket, [result("floe_unique", run="run-0")], run="run-0", modified=T0)
+    assert pub.reconcile(now=now, limit=1).published == 1
+    assert summary(bucket).rejected_runs == 0
