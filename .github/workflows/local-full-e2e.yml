@@ -61,7 +61,10 @@ on:
           the repository (inputs are strings, up to 65,535 characters). With a
           custom profile 'stage_scope' and 'access_tls' are ignored -- the
           profile decides -- and the provider-contract fixture comparison is
-          skipped. Leave empty for the conformance profile.
+          skipped. The run activates dev and prod only, pushes the revision to
+          its own GHCR repository and cannot run the stage drill, so a profile
+          that enables another stage, declares spec.project or is used with
+          stage_drill is rejected. Leave empty for the conformance profile.
         type: string
         default: ""
       profile_path:
@@ -352,9 +355,18 @@ jobs:
           fi
           olf profile validate --project .
           olf project validate --project . > /dev/null
-          prod="$(uv run --project "${GITHUB_WORKSPACE}/tools/olf" --locked python -c \
-            'import sys, yaml; stages = (yaml.safe_load(open(sys.argv[1])).get("spec") or {}).get("stages") or {}; prod = stages.get("prod"); print("true" if isinstance(prod, dict) and prod.get("enabled", True) is not False else "false")' \
-            openlakeforge.yaml)"
+          # The stages and the image source come from olf's own resolution of the profile, not a second reading of it here.
+          olf profile resolve --project . --json > "${RUNNER_TEMP}/resolved-profile.json"
+          prod="$(python3 -c 'import json, sys; print("true" if any(s["name"] == "prod" and s["enabled"] for s in json.load(open(sys.argv[1]))["stages"]) else "false")' "${RUNNER_TEMP}/resolved-profile.json")"
+          if [ "${custom}" = "true" ]; then
+            # The steps below activate dev and prod only, and they own the image repository (GHCR, with the job's token).
+            python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); bad = [s["name"] for s in d["stages"] if s["enabled"] and s["name"] not in ("dev", "prod")]; sys.exit("::error::this workflow activates dev and prod only; the profile also enables " + ", ".join(bad) if bad else 0)' "${RUNNER_TEMP}/resolved-profile.json"
+            python3 -c 'import json, sys; sys.exit("::error::a custom profile must not declare spec.project: the workflow pushes the revision to its own GHCR repository" if json.load(open(sys.argv[1]))["project"]["source"] == "profile" else 0)' "${RUNNER_TEMP}/resolved-profile.json"
+            if [ "${{ inputs.stage_drill }}" = "true" ]; then
+              echo "::error::stage_drill rewrites the conformance profile and does not support a custom profile"
+              exit 1
+            fi
+          fi
           echo "custom=${custom}" >> "${GITHUB_OUTPUT}"
           echo "prod=${prod}" >> "${GITHUB_OUTPUT}"
           echo "::notice::custom profile: ${custom}; PROD stage enabled: ${prod}"
