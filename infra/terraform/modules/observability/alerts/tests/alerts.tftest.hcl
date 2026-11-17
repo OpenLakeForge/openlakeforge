@@ -34,7 +34,18 @@ run "a_receiver_is_referenced_never_valued" {
   command = plan
 
   variables {
-    receivers = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url", stages = ["prod"] }]
+    receivers = [
+      { name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url", stages = ["prod"] },
+      { name = "chat", secret_name = "chat-webhook", secret_key = "webhook-url", platform = false },
+    ]
+  }
+
+  assert {
+    condition = (
+      strcontains(kubernetes_config_map_v1.settings[0].data["alerts.json"], "\"name\":\"ops\",\"platform\":true")
+      && strcontains(kubernetes_config_map_v1.settings[0].data["alerts.json"], "\"name\":\"chat\",\"platform\":false")
+    )
+    error_message = "each receiver says whether it gets platform conditions; omitted is true"
   }
 
   assert {

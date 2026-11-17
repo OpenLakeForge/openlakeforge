@@ -1137,7 +1137,7 @@ _SLIM_OBSERVABILITY = {
     "logs": {"archive": {"retention_days": 30}, "search": {"enabled": False}},
     "metrics": {"enabled": False, "retention_days": 7},
     "grafana": {"enabled": False},
-    "alerts": {"receivers": []},
+    "alerts": {"receivers": [], "platform_receivers": []},
 }
 
 
@@ -1171,9 +1171,41 @@ def test_observability_explicit_values_win_over_the_preset() -> None:
                     "secret_ref": {"name": "alert-webhooks", "key": "webhook-url"},
                     "stages": ["dev"],
                 }
-            ]
+            ],
+            "platform_receivers": ["on-call"],
         },
     }
+
+
+def _platform_receivers(platform: object = None) -> list[str]:
+    alerts: dict[str, object] = {"receivers": [_RECEIVER, {**_RECEIVER, "name": "chat"}]}
+    if platform is not None:
+        alerts["platform_receivers"] = platform
+    return _resolved_observability(_observability_document(alerts=alerts))["alerts"]["platform_receivers"]
+
+
+def test_platform_receivers_omitted_means_every_receiver() -> None:
+    assert _platform_receivers() == ["ops", "chat"]
+
+
+def test_platform_receivers_keeps_the_receivers_it_names() -> None:
+    assert _platform_receivers(["chat"]) == ["chat"]
+
+
+@pytest.mark.parametrize(
+    ("platform", "message"),
+    [
+        ([], "alerts.platform_receivers must be a non-empty list"),
+        ("ops", "alerts.platform_receivers must be a non-empty list"),
+        (["pager"], "alerts.platform_receivers[0] must name a declared receiver"),
+        (["ops", "ops"], "alerts.platform_receivers must not repeat a receiver"),
+    ],
+)
+def test_invalid_platform_receivers_fail_with_the_offending_path(platform: object, message: str) -> None:
+    with pytest.raises(DeploymentProfileError) as exc:
+        _platform_receivers(platform)
+
+    assert message in str(exc.value)
 
 
 @pytest.mark.parametrize("enabled", [True, False])

@@ -24,9 +24,10 @@ locals {
     quality_manifests    = var.quality_manifests
     receivers = [
       for env, receiver in local.receiver_envs : {
-        name    = receiver.name
-        url_env = env
-        stages  = receiver.stages
+        name     = receiver.name
+        url_env  = env
+        stages   = receiver.stages
+        platform = receiver.platform
       }
     ]
     links = {

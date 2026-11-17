@@ -1116,7 +1116,10 @@ def _receivers_config(tmp_path: Path, *refs: tuple[str, str, str]):  # noqa: ANN
         for name, secret, key in refs
     )
     topology = _topology(analytics=False)
-    return _config(tmp_path, topology=replace(topology, observability=ResolvedObservability(alert_receivers=receivers)))
+    observability = ResolvedObservability(
+        alert_receivers=receivers, alert_platform_receivers=tuple(r.name for r in receivers)
+    )
+    return _config(tmp_path, topology=replace(topology, observability=observability))
 
 
 def test_receivers_build_the_platform_api_image_without_an_issuer(tmp_path: Path) -> None:
@@ -1126,7 +1129,7 @@ def test_receivers_build_the_platform_api_image_without_an_issuer(tmp_path: Path
 
     assert platform.platform_api_variables(config) == {"platform_api_image": images.platform_api_image(config)}
     assert json.loads(platform.platform_apply_variables(config)["alert_receiver_secrets"]) == {
-        "ops": {"secret_name": "ops-webhook", "key": "url"}
+        "ops": {"secret_name": "ops-webhook", "key": "url", "platform": True}
     }
     assert platform.platform_api_variables(_config(tmp_path)) == {}
     assert "alert_receiver_secrets" not in platform.platform_apply_variables(_config(tmp_path))

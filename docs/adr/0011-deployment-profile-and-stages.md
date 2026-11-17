@@ -348,3 +348,12 @@ blocks were: an optional block that a profile may omit is additive, and the
 profiles that omit it resolve as before. It states capabilities (log archive
 retention, metrics, log search, Grafana, alert receivers by Secret reference),
 never a backend. The resolver prints it; no Terraform reads it yet (#332).
+
+2026-11-17 (#23, alert policy slice AP-c): `spec.observability.alerts.platform_receivers`
+added, again without a version bump: an optional list of declared receiver
+names, non-empty and without repeats, naming the receivers told about platform
+conditions (a stage whose Dagster cannot be read, an alert policy the evaluator
+cannot use) that a project's `alerts.yml` cannot route (ADR 0023, decision 11).
+Omitted means every receiver, as before the field existed, and `olf profile
+resolve --json` always shows the effective list. A receiver's `stages` still
+caps what it receives.
