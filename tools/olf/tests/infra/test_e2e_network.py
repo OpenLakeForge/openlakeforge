@@ -214,3 +214,16 @@ def test_no_flow_row_names_the_stage_coordinators_as_a_shared_workload() -> None
         "trino" not in str(row["to"].get("pods", {}).get("app.kubernetes.io/name"))
         for row in FLOWS["flows"]
     )
+
+
+def test_a_positive_probe_that_times_out_once_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    answers = iter([28, 7])
+    monkeypatch.setattr(_network, "_connect", lambda *_a: next(answers))
+    monkeypatch.setattr(_network, "POLICY_LAG_RETRY_SECONDS", 0)
+    assert _network._connect_after_policy_lag(SimpleNamespace(), "olf-system", "p", "10.0.0.1", 8333) == 7  # type: ignore[arg-type]
+
+
+def test_a_positive_probe_that_times_out_twice_is_a_drop(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_network, "_connect", lambda *_a: 28)
+    monkeypatch.setattr(_network, "POLICY_LAG_RETRY_SECONDS", 0)
+    assert _network._connect_after_policy_lag(SimpleNamespace(), "olf-system", "p", "10.0.0.1", 8333) == 28  # type: ignore[arg-type]

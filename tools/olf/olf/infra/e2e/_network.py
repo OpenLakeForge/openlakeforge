@@ -7,8 +7,10 @@ OpenMetadata or Dex. RBAC: `kubectl auth can-i --as=<ServiceAccount>` is denied
 operations the ADR does not document.
 
 Known gap, not fixed here: under kindnet a new pod's policy applies a moment
-after it is Ready, so a fresh pod can briefly reach what it should not. The
-probes wait `SETTLE_SECONDS` before connecting; the untrusted-namespace
+after it is Ready, so a fresh pod can briefly reach what it should not, or
+time out on a flow it is allowed. The
+probes wait `SETTLE_SECONDS` before connecting, and retry a positive probe that
+timed out once more after `POLICY_LAG_RETRY_SECONDS`; the untrusted-namespace
 negatives do not depend on it, because the targets' ingress policy already
 exists.
 """
@@ -33,6 +35,7 @@ from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 FLOWS_FILE = "release/network-flows.yaml"
 UNTRUSTED_NAMESPACE = "olf-e2e-untrusted"
 SETTLE_SECONDS = 5
+POLICY_LAG_RETRY_SECONDS = 15
 CONNECT_TIMEOUT = 5
 # curl: 6 no DNS, 7 refused, 28 timed out. Only a timeout proves a drop; 6 and 7 prove a broken probe.
 NOT_REACHED = {6, 7, 28}
@@ -206,6 +209,16 @@ def _connect(cfg: E2EConfig, namespace: str, pod: str, ip: str, port: int) -> in
     return int(out.rsplit("rc=", 1)[1])
 
 
+def _connect_after_policy_lag(cfg: E2EConfig, namespace: str, pod: str, ip: str, port: int) -> int:
+    """A timeout can be kindnet applying the fresh probe's egress policy late (module docstring); one late retry
+    tells that lag from a drop. Seen on kind and in the nightly, each time on a different flow."""
+    rc = _connect(cfg, namespace, pod, ip, port)
+    if rc == 28:
+        time.sleep(POLICY_LAG_RETRY_SECONDS)
+        rc = _connect(cfg, namespace, pod, ip, port)
+    return rc
+
+
 def check_positive_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
     log.step("Checking that the T flows connect with default-deny on...")
     sources: dict[tuple[str, str], list[tuple[Any, int]]] = {}
@@ -225,7 +238,7 @@ def check_positive_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
                 if ip is None:
                     log.info(f"Skipping {scope}[{selector}] -> {destination}:{port}: no such pod or endpoint.")
                     continue
-                if _connect(cfg, namespace, pod, ip, port) == 28:
+                if _connect_after_policy_lag(cfg, namespace, pod, ip, port) == 28:
                     failures.append(f"{namespace}[{selector or 'no labels'}] -> {ip}:{port} {destination} timed out")
     if failures:
         raise E2EError("a documented flow is blocked:\n" + "\n".join(failures))
