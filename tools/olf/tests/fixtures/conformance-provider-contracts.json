@@ -240,7 +240,42 @@
       "ref": "shared/metadata_database"
     },
     "observability": {
+      "alerts": {
+        "receivers": [
+          {
+            "name": "on-call",
+            "stages": [
+              "dev",
+              "prod"
+            ],
+            "type": "webhook"
+          }
+        ],
+        "supported": true
+      },
+      "grafana": {
+        "enabled": false,
+        "supported": false
+      },
       "implementation": "observability.object_log_archive",
+      "logs": {
+        "archive": {
+          "enabled": true,
+          "retention_days": 30,
+          "retention_supported": false,
+          "supported": true
+        },
+        "search": {
+          "enabled": false,
+          "supported": false
+        }
+      },
+      "metrics": {
+        "enabled": true,
+        "retention_days": 7,
+        "retention_supported": false,
+        "supported": false
+      },
       "ref": "shared/observability"
     },
     "ops_storage": {
