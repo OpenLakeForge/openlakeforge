@@ -129,6 +129,8 @@ class StageProber(Protocol):
 
 # Each stage read would otherwise fan out to up to nine backend calls; dashboards poll, so reuse a recent answer.
 DEFAULT_PROBE_CACHE_TTL = timedelta(seconds=10)
+# Every probe of one stage shares this budget, so a stage's service answer takes about this long at most.
+PROBE_TIMEOUT = timedelta(seconds=5)
 DEFAULT_DAGSTER_SELECTOR = {"app.kubernetes.io/name": "dagster"}
 DEFAULT_TRINO_SELECTOR = {"app.kubernetes.io/name": "trino"}
 
@@ -144,7 +146,7 @@ class ServiceProbes:
         archive_store: ListableStore | None = None,
         spool_read: SpoolRead | None = None,
         archive_thresholds: ArchiveThresholds = ArchiveThresholds(),  # noqa: B008 - frozen
-        timeout: timedelta = timedelta(seconds=5),
+        timeout: timedelta = PROBE_TIMEOUT,
         ttl: timedelta = timedelta(seconds=60),
         restart_window: timedelta = timedelta(minutes=30),
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -180,7 +182,7 @@ class ServiceProbes:
         boto3, so build the client with `bounded_s3_config(timeout)` (connect and read timeouts no larger than the
         probe timeout, one attempt); a client with larger timeouts is refused here rather than left to pile up threads.
         """
-        timeout = options.get("timeout", timedelta(seconds=5))
+        timeout = options.get("timeout", PROBE_TIMEOUT)
         seconds = timeout.total_seconds()
         _require_bounded_store(store, seconds)
         _require_bounded_store(archive_store, seconds)

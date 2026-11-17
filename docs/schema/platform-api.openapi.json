@@ -1421,6 +1421,28 @@
         "title": "StagePipelineState",
         "type": "object"
       },
+      "StageServiceHealth": {
+        "description": "The `services` of StageHealth alone, which needs no Dagster read; the alert evaluator's route (ADR 0023).",
+        "properties": {
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceHealth"
+            },
+            "title": "Services",
+            "type": "array"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "services"
+        ],
+        "title": "StageServiceHealth",
+        "type": "object"
+      },
       "Table": {
         "properties": {
           "name": {
@@ -2199,6 +2221,46 @@
           }
         },
         "summary": "List Pipeline Health"
+      }
+    },
+    "/api/v1/stages/{stage}/health/services": {
+      "get": {
+        "description": "The stage's service probes and nothing else.\n\nNo Dagster read runs here, so the answer takes about the probes' own timeout (`PROBE_TIMEOUT`) even while Dagster\nhangs. The alert evaluator reads this route and not `get_stage_health`, whose pipeline reads are unbounded across\ncalls: during a Dagster outage that route would outlast the evaluator and no service incident could open.",
+        "operationId": "get_stage_service_health_api_v1_stages__stage__health_services_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StageServiceHealth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Stage Service Health"
       }
     },
     "/api/v1/stages/{stage}/jobs": {

@@ -144,7 +144,7 @@ for that product and stage.
 | `stage_unreadable` | Dagster for a stage could not be read in 3 consecutive evaluations | `critical` | none: a platform condition (Decision 11) | Default, revisit for the count of 3; the severity is proposed |
 | `policy_unreadable` | the stage's alert policy cannot be used (Decision 10) | `warning` | none: a platform condition (Decision 11) | Maintainer |
 | `service_degraded` | a platform service signal of Decision 11 is degraded: one incident per stage and component | the signal's state for a workload, `critical` otherwise | none: a platform condition (Decision 11) | Maintainer (2026-11-17) |
-| `health_unreadable` | the platform API's health route for a stage could not be read in 3 consecutive evaluations (Decision 11) | `critical` | none: a platform condition (Decision 11) | Maintainer (2026-11-17); the count follows `stage_unreadable` |
+| `health_unreadable` | the platform API's services route for a stage could not be read in 3 consecutive evaluations (Decision 11) | `critical` | none: a platform condition (Decision 11) | Maintainer (2026-11-17); the count follows `stage_unreadable` |
 
 What does not alert, all **default, revisit**:
 
@@ -458,7 +458,7 @@ The e2e's receiver is a stub pod in `olf-system` carrying a label the flow file
 names, as the Dex e2e's GitHub stub does (F29 **[V]**) **[T]**. Its listener is
 HTTPS, because the adapter refuses plain HTTP.
 
-| evaluator to the platform API, port 8080 | F42 and F44 | each stage's health route, with a projected ServiceAccount token (Decision 11); the API's TokenReview is its F20 egress |
+| evaluator to the platform API, port 8080 | F42 and F44 | each stage's services route, with a projected ServiceAccount token (Decision 11); the API's TokenReview is its F20 egress |
 
 The evaluator's ServiceAccount has no Kubernetes API access, no flow to Trino or the
 log collectors and no read on the log archive: the platform service alerts of
@@ -720,7 +720,7 @@ middle of an action path, which would narrow it to
 | Maintainer | `alerts.yml` cannot name a platform condition (`stage_unreadable`, `policy_unreadable`, `service_degraded`, `health_unreadable`); the schema rejects them as unknown `when` keys. |
 | Maintainer | They go to the profile's platform receivers: `spec.observability.alerts.platform_receivers`, a list of receiver names. Omitted means every receiver, which is how they were routed before the policy; a list that is present must be non-empty, because an empty one would silence every platform condition and omitting the field is the way to say "all". Each receiver's `stages` ceiling still applies. |
 | Maintainer (2026-11-17) | Platform service conditions alert too, routed only to the platform receivers, with the open, resolve and no-reminder rules of Decision 3. They are `service_degraded` incidents, one per stage and component: Dagster and Trino workloads degraded (`dagster.workloads`, `trino.workloads`: `warning` or `critical`, at the signal's state), the object store unreachable (`object-store.list`), and the log archive's delivery signals (`log-archive.spool-age`, `log-archive.spool-size`, `log-archive.newest-object`). Only the workloads alert at `warning`; the object store and the three archive signals alert at `critical` only, and a `warning` from them says nothing either way. An `unknown` or `disabled` signal neither opens nor resolves, as everywhere else: unknown is no evidence. |
-| Maintainer (2026-11-17) | **The evaluator reads the signals from the platform API's stage health route** (`GET /api/v1/stages/{stage}/health`, its `services` list), and runs no probe of its own. |
+| Maintainer (2026-11-17) | **The evaluator reads the signals from the platform API's services route** (`GET /api/v1/stages/{stage}/health/services`: the `services` list of the stage health, from the probes alone), and runs no probe of its own. |
 | Maintainer (2026-11-17) | The evaluator authenticates as a service principal with a projected ServiceAccount token that the API checks with a TokenReview (below; ADR 0021, decision 3). |
 
 The product team owns `alerts.yml`; the ops team owns the cluster, the
@@ -753,13 +753,19 @@ ServiceAccount token projected for the audience `openlakeforge-platform-api`,
 valid ten minutes and refreshed by the kubelet, which the API checks with a
 TokenReview and accepts only for the evaluator's exact ServiceAccount, as a
 principal with no canonical role that the permission matrix admits on the
-stage health route and nothing else (ADR 0021, decision 3; ADR 0017, F44). The
+services route and nothing else (ADR 0021, decision 3; ADR 0017, F44). The
 settings carry `platform_api_url` and `platform_api_token_file`, both or
 neither; without them no service condition is read and none is raised.
 
 ### What is read, and what is not evidence
 
-Each evaluation reads every enabled stage's health route once. Each entry of
+Each evaluation reads every enabled stage's services route once. It is not the
+full stage health route, which also reads Dagster with calls of up to 30 seconds
+each and so can outlast the evaluator exactly when Dagster is down; the services
+route makes no Dagster read and answers within the probes' own timeout (5
+seconds), and the evaluator waits that timeout plus 5 seconds. A stalled Dagster
+therefore cannot hide a service incident, and `stage_unreadable` still reports
+the Dagster outage itself. Each entry of
 its `services` list whose component is named in the third row becomes a signal
 at that state; every other component is ignored, so a new probe is silent until
 this record names it. The notification carries fixed text per component
@@ -769,7 +775,7 @@ incident's fingerprint and not of the webhook payload.
 
 An API that cannot be read is not every service being healthy. A timeout, a
 connection error, a 5xx, a refused token (401, 403) or an answer that is not a
-health document for the stage sends no component signal at all, so every open
+services document for the stage sends no component signal at all, so every open
 `service_degraded` incident is left as it was, resolved by nothing. It sends one
 `unknown` signal for the stage instead, and **`health_unreadable`** opens, at
 `critical` and to the platform receivers, after 3 consecutive unreadable
@@ -1051,3 +1057,9 @@ that over a static Secret. The API answers 503 where a TokenReview cannot be mad
 identity both read as `health_unreadable` after 3 evaluations. The decision records which components alert and at what
 severity: the log archive signals and the object store at `critical` only, where the previous text could be read as
 leaving the object store open to `warning`, which its probe never emits.
+
+2026-11-17: the evaluator reads `GET /api/v1/stages/{stage}/health/services`, not the full stage health route (review of the
+change above). The full route gathers the Dagster reads with the probes, so a stalled Dagster made it outlast the
+evaluator's timeout and `health_unreadable` replaced every service signal during the outage service incidents matter
+most. The new route returns the probes' `services` list alone, bounded by their 5 second timeout, and is the only route the
+evaluator's service principal may call (ADR 0021).

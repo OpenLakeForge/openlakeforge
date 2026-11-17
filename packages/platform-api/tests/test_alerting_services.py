@@ -162,7 +162,7 @@ def test_the_reader_sends_the_projected_token_and_parses_services(tmp_path: Path
     services = _reader(tmp_path, get)("dev")
 
     assert services == [ServiceState("trino.workloads", HealthState.CRITICAL, "x")]
-    assert seen["url"] == "http://platform-api.olf-system:8080/api/v1/stages/dev/health"
+    assert seen["url"] == "http://platform-api.olf-system:8080/api/v1/stages/dev/health/services"
     assert seen["headers"]["Authorization"] == "Bearer projected-token"
     assert seen["timeout"] > 0
 
@@ -197,3 +197,24 @@ def test_a_missing_token_file_is_unreadable_not_healthy(tmp_path: Path) -> None:
 
     with pytest.raises(HealthReadError):
         read("dev")
+
+
+def test_a_dagster_outage_does_not_stop_service_incidents_opening() -> None:
+    bucket, ops, on_call = FakeBucket(), FakeNotifier(), FakeNotifier()
+    publish(bucket)
+    dagster = FakeDagster()
+    dagster.unreadable = True
+    health = FakeHealth([_service("trino.workloads", HealthState.CRITICAL)])
+    settings = _settings(OPS, ON_CALL)
+    declare_everything(bucket, settings.stages, ["ops", "on-call"])
+
+    run_once(
+        settings=settings,
+        store=AlertStore(bucket, BASE),
+        dagster={"dev": dagster},
+        notifiers={"ops": ops, "on-call": on_call},
+        now=NOW,
+        health=health,
+    )
+
+    assert _conditions(on_call) == [("service_degraded", "opened")]

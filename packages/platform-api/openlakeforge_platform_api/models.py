@@ -213,6 +213,13 @@ class StageHealth(BaseModel):
     integrations: list[IntegrationStatus]
 
 
+class StageServiceHealth(BaseModel):
+    """The `services` of StageHealth alone, which needs no Dagster read; the alert evaluator's route (ADR 0023)."""
+
+    stage: str
+    services: list[ServiceHealth]
+
+
 class PipelineSchedule(BaseModel):
     name: str | None
     status: Literal["running", "stopped", "absent"]

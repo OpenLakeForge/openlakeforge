@@ -170,12 +170,12 @@ stage's open incidents are held, not resolved.
 
 Warning or critical, one incident per stage and component, sent to the platform
 receivers only. A Dagster or Trino workload that is not ready alerts at
-`warning` or `critical`, as `GET /api/v1/stages/{stage}/health` reports it. The
+`warning` or `critical`, as `GET /api/v1/stages/{stage}/health/services` reports it. The
 object store that cannot be listed and the log archive's spool age, spool size
 and newest object alert at `critical` only. The incident resolves when the
 component reports `healthy`; an `unknown` or `disabled` component changes
 nothing. There are no reminders. Read the component's `reason` in the health
-route's `services` list.
+routes' `services` list.
 
 ### health_unreadable
 

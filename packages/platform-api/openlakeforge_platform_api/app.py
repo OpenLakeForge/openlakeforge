@@ -7,7 +7,6 @@ import os
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from datetime import timedelta
 from typing import NoReturn, cast
 
 import boto3
@@ -34,7 +33,13 @@ from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.models import Health, WhoAmI
 from openlakeforge_platform_api.permissions import ANONYMOUS, EVERY_STAGE, Permission, PermissionMatrix
 from openlakeforge_platform_api.quality_health import QualityReader, s3_quality_reader
-from openlakeforge_platform_api.service_probes import ListableStore, ServiceProbes, StageProber, bounded_s3_config
+from openlakeforge_platform_api.service_probes import (
+    PROBE_TIMEOUT,
+    ListableStore,
+    ServiceProbes,
+    StageProber,
+    bounded_s3_config,
+)
 from openlakeforge_platform_api.service_tokens import ReviewUnavailable, ServiceTokenValidator
 from openlakeforge_platform_api.settings import QUERY_SIGNING_KEY_ENV, Settings, quality_key_envs
 from openlakeforge_platform_api.tokens import InvalidToken, IssuerUnavailable, Principal, TokenValidator
@@ -49,7 +54,6 @@ FILES_ACCESS_KEY_ENV = "OPENLAKEFORGE_FILES_ACCESS_KEY_ID"
 FILES_SECRET_KEY_ENV = "OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY"
 
 # Every service probe, and the S3 client it lists with, is bounded by this (ADR 0021, decision 7).
-PROBE_TIMEOUT = timedelta(seconds=5)
 
 _BINARY_ZIP: dict[str, object] = {
     "description": "A stage-neutral assets bundle.",
@@ -374,6 +378,12 @@ def create_app(
     app.add_api_route("/api/v1/stages/{stage}/runs/{run_id}", reads.get_run, methods=["GET"], name="get_run")
     app.add_api_route(
         "/api/v1/stages/{stage}/health", health_routes.get_stage_health, methods=["GET"], name="get_stage_health"
+    )
+    app.add_api_route(
+        "/api/v1/stages/{stage}/health/services",
+        health_routes.get_stage_service_health,
+        methods=["GET"],
+        name="get_stage_service_health",
     )
     app.add_api_route(
         "/api/v1/stages/{stage}/health/pipelines",

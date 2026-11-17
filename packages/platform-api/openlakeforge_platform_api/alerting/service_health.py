@@ -1,4 +1,4 @@
-"""A stage's service health, read from the platform API (ADR 0023, decision 11).
+"""A stage's service health, read from the platform API's services route (ADR 0023, decision 11).
 
 The evaluator runs no probe of its own: one place observes the services, and the evaluator reads what it saw. The call
 carries the pod's projected ServiceAccount token, which the API checks with a TokenReview (ADR 0021, decision 3). Any
@@ -16,7 +16,10 @@ from urllib.parse import quote
 import requests
 from openlakeforge_core.health import HealthState
 
-READ_TIMEOUT = 10.0
+from openlakeforge_platform_api.service_probes import PROBE_TIMEOUT
+
+# Above PROBE_TIMEOUT, the most the services route takes, so a slow probe is an answer and not a failed read.
+READ_TIMEOUT = PROBE_TIMEOUT.total_seconds() + 5.0
 
 
 class HealthReadError(Exception):
@@ -46,7 +49,7 @@ def stage_health_reader(
             # Read per call: the kubelet rotates the projected token.
             token = Path(token_file).read_text(encoding="utf-8").strip()
             response = get(
-                f"{base_url.rstrip('/')}/api/v1/stages/{quote(stage, safe='')}/health",
+                f"{base_url.rstrip('/')}/api/v1/stages/{quote(stage, safe='')}/health/services",
                 headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
                 timeout=timeout,
             )

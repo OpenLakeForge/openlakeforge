@@ -59,7 +59,7 @@ def _client(settings: Settings, review: FakeReview) -> TestClient:
 
 
 def _health(client: TestClient, token: str, stage: str = "dev") -> int:
-    return client.get(f"/api/v1/stages/{stage}/health", headers=bearer(token)).status_code
+    return client.get(f"/api/v1/stages/{stage}/health/services", headers=bearer(token)).status_code
 
 
 def test_the_evaluators_token_reads_stage_health(with_callers: Settings) -> None:
@@ -75,11 +75,13 @@ def test_every_other_route_refuses_the_service(with_callers: Settings) -> None:
     client = _client(with_callers, FakeReview())
     matrix = client.app.state.permissions  # type: ignore[attr-defined]
 
-    others = [name for name in matrix.operations if name not in ("get_stage_health", "healthz")]
+    others = [name for name in matrix.operations if name not in ("get_stage_service_health", "healthz")]
     assert others
     assert not any(matrix.allows(name, None, "dev", service="alert-evaluator") for name in others)
     assert client.get("/api/v1/whoami", headers=bearer(_service_token())).status_code == 403
     assert client.get("/api/v1/stages/dev/health/pipelines", headers=bearer(_service_token())).status_code == 403
+    # The route that reads Dagster is a person's: the service holds only the services half.
+    assert client.get("/api/v1/stages/dev/health", headers=bearer(_service_token())).status_code == 403
 
 
 @pytest.mark.parametrize(
@@ -137,10 +139,10 @@ def test_the_matrix_names_the_service_only_on_stage_health() -> None:
     matrix = PermissionMatrix.packaged(("platform-admin", "data-engineer", "analyst", "viewer"))
 
     named = {name for name, row in matrix.operations.items() if "alert-evaluator" in row.services}
-    assert named == {"get_stage_health"}
-    assert matrix.allows("get_stage_health", None, "dev", service="alert-evaluator")
-    assert not matrix.allows("get_stage_health", None, "dev", service="someone-else")
-    assert not matrix.allows("get_stage_health", None, "dev")
+    assert named == {"get_stage_service_health"}
+    assert matrix.allows("get_stage_service_health", None, "dev", service="alert-evaluator")
+    assert not matrix.allows("get_stage_service_health", None, "dev", service="someone-else")
+    assert not matrix.allows("get_stage_service_health", None, "dev")
 
 
 def test_a_row_cannot_hand_a_service_a_write_or_an_unknown_name() -> None:
