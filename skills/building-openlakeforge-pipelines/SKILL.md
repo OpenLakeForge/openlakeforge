@@ -73,6 +73,22 @@ dbt may use incremental materialization with a unique key.
 Do not append repeated full snapshots. Use OLF's generated stage bindings,
 not a standalone Floe profile copied into the project.
 
+Decide in the Silver contract what a violation does to Gold. `policy` goes in
+`defaults` of `silver/<domain>/domain.yml` or in one entity file:
+
+| `policy` | Invalid rows | Gold |
+| --- | --- | --- |
+| `severity: warn` | Accepted, flagged | Runs |
+| `severity: reject` | Quarantined, the rest accepted | Runs |
+| `severity: abort` | The Floe run ends `aborted` | Skipped, the run fails |
+| `severity: reject` with `max_rejection_rate: 0.05` | Quarantined; above 5% of the entity's rows the entity is `aborted` (exit code 2) | Runs at or below 5%, skipped above it |
+
+`max_rejection_rate` is a fraction from 0 to 1 and needs `severity: reject`
+(Floe 0.10.2). Rows accepted before the limit trips are still written to
+Silver; only the downstream Gold step is stopped. `olf check contracts` does
+not read policy keys, so a wrong combination fails when Floe loads the
+contract. Keep thresholds in the contract, never in shared platform code.
+
 ## 3. Validate before deploying
 
 ```bash

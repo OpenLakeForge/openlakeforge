@@ -1,6 +1,6 @@
 """Floe check evidence to `quality_result` records.
 
-The fixtures mirror what floe-python 0.10.1 writes to `run.json` and what dagster-floe 0.6.0 puts in each of
+The fixtures mirror what floe-python 0.10.2 writes to `run.json` and what dagster-floe 0.6.1 puts in each of
 its five asset checks, down to the metadata keys, so a Floe upgrade that renames one fails here.
 """
 
@@ -216,9 +216,7 @@ def test_an_unreadable_or_empty_report_cannot_pass(missing: dict[str, Any] | Non
 
 def test_a_failure_survives_a_missing_report() -> None:
     checks = all_passing("aborted")
-    checks["floe_file_status"] = check(
-        "floe_file_status", passed=False, run_status="aborted", fallback="summary_only"
-    )
+    checks["floe_file_status"] = check("floe_file_status", passed=False, run_status="aborted", fallback="summary_only")
     result = by_check(manifest_for(FloeEntityEvidence("orders", tuple(checks.values()), None)))["floe_file_status"]
     assert (result.outcome, result.pipeline_outcome) == (QualityOutcome.ERROR, PipelineOutcome.BLOCKED)
     assert result.engine_severity == "unknown"
@@ -277,9 +275,7 @@ def test_no_row_values_or_schema_detail_reach_the_manifest() -> None:
 
 
 def test_a_presigned_report_uri_is_left_out_rather_than_stored() -> None:
-    checks = {
-        name: check(name, entity_report_uri=REPORT_URI + "?X-Amz-Signature=abc") for name in FLOE_CHECK_IDS
-    }
+    checks = {name: check(name, entity_report_uri=REPORT_URI + "?X-Amz-Signature=abc") for name in FLOE_CHECK_IDS}
     assert {r.artifact_uri for r in manifest_for(entity(checks)).results} == {None}
 
 
@@ -316,3 +312,41 @@ def test_read_entity_report_returns_none_when_the_report_cannot_be_read() -> Non
     assert read_entity_report(REPORT_URI, read=broken) is None
     assert read_entity_report(None, read=broken) is None
     assert read_entity_report(REPORT_URI, read=lambda _uri: report()) == report()
+
+
+def _rate_report(rate: float, limit: float) -> dict[str, Any]:
+    policy = {"severity": "reject", "max_rejection_rate": limit, "rejection_rate": rate}
+    return report() | {"policy": policy | {"max_rejection_rate_exceeded": rate > limit}}
+
+
+def test_a_rejection_rate_over_its_limit_blocks_although_the_severity_is_reject() -> None:
+    # floe_run_status stays `success` here: only the policy block says Floe aborted the entity.
+    checks = {name: check(name, passed=False, rejected=30) for name in FLOE_CHECK_IDS}
+    evidence = FloeEntityEvidence("orders", tuple(checks.values()), _rate_report(0.3, 0.1))
+    results = by_check(manifest_for(evidence))
+    assert {r.pipeline_outcome for r in results.values()} == {PipelineOutcome.BLOCKED}
+    assert results["floe_not_null"].metrics["max_rejection_rate_exceeded"] == 1
+    assert results["floe_not_null"].metrics["rejection_rate"] == 0.3
+
+
+def test_a_rejection_rate_under_its_limit_still_quarantines_and_carries_the_threshold() -> None:
+    checks = all_passing()
+    checks["floe_not_null"] = check("floe_not_null", passed=False, reject_violations=2, rejected=2)
+    evidence = FloeEntityEvidence("orders", tuple(checks.values()), _rate_report(0.02, 0.1))
+    result = by_check(manifest_for(evidence))["floe_not_null"]
+    assert (result.outcome, result.pipeline_outcome) == (QualityOutcome.ERROR, PipelineOutcome.QUARANTINED)
+    assert result.metrics["max_rejection_rate_exceeded"] == 0
+    assert result.metrics["rejection_rate"] == 0.02
+
+
+def test_dagster_check_metadata_wins_over_the_report_for_the_rate() -> None:
+    meta = {"floe/max_rejection_rate": 0.2, "floe/rejection_rate": 0.5, "floe/max_rejection_rate_exceeded": True}
+    checks = {name: check(name, passed=False, **meta) for name in FLOE_CHECK_IDS}
+    result = by_check(manifest_for(FloeEntityEvidence("orders", tuple(checks.values()), report())))["floe_file_status"]
+    assert result.pipeline_outcome == PipelineOutcome.BLOCKED
+    assert result.metrics["max_rejection_rate"] == 0.2
+
+
+def test_a_contract_without_a_limit_adds_no_rate_metrics() -> None:
+    results = by_check(manifest_for(entity(all_passing())))
+    assert not any("rejection_rate" in key for r in results.values() for key in r.metrics)

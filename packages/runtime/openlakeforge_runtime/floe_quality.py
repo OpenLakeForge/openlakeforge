@@ -32,13 +32,17 @@ from openlakeforge_runtime.s3_artifacts import read_json_uri
 
 ENGINE = "floe"
 
-# dagster_floe.asset_checks.FLOE_CHECK_NAMES, pinned with floe-python 0.10.1 / dagster-floe 0.6.0.
+# dagster_floe.asset_checks.FLOE_CHECK_NAMES, pinned with floe-python 0.10.2 / dagster-floe 0.6.1.
 FLOE_CHECK_IDS = ("floe_cast_error", "floe_not_null", "floe_unique", "floe_schema_mismatch", "floe_file_status")
 
 # Statuses Floe gives a run whose pipeline stopped; the check builders treat both as a failed check.
 _TERMINAL_RUN_STATUSES = frozenset({"failed", "aborted"})
 _POLICIES = frozenset({"warn", "reject", "abort"})
 _UNKNOWN_SEVERITY = "unknown"
+
+# `policy.max_rejection_rate` (floe-python 0.10.2): the report's `policy` block and dagster-floe's `floe/<key>` check
+# metadata carry the same three keys. Past the limit Floe aborts the entity although its severity stays `reject`.
+_RATE_KEYS = ("max_rejection_rate", "rejection_rate", "max_rejection_rate_exceeded")
 
 # Check metadata key -> metric name. A fixed list, so nothing Floe adds to the metadata reaches a record.
 _METRICS = {
@@ -150,12 +154,19 @@ def _result(
 ) -> QualityResult:
     policy = _policy(entity.report)
     meta = _plain(check.metadata) if check else {}
+    rate = _rate_policy(entity.report, meta)
     if check is None:
         # No check results at all means we cannot tell whether Floe ran; some means this one was deselected.
         outcome = QualityOutcome.NOT_RUN if entity.checks else QualityOutcome.UNKNOWN
         pipeline = PipelineOutcome.UNKNOWN
     else:
-        outcome, pipeline = _classify(check, meta, policy, evidenced=_has_evidence(entity.report, meta))
+        outcome, pipeline = _classify(
+            check,
+            meta,
+            policy,
+            evidenced=_has_evidence(entity.report, meta),
+            exceeded=bool(rate.get("max_rejection_rate_exceeded")),
+        )
     return QualityResult(
         engine=ENGINE,
         stage=stage,
@@ -170,19 +181,19 @@ def _result(
         dagster_run_id=dagster_run_id,
         engine_run_id=_text(meta.get("run_id")) or _entity_run_id(entity),
         artifact_uri=_safe_uri(_text(meta.get("entity_report_uri"))),
-        metrics=_metrics(meta),
+        metrics={**_metrics(meta), **rate},
     )
 
 
 def _classify(
-    check: FloeCheckEvidence, meta: Mapping[str, Any], policy: str | None, *, evidenced: bool
+    check: FloeCheckEvidence, meta: Mapping[str, Any], policy: str | None, *, evidenced: bool, exceeded: bool
 ) -> tuple[QualityOutcome, PipelineOutcome]:
     if check.passed:
         # dagster-floe passes every check when it fell back to the run summary, which proves nothing about rows.
         if evidenced:
             return QualityOutcome.PASSED, PipelineOutcome.CONTINUED
         return QualityOutcome.UNKNOWN, PipelineOutcome.UNKNOWN
-    if (_text(meta.get("floe_run_status")) or "").lower() in _TERMINAL_RUN_STATUSES or policy == "abort":
+    if (_text(meta.get("floe_run_status")) or "").lower() in _TERMINAL_RUN_STATUSES or policy == "abort" or exceeded:
         return QualityOutcome.ERROR, PipelineOutcome.BLOCKED
     if check.severity == "WARN":
         return QualityOutcome.WARN, PipelineOutcome.CONTINUED
@@ -210,6 +221,21 @@ def _policy(report: Mapping[str, Any] | None) -> str | None:
     severity = policy.get("severity") if isinstance(policy, Mapping) else None
     # Checked against the three words Floe defines, so a report cannot put anything else in a record.
     return severity if severity in _POLICIES else None
+
+
+def _rate_policy(report: Mapping[str, Any] | None, meta: Mapping[str, Any]) -> dict[str, int | float]:
+    """The rejection-rate limit, the observed rate and whether it was exceeded (1 or 0, a record holds numbers only).
+    Empty for a contract without a limit. The check metadata wins over the report: it is what Dagster shows."""
+    block = report.get("policy") if report else None
+    source = block if isinstance(block, Mapping) else {}
+    found: dict[str, int | float] = {}
+    for key in _RATE_KEYS:
+        value = meta.get(f"floe/{key}", source.get(key))
+        if isinstance(value, bool):
+            found[key] = int(value)
+        elif (number := _number(value)) is not None:
+            found[key] = number
+    return found
 
 
 def _entity_run_id(entity: FloeEntityEvidence) -> str | None:

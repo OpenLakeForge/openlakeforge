@@ -83,9 +83,30 @@ violation to stop Gold sets `severity: abort` on that entity or domain; the deci
 shared platform code. `floe_quality` records the same three outcomes (`quarantined`, `continued`, `blocked`), and
 `tools/olf/tests/runtime/test_quality_propagation.py` runs Silver then Gold to keep the table true.
 
-Floe 0.10.1's policy has a `severity` and nothing else, so there is no contract-defined rejection-rate threshold
-("abort above 5% rejected"). dagster-floe records a `rejection_rate` in the rejected-rows asset's metadata, but nothing compares it
-with a limit. Such a threshold needs a Floe contract field first.
+### Rejection-rate threshold
+
+`policy.max_rejection_rate` (Floe 0.10.2) turns a `reject` policy into "reject, but abort above this share". It is
+a fraction from 0 to 1 and is set in the contract, on the domain's `defaults.policy` or on one entity:
+
+```yaml
+policy: { severity: "reject", max_rejection_rate: 0.05 }
+```
+
+| Rejected share of the entity's rows | Silver | Entity status | Gold |
+| --- | --- | --- | --- |
+| At or below the limit | Invalid rows are quarantined, the rest are accepted | `rejected`, as for any `reject` | Runs |
+| Above the limit | Accepted rows are still written, the rejected rows are still quarantined | `aborted`, exit code 2 | Skipped, the run fails |
+
+- The key is valid only with `severity: reject`. Floe refuses it with `warn` or `abort`, and `olf check contracts`
+  does not read policy keys, so that error appears when Floe loads the contract, not before.
+- The limit travels in the manifest, so a Dagster run enforces it with no code of its own. The threshold stays in the
+  contract: shared platform code holds no limit and no product list.
+- Past the limit the Silver step fails, which is what stops Gold. Nothing is rolled back: the Silver table holds the
+  accepted rows of that run.
+- dagster-floe 0.6.1 shows `floe/max_rejection_rate`, `floe/rejection_rate` and `floe/max_rejection_rate_exceeded`
+  in the metadata of the accepted asset, of the failed step and of the `floe_file_status` check.
+  `floe_quality` records the same three as metrics on every check of the entity, `max_rejection_rate_exceeded` as 1
+  or 0, and ends such a run `blocked` although the policy word is still `reject`.
 
 ## Supported catalogs
 
