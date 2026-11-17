@@ -1286,6 +1286,17 @@
             ],
             "title": "Expires At"
           },
+          "max_age_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Age Seconds"
+          },
           "observed_at": {
             "anyOf": [
               {
@@ -1302,6 +1313,10 @@
             "title": "Reason",
             "type": "string"
           },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
           "state": {
             "enum": [
               "healthy",
@@ -1316,10 +1331,12 @@
         },
         "required": [
           "component",
+          "source",
           "state",
           "reason",
           "observed_at",
-          "expires_at"
+          "expires_at",
+          "max_age_seconds"
         ],
         "title": "ServiceHealth",
         "type": "object"
