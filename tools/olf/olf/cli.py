@@ -15,6 +15,7 @@ from typer.models import CommandInfo, TyperInfo
 
 import olf
 from olf.common.commands import (
+    alert,
     checks,
     contracts,
     diagnostics,
@@ -149,6 +150,7 @@ app.add_typer(layers.app, name="layers")
 app.add_typer(release.app, name="release")
 app.add_typer(source.app, name="source")
 app.add_typer(domain.app, name="domain")
+app.add_typer(alert.app, name="alert")
 app.add_typer(profile.app, name="profile")
 app.add_typer(toolchain.app, name="toolchain")
 
