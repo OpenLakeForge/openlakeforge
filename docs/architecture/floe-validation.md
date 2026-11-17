@@ -65,6 +65,28 @@ are the asset `<domain>/rejected/<table>`. The manifest is named
 | Isolation | A domain's Job has its own pod and memory; it does not share the Dagster run pod's memory or its mounted credentials. A run creates one pod per domain it touches. Each Job requests 500m CPU and 1 GiB and is limited to 6 GiB of memory: Floe caps DuckDB (merges, compaction) at 4 GB and needs about 2 GiB above it. The Job and its pod carry the `dagster/run-id` label of the run that started them. |
 | Run reports | Floe writes them to `floe/reports/<domain>/run_<id>/` under the stage's artifact prefix, and dagster-floe reads them back with `boto3` to attach each entity's row, accepted and rejected counts and asset-check detail. |
 
+## Quality outcomes and Silver to Gold
+
+OpenLakeForge adds no validation engine. The five Dagster asset checks of each Silver table
+(`floe_cast_error`, `floe_not_null`, `floe_unique`, `floe_schema_mismatch`, `floe_file_status`) come from
+dagster-floe, and the contract's `policy.severity` decides what a violation does. None of the checks is
+`blocking` in Dagster, so a failed check never stops Gold by itself.
+
+| Contract policy | Silver | Check result | Gold | Quality signal |
+| --- | --- | --- | --- | --- |
+| `warn` | Rows are accepted | `WARN`, failed | Runs | `warning` |
+| `reject` | Invalid rows go to the quarantine sink, the rest are accepted | `ERROR`, failed | Runs | `warning` |
+| `abort` | The Floe run ends `aborted` and the Silver step fails | `ERROR`, failed | Skipped, the run fails | `critical` |
+
+Rejected rows are therefore not a failed run: Gold is built from the accepted rows. A team that wants a
+violation to stop Gold sets `severity: abort` on that entity or domain; the decision lives in the contract, not in
+shared platform code. `floe_quality` records the same three outcomes (`quarantined`, `continued`, `blocked`), and
+`tools/olf/tests/runtime/test_quality_propagation.py` runs Silver then Gold to keep the table true.
+
+Floe 0.10.1's policy has a `severity` and nothing else, so there is no contract-defined rejection-rate threshold
+("abort above 5% rejected"). dagster-floe records a `rejection_rate` in the rejected-rows asset's metadata, but nothing compares it
+with a limit. Such a threshold needs a Floe contract field first.
+
 ## Supported catalogs
 
 The local and Azure providers write Silver through Polaris, a REST catalog. An
