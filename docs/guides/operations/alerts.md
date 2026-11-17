@@ -136,7 +136,7 @@ stages, with which thresholds, and which receivers hear about each. It is
 optional and silent by default: a product, stage or condition that no rule
 names does not alert. The profile still owns the receivers and their Secrets; a
 policy only names them. Every key, type and default is in the
-[descriptor reference](../../reference/descriptors.md#alertsyml).
+[alert policy reference](../../reference/alert-policy.md).
 
 The file travels in the project revision, so each stage is judged by the policy
 of its active revision and a change reaches a stage when you deploy a revision
