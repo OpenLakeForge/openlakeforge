@@ -23,6 +23,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import yaml
+from openlakeforge_core.stages import StageName
 
 from olf.common import config
 from olf.common.contract_validation import ProviderContractError, _oidc_issuer_url
@@ -117,12 +118,6 @@ _STAGE_SERVICES = ("orchestration", "reporting")
 
 class DeploymentProfileError(ValueError):
     """Raised when a Deployment Profile is invalid."""
-
-
-class StageName(StrEnum):
-    DEV = "dev"
-    UAT = "uat"
-    PROD = "prod"
 
 
 # Object-store bucket names are `<prefix>-<stage>-<layer>` on every provider (ADR 0004) and the prefix is

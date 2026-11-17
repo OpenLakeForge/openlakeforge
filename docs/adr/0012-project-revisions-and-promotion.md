@@ -29,7 +29,7 @@ content-addressed revision, covering the complete promotable project:
 
 | Component | Source | Excluded because |
 | --- | --- | --- |
-| `descriptors` | `lakehouse_code/governance.yml`, `bronze/<source>/source.yaml` | — |
+| `descriptors` | `lakehouse_code/governance.yml`, `bronze/<source>/source.yaml`, and `lakehouse_code/alerts.yml` when the project has one | — |
 | `floe` | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/domain.yml`, `silver/<domain>/contracts/*.yml` | — |
 | `dbt` | `gold/**` (no `profiles.yml`, `target/`, `dbt_packages/`, `logs/`) | stage connection and build output, not input |
 | `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | — |
@@ -256,3 +256,8 @@ They were `silver/<domain>/contracts/floe/*.yml` with `_domain.yml`.
 2026-11-13: the `floe` component's domain file is `silver/<domain>/domain.yml`,
 which loads the entities in `silver/<domain>/contracts/*.yml` through its
 `entities` glob (Floe 0.10.1). It was `silver/<domain>/contracts/domain.yml`.
+
+2026-11-17: the `descriptors` component also freezes `lakehouse_code/alerts.yml` when it exists, so the alert
+evaluator reads the policy of the revision a stage is running (ADR 0023, decision 10). A revision of a project
+without the file is unchanged; the readers of `ACTIVE.json`, the activation record and the sidecar moved to
+`openlakeforge_core` so the evaluator image, which has no `olf`, can use them.

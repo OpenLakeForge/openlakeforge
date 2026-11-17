@@ -33,6 +33,21 @@ def test_revision_is_stable_across_repeated_builds(external_project: Path) -> No
     assert first.to_json() == second.to_json()
 
 
+def test_alerts_yml_is_part_of_the_descriptors_component_only_when_the_project_has_one(external_project: Path) -> None:
+    alerts = external_project / "lakehouse_code" / "alerts.yml"
+    alerts.unlink(missing_ok=True)
+    without = _build(external_project)
+    alerts.write_text("apiVersion: openlakeforge.io/v1alpha1\n")
+    with_alerts = _build(external_project)
+
+    descriptors_without = without.component("descriptors")
+    descriptors_with = with_alerts.component("descriptors")
+    assert descriptors_without is not None and descriptors_with is not None
+    assert "lakehouse_code/alerts.yml" not in descriptors_without.entries
+    assert "lakehouse_code/alerts.yml" in descriptors_with.entries
+    assert without.revision != with_alerts.revision
+
+
 def test_the_published_example_image_is_frozen_into_the_revision_without_docker(external_project: Path) -> None:
     pin = "ghcr.io/openlakeforge/openlakeforge/project-code:0.5.0@sha256:" + "c" * 64
 
@@ -335,9 +350,7 @@ def test_build_rejects_a_component_file_containing_a_stage_bound_value(external_
         _build(external_project)
 
 
-def test_publish_fails_closed_when_a_source_file_changes_after_build(
-    external_project: Path, tmp_path: Path
-) -> None:
+def test_publish_fails_closed_when_a_source_file_changes_after_build(external_project: Path, tmp_path: Path) -> None:
     manifest = _build(external_project)
     store = FilesystemRevisionStore(tmp_path / "store")
 
@@ -443,7 +456,7 @@ def test_build_rejects_a_concrete_aws_access_key_id(external_project: Path) -> N
 def test_build_rejects_a_concrete_credential_assignment(external_project: Path) -> None:
     descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
-    descriptor.write_text(original + '\n# password: production-password\n')
+    descriptor.write_text(original + "\n# password: production-password\n")
 
     with pytest.raises(project_revision.ProjectRevisionError, match="stage-bound value"):
         _build(external_project)
@@ -462,8 +475,7 @@ def test_build_still_allows_secret_and_client_secret_key_references(external_pro
     descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
     descriptor.write_text(
-        original
-        + "\n# references, not assignments: secret_name: seaweedfs-s3-creds, "
+        original + "\n# references, not assignments: secret_name: seaweedfs-s3-creds, "
         "secretRef: polaris-floe-creds, client_secret_key: POLARIS_FLOE_CLIENT_SECRET\n"
     )
 
@@ -486,7 +498,7 @@ def test_validate_rejects_a_self_consistent_sidecar_with_a_mutable_image(externa
         distribution_version=manifest.distribution_version,
         project_code_image=mutable_image,
         components=components,
-        revision=project_revision._aggregate_components(components),
+        revision=project_revision.aggregate_components(components),
     )
 
     with pytest.raises(project_revision.ProjectRevisionError, match="not digest-pinned"):
@@ -557,9 +569,7 @@ def test_editing_any_file_floe_reads_moves_the_revision(external_project: Path, 
 def test_build_allows_python_environment_lookups(external_project: Path) -> None:
     descriptor = external_project / "lakehouse_code/governance.yml"
     original = descriptor.read_text()
-    descriptor.write_text(
-        original + '\n# token = os.environ["API_TOKEN"]\n# password = os.getenv("DB_PASSWORD")\n'
-    )
+    descriptor.write_text(original + '\n# token = os.environ["API_TOKEN"]\n# password = os.getenv("DB_PASSWORD")\n')
 
     manifest = _build(external_project)  # must not raise
 
@@ -647,7 +657,7 @@ def test_validate_rejects_a_sidecar_missing_required_components(external_project
         distribution_version=manifest.distribution_version,
         project_code_image=manifest.project_code_image,
         components=kept,
-        revision=project_revision._aggregate_components(kept),
+        revision=project_revision.aggregate_components(kept),
     )
 
     with pytest.raises(project_revision.ProjectRevisionError, match="missing required component"):
@@ -662,7 +672,7 @@ def test_validate_rejects_a_sidecar_with_an_unknown_component_name(external_proj
         distribution_version=manifest.distribution_version,
         project_code_image=manifest.project_code_image,
         components=components,
-        revision=project_revision._aggregate_components(components),
+        revision=project_revision.aggregate_components(components),
     )
 
     with pytest.raises(project_revision.ProjectRevisionError, match="unknown component"):
@@ -682,9 +692,7 @@ def test_resolve_image_digest_selects_the_repo_digest_matching_the_requested_rep
         def image_inspect(self, image: str, *, check: bool = False) -> CommandResult:  # noqa: ARG002
             import json as _json
 
-            payload = _json.dumps(
-                [{"Id": "sha256:" + "0" * 64, "RepoDigests": [wrong_repo_digest, right_repo_digest]}]
-            )
+            payload = _json.dumps([{"Id": "sha256:" + "0" * 64, "RepoDigests": [wrong_repo_digest, right_repo_digest]}])
             return CommandResult(argv=("docker",), returncode=0, stdout=payload, stderr="", duration_seconds=0.0)
 
     class _FakeToolkit:

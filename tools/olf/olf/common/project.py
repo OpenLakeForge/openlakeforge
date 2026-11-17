@@ -41,6 +41,10 @@ class ProjectSpec:
         return self.code_root / "governance.yml"
 
     @property
+    def alerts_path(self) -> Path:
+        return self.code_root / "alerts.yml"
+
+    @property
     def bronze_root(self) -> Path:
         return self.code_root / "bronze"
 

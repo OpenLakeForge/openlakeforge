@@ -152,7 +152,7 @@ def test_materialize_rejects_path_escape(tmp_path: Path) -> None:
         distribution_version="0.2.0-alpha.1",
         project_code_image=_IMAGE,
         components=tuple(required),
-        revision=project_revision._aggregate_components(required),  # noqa: SLF001 - crafted hostile sidecar shape
+        revision=project_revision.aggregate_components(required),
     )
 
     with pytest.raises(project_revision.ProjectRevisionError, match="unsafe artifact path"):
