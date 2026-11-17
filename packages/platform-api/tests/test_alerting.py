@@ -161,6 +161,23 @@ def test_one_stage_with_unusable_objects_does_not_stop_the_others() -> None:
     ] == ["prod"]
 
 
+def test_an_unexpected_error_reading_one_stage_does_not_stop_the_others() -> None:
+    import json as _json
+
+    bucket, notifier = FakeBucket(), FakeNotifier()
+    dagster = {"dev": FakeDagster(), "prod": FakeDagster([_failed()])}
+    activation = publish(bucket, stage="dev")
+    key = f"activations/dev/revisions/sha256/{activation.activation_revision.removeprefix('sha256:')}/ACTIVATION.json"
+    record = _json.loads(bucket.objects[key])
+    record["capabilities"] = None
+    bucket.objects[key] = _json.dumps(record).encode()
+
+    summary = _evaluate(_settings(A, stages=("dev", "prod")), bucket, dagster, {"ops": notifier})
+
+    assert summary.policy_unreadable == ("dev",)
+    assert len(notifier.sent) == 1
+
+
 def test_a_clean_policy_read_is_not_reported_unreadable() -> None:
     bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
     publish(bucket)

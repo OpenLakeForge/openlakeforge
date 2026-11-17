@@ -284,3 +284,33 @@ def test_a_route_to_a_dropped_receiver_is_logged(from_cache: bool, caplog: pytes
     assert any(
         "dev" in r.getMessage() and "pager" not in r.getMessage() and "ops" in r.getMessage() for r in caplog.records
     )
+
+
+def test_a_wrongly_typed_activation_field_is_unreadable_not_fatal() -> None:
+    bucket = FakeBucket()
+    activation = publish(bucket)
+    key = activation_key(activation.activation_revision, stage="dev")
+    record = json.loads(bucket.objects[key])
+    record["capabilities"] = None
+    bucket.objects[key] = json.dumps(record).encode()
+
+    found = read(bucket)
+
+    assert found.unreadable is not None and found.policy.rules == ()
+
+
+class _Exploding(FakeBucket):
+    def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        if Key.startswith("activations/"):
+            raise RuntimeError("the client library broke")
+        return super().get_object(Bucket=Bucket, Key=Key)
+
+
+def test_an_unexpected_error_from_the_store_is_unreadable_not_fatal(caplog: pytest.LogCaptureFixture) -> None:
+    bucket = _Exploding()
+    publish(bucket)
+
+    found = read(bucket)
+
+    assert found.unreadable is not None and "the client library broke" in found.unreadable
+    assert any(record.exc_info for record in caplog.records)
