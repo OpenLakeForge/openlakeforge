@@ -1,0 +1,95 @@
+name: Feature Request
+description: Propose a small, scoped enhancement to OpenLakeForge
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an enhancement!
+
+        **Before submitting:**
+        - Search [existing issues](https://github.com/OpenLakeForge/openlakeforge/issues) to avoid duplicates
+        - Review [milestones](https://github.com/OpenLakeForge/openlakeforge/milestones) to see if this is already planned
+        - Check [AGENTS.md non-goals](../AGENTS.md#non-goals) to ensure this aligns with project scope
+
+        Keep your proposal focused on the **problem** rather than specific technical architecture.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this enhancement solve? Who experiences it and when?
+      placeholder: |
+        Describe the issue or limitation you're encountering.
+        Example: "Data engineers need to inspect project contents without deploying to Kubernetes..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-outcome
+    attributes:
+      label: Proposed User-Visible Outcome
+      description: What should the end-user experience be after this enhancement? Focus on the "what," not the "how."
+      placeholder: |
+        Describe the expected result from a user's perspective.
+        Example: "Running `olf project summary` displays source names, domain counts, and product names..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or Workarounds
+      description: Are there existing solutions or workarounds? What are their limitations?
+      placeholder: |
+        Describe what you currently do to work around this limitation.
+        Example: "Currently, I manually grep through YAML files, but this doesn't validate structure..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment-target
+    attributes:
+      label: Deployment Target
+      description: If relevant, which deployment environment does this affect?
+      options:
+        - Local (kind)
+        - AWS
+        - Azure
+        - All environments
+        - Not deployment-specific
+    validations:
+      required: false
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out-of-Scope Assumptions
+      description: |
+        What constraints or non-goals should implementers be aware of?
+        Examples: "This should work without Docker," "No new external dependencies," "Must stay under 100 LOC"
+      placeholder: List any constraints, non-goals, or assumptions
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, mockups, examples, or related issues
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: acknowledgments
+    attributes:
+      label: Acknowledgments
+      description: Please confirm the following
+      options:
+        - label: I have searched existing issues and milestones to ensure this is not a duplicate or already planned
+          required: true
+        - label: I have reviewed [AGENTS.md non-goals](../AGENTS.md#non-goals) and this proposal aligns with project scope
+          required: true
+        - label: This proposal focuses on a problem statement rather than requiring specific technical architecture
+          required: false
