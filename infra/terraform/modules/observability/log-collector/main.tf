@@ -3,8 +3,11 @@
 # Platform phase only (ADR 0002): it reads the node's log files and the pod
 # metadata the API server holds, and never project code.
 locals {
-  labels    = { "app.kubernetes.io/name" = var.release_name }
-  http_port = 2020
+  labels = { "app.kubernetes.io/name" = var.release_name }
+  # The DaemonSet selects on more than the network-flow label: a bare pod carrying only that label (the e2e's flow
+  # probe) would otherwise be adopted and deleted as an excess daemon pod.
+  pod_labels = merge(local.labels, { "app.kubernetes.io/component" = "collector" })
+  http_port  = 2020
   # The spool probe sidecar (ADR 0022, decision 2); present only with an image to run it.
   probe_port    = 2021
   probe_enabled = var.probe_image != null
@@ -129,12 +132,12 @@ resource "kubernetes_daemon_set_v1" "collector" {
 
   spec {
     selector {
-      match_labels = local.labels
+      match_labels = local.pod_labels
     }
 
     template {
       metadata {
-        labels = local.labels
+        labels = local.pod_labels
         annotations = {
           "openlakeforge.io/config-hash" = sha256("${local.config}${local.record_lua}")
         }
@@ -327,7 +330,7 @@ resource "kubernetes_service_v1" "probe" {
   spec {
     cluster_ip                  = "None"
     publish_not_ready_addresses = true
-    selector                    = local.labels
+    selector                    = local.pod_labels
     port {
       name        = "probe"
       port        = local.probe_port
