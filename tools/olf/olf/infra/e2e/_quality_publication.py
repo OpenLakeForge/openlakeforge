@@ -220,7 +220,7 @@ def _delete_case(client: OpenMetadataClient, fqn: str) -> None:
         client.request(
             "DELETE",
             "/api/v1/dataQuality/testCases/name/" + urllib.parse.quote(fqn, safe=""),
-            params={"hardDelete": "true"},
+            params={"hardDelete": "true", "recursive": "true"},
             ok_statuses=(200, 404),
         )
     except OpenMetadataError as exc:
