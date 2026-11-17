@@ -214,3 +214,25 @@ def test_no_flow_row_names_the_stage_coordinators_as_a_shared_workload() -> None
         "trino" not in str(row["to"].get("pods", {}).get("app.kubernetes.io/name"))
         for row in FLOWS["flows"]
     )
+
+
+def test_a_labelled_probe_pod_has_a_controller_so_no_workload_adopts_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake(_cfg: object, argv: list[str], **_k: object) -> str:
+        calls.append(argv)
+        return "ns-uid" if argv[:2] == ["get", "namespace"] else ""
+
+    monkeypatch.setattr(_network, "kubectl", fake)
+    monkeypatch.setattr(_network, "SETTLE_SECONDS", 0)
+    monkeypatch.setattr(
+        _network.yaml, "safe_load", lambda _text: {"components": {"images": {"k8s_bootstrap": "busybox"}}}
+    )
+    cfg = SimpleNamespace(distribution_root=Path(__file__).parents[4], environ={})
+    with _network._probe_pod(cfg, "olf-system", {"app.kubernetes.io/name": "log-collector"}, "p"):  # type: ignore[arg-type]
+        pass
+    run = next(c for c in calls if c[0] == "run")
+    override = json.loads(next(a for a in run if a.startswith("--overrides=")).split("=", 1)[1])
+    (owner,) = override["metadata"]["ownerReferences"]
+    assert owner["controller"] is True
+    assert (owner["kind"], owner["name"], owner["uid"]) == ("Namespace", "olf-system", "ns-uid")
