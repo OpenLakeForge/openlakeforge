@@ -15,6 +15,7 @@ from olf.platform import api
 fake = test_reads.fake  # the fake platform API fixture
 
 NOW = "2026-11-16T09:00:00Z"
+EXPIRES = "2026-11-16T09:01:00Z"
 
 
 def _signal(state: str, reason: str) -> dict[str, Any]:
@@ -52,7 +53,7 @@ def _stage(state: str) -> dict[str, Any]:
                 "state": "healthy",
                 "reason": "probe answered",
                 "observed_at": NOW,
-                "expires_at": None,
+                "expires_at": EXPIRES,
             },
             {
                 "component": "polaris",
@@ -100,8 +101,11 @@ def test_health_shows_each_service_and_pipeline_and_the_unavailable_integration(
 
     result = _olf("health", "dev")
 
-    assert "polaris | critical | polaris is critical" in result.stdout
-    assert "trino   | healthy  | probe answered" in result.stdout
+    assert "polaris | critical | never" in result.stdout
+    assert "polaris is critical" in result.stdout
+    assert "trino   | healthy  | " + NOW in result.stdout
+    assert EXPIRES in result.stdout
+    assert "probe answered" in result.stdout
     assert "orders_job | critical" in result.stdout
     assert "quality is unavailable: Floe reports are not read" in result.stdout
 
