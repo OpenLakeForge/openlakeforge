@@ -55,3 +55,11 @@ def test_every_prod_step_keys_off_the_profile_not_the_stage_scope_input() -> Non
     for step in STEPS:
         if "PROD" in step["name"] and "if" in step:
             assert "inputs.stage_scope" not in step["if"], step["name"]
+
+
+def test_checks_none_leaves_the_stage_e2e_environment_empty() -> None:
+    expression = _step("Activate the revision in DEV")["with"]["e2e-env"]
+
+    # `cond && '' || 'local'` is always 'local': an empty string is falsy in the expression language.
+    assert "&& ''" not in expression
+    assert expression.endswith("|| '' }}")

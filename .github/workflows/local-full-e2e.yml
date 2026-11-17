@@ -303,7 +303,8 @@ jobs:
         # replaces it, and then the profile alone decides the stages. Inline
         # text goes through the environment, never into the script, so a
         # profile cannot inject shell. `prod` is what every PROD step below
-        # keys off, whichever way the profile arrived.
+        # keys off, whichever way the profile arrived; a stage block that
+        # omits `enabled` is enabled, as the profile loader resolves it.
         if: (inputs.suite || 'full') != 'smoke'
         id: profile
         env:
@@ -352,7 +353,7 @@ jobs:
           olf profile validate --project .
           olf project validate --project . > /dev/null
           prod="$(uv run --project "${GITHUB_WORKSPACE}/tools/olf" --locked python -c \
-            'import sys, yaml; stages = (yaml.safe_load(open(sys.argv[1])).get("spec") or {}).get("stages") or {}; print("true" if (stages.get("prod") or {}).get("enabled") else "false")' \
+            'import sys, yaml; stages = (yaml.safe_load(open(sys.argv[1])).get("spec") or {}).get("stages") or {}; prod = stages.get("prod"); print("true" if isinstance(prod, dict) and prod.get("enabled", True) is not False else "false")' \
             openlakeforge.yaml)"
           echo "custom=${custom}" >> "${GITHUB_OUTPUT}"
           echo "prod=${prod}" >> "${GITHUB_OUTPUT}"
@@ -462,7 +463,7 @@ jobs:
           profile: ${{ env.PROJECT_DIR }}/openlakeforge.yaml
           stage: dev
           revision: ${{ steps.revision.outputs.revision }}
-          e2e-env: ${{ inputs.checks == 'none' && '' || 'local' }}
+          e2e-env: ${{ inputs.checks != 'none' && 'local' || '' }}
           e2e-checks: ${{ inputs.checks == 'none' && 'core' || inputs.checks || 'all' }}
 
       # v0.3 release gate: promotion copies no lakehouse data. PROD's Bronze,
