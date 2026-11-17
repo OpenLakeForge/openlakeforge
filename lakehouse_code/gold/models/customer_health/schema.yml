@@ -10,31 +10,43 @@ models:
     description: Account-level health score using subscription, support, and NPS signals. One row per account.
     columns:
       - name: account_id
+        data_type: varchar
         description: Account identifier; the grain.
         data_tests:
           - unique
           - not_null
       - name: account_name
+        data_type: varchar
         description: Account display name.
       - name: segment
+        data_type: varchar
         description: Account segment.
       - name: region
+        data_type: varchar
         description: Account region.
       - name: arr
+        data_type: double
         description: Annual recurring revenue of the account.
       - name: subscription_status
+        data_type: varchar
         description: Status of the account's subscription.
       - name: monthly_recurring_revenue
+        data_type: double
         description: Monthly recurring revenue of the account's subscription.
       - name: ticket_count
+        data_type: bigint
         description: Support tickets opened by the account.
       - name: avg_resolution_hours
+        data_type: double
         description: Average ticket resolution time in hours; 0 without tickets.
       - name: sla_rate
+        data_type: double
         description: Share of tickets that met their SLA; 1 without tickets.
       - name: avg_nps
+        data_type: double
         description: Average NPS score; 7 without responses.
       - name: health_score
+        data_type: double
         description: Composite score from NPS, SLA rate, ticket count and past-due status.
   - name: mart_churn_risk_by_segment
     description: Churn risk and ARR exposure grouped by account segment and region. One row per segment, region and churn risk band.
@@ -47,22 +59,28 @@ models:
               - churn_risk
     columns:
       - name: segment
+        data_type: varchar
         description: Account segment.
         data_tests:
           - not_null
       - name: region
+        data_type: varchar
         description: Account region.
         data_tests:
           - not_null
       - name: churn_risk
+        data_type: varchar
         description: Churn risk band derived from the health score, high, medium or low.
         data_tests:
           - not_null
       - name: account_count
+        data_type: bigint
         description: Accounts in the band.
       - name: arr_at_risk
+        data_type: double
         description: Summed ARR of the accounts in the band.
       - name: avg_health_score
+        data_type: double
         description: Average health score of the accounts in the band.
   - name: mart_support_sla_by_customer
     description: Support volume, resolution hours, and SLA rate by customer and priority. One row per account and ticket priority.
@@ -74,24 +92,33 @@ models:
               - priority
     columns:
       - name: account_id
+        data_type: varchar
         description: Account identifier.
         data_tests:
           - not_null
       - name: account_name
+        data_type: varchar
         description: Account display name.
       - name: segment
+        data_type: varchar
         description: Account segment.
       - name: region
+        data_type: varchar
         description: Account region.
       - name: priority
+        data_type: varchar
         description: Ticket priority.
         data_tests:
           - not_null
       - name: ticket_count
+        data_type: bigint
         description: Tickets at this priority.
       - name: avg_resolution_hours
+        data_type: double
         description: Average resolution time in hours.
       - name: tickets_met_sla
+        data_type: bigint
         description: Tickets that met their SLA.
       - name: sla_rate
+        data_type: double
         description: Share of tickets that met their SLA.
