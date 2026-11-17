@@ -128,6 +128,11 @@ output "provider_contracts" {
       } : {})
     }
   }
+
+  precondition {
+    condition     = var.metrics_query.api == null || var.observability_support.metrics
+    error_message = "metrics_query is set only when observability_support.metrics is true: an unsupported capability carries no query endpoint."
+  }
 }
 
 output "stage_metadata_database_contracts" {

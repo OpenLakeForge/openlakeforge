@@ -306,3 +306,13 @@ run "metrics_query_requires_both_fields" {
 
   expect_failures = [var.metrics_query]
 }
+
+run "metrics_query_requires_a_supported_capability" {
+  command = plan
+
+  variables {
+    metrics_query = { api = "prometheus-http-v1", url = "http://prometheus.olf-system.svc:9090" }
+  }
+
+  expect_failures = [output.provider_contracts]
+}
