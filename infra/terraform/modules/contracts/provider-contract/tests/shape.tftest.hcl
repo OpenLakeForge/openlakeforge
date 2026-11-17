@@ -307,6 +307,17 @@ run "metrics_query_requires_both_fields" {
   expect_failures = [var.metrics_query]
 }
 
+run "metrics_query_rejects_an_empty_url" {
+  command = plan
+
+  variables {
+    observability_support = { logs_archive = true, logs_archive_retention = false, logs_search = false, metrics = true, metrics_retention = true, grafana = false, alerts = false }
+    metrics_query         = { api = "prometheus-http-v1", url = "" }
+  }
+
+  expect_failures = [var.metrics_query]
+}
+
 run "metrics_query_requires_a_supported_capability" {
   command = plan
 

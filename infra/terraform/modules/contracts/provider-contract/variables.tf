@@ -143,6 +143,11 @@ variable "metrics_query" {
     condition     = var.metrics_query.api == null || var.metrics_query.api == "prometheus-http-v1"
     error_message = "metrics_query.api must be \"prometheus-http-v1\" or null."
   }
+
+  validation {
+    condition     = var.metrics_query.url == null || try(length(var.metrics_query.url) > 0, false)
+    error_message = "metrics_query.url must be a non-empty string or null."
+  }
 }
 
 variable "observability_support" {
