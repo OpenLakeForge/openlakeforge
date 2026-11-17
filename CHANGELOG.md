@@ -33,9 +33,18 @@ for how a release is cut and verified.
   only. They need the platform API, so on the local provider a profile with
   `spec.identity`. `policy_unreadable` reports a stage whose alert policy cannot
   be used.
+- Rejection-rate threshold (#345): a Floe contract's `policy` may set
+  `max_rejection_rate` (a fraction, with `severity: reject`) per domain or per
+  entity. Above it the entity ends `aborted`, accepted rows are still written,
+  and Gold is skipped. The quality record carries the limit, the observed rate
+  and whether it was exceeded. See [Floe
+  validation](docs/architecture/floe-validation.md#rejection-rate-threshold).
 
 ### Changed
 
+- The project-code image and `olf` pin `floe-python` 0.10.2 and `dagster-floe`
+  0.6.1. A `job_scope: domain` step on Kubernetes now writes each entity's
+  checks as that entity finishes.
 - **Product alerts are silent unless `alerts.yml` declares them.** A project
   without the file gets only platform alerts. Before the policy, every
   product's failed runs, missed runs, stale output, quality results and

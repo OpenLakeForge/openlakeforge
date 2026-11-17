@@ -66,7 +66,10 @@ class _FixtureRunner(Runner):
         self._directory = directory
         self.entities: list[str] = []
 
-    def run_floe_entities(self, *, run_id: str | None, domain: str, entities: list[str], **_: Any) -> RunResult:
+    # dagster-floe 0.6.1 reaches this through `Runner.stream_floe_entities`, which passes its arguments by position.
+    def run_floe_entities(
+        self, config_uri: str, run_id: str | None, domain: str, entities: list[str], *_: Any, **__: Any
+    ) -> RunResult:
         self.entities = entities
         outcome = self._outcome
         report = self._directory / "orders.json"
@@ -92,6 +95,17 @@ def _report(rule_severity: str, violations: int = 3) -> dict[str, Any]:
     }
 
 
+def _rate_report(rate: float, limit: float) -> dict[str, Any]:
+    """A `reject` entity with `policy.max_rejection_rate`: floe-python 0.10.2 adds the observed rate and the verdict."""
+    report = _report("reject")
+    report["policy"] |= {
+        "max_rejection_rate": limit,
+        "rejection_rate": rate,
+        "max_rejection_rate_exceeded": rate > limit,
+    }
+    return report
+
+
 _CLEAN = {"policy": {"severity": "reject"}, "files": [{"status": "success"}]}
 
 _REJECTED = _FloeRun("success", 0, "rejected", _report("reject"))
@@ -99,6 +113,9 @@ _WARNED = _FloeRun("success", 0, "success_with_warnings", _report("warn"))
 _CLEAN_RUN = _FloeRun("success", 0, "success", _CLEAN)
 _ABORTED = _FloeRun("aborted", 1, "aborted", _report("abort"))
 _FAILED = _FloeRun("failed", 1, "failed", _report("abort"))
+# Over its limit Floe ends the entity `aborted` with exit code 2 while the severity stays `reject`.
+_OVER_RATE = _FloeRun("aborted", 2, "aborted", _rate_report(0.3, 0.1))
+_UNDER_RATE = _FloeRun("success", 0, "rejected", _rate_report(0.02, 0.1))
 
 
 @pytest.fixture(autouse=True)
@@ -188,3 +205,25 @@ def test_a_clean_run_passes_every_check_and_gold_runs(monkeypatch: pytest.Monkey
 
     assert result.success and entities == [ENTITY] and ran == ["gold"]
     assert {r.outcome for r in _records(result, _CLEAN_RUN).values()} == {QualityOutcome.PASSED}
+
+
+def test_a_rejection_rate_over_its_limit_fails_silver_and_gold_never_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    result, ran, entities = _run(monkeypatch, tmp_path, _OVER_RATE)
+
+    assert not result.success and entities == [ENTITY] and ran == []
+    record = _records(result, _OVER_RATE)["floe_file_status"]
+    assert (record.outcome, record.pipeline_outcome) == (QualityOutcome.ERROR, PipelineOutcome.BLOCKED)
+    assert (record.metrics["max_rejection_rate"], record.metrics["max_rejection_rate_exceeded"]) == (0.1, 1)
+
+
+def test_a_rejection_rate_under_its_limit_quarantines_and_gold_still_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    result, ran, entities = _run(monkeypatch, tmp_path, _UNDER_RATE)
+
+    assert result.success and entities == [ENTITY] and ran == ["gold"]
+    record = _records(result, _UNDER_RATE)["floe_not_null"]
+    assert (record.outcome, record.pipeline_outcome) == (QualityOutcome.ERROR, PipelineOutcome.QUARANTINED)
+    assert (record.metrics["rejection_rate"], record.metrics["max_rejection_rate_exceeded"]) == (0.02, 0)

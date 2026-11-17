@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
@@ -644,15 +644,15 @@ wheels = [
 
 [[package]]
 name = "dagster-floe"
-version = "0.6.0"
+version = "0.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dagster" },
     { name = "jsonschema" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/40/de/679901b556c0b528d9caab1d6832335ffbae6f06d997bf93c3db4b66c580/dagster_floe-0.6.0.tar.gz", hash = "sha256:ebb0570a38507e43fadd721fd2f064adf4007c9a9a473c0eabbd62a6fb178d44", size = 80720, upload-time = "2026-11-09T12:31:13.578Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/28/f8/a07830ab571e460138ca75014949d41e35accee32a6385a5d4dd2e6e332e/dagster_floe-0.6.1.tar.gz", hash = "sha256:a13f97fa4c51fab1cfc064f39cfc6c5f3060c17f355d3726f55db9d5a8be5c37", size = 86245, upload-time = "2026-11-17T16:39:35.613Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f7/ce/406d020df2b28c007df61974137db5051987487e56f0190aa788bad8025c/dagster_floe-0.6.0-py3-none-any.whl", hash = "sha256:07b6a8a7a3ee6c09e73c8f476482ceeb420d3af31749ed24776bf3406baf7c4f", size = 47741, upload-time = "2026-11-09T12:31:11.941Z" },
+    { url = "https://files.pythonhosted.org/packages/65/da/0b580d302fcf7448e319eb524d50bb5779e74dc23e9e5e7dc3fd1df0906b/dagster_floe-0.6.1-py3-none-any.whl", hash = "sha256:b5fd4f7f371cd2e86810bec4a251ef79753b85f9b369c0135307bf8561aea974", size = 50199, upload-time = "2026-11-17T16:39:34.056Z" },
 ]
 
 [package.optional-dependencies]
@@ -855,7 +855,7 @@ dependencies = [
     { name = "giturlparse" },
     { name = "humanize" },
     { name = "jsonpath-ng" },
-    { name = "orjson", marker = "python_full_version >= '3.14' or (platform_python_implementation != 'PyPy' and sys_platform != 'emscripten')" },
+    { name = "orjson", marker = "(python_full_version >= '3.14' and platform_python_implementation == 'PyPy') or (python_full_version >= '3.14' and sys_platform == 'emscripten') or (platform_python_implementation != 'PyPy' and sys_platform != 'emscripten')" },
     { name = "packaging" },
     { name = "pathvalidate" },
     { name = "pendulum" },
@@ -962,7 +962,7 @@ wheels = [
 
 [[package]]
 name = "floe-python"
-version = "0.10.1"
+version = "0.10.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "polars" },
@@ -970,9 +970,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/aa/e0/4f02823cfd41dbf41937f61b616c3cfb66c94ba5bb1f213504c5159a09f1/floe_python-0.10.1.tar.gz", hash = "sha256:bdf7ac8bf691d0ca5c39cf7e4b5edec110a2d176330da6072c83daacc01314a8", size = 1746519, upload-time = "2026-11-13T13:23:35.849Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/48/eb/c213647e65cef9d4d38202b0e23862a9ac0b2c58d9e28c0fb0ef5ea7f8d3/floe_python-0.10.2.tar.gz", hash = "sha256:23f3a24c1804ab67cdaa90b93a6a6dac57952d3a28660ca12ddc26f7902e56dd", size = 1762820, upload-time = "2026-11-17T16:32:41.007Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/87/2587799811d518baa50258e2fad62190d5bb46d470f313f0667432440f6a/floe_python-0.10.1-py3-none-any.whl", hash = "sha256:4fb51969c176972307cceadbb4746bdc768980c3fa3a0e5a262f6989b952d5d8", size = 188248, upload-time = "2026-11-13T13:23:34.473Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/db/c8f4975998e10cd876024fc10ec3ef3f204a7498db8f6a0bd78cc2018bbb/floe_python-0.10.2-py3-none-any.whl", hash = "sha256:34dd68bdedd958901ee61c7399a79abd196690aea78832456b9a7918084f87a5", size = 188786, upload-time = "2026-11-17T16:32:39.48Z" },
 ]
 
 [package.optional-dependencies]
@@ -1886,11 +1886,11 @@ requires-dist = [
 dagster = [
     { name = "dagster", specifier = "==1.13.7" },
     { name = "dagster-dbt", specifier = "==0.29.7" },
-    { name = "dagster-floe", extras = ["floe"], specifier = "==0.6.0" },
+    { name = "dagster-floe", extras = ["floe"], specifier = "==0.6.1" },
     { name = "dbt-core", specifier = "==1.11.17" },
     { name = "dbt-trino", specifier = "==1.10.2" },
     { name = "dlt", specifier = "==1.29.0" },
-    { name = "floe-python", specifier = "==0.10.1" },
+    { name = "floe-python", specifier = "==0.10.2" },
 ]
 dev = [
     { name = "boto3-stubs", specifier = ">=1.43.88" },
