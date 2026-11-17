@@ -30,7 +30,9 @@ ARTIFACT_PREFIXES = ("logs/dagster/compute/",)
 
 def check_ops_artifacts(cfg: E2EConfig) -> None:
     log.step("Checking ops artifact bucket contents...")
-    trigger_log_archive_job(cfg)
+    # The local stack has no polling CronJob: the node collector archives pod logs (ADR 0022).
+    if cfg.env != "local":
+        trigger_log_archive_job(cfg)
     provider_contracts = load_provider_contracts_or_raise(cfg)
     bucket = provider_contracts["shared"]["ops_storage"]["bucket_name"]
     if cfg.env == "aws":

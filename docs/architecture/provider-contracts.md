@@ -118,7 +118,7 @@ once #22 slice b lands.
   "ref": "shared/observability",
   "implementation": "observability.object_log_archive",
   "logs": {
-    "archive": {"enabled": true, "retention_days": 30, "retention_supported": false, "supported": true},
+    "archive": {"enabled": true, "retention_days": 30, "retention_supported": true, "supported": true},
     "search": {"enabled": false, "supported": false}
   },
   "metrics": {"enabled": false, "retention_days": 7, "retention_supported": false, "supported": false},
@@ -134,10 +134,12 @@ archive is always enabled. `alerts.supported` is `true` on the local provider,
 whose alert evaluator CronJob notifies webhook receivers ([ADR 0023](../adr/0023-alert-evaluation-and-webhook-delivery.md)),
 and `false` on AWS and Azure; the example above is one without receivers. `retention_days` is the retention the profile asks
 for; `retention_supported` is whether anything applies it to the stored data.
-It is `false` on every provider today, because no lifecycle rule reaches the log
-prefix, so a 90-day archive setting is a request and not a guarantee until #22
-slice b (archive) and #21 (metrics) enforce it. Only the archive and metrics
-carry the two retention fields. Alert receivers carry a name and a type, never
+`logs.archive.retention_supported` is `true` on the local provider, where the
+object store expires collector archives after `retention_days` ([ADR 0022](../adr/0022-pod-log-collection-and-archive-format.md)),
+and `false` on AWS and Azure, which have no collector and no lifecycle rule yet.
+`metrics.retention_supported` is `false` everywhere until #21 enforces it, so a
+90-day metrics setting is a request and not a guarantee. Only the archive and
+metrics carry the two retention fields. Alert receivers carry a name and a type, never
 their Secret reference. The four capability fields appear together or not at all, so
 contracts already in state stay readable.
 

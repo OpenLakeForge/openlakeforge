@@ -753,8 +753,17 @@ def test_rollout_inherits_the_platform_release_globals(harness) -> None:  # noqa
     assert values["global"]["postgresqlSecretName"] == "postgresql-dagster-olf-prod-creds"
 
 
+def test_the_local_provider_renders_no_polling_log_archiver(harness) -> None:  # noqa: ANN001
+    """The node collector covers local (ADR 0022); a second capture path would write every line twice."""
+    harness.deploy("dev")
+
+    _, values = harness.helm.rollouts[0]
+
+    assert values["extraManifests"] == []
+
+
 def test_rollout_carries_the_activated_image_into_the_log_archiver(harness) -> None:  # noqa: ANN001
-    activation = harness.deploy("dev")
+    activation = harness.deploy("dev", provider_kind=Provider.AWS)
 
     _, values = harness.helm.rollouts[0]
     archiver = values["extraManifests"][0]
@@ -1472,7 +1481,7 @@ def _pull_secret(*hosts: str, secret_type: str = "kubernetes.io/dockerconfigjson
 
 
 def test_without_a_pull_secret_no_pod_references_one(harness) -> None:  # noqa: ANN001
-    harness.deploy("dev")
+    harness.deploy("dev", provider_kind=Provider.AWS)
 
     _, values = harness.helm.rollouts[0]
     archiver = values["extraManifests"][0]["spec"]["jobTemplate"]["spec"]["template"]["spec"]
@@ -1487,7 +1496,7 @@ def test_every_project_code_pod_pulls_with_the_secret(harness) -> None:  # noqa:
     harness.kubectl.secrets["ghcr-pull"] = _pull_secret("ghcr.io")
     harness.kubectl.account_secrets = ["registry-credentials"]
 
-    harness.deploy("dev", pull_secret="ghcr-pull")
+    harness.deploy("dev", pull_secret="ghcr-pull", provider_kind=Provider.AWS)
 
     _, values = harness.helm.rollouts[0]
     archiver = values["extraManifests"][0]["spec"]["jobTemplate"]["spec"]["template"]["spec"]

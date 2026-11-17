@@ -262,7 +262,10 @@ def _user_values(
     code_locations: Sequence[CodeLocation],
     image: str | None = None,
     pull_secret: str | None = None,
+    node_collector: bool = False,
 ) -> dict[str, object]:
+    # `node_collector` is true where the log collector DaemonSet runs (ADR 0022): it already archives every pod's
+    # output, so the polling CronJob is not rendered. Without a collector it stays the only pod-log capture.
     # `image` overrides the activation's own only on the rollback path, where
     # the target is the release that was running rather than the one the
     # pointer names. Image and modules must come from the same place: a
@@ -312,7 +315,9 @@ def _user_values(
     )
     return {
         "global": dict(platform_globals),
-        "extraManifests": [
+        "extraManifests": []
+        if node_collector
+        else [
             _log_archive_manifest(
                 activation,
                 namespace=namespace,
@@ -1007,6 +1012,7 @@ def deploy_revision(
                         platform_globals=platform_globals,
                         code_locations=code_locations,
                         pull_secret=pull_secret,
+                        node_collector=is_local_provider(provider),
                     ),
                     sort_keys=False,
                 )
@@ -1073,6 +1079,7 @@ def deploy_revision(
                                 code_locations=rollback.locations,
                                 image=rollback.image,
                                 pull_secret=rollback.pull_secret,
+                                node_collector=is_local_provider(provider),
                             ),
                             sort_keys=False,
                         )
