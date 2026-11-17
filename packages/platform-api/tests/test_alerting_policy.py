@@ -25,7 +25,7 @@ def read(bucket: FakeBucket, **kwargs: Any) -> Any:
 
 
 def cached(bucket: FakeBucket) -> dict[str, Any]:
-    return json.loads(bucket.objects[CACHE])  # type: ignore[no-any-return]
+    return json.loads(bucket.objects[CACHE])
 
 
 def test_a_stage_never_activated_has_an_empty_policy_and_no_warning() -> None:
