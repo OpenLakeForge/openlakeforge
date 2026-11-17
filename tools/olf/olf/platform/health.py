@@ -1,7 +1,8 @@
 """`olf health` and `olf pipelines health`: the platform API's health rollups, shown and never re-evaluated.
 
 The API owns every state (ADR 0021); this module only renders them. `unknown` and `disabled` print as themselves,
-so neither can read as healthy.
+so neither can read as healthy. A service row carries when the API observed it and until when that answer is usable,
+so an operator can tell a fresh answer from a stale one.
 """
 
 from __future__ import annotations
@@ -47,8 +48,17 @@ def health(stage: str = _STAGE, as_json: bool = JSON_OPTION, profile_file: str =
         typer.echo(f"Stage {result['stage']}: {result['state']} (evaluated {result['evaluated_at']})\n")
         typer.echo(
             table(
-                ["service", "state", "reason"],
-                [[item["component"], item["state"], item["reason"]] for item in result["services"]],
+                ["service", "state", "observed", "valid until", "reason"],
+                [
+                    [
+                        item["component"],
+                        item["state"],
+                        item["observed_at"] or "never",
+                        item["expires_at"] or "-",
+                        item["reason"],
+                    ]
+                    for item in result["services"]
+                ],
             )
         )
         typer.echo(table(["pipeline", "state"], [[item["job"], item["state"]] for item in result["pipelines"]]))

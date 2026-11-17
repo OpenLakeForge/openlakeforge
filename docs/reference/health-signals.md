@@ -170,6 +170,14 @@ Other outcomes: a canceled run, a quality WARN or non-blocking ERROR, and a
 component that is scaled to zero, partly ready, crash looping or restarting
 repeatedly give `warning`; a run in progress and a passing check give `healthy`.
 
+## Service signals
+
+A `service` signal comes from one probe of one component of a stage (ADR 0021, decision 7). Each carries
+`observed_at` and an `expires_at` of 60 seconds later; the CLI prints both. A probe that errors, times out or is
+refused reads `unknown`, a component that is not deployed reads `disabled`, and the probes run for at most 5 seconds
+and are reused for 10. The components, what each proves and what to do are in the
+[service health guide](../guides/operations/service-health.md).
+
 ## Rollup
 
 `rollup` returns the worst state of signals from one stage. The order, worst
