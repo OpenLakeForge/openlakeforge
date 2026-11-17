@@ -106,6 +106,12 @@ def sidecar_components(value: str, revision: str) -> tuple[ComponentEntries, ...
     if not isinstance(raw, list):
         raise ProjectRevisionError(f"malformed {SIDECAR_NAME}: 'components' must be an array")
     components = tuple(ComponentEntries.from_dict(item) for item in raw)
+    # `aggregate_components` keeps the last digest per path, so a second component of the same name could carry
+    # the digests the revision was computed from while the first, which a reader finds first, carries forged ones.
+    names = [component.name for component in components]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise ProjectRevisionError(f"revision sidecar declares duplicate component name(s): {', '.join(duplicates)}.")
     declared = payload.get("revision")
     if declared != revision:
         raise ProjectRevisionError(f"sidecar at {sidecar_key(revision)} declares {declared}, not requested {revision}.")

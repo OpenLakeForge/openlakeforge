@@ -136,3 +136,13 @@ def test_a_sidecar_of_a_newer_schema_is_refused() -> None:
 
     with pytest.raises(ProjectRevisionError, match="unsupported PROJECT-REVISION.json schema_version"):
         sidecar_components(_sidecar(components, schema_version=99), aggregate_components(components))
+
+
+def test_a_sidecar_with_a_second_component_of_the_same_name_is_refused() -> None:
+    """The aggregate keeps the last digest per path, so the first `descriptors` could carry a forged digest."""
+    genuine = ComponentEntries("descriptors", {"lakehouse_code/alerts.yml": "c" * 64})
+    forged = ComponentEntries("descriptors", {"lakehouse_code/alerts.yml": "e" * 64})
+    revision = aggregate_components([forged, genuine])
+
+    with pytest.raises(ProjectRevisionError, match="duplicate component name"):
+        sidecar_components(_sidecar([forged, genuine], revision=revision), revision)
