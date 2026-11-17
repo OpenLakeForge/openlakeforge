@@ -14,19 +14,27 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from openlakeforge_core.project_revision import (
+    MANIFEST_API_VERSION,
+    MANIFEST_KIND,
+    SCHEMA_VERSION,
+    SIDECAR_NAME,
+    ComponentEntries,
+    ProjectRevisionError,
+    aggregate_components,
+    revision_prefix,
+    sidecar_key,
+    sidecar_payload,
+)
+
 from olf.common.project import ProjectSpec, validate_project
 from olf.common.runtime_contract import RuntimeContract
 from olf.infra.artifact_store import RevisionStore, publish_immutable, read_required
-
-MANIFEST_API_VERSION = "openlakeforge.io/v1alpha1"
-MANIFEST_KIND = "ProjectRevision"
-REVISION_PREFIX = "project/revisions"
-SIDECAR_NAME = "PROJECT-REVISION.json"
 
 # ADR 0012's complete promotion unit. "reports" is the only optional member
 # (present only when the project declares at least one dashboard); every
@@ -47,8 +55,6 @@ _ALL_COMPONENT_NAMES = _REQUIRED_COMPONENT_NAMES | {"reports"}
 _EXCLUDED_DIR_NAMES = frozenset({"target", "dbt_packages", "logs", "__pycache__", ".venv", ".pytest_cache"})
 _EXCLUDED_FILE_NAMES = frozenset({".user.yml", "package-lock.yml", "profiles.yml"})
 _DIGEST_TAG_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
-SCHEMA_VERSION = 3
-_SUPPORTED_SCHEMA_VERSIONS = (1, 2, SCHEMA_VERSION)
 # Schema 3 records the runtime contract version the revision was built for (#992). The value also sits in the
 # `distribution` component so the revision digest binds it. Older sidecars carry none and stay exact-match only.
 _CONTRACT_ENTRY = "runtime-contract"
@@ -128,32 +134,6 @@ _PYTHON_FORBIDDEN_VALUE_PATTERNS = (
 )
 
 
-class ProjectRevisionError(RuntimeError):
-    """A project revision cannot be built, published, or verified safely."""
-
-
-@dataclass(frozen=True)
-class ComponentEntries:
-    """One named component of the project and the content digest of each of its files."""
-
-    name: str
-    entries: dict[str, str]
-
-    def to_dict(self) -> dict[str, object]:
-        return {"name": self.name, "entries": dict(sorted(self.entries.items()))}
-
-    @classmethod
-    def from_dict(cls, payload: Any) -> ComponentEntries:
-        if (
-            not isinstance(payload, dict)
-            or not isinstance(payload.get("name"), str)
-            or not isinstance(payload.get("entries"), dict)
-            or not all(isinstance(key, str) and isinstance(digest, str) for key, digest in payload["entries"].items())
-        ):
-            raise ProjectRevisionError(f"malformed component entry: {payload!r}")
-        return cls(name=payload["name"], entries=dict(payload["entries"]))
-
-
 @dataclass(frozen=True)
 class ProjectRevisionManifest:
     """The frozen, content-addressed identity of one complete data project."""
@@ -193,22 +173,8 @@ class ProjectRevisionManifest:
 
     @classmethod
     def from_json(cls, value: str) -> ProjectRevisionManifest:
-        try:
-            payload = json.loads(value)
-        except json.JSONDecodeError as exc:
-            raise ProjectRevisionError(f"malformed {SIDECAR_NAME}: {exc}") from exc
-        if not isinstance(payload, dict):
-            raise ProjectRevisionError(f"malformed {SIDECAR_NAME}: expected a JSON object")
-        if payload.get("apiVersion") != MANIFEST_API_VERSION or payload.get("kind") != MANIFEST_KIND:
-            raise ProjectRevisionError(
-                f"unsupported {SIDECAR_NAME} apiVersion/kind: {payload.get('apiVersion')!r}/{payload.get('kind')!r}"
-            )
-        schema_version = payload.get("schema_version")
-        if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
-            raise ProjectRevisionError(
-                f"unsupported {SIDECAR_NAME} schema_version {schema_version!r}; "
-                f"this olf reads {', '.join(map(str, _SUPPORTED_SCHEMA_VERSIONS))}."
-            )
+        payload = sidecar_payload(value)
+        schema_version = payload["schema_version"]
         components_payload = payload.get("components")
         if not isinstance(components_payload, list):
             raise ProjectRevisionError(f"malformed {SIDECAR_NAME}: 'components' must be an array")
@@ -262,7 +228,7 @@ class ProjectRevisionManifest:
         unknown = name_set - _ALL_COMPONENT_NAMES
         if unknown:
             raise ProjectRevisionError(f"revision sidecar declares unknown component(s): {', '.join(sorted(unknown))}.")
-        actual = _aggregate_components(self.components)
+        actual = aggregate_components(self.components)
         if self.revision != actual:
             raise ProjectRevisionError(
                 f"revision sidecar declares {self.revision}, but its components aggregate to {actual}."
@@ -308,34 +274,6 @@ class ProjectRevisionManifest:
 
     def component(self, name: str) -> ComponentEntries | None:
         return next((component for component in self.components if component.name == name), None)
-
-
-def revision_prefix(revision: str) -> str:
-    digest = _revision_digest(revision)
-    return f"{REVISION_PREFIX}/sha256/{digest}"
-
-
-def sidecar_key(revision: str) -> str:
-    return f"{revision_prefix(revision)}/{SIDECAR_NAME}"
-
-
-def _revision_digest(revision: str) -> str:
-    match = re.fullmatch(r"sha256:([0-9a-f]{64})", revision)
-    if not match:
-        raise ProjectRevisionError(f"invalid revision {revision!r}; expected sha256:<64 lowercase hex characters>.")
-    return match.group(1)
-
-
-def _aggregate_components(components: Iterable[ComponentEntries]) -> str:
-    flattened = {
-        f"{component.name}/{key}": digest for component in components for key, digest in component.entries.items()
-    }
-    if not flattened:
-        raise ProjectRevisionError("cannot compute a revision for an empty project.")
-    hasher = hashlib.sha256()
-    for key in sorted(flattened):
-        hasher.update(f"{key}\0{flattened[key]}\n".encode())
-    return f"sha256:{hasher.hexdigest()}"
 
 
 def manifest_schema_errors(payload: dict[str, Any], *, schema_root: Path) -> list[str]:
@@ -430,6 +368,9 @@ def _relative_key(project: ProjectSpec, path: Path) -> str:
 
 def _descriptors_component(project: ProjectSpec, inventory: Any) -> ComponentEntries:
     paths = [project.governance_path]
+    # Optional: a project without one gets no product alerts. The evaluator reads it from the revision (ADR 0023).
+    if project.alerts_path.is_file():
+        paths.append(project.alerts_path)
     for source in inventory.sources:
         paths.append(project.bronze_root / source.name / "source.yaml")
     entries = {
@@ -604,7 +545,7 @@ def build_project_revision(
         distribution_version=distribution_version,
         project_code_image=pinned_image,
         components=tuple(components),
-        revision=_aggregate_components(components),
+        revision=aggregate_components(components),
         schema_version=SCHEMA_VERSION if runtime_contract_version is not None else 2,
         runtime_contract_version=runtime_contract_version,
     )
