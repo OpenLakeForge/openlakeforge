@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-These twenty-three records describe the decisions that shape OpenLakeForge **today**.
+These twenty-four records describe the decisions that shape OpenLakeForge **today**.
 Each is binding: if the code disagrees with one, either the code is wrong or the
 ADR is, and one of them gets fixed.
 
@@ -39,6 +39,7 @@ how user code is laid out, and `0008` for why `olf` is the only interface.
 | [0021](0021-platform-api.md) | **The platform API** — decided, build step 1 done (every service client and operation is in `packages/lakehouse-services`) and build steps 3 and 4 begun (`packages/platform-api` serves Dagster jobs and runs and OpenMetadata domains and data products, which `olf jobs`, `runs`, `domain list` and `product list` read): one Python backend in this repository serves the portal, `olf`'s platform commands and agents; a call carries the person's token wherever the service authorizes it (Trino through Polaris grants, OpenMetadata by its own roles), directly from the CLI or forwarded unchanged by the API; only calls to services that cannot take it (Superset, Dagster, the object store) use the API's narrowest service credentials, and for those the API validates tokens and enforces a tested role matrix; service operations move to a shared library both `olf infra` and the API call, and the artifacts phase keeps calling it directly |
 | [0022](0022-pod-log-collection-and-archive-format.md) | **Pod log collection and the log archive format** — decided, not built (#1120): a Fluent Bit DaemonSet replaces polling as the pod log path and writes gzipped NDJSON (archive format v2) to the ops bucket with no Loki; Alloy does not qualify; routing is by the namespace in the log file name, never pod metadata, and collection makes no per-stage confidentiality claim; the v1 archive stays readable through the same `LogArchive` reader |
 | [0023](0023-alert-evaluation-and-webhook-delivery.md) | **Alert evaluation, incident state and webhook delivery** — decided, not built (#1167): a `*/5` CronJob in `olf-system` running the platform API image evaluates the canonical health signals, keeps incident state in the ops bucket under `alerts/`, and notifies once on fire and once on resolve through one HTTPS webhook whose Secret-held URL is the credential; no acknowledgement, no Prometheus, and a full-cluster outage cannot alert |
+| [0024](0024-alert-policy-as-code.md) | **Alert policy as code** — decided, not built: a project's `lakehouse_code/alerts.yml` (`AlertPolicy`, closed schema, typed core model, checked by `olf check contracts`) declares per product and stage which conditions alert, with which grace and freshness thresholds, and through which named routes; receivers and their Secrets stay in the profile and an unknown one fails activation; silent unless declared; the most specific rule wins per condition; the evaluator reads the policy from the stage's active revision and keeps the last good one when it cannot |
 
 ## Related
 

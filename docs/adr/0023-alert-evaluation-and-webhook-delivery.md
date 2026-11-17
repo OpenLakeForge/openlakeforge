@@ -16,6 +16,13 @@ recorded it as a default the maintainer has not chosen explicitly; it binds the
 build until the maintainer reads it here and changes it. **Proposed** means this
 record had to fill a gap the issue left; it is listed again under "Open items".
 
+Which conditions alert, their thresholds and who is told move to
+[ADR 0024](0024-alert-policy-as-code.md), decided, not built: a project's
+`lakehouse_code/alerts.yml` declares them per product and stage. Until it is
+built, Decision 2's conditions and Decision 4's stage routing bind as written
+here; afterwards Decision 2's severities are the defaults of a declared
+condition and a receiver's `stages` is a ceiling on the policy's routes.
+
 ## Context
 
 [#23](https://github.com/OpenLakeForge/openlakeforge/issues/23) asks for
@@ -450,3 +457,6 @@ grant or network row was added. No deviation from the decisions above.
 `--state-prefix alerts/e2e/` against a stub receiver, flow F41; the prefix sits inside the evaluator key's `alerts/*` grant, because `--state-prefix` replaces the configured prefix. The Job reads its own settings, with `ca_file` set to the CA that signed the stub's certificate, so the delivery does not depend on the route TLS mode, and the e2e runs only when the stub is the evaluator's sole receiver. Its delivery records are the `-delivery-` objects under
 that prefix's `history/v1/`, not a separate `alerts/deliveries/` prefix. The e2e writes the Floe WARN and ERROR cases as
 manifests for a real run, as the evaluator reads only the manifest. No deviation from the decisions above.
+
+2026-11-17: ADR 0024 takes over condition selection, thresholds and routing
+(alert policy as code). The decisions above are unchanged until it is built.
