@@ -14,6 +14,51 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Added
+
+- Alert policy: `lakehouse_code/alerts.yml` (`AlertPolicy`) declares which
+  conditions alert for which products and stages, their thresholds, and the
+  routes that name the profile's receivers. A rule matches a domain and a
+  product, or `"*"`, and the most specific rule wins per condition. `olf alert
+  explain --stage <stage> --product <id>` prints what a product gets, and `olf
+  check contracts` validates the file. See [send alerts to a
+  webhook](docs/guides/operations/alerts.md#write-the-alert-policy) and ADR
+  0023.
+- `spec.observability.alerts.platform_receivers` lists the receivers told about
+  platform conditions. Omitted means every receiver; an empty list is invalid.
+- Platform service alerts: `service_degraded` (a Dagster or Trino workload, the
+  object store or the log archive degraded, one incident per stage and
+  component) and `health_unreadable` (the platform API's services route could
+  not be read in 3 consecutive evaluations), both to the platform receivers
+  only. They need the platform API, so on the local provider a profile with
+  `spec.identity`. `policy_unreadable` reports a stage whose alert policy cannot
+  be used.
+
+### Changed
+
+- **Product alerts are silent unless `alerts.yml` declares them.** A project
+  without the file gets only platform alerts. Before the policy, every
+  product's failed runs, missed runs, stale output, quality results and
+  schedule mismatches alerted. The first evaluation after an upgrade resolves,
+  without a notification, every firing product incident that no rule covers.
+  The health routes are unchanged and still show everything.
+
+### Migration
+
+Alerts, for a deployment whose profile declares `spec.observability.alerts`
+receivers and that ran without a policy:
+
+1. Add `lakehouse_code/alerts.yml`. `olf init` projects carry a sample that
+   alerts on failed runs and quality in every stage, and on missed runs,
+   freshness and schedule mismatches in PROD, routed through `on-call`; a
+   project that already exists, or one made with `olf init --empty`, needs the
+   file added by hand.
+2. Make each route name a receiver of `openlakeforge.yaml`; the sample's
+   `on-call` route needs a receiver named `on-call`. Activation fails and names
+   the route when a receiver is missing.
+3. Run `olf check contracts` and `olf alert explain`, build a revision and
+   deploy it to each stage.
+
 ## [0.6.0-alpha.3] - 2026-11-13
 
 This release moves each Silver domain's `domain.yml` back to the domain root,
