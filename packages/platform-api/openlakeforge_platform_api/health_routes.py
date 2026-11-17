@@ -40,7 +40,7 @@ from openlakeforge_platform_api.pipeline_health import (
     read_stage_pipelines,
 )
 from openlakeforge_platform_api.reads import _dagster
-from openlakeforge_platform_api.service_probes import StageTargets
+from openlakeforge_platform_api.service_probes import COMPONENT_SOURCES, StageTargets
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ _SERVICES_ELSEWHERE = IntegrationStatus(
     name="services", status="unavailable", reason="service signals are served by the stage health route"
 )
 _METRICS_NOT_PROVIDED = IntegrationStatus(
-    name="metrics", status="unavailable", reason="no metrics source is connected to the API"
+    name="metrics", status="not_provided", reason="no metrics source is connected to the API"
 )
 
 
@@ -121,8 +121,12 @@ def _probe(request: Request, stage: str, now: datetime) -> tuple[IntegrationStat
 
 
 def _service(signal: Signal) -> ServiceHealth:
+    component = signal.component or "unknown"
+    observed, expires = signal.observed_at, signal.expires_at
     return ServiceHealth(
-        component=signal.component or "unknown",
+        component=component,
+        source=COMPONENT_SOURCES.get(component, "platform-api"),
+        max_age_seconds=int((expires - observed).total_seconds()) if observed and expires else None,
         state=signal.state.value,
         reason=signal.reason,
         observed_at=signal.observed_at,

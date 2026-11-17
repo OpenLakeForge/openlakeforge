@@ -103,6 +103,20 @@ def test_service_signals_roll_into_the_stage_state(
     assert {item["name"]: item["status"] for item in body["integrations"]}["services"] == "available"
 
 
+def test_each_service_row_names_its_source_and_how_long_its_answer_is_usable(
+    settings: Settings, dagster: ScheduledDagster, mint: Mint
+) -> None:
+    probes = FakeProbes([_signal("trino.readiness", HealthState.HEALTHY), _signal("component-x", HealthState.HEALTHY)])
+    api = TestClient(_app(settings, dagster, probes))
+
+    body = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
+
+    rows = {item["component"]: item for item in body["services"]}
+    assert rows["trino.readiness"]["source"] == "trino-http"
+    assert rows["component-x"]["source"] == "platform-api"
+    assert rows["trino.readiness"]["max_age_seconds"] == 60
+
+
 def test_the_probes_are_aimed_at_the_stages_own_namespace_and_endpoints(
     settings: Settings, dagster: ScheduledDagster, mint: Mint
 ) -> None:

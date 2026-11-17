@@ -310,7 +310,7 @@ def test_slim_with_no_metrics_still_answers_and_never_calls_absent_integrations_
         "dagster": "available",
         "services": "disabled",
         "quality": "not_provided",
-        "metrics": "unavailable",
+        "metrics": "not_provided",
     }
 
 

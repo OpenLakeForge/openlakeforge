@@ -444,6 +444,19 @@ SPOOL_SIZE_COMPONENT = "log-archive.spool-size"
 NEWEST_OBJECT_COMPONENT = "log-archive.newest-object"
 
 
+# What each component's probe asks, shown beside its answer. A component not listed reads `platform-api`.
+COMPONENT_SOURCES = {
+    "dagster.workloads": "kubernetes",
+    "dagster.read-api": "dagster-graphql",
+    "trino.workloads": "kubernetes",
+    "trino.readiness": "trino-http",
+    "object-store.list": "s3",
+    SPOOL_AGE_COMPONENT: "log-collector",
+    SPOOL_SIZE_COMPONENT: "log-collector",
+    NEWEST_OBJECT_COMPONENT: "s3",
+}
+
+
 class _Once:
     """Runs `read` at most once however many checks ask, and hands every one the same answer or the same failure."""
 

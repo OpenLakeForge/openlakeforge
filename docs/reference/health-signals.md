@@ -31,6 +31,16 @@ that points at the retained evidence rather than carrying log text.
 | `quality` | A Floe or dbt outcome, read from the latest run's quality manifest (see below) |
 | `service` | Controller readiness of a component, or a probe's answer |
 
+## What a service row says about itself
+
+The stage health route returns each service with its `component`, a `source` (what the probe asked: `kubernetes`,
+`dagster-graphql`, `trino-http`, `s3` or `log-collector`; never an address), `observed_at`, `expires_at` and
+`max_age_seconds`, the gap between the two. Probes run when the route is read and are reused for a few seconds, so
+`max_age_seconds` says how long an answer stays usable; it is not a polling interval.
+
+The `metrics` integration reads `not_provided` while no metrics source is connected to the API (#21). That is an
+absent source, not a failure, and it blanks nothing: the service rows do not depend on it.
+
 ## How unknown is computed
 
 An observation is usable for `max_age` after `observed_at`. A missing

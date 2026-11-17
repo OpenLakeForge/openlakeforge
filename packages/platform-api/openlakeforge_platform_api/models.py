@@ -193,10 +193,15 @@ class ServiceHealth(BaseModel):
     """One service probe's answer (ADR 0021, decision 7); `component` is e.g. `dagster.workloads`."""
 
     component: str
+    # What was asked, such as `kubernetes`, `dagster-graphql` or `s3`; never an address or a credential.
+    source: str
     state: HealthStateName
     reason: str
     observed_at: datetime | None
     expires_at: datetime | None
+    # How long the answer stays usable, `expires_at` minus `observed_at`. Probes run on request and are reused for a
+    # few seconds, so this is a validity bound and not a polling interval.
+    max_age_seconds: int | None
 
 
 class StageHealth(BaseModel):
