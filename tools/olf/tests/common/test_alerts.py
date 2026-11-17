@@ -9,6 +9,7 @@ from openlakeforge_core import (
     ALERT_POLICY,
     DAGSTER_PIPELINES,
     DAGSTER_READ_API,
+    PLATFORM_HEALTH,
     UNREADABLE_THRESHOLD,
     AlertEvent,
     AlertKind,
@@ -460,13 +461,15 @@ def _opening(kind: AlertKind) -> Signal:
         AlertKind.QUALITY: _quality(HealthState.WARNING),
         AlertKind.STAGE_UNREADABLE: _dagster(HealthState.UNKNOWN),
         AlertKind.POLICY_UNREADABLE: _dagster(HealthState.WARNING, component=ALERT_POLICY),
+        AlertKind.SERVICE_DEGRADED: _dagster(HealthState.CRITICAL, component="object-store.list"),
+        AlertKind.HEALTH_UNREADABLE: _dagster(HealthState.UNKNOWN, component=PLATFORM_HEALTH),
     }[kind]
 
 
 @pytest.mark.parametrize("kind", list(AlertKind))
 def test_payload_of_every_condition_and_event_matches_the_adr_field_table(kind: AlertKind) -> None:
     hostile = Signal(**{**_opening(kind).__dict__, "reason": "password=hunter2", "evidence_uri": "token=abc"})
-    repeat = UNREADABLE_THRESHOLD if kind is AlertKind.STAGE_UNREADABLE else 1
+    repeat = UNREADABLE_THRESHOLD if kind in (AlertKind.STAGE_UNREADABLE, AlertKind.HEALTH_UNREADABLE) else 1
     state, sent = AlertState(), []
     for minutes in range(repeat):
         state, notifications = _run(state, [hostile], minutes, links=lambda i: {"run": f"https://d/{i.id}"})
@@ -483,6 +486,8 @@ def test_payload_of_every_condition_and_event_matches_the_adr_field_table(kind: 
         AlertKind.QUALITY: recovered,
         AlertKind.STAGE_UNREADABLE: _dagster(HealthState.HEALTHY),
         AlertKind.POLICY_UNREADABLE: _dagster(HealthState.HEALTHY, component=ALERT_POLICY),
+        AlertKind.SERVICE_DEGRADED: _dagster(HealthState.HEALTHY, component="object-store.list"),
+        AlertKind.HEALTH_UNREADABLE: _dagster(HealthState.HEALTHY, component=PLATFORM_HEALTH),
     }[kind]
     sent += _run(state, [resolving], 20)[1]
 

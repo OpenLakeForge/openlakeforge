@@ -6,8 +6,7 @@ Partly built. The evaluator, its incident state and the webhook adapter are
 built on the local provider by slices #1168 to #1173 (see "Build order"): a
 CronJob in `olf-system`, state kept as objects in the ops bucket, and one
 generic HTTPS webhook adapter. Local reports `alerts.supported = true`; AWS and
-Azure keep `false`. Not built: the history retention rule (see "Retention"),
-the platform service alerts of Decision 11, and the last slice of the alert policy (AP-d).
+Azure keep `false`. Not built: the history retention rule (see "Retention") and the last slice of the alert policy (AP-d).
 
 The alert policy is decided: a project's `lakehouse_code/alerts.yml` declares
 which conditions alert per product and stage, with which thresholds, and who
@@ -144,7 +143,8 @@ for that product and stage.
 | `schedule_mismatch` | a PROD schedule the product's cadence declares running is stopped in Dagster (#1175, #209 slice c) | `warning` | `severity` | From #1169; resolves silently when the declaration or the schedule changes |
 | `stage_unreadable` | Dagster for a stage could not be read in 3 consecutive evaluations | `critical` | none: a platform condition (Decision 11) | Default, revisit for the count of 3; the severity is proposed |
 | `policy_unreadable` | the stage's alert policy cannot be used (Decision 10) | `warning` | none: a platform condition (Decision 11) | Maintainer |
-| `service_degraded` | a platform service signal of Decision 11 is degraded: one incident per stage and component | the signal's state for a workload, `critical` otherwise | none: a platform condition (Decision 11) | Maintainer (2026-11-17); **not built** |
+| `service_degraded` | a platform service signal of Decision 11 is degraded: one incident per stage and component | the signal's state for a workload, `critical` otherwise | none: a platform condition (Decision 11) | Maintainer (2026-11-17) |
+| `health_unreadable` | the platform API's health route for a stage could not be read in 3 consecutive evaluations (Decision 11) | `critical` | none: a platform condition (Decision 11) | Maintainer (2026-11-17); the count follows `stage_unreadable` |
 
 What does not alert, all **default, revisit**:
 
@@ -458,9 +458,11 @@ The e2e's receiver is a stub pod in `olf-system` carrying a label the flow file
 names, as the Dex e2e's GitHub stub does (F29 **[V]**) **[T]**. Its listener is
 HTTPS, because the adapter refuses plain HTTP.
 
+| evaluator to the platform API, port 8080 | F42 and F44 | each stage's health route, with a projected ServiceAccount token (Decision 11); the API's TokenReview is its F20 egress |
+
 The evaluator's ServiceAccount has no Kubernetes API access, no flow to Trino or the
-log collectors and no read on the log archive. Each is something the platform
-service alerts of Decision 11 need, so they are not built (see there).
+log collectors and no read on the log archive: the platform service alerts of
+Decision 11 read the platform API instead, so none of them is needed.
 
 ## Decision 8: the alert policy, `lakehouse_code/alerts.yml`
 
@@ -715,9 +717,11 @@ middle of an action path, which would narrow it to
 
 | Basis | Decision |
 | --- | --- |
-| Maintainer | `alerts.yml` cannot name a platform condition (`stage_unreadable`, `policy_unreadable`, `service_degraded`); the schema rejects them as unknown `when` keys. |
+| Maintainer | `alerts.yml` cannot name a platform condition (`stage_unreadable`, `policy_unreadable`, `service_degraded`, `health_unreadable`); the schema rejects them as unknown `when` keys. |
 | Maintainer | They go to the profile's platform receivers: `spec.observability.alerts.platform_receivers`, a list of receiver names. Omitted means every receiver, which is how they were routed before the policy; a list that is present must be non-empty, because an empty one would silence every platform condition and omitting the field is the way to say "all". Each receiver's `stages` ceiling still applies. |
-| Maintainer (2026-11-17) | Platform service conditions alert too, routed only to the platform receivers, with the open, resolve and no-reminder rules of Decision 3. They are `service_degraded` incidents, one per stage and component: Dagster and Trino workloads degraded (`dagster.workloads`, `trino.workloads`: `warning` or `critical`, at the signal's state), the object store unreachable (`object-store.list`), and the log archive's delivery signals (`log-archive.spool-age`, `log-archive.spool-size`, `log-archive.newest-object`), the last three at `critical` only. An `unknown` signal neither opens nor resolves, as everywhere else. |
+| Maintainer (2026-11-17) | Platform service conditions alert too, routed only to the platform receivers, with the open, resolve and no-reminder rules of Decision 3. They are `service_degraded` incidents, one per stage and component: Dagster and Trino workloads degraded (`dagster.workloads`, `trino.workloads`: `warning` or `critical`, at the signal's state), the object store unreachable (`object-store.list`), and the log archive's delivery signals (`log-archive.spool-age`, `log-archive.spool-size`, `log-archive.newest-object`). Only the workloads alert at `warning`; the object store and the three archive signals alert at `critical` only, and a `warning` from them says nothing either way. An `unknown` or `disabled` signal neither opens nor resolves, as everywhere else: unknown is no evidence. |
+| Maintainer (2026-11-17) | **The evaluator reads the signals from the platform API's stage health route** (`GET /api/v1/stages/{stage}/health`, its `services` list), and runs no probe of its own. |
+| Maintainer (2026-11-17) | The evaluator authenticates as a service principal with a projected ServiceAccount token that the API checks with a TokenReview (below; ADR 0021, decision 3). |
 
 The product team owns `alerts.yml`; the ops team owns the cluster, the
 receivers and the Secrets. A Dagster that cannot be read, or a policy the
@@ -728,20 +732,55 @@ silence the platform's own alarms. The field is a schema change to
 The evaluator reads each receiver's `platform` flag from its settings, which
 `olf` renders from the resolved profile.
 
-**Not built.** The signals of the third row come from the platform API's
-`service_probes.py`, which observes workloads with the Kubernetes API, Trino
-with an HTTP read, the object store with its listing key, and the collectors'
-spool and newest archive object with a read of their probe port and of the
-log archive prefix **[V]**. The evaluator holds none of that: its ServiceAccount
-has no Role and no token, its flows are F38 to F41, and its key reads and writes
-`alerts/*` and reads quality manifests and policy revisions only **[V:
-`alerts/main.tf`, `credentials.tf`, `release/network-flows.yaml`]**. Building the
-row needs a decision on where the evaluator gets the signals (a Role and flows
-of its own, or a read of the platform API), and the object store case has a
-limit of its own: an evaluator that cannot reach the store cannot record or
-deliver anything (Decision 3), so only a store that answers the evaluator but
-fails a probe can be reported. Until that decision, no `service_degraded`
-incident is raised.
+### Where the signals come from
+
+The signals of the third row come from the platform API's `service_probes.py`,
+which observes workloads with the Kubernetes API, Trino with an HTTP read, the
+object store with its listing key, and the collectors' spool and newest archive
+object with a read of their probe port and of the log archive prefix **[V]**.
+The decision was where the evaluator gets them. Two designs were open:
+
+| Option | Cost |
+| --- | --- |
+| The evaluator probes by itself | A Role in each stage namespace, flows to Trino, the collectors and the archive prefix, and a read on the log archive. It duplicates `service_probes.py`, so two places would judge the same service and could disagree |
+| **The evaluator reads the platform API** (chosen) | One identity and one flow (F44). The API already holds every probe, its credentials and its flows |
+
+It reads the API because one place runs the probes, and the evaluator then
+needs the least new access: no Role, no Secret, no flow to a service, no read
+on the archive. The evaluator's ServiceAccount still has no Kubernetes API
+access and its default token stays unmounted. Its one new credential is a
+ServiceAccount token projected for the audience `openlakeforge-platform-api`,
+valid ten minutes and refreshed by the kubelet, which the API checks with a
+TokenReview and accepts only for the evaluator's exact ServiceAccount, as a
+principal with no canonical role that the permission matrix admits on the
+stage health route and nothing else (ADR 0021, decision 3; ADR 0017, F44). The
+settings carry `platform_api_url` and `platform_api_token_file`, both or
+neither; without them no service condition is read and none is raised.
+
+### What is read, and what is not evidence
+
+Each evaluation reads every enabled stage's health route once. Each entry of
+its `services` list whose component is named in the third row becomes a signal
+at that state; every other component is ignored, so a new probe is silent until
+this record names it. The notification carries fixed text per component
+(`Dagster workloads are degraded`, `the object store cannot be listed`, ...), not
+the probe's reason, which can embed counts; the component is part of the
+incident's fingerprint and not of the webhook payload.
+
+An API that cannot be read is not every service being healthy. A timeout, a
+connection error, a 5xx, a refused token (401, 403) or an answer that is not a
+health document for the stage sends no component signal at all, so every open
+`service_degraded` incident is left as it was, resolved by nothing. It sends one
+`unknown` signal for the stage instead, and **`health_unreadable`** opens, at
+`critical` and to the platform receivers, after 3 consecutive unreadable
+evaluations (the threshold of `stage_unreadable`, so an API restarting during a
+deploy is not an incident). It resolves with a notification on the first
+evaluation that reads the route. Its counter is separate from
+`stage_unreadable`'s.
+
+The object store case has a limit of its own: an evaluator that cannot reach
+the store cannot record or deliver anything (Decision 3), so only a store that
+answers the evaluator but fails the API's probe can be reported.
 
 ## Consequences
 
@@ -1002,3 +1041,13 @@ product notification stays queued while its stage's policy and cache are both un
 quality `level: error` is applied inside the manifest reader (Decision 8); `platform_receivers` must be non-empty
 when present (Decision 11); a revision without `alerts.yml` still carries its governance for `--policy-file`
 (Decision 10).
+
+2026-11-17: alert policy slice AP-c, part five: platform service alerts (Decision 11), in two changes. The evaluator reads
+each stage's health from the platform API and opens `service_degraded` and `health_unreadable` incidents; it runs no
+probe. Chosen over a Role, flows and archive read of its own because one place runs the probes and this needs the least
+new access. The evaluator authenticates as a service principal with a projected ServiceAccount token the API checks with a
+TokenReview, because the API admitted only issuer tokens for people and no machine caller existed; the maintainer chose
+that over a static Secret. The API answers 503 where a TokenReview cannot be made, so an unreadable API and a refused
+identity both read as `health_unreadable` after 3 evaluations. The decision records which components alert and at what
+severity: the log archive signals and the object store at `critical` only, where the previous text could be read as
+leaving the object store open to `warning`, which its probe never emits.

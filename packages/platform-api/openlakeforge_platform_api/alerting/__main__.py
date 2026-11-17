@@ -23,6 +23,7 @@ from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.notify import Notifier, WebhookNotifier, quiet_transport_logs
 
 from openlakeforge_platform_api.alerting.run import run_once
+from openlakeforge_platform_api.alerting.service_health import StageHealthReader, stage_health_reader
 from openlakeforge_platform_api.alerting.settings import EvaluatorSettings
 from openlakeforge_platform_api.alerting.store import AlertObjectStore, AlertStore, StoreError
 from openlakeforge_platform_api.quality_health import QualityReader, s3_quality_reader
@@ -74,6 +75,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             notifiers=notifiers,
             quality=quality,
             policy_override=override,
+            health=_health_reader(settings),
             now=args.now or datetime.now(UTC),
         )
     except StoreError as error:
@@ -89,6 +91,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary.expired,
     )
     return 0
+
+
+def _health_reader(settings: EvaluatorSettings) -> StageHealthReader | None:
+    """Without the API's URL no service condition is read: no incident opens for one and none is resolved."""
+    if settings.platform_api_url is None or settings.platform_api_token_file is None:
+        return None
+    return stage_health_reader(settings.platform_api_url, settings.platform_api_token_file)
 
 
 def combined_ca_bundle(local_ca: str, directory: str | None = None) -> str:
