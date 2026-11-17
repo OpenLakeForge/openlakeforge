@@ -21,6 +21,8 @@ class ReceiverSetting:
     url_env: str
     # Empty means every stage.
     stages: tuple[str, ...] = ()
+    # Whether platform conditions (ADR 0023, decision 11) go to this receiver.
+    platform: bool = True
 
     def routes(self, stage: str) -> bool:
         return not self.stages or stage in self.stages
@@ -61,7 +63,10 @@ class EvaluatorSettings:
                 quality_manifests={str(s): str(uri) for s, uri in (data.get("quality_manifests") or {}).items()},
                 receivers=tuple(
                     ReceiverSetting(
-                        str(item["name"]), str(item["url_env"]), tuple(str(stage) for stage in item.get("stages") or ())
+                        str(item["name"]),
+                        str(item["url_env"]),
+                        tuple(str(stage) for stage in item.get("stages") or ()),
+                        bool(item.get("platform", True)),
                     )
                     for item in data.get("receivers") or ()
                 ),

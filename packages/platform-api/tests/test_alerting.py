@@ -88,7 +88,10 @@ def _settings(*receivers: ReceiverSetting, stages: tuple[str, ...] = ("dev",), *
             "stages": list(stages),
             "dagster_graphql_urls": {stage: f"http://dagster-{stage}/graphql" for stage in stages},
             "state_base_uri": BASE,
-            "receivers": [{"name": r.name, "url_env": r.url_env, "stages": list(r.stages)} for r in receivers],
+            "receivers": [
+                {"name": r.name, "url_env": r.url_env, "stages": list(r.stages), "platform": r.platform}
+                for r in receivers
+            ],
             "links": {"dagster_scheme": "http", "dagster_host_template": "dagster-{stage}.example.test", **links},
         }
     )
@@ -106,7 +109,7 @@ def _evaluate(
     notifiers: Mapping[str, FakeNotifier],
     now: datetime = NOW,
 ) -> Any:
-    declare_everything(bucket, settings.stages)
+    declare_everything(bucket, settings.stages, [r.name for r in settings.receivers])
     return run_once(
         settings=settings,
         store=AlertStore(bucket, BASE),
@@ -136,6 +139,11 @@ def test_two_evaluations_of_the_same_dagster_state_send_one_notification() -> No
     assert payload["condition"] == "run_failed"
     assert payload["links"]["run"] == "http://dagster-dev.example.test/runs/run-1"
     assert bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["outbox"] == []
+
+
+def _told(notifier: FakeNotifier) -> list[tuple[str, str, str]]:
+    """(stage, condition, event) of everything sent, in order."""
+    return [(p["stage"], p["condition"], p["event"]) for _, p in notifier.sent]
 
 
 def _policy(when: str) -> str:
@@ -172,7 +180,8 @@ def test_a_policy_that_never_read_cleanly_alerts_nothing_and_is_reported() -> No
     summary = _evaluate(_settings(A), bucket, dagster, {"ops": notifier})
 
     assert summary.policy_unreadable == ("dev",)
-    assert notifier.sent == []
+    # No run_failed alert, only the platform's own warning.
+    assert _told(notifier) == [("dev", "policy_unreadable", "opened")]
 
 
 def test_a_stage_keeps_its_last_good_policy_when_a_newer_revision_is_unusable() -> None:
@@ -187,7 +196,11 @@ def test_a_stage_keeps_its_last_good_policy_when_a_newer_revision_is_unusable() 
 
     assert summary.policy_unreadable == ("dev",)
     # Under an empty policy the incident would have closed silently; the old rules still tell the receiver.
-    assert [p["event"] for _, p in notifier.sent] == ["opened", "resolved"]
+    assert _told(notifier) == [
+        ("dev", "run_failed", "opened"),
+        ("dev", "run_failed", "resolved"),
+        ("dev", "policy_unreadable", "opened"),
+    ]
 
 
 def test_a_rule_that_disappears_resolves_its_incident_without_a_notification() -> None:
@@ -216,8 +229,9 @@ def test_a_policy_that_cannot_be_read_and_was_never_cached_holds_the_open_incide
     summary = _evaluate(settings, bucket, dagster, {"ops": notifier}, NOW + timedelta(minutes=5))
 
     assert summary.policy_unreadable == ("dev",)
-    assert len(bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["incidents"]) == 1
-    assert [p["event"] for _, p in notifier.sent] == ["opened"]
+    incidents = bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["incidents"]
+    assert sorted(i["kind"] for i in incidents) == ["policy_unreadable", "run_failed"]
+    assert _told(notifier) == [("dev", "run_failed", "opened"), ("dev", "policy_unreadable", "opened")]
 
 
 def test_a_rule_sets_the_severity_of_the_notification() -> None:
@@ -253,9 +267,7 @@ def test_one_stage_with_unusable_objects_does_not_stop_the_others() -> None:
     summary = _evaluate(_settings(A, stages=("dev", "prod")), bucket, dagster, {"ops": notifier})
 
     assert summary.policy_unreadable == ("dev",)
-    assert [
-        payload["scope"]["stage"] if "scope" in payload else payload.get("stage") for _, payload in notifier.sent
-    ] == ["prod"]
+    assert sorted(_told(notifier)) == [("dev", "policy_unreadable", "opened"), ("prod", "run_failed", "opened")]
 
 
 def test_an_unexpected_error_reading_one_stage_does_not_stop_the_others() -> None:
@@ -272,7 +284,7 @@ def test_an_unexpected_error_reading_one_stage_does_not_stop_the_others() -> Non
     summary = _evaluate(_settings(A, stages=("dev", "prod")), bucket, dagster, {"ops": notifier})
 
     assert summary.policy_unreadable == ("dev",)
-    assert len(notifier.sent) == 1
+    assert sorted(_told(notifier)) == [("dev", "policy_unreadable", "opened"), ("prod", "run_failed", "opened")]
 
 
 def test_a_clean_policy_read_is_not_reported_unreadable() -> None:
@@ -383,7 +395,7 @@ def test_an_entry_already_held_by_every_receiver_still_routed_leaves_the_outbox(
     _evaluate(_settings(A), bucket, dagster, {"ops": steady}, NOW + timedelta(minutes=5))
 
     assert _state(bucket)["outbox"] == []
-    assert len(steady.sent) == 1
+    assert [c for _, c, _ in _told(steady)] == ["run_failed", "policy_unreadable"]
     assert not [r for r in bucket.under("alerts/history/v1/").values() if r["record"] == "undeliverable"]
 
 
@@ -642,7 +654,7 @@ def test_a_run_stops_starting_sends_at_the_budget_and_the_next_run_continues_wit
     bucket, dagster = FakeBucket(), {"dev": FakeDagster([_failed()])}
     settings, notifiers = _three_receivers()
 
-    declare_everything(bucket, settings.stages)
+    declare_everything(bucket, settings.stages, [r.name for r in settings.receivers])
     # Reads: start, then one per send. Step 40 against a 100 budget: two sends fit, the third does not start.
     first = run_once(
         settings=settings,
@@ -671,7 +683,7 @@ def test_a_starved_entry_still_counts_its_runs_and_expires() -> None:
     bucket, dagster = FakeBucket(), {"dev": FakeDagster([_failed()])}
     settings, notifiers = _three_receivers()
 
-    declare_everything(bucket, settings.stages)
+    declare_everything(bucket, settings.stages, [r.name for r in settings.receivers])
     for minutes in range(MAX_OUTBOX_RUNS + 1):
         summary = run_once(
             settings=settings,

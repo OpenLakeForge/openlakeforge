@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from _alerting_fakes import EVERYTHING, FakeBucket, declare_everything, publish
+from _alerting_fakes import FakeBucket, declare_everything, everything, publish
 from conftest import Mint
 from fastapi.testclient import TestClient
 from openlakeforge_core import parse_alert_policy, resolve_policy
@@ -633,7 +633,7 @@ def test_level_error_a_complete_retry_with_only_warns_resolves_the_blocking_erro
     extra: tuple[QualityOutcome, ...],
 ) -> None:
     bucket = FakeBucket()
-    publish(bucket, alerts=EVERYTHING.replace("quality: {}", "quality: {level: error}"))
+    publish(bucket, alerts=everything().replace("quality: {}", "quality: {level: error}"))
     notifier, store, manifests = FakeNotifier(), AlertStore(bucket, "s3://ops/alerts/"), FakeBucket()
 
     def tick(runs: list[DagsterRun], stored: QualityManifest, minutes: int) -> list[str]:

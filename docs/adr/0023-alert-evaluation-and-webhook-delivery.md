@@ -7,14 +7,15 @@ built on the local provider by slices #1168 to #1173 (see "Build order"): a
 CronJob in `olf-system`, state kept as objects in the ops bucket, and one
 generic HTTPS webhook adapter. Local reports `alerts.supported = true`; AWS and
 Azure keep `false`. Not built: the history retention rule (see "Retention"),
-and the last slices of the alert policy (AP-c's routing, then AP-d).
+the platform service alerts of Decision 11, and the last slice of the alert policy (AP-d).
 
 The alert policy is decided: a project's `lakehouse_code/alerts.yml` declares
 which conditions alert per product and stage, with which thresholds, and who
 is told (Decisions 2 and 8 to 11). The evaluator applies the declared
-conditions, severities and thresholds, and is silent for everything else. Until
-the routing slice of AP-c lands, a notification still goes to every receiver
-whose `stages` include the incident's stage, whatever route the rule names.
+conditions, severities and thresholds, and is silent for everything else. A
+product notification goes to the receivers the winning rule's routes name,
+capped by each receiver's `stages`; a platform condition goes to the profile's
+platform receivers.
 
 Tags used below: **[V]** checked in this repository at the commit the claim
 was written against, or in the pinned upstream package named beside it;
@@ -143,6 +144,7 @@ for that product and stage.
 | `schedule_mismatch` | a PROD schedule the product's cadence declares running is stopped in Dagster (#1175, #209 slice c) | `warning` | `severity` | From #1169; resolves silently when the declaration or the schedule changes |
 | `stage_unreadable` | Dagster for a stage could not be read in 3 consecutive evaluations | `critical` | none: a platform condition (Decision 11) | Default, revisit for the count of 3; the severity is proposed |
 | `policy_unreadable` | the stage's alert policy cannot be used (Decision 10) | `warning` | none: a platform condition (Decision 11) | Maintainer |
+| `service_degraded` | a platform service signal of Decision 11 is degraded: one incident per stage and component | the signal's state for a workload, `critical` otherwise | none: a platform condition (Decision 11) | Maintainer (2026-11-17); **not built** |
 
 What does not alert, all **default, revisit**:
 
@@ -164,9 +166,8 @@ What does not alert, all **default, revisit**:
   keep `alerts.supported = false` **[V: `environments/aws-poc/contracts.tf`,
   `environments/azure-poc/contracts.tf`]**. The local environment flips its
   `supported` to `true` in the slice that deploys the CronJob (#1172).
-- `service` signals from the stage health route, the log archive's delivery
-  signals among them. They are not a v0.7 alert source **(proposed)**: the issue
-  names run, schedule, freshness and quality conditions only.
+- Product `service` signals. Only the platform service conditions of Decision
+  11 alert, and `alerts.yml` cannot name them.
 
 `quality` conditions read the quality manifests that #1162 writes, through the
 same `read_stage_pipelines` the health routes use (`quality_health.py`), so the
@@ -233,6 +234,7 @@ The alert policy is not part of the fingerprint, and the scope keeps the job as
 | `quality` | a later run's outcome is `passed` | yes, once |
 | `stage_unreadable` | the first evaluation that reads the stage | yes, once |
 | `policy_unreadable` | the first evaluation that reads the stage's policy cleanly | yes, once |
+| `service_degraded` | the component's signal is `healthy` | yes, once |
 
 Incidents notify **once on fire and once on resolve**, with no reminders
 (Maintainer). There is no acknowledgement in v0.7 (Maintainer): no route, no
@@ -451,8 +453,9 @@ The e2e's receiver is a stub pod in `olf-system` carrying a label the flow file
 names, as the Dex e2e's GitHub stub does (F29 **[V]**) **[T]**. Its listener is
 HTTPS, because the adapter refuses plain HTTP.
 
-The evaluator's ServiceAccount has no Kubernetes API access: it needs none while
-service signals are not alerted.
+The evaluator's ServiceAccount has no Kubernetes API access, no flow to Trino or the
+log collectors and no read on the log archive. Each is something the platform
+service alerts of Decision 11 need, so they are not built (see there).
 
 ## Decision 8: the alert policy, `lakehouse_code/alerts.yml`
 
@@ -699,16 +702,33 @@ middle of an action path, which would narrow it to
 
 | Basis | Decision |
 | --- | --- |
-| Maintainer | `alerts.yml` cannot name a platform condition (`stage_unreadable`, `policy_unreadable`, and the log archive's delivery signals if they ever become conditions); the schema rejects them as unknown `when` keys. |
-| Maintainer | They go to the profile's platform receivers: a new optional `spec.observability.alerts.platform_receivers`, a list of receiver names. Omitted means every receiver, which is how they were routed before the policy. Each receiver's `stages` ceiling still applies. |
+| Maintainer | `alerts.yml` cannot name a platform condition (`stage_unreadable`, `policy_unreadable`, `service_degraded`); the schema rejects them as unknown `when` keys. |
+| Maintainer | They go to the profile's platform receivers: `spec.observability.alerts.platform_receivers`, a list of receiver names. Omitted means every receiver, which is how they were routed before the policy. Each receiver's `stages` ceiling still applies. |
+| Maintainer (2026-11-17) | Platform service conditions alert too, routed only to the platform receivers, with the open, resolve and no-reminder rules of Decision 3. They are `service_degraded` incidents, one per stage and component: Dagster and Trino workloads degraded (`dagster.workloads`, `trino.workloads`: `warning` or `critical`, at the signal's state), the object store unreachable (`object-store.list`), and the log archive's delivery signals (`log-archive.spool-age`, `log-archive.spool-size`, `log-archive.newest-object`), the last three at `critical` only. An `unknown` signal neither opens nor resolves, as everywhere else. |
 
 The product team owns `alerts.yml`; the ops team owns the cluster, the
 receivers and the Secrets. A Dagster that cannot be read, or a policy the
 evaluator cannot use, is the ops team's problem whatever the product, and
 routing it from a file the ops team does not own would let one bad revision
 silence the platform's own alarms. The field is a schema change to
-`DeploymentProfile`, so slice AP-c records it in ADR 0011 and the deployment
-profile reference.
+`DeploymentProfile`, recorded in ADR 0011 and the deployment profile reference.
+The evaluator reads each receiver's `platform` flag from its settings, which
+`olf` renders from the resolved profile.
+
+**Not built.** The signals of the third row come from the platform API's
+`service_probes.py`, which observes workloads with the Kubernetes API, Trino
+with an HTTP read, the object store with its listing key, and the collectors'
+spool and newest archive object with a read of their probe port and of the
+log archive prefix **[V]**. The evaluator holds none of that: its ServiceAccount
+has no Role and no token, its flows are F38 to F41, and its key reads and writes
+`alerts/*` and reads quality manifests and policy revisions only **[V:
+`alerts/main.tf`, `credentials.tf`, `release/network-flows.yaml`]**. Building the
+row needs a decision on where the evaluator gets the signals (a Role and flows
+of its own, or a read of the platform API), and the object store case has a
+limit of its own: an evaluator that cannot reach the store cannot record or
+deliver anything (Decision 3), so only a store that answers the evaluator but
+fails a probe can be reported. Until that decision, no `service_degraded`
+incident is raised.
 
 ## Consequences
 
@@ -757,7 +777,8 @@ marked Proposed above; the maintainer may change any of them.
 2. `stage_unreadable` is `critical`.
 3. `stale_output` is suppressed while `missed_run` or `run_failed` is open for
    the same product.
-4. `service` signals are not an alert source in v0.7.
+4. (Decided by the maintainer on 2026-11-17: platform service signals alert,
+   Decision 11.)
 5. The webhook's timeouts, attempt counts, backoff, outbox lifetime of 12 runs and
    `Idempotency-Key` format.
 6. The payload field list, and the URL never appearing in logs or history.
@@ -936,3 +957,15 @@ grace still clears nothing. Two details this record left open: a
 stage whose policy has never read cleanly and cannot be read now is left out of the evaluation's policy, so its open
 product incidents are held rather than resolved silently, and nothing new opens for it; and a severity that falls
 is not written to history, which has no event for it (the incident's stored severity is updated).
+
+2026-11-17: alert policy slice AP-c, part two: routing and `platform_receivers`. A product notification goes to the
+receivers named by the winning rule's routes, mapped through the policy's `routes`, and only where the receiver's
+`stages` include the stage (`alerting/routing.py`); a route whose receiver the profile lacks is skipped and logged, and
+the stage raises `policy_unreadable`, which is a new alert kind (`AlertKind.POLICY_UNREADABLE`, fed by an `alert-policy`
+service signal the evaluator reports per stage) that, with `stage_unreadable`, goes only to the receivers marked for
+platform conditions. `spec.observability.alerts.platform_receivers` reaches the evaluator as a `platform` flag on each
+receiver of its settings, through `alert_receiver_secrets` and the alerts module's `receivers` variable. Decision 11
+now also records the maintainer's decision of the same day that platform service conditions alert, to the platform
+receivers only, and that they are not built: the evaluator has no Role, flow or read that gets it the signals, so
+Decision 7 and Decision 11 say what is missing and the options go to the maintainer. Decision 2 lost its
+"service signals are not an alert source" line and Open item 4 was answered.
