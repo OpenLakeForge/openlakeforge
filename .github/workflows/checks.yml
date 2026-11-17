@@ -113,7 +113,7 @@ jobs:
       - name: Test tooling
         run: >
           uv run --project tools/olf pytest tools/olf/tests
-          --cov --cov-config=tools/olf/pyproject.toml
+          -n auto --cov --cov-config=tools/olf/pyproject.toml
 
   static-analysis:
     name: Lint and type-check Python
