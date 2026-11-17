@@ -43,6 +43,17 @@ dev = [
   "types-pyyaml>=6.0.12.20260815",
   "types-requests>=2.33.0.20260712",
 ]
+# The runtime tests that importorskip the Dagster stack. Versions are the ones the project-code image installs
+# (images/project-code/pyproject.toml and requirements.lock; Floe's also in release/component-catalog.yaml).
+dagster = [
+  "dagster==1.13.7",
+  "dagster-dbt==0.29.7",
+  "dagster-floe[floe]==0.6.0",
+  "dbt-core==1.11.12",
+  "dbt-trino==1.10.2",
+  "dlt==1.29.0",
+  "floe-python==0.10.1",
+]
 
 [tool.setuptools.packages.find]
 include = ["olf*"]
