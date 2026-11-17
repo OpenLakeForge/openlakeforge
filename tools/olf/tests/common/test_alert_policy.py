@@ -13,8 +13,6 @@ import yaml
 from openlakeforge_core import (
     LakehouseDescriptorError,
     load_alert_policy,
-    load_alert_policy_document,
-    load_governance_descriptor,
     parse_alert_policy,
     resolve_conditions,
     resolve_policy,
@@ -49,7 +47,7 @@ rules:
       missed_run: {}
       freshness: {}
       schedule_mismatch: {}
-      quality: {on: error}
+      quality: {level: error}
   - match: {domain: "*", product: "*"}
     stages: [dev]
     notify: [data-eng]
@@ -58,7 +56,7 @@ rules:
   - match: {domain: sales, product: "*"}
     notify: [sales]
     when:
-      quality: {on: warn}
+      quality: {level: warn}
   - match: {domain: sales, product: order_revenue}
     notify: [sales, on-call]
     when:
@@ -71,7 +69,7 @@ rules:
 
 
 def _doc(**overrides: Any) -> dict[str, Any]:
-    document: dict[str, Any] = load_alert_policy_document(EXAMPLE)
+    document: dict[str, Any] = yaml.safe_load(EXAMPLE)
     document.update(overrides)
     return document
 
@@ -102,13 +100,9 @@ def _model_error(document: dict[str, Any], governance: dict[str, Any] | None = G
     return str(raised.value)
 
 
-def test_adr_example_and_sample_policy_pass_schema_and_model() -> None:
-    assert _schema_errors(load_alert_policy_document(EXAMPLE)) == []
-    validate_alert_policy(parse_alert_policy(load_alert_policy_document(EXAMPLE)), GOVERNANCE)
-    sample = ROOT / "lakehouse_code/alerts.yml"
-    governance = load_governance_descriptor(ROOT / "lakehouse_code/governance.yml")
-    assert _schema_errors(load_alert_policy_document(sample.read_text(encoding="utf-8"))) == []
-    load_alert_policy(sample, governance)
+def test_adr_example_passes_schema_and_model() -> None:
+    assert _schema_errors(yaml.safe_load(EXAMPLE)) == []
+    validate_alert_policy(parse_alert_policy(yaml.safe_load(EXAMPLE)), GOVERNANCE)
 
 
 @pytest.mark.parametrize(
@@ -132,7 +126,7 @@ def test_adr_example_and_sample_policy_pass_schema_and_model() -> None:
         lambda d: d["rules"][0]["when"].update(policy_unreadable={}),
         lambda d: d["rules"][0]["when"].update(run_failed={"severity": "info"}),
         lambda d: d["rules"][0]["when"].update(run_failed=True),
-        lambda d: d["rules"][0]["when"].update(quality={"on": "fail"}),
+        lambda d: d["rules"][0]["when"].update(quality={"level": "fail"}),
         lambda d: d["rules"][0]["when"].update(missed_run={"grace": "0m"}),
         lambda d: d["rules"][0]["when"].update(missed_run={"grace": "1w"}),
         lambda d: d["rules"][0]["when"].update(missed_run={"grace": 15}),
@@ -142,7 +136,7 @@ def test_adr_example_and_sample_policy_pass_schema_and_model() -> None:
     ],
 )
 def test_schema_rejects(mutate: Any) -> None:
-    document = copy.deepcopy(load_alert_policy_document(EXAMPLE))
+    document = copy.deepcopy(yaml.safe_load(EXAMPLE))
     mutate(document)
     assert _schema_errors(document)
 
@@ -154,7 +148,7 @@ def test_schema_rejects(mutate: Any) -> None:
         ({"freshness": {"warn_after": "2d", "critical_after": "30h"}}, "warn_after must be below critical_after"),
         ({"freshness": {"warn_after": "2h", "grace": "5m"}}, "do not mix"),
         ({"missed_run": {"grace": "soon"}}, "positive integer"),
-        ({"quality": {"on": "info"}}, "'warn' or 'error'"),
+        ({"quality": {"level": "info"}}, "'warn' or 'error'"),
         ({"stage_unreadable": {}}, "platform conditions"),
         ({"run_failed": {"severity": "fatal"}}, "severity"),
         ({}, "non-empty"),
@@ -163,6 +157,15 @@ def test_schema_rejects(mutate: Any) -> None:
 def test_model_rejects_structure(when: dict[str, Any], message: str) -> None:
     with pytest.raises(LakehouseDescriptorError, match=message):
         parse_alert_policy(_rules(_rule(when=when)))
+
+
+@pytest.mark.parametrize("bad", [[{"on-call": "on-call"}], [["on-call"]], [1], [None]])
+def test_model_rejects_non_string_list_items_without_a_type_error(bad: list[object]) -> None:
+    for fields in ({"defaults": {"notify": bad}}, {"defaults": {"stages": bad}}):
+        with pytest.raises(LakehouseDescriptorError, match="must list strings"):
+            parse_alert_policy(_rules(_rule(), **fields))
+    with pytest.raises(LakehouseDescriptorError, match="must list strings"):
+        parse_alert_policy(_rules(_rule(notify=bad)))
 
 
 def test_model_rejects_envelope() -> None:
@@ -370,6 +373,17 @@ def test_load_alert_policy_reports_the_path(tmp_path: Path) -> None:
         load_alert_policy(path)
 
 
-def test_on_stays_a_key_not_a_yaml_boolean() -> None:
-    document = load_alert_policy_document("quality: {on: error}\nflag: true\nno: false\n")
-    assert document == {"quality": {"on": "error"}, "flag": True, "no": False}
+def test_on_is_rejected_with_a_pointer_to_level() -> None:
+    document = yaml.safe_load("""\
+apiVersion: openlakeforge.io/v1beta1
+kind: AlertPolicy
+routes: {on-call: on-call}
+rules:
+  - match: {domain: "*", product: "*"}
+    notify: [on-call]
+    when:
+      quality: {on: error}
+""")
+    with pytest.raises(LakehouseDescriptorError, match="quality uses `level`, not `on`"):
+        parse_alert_policy(document)
+    assert _schema_errors(document)

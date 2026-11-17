@@ -104,7 +104,7 @@
               "quality": {
                 "oneOf": [
                   {"const": false},
-                  {"type": "object", "additionalProperties": false, "properties": {"on": {"enum": ["warn", "error"]}}}
+                  {"type": "object", "additionalProperties": false, "properties": {"level": {"enum": ["warn", "error"]}}}
                 ]
               },
               "schedule_mismatch": {
