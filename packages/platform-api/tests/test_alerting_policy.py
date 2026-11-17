@@ -232,3 +232,55 @@ def test_stages_read_their_own_pointer() -> None:
 
     assert read(bucket).revision is None
     assert read_stage_policy("prod", AlertStore(bucket, "s3://ops/alerts/"), NOW).revision is not None
+
+
+BAD = b"\xff\xfe not utf-8"
+
+
+def test_bytes_that_are_not_utf_8_in_the_pointer_are_unreadable_not_fatal() -> None:
+    bucket = FakeBucket()
+    publish(bucket)
+    good = read(bucket)
+    bucket.objects["activations/dev/ACTIVE.json"] = BAD
+
+    found = read(bucket)
+
+    assert found.unreadable is not None
+    assert found.policy == good.policy
+
+
+def test_bytes_that_are_not_utf_8_in_the_activation_are_unreadable_not_fatal() -> None:
+    bucket = FakeBucket()
+    activation = publish(bucket)
+    bucket.objects[activation_key(activation.activation_revision, stage="dev")] = BAD
+
+    found = read(bucket)
+
+    assert found.unreadable is not None and found.policy.rules == ()
+
+
+def test_bytes_that_are_not_utf_8_in_alerts_yml_are_unreadable_not_fatal() -> None:
+    bucket = FakeBucket()
+    publish(bucket)
+    good = read(bucket)
+    publish(bucket, alerts=BAD, seed="b")
+
+    found = read(bucket)
+
+    assert found.unreadable is not None
+    assert found.policy == good.policy
+
+
+@pytest.mark.parametrize("from_cache", [False, True])
+def test_a_route_to_a_dropped_receiver_is_logged(from_cache: bool, caplog: pytest.LogCaptureFixture) -> None:
+    bucket = FakeBucket()
+    publish(bucket)
+    if from_cache:
+        read(bucket, receivers=["ops"])
+    caplog.clear()
+
+    read(bucket, receivers=["pager"])
+
+    assert any(
+        "dev" in r.getMessage() and "pager" not in r.getMessage() and "ops" in r.getMessage() for r in caplog.records
+    )

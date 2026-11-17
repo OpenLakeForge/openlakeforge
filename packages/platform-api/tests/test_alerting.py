@@ -148,6 +148,19 @@ def test_the_stage_policy_is_read_but_does_not_change_what_alerts_yet() -> None:
     assert activation.activation_revision
 
 
+def test_one_stage_with_unusable_objects_does_not_stop_the_others() -> None:
+    bucket, notifier = FakeBucket(), FakeNotifier()
+    dagster = {"dev": FakeDagster(), "prod": FakeDagster([_failed()])}
+    bucket.objects["activations/dev/ACTIVE.json"] = b"\xff\xfe"
+
+    summary = _evaluate(_settings(A, stages=("dev", "prod")), bucket, dagster, {"ops": notifier})
+
+    assert summary.policy_unreadable == ("dev",)
+    assert [
+        payload["scope"]["stage"] if "scope" in payload else payload.get("stage") for _, payload in notifier.sent
+    ] == ["prod"]
+
+
 def test_a_clean_policy_read_is_not_reported_unreadable() -> None:
     bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
     publish(bucket)
@@ -631,7 +644,7 @@ def _run_entrypoint(
 
     def fake_run_once(**kwargs: Any) -> Any:
         captured.update(kwargs)
-        return SimpleNamespace(notifications=0, delivered=0, failed=0, expired=0)
+        return SimpleNamespace(notifications=0, delivered=0, failed=0, expired=0, policy_unreadable=())
 
     monkeypatch.setattr(entrypoint, "_object_store", lambda settings: FakeBucket())
     monkeypatch.setattr(entrypoint, "run_once", fake_run_once)

@@ -97,8 +97,15 @@ def read_stage_policy(
         if cached is not None and cached.revision == active.activation_revision:
             return _finish(stage, cached, receivers, None)
         fresh = _read_revision(store, active.activation_revision, active.project_revision)
-    except (StoreError, ProjectActivationError, ProjectRevisionError, _PolicyUnusable) as error:
-        return _fallback(stage, cached, receivers, str(error))
+    except (StoreError, ProjectActivationError, ProjectRevisionError, _PolicyUnusable, ValueError) as error:
+        # ValueError covers bytes that are not UTF-8 or JSON. Nothing a stage's objects hold may escape: one bad
+        # stage would otherwise stop the evaluation, and the alerts, of every other.
+        return _fallback(
+            stage,
+            cached,
+            receivers,
+            f"{type(error).__name__}: {error}" if isinstance(error, ValueError) else str(error),
+        )
     _write_cache(stage, store, fresh, now)
     return _finish(stage, fresh, receivers, None)
 
@@ -172,6 +179,7 @@ def _finish(stage: str, cached: _Cached, receivers: Collection[str] | None, unre
         missing = sorted({receiver for receiver in policy.routes.values() if receiver not in receivers})
         if missing:
             unreadable = f"routes name receivers the profile does not declare: {', '.join(missing)}"
+            log.warning("alert policy of stage %s cannot be fully used: %s", stage, unreadable)
     return StagePolicy(stage, policy, resolved, cached.revision, unreadable)
 
 

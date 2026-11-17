@@ -70,21 +70,25 @@ rules:
 """
 
 
-def _sha(content: str) -> str:
-    return hashlib.sha256(content.encode()).hexdigest()
+def _bytes(content: str | bytes) -> bytes:
+    return content if isinstance(content, bytes) else content.encode()
+
+
+def _sha(content: str | bytes) -> str:
+    return hashlib.sha256(_bytes(content)).hexdigest()
 
 
 def publish(
     bucket: FakeBucket,
     *,
     stage: str = "dev",
-    alerts: str | None = POLICY,
+    alerts: str | bytes | None = POLICY,
     governance: str = GOVERNANCE,
     seed: str = "a",
     activate: bool = True,
 ) -> ProjectActivation:
     """A published revision and, unless `activate` is false, the stage's ACTIVE.json naming its activation."""
-    files = {"lakehouse_code/governance.yml": governance}
+    files: dict[str, str | bytes] = {"lakehouse_code/governance.yml": governance}
     if alerts is not None:
         files["lakehouse_code/alerts.yml"] = alerts
     components = [
@@ -101,7 +105,7 @@ def publish(
     }
     bucket.objects[sidecar_key(revision)] = json.dumps(sidecar).encode()
     for name, content in files.items():
-        bucket.objects[f"{revision_prefix(revision)}/descriptors/{name}"] = content.encode()
+        bucket.objects[f"{revision_prefix(revision)}/descriptors/{name}"] = _bytes(content)
     activation = ProjectActivation(
         deployment_profile="example",
         provider="local",
