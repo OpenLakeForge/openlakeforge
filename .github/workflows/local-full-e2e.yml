@@ -64,7 +64,11 @@ on:
           skipped. The run activates dev and prod only, pushes the revision to
           its own GHCR repository and cannot run the stage drill or the
           registry pull check, so a profile that enables another stage or
-          declares spec.project, or a run that asks for either, is rejected. Leave empty for the conformance profile.
+          declares spec.project, or a run that asks for either, is rejected.
+          The job creates only the Secrets the conformance profile names:
+          github-oauth-app (client-id, client-secret) for a GitHub issuer and
+          olf-e2e-alert-receiver (webhook-url) for an alert receiver. A
+          profile that names others stops at the platform apply. Leave empty for the conformance profile.
         type: string
         default: ""
       profile_path:
