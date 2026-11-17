@@ -128,8 +128,9 @@ def _read_revision(store: PolicyStore, activation_revision: str, project_revisio
     components = sidecar_components(sidecar.decode("utf-8", errors="replace"), project_revision)
     descriptors = next((c for c in components if c.name == "descriptors"), None)
     if descriptors is None or ALERTS_ENTRY not in descriptors.entries:
-        # Both are normal: a project that never declared a policy gets no product alerts.
-        return _Cached(activation_revision, None, _NO_GOVERNANCE)
+        # Both are normal: a project that never declared a policy gets no product alerts. Its governance is still
+        # read, best effort, so the e2e's `--policy-file` matches product and domain rules against real ids.
+        return _Cached(activation_revision, None, _governance_without_policy(store, project_revision, descriptors))
     if GOVERNANCE_ENTRY not in descriptors.entries:
         raise _PolicyUnusable("the revision has alerts.yml but no governance.yml")
     prefix = f"{revision_prefix(project_revision)}/descriptors"
@@ -146,6 +147,22 @@ def _read_revision(store: PolicyStore, activation_revision: str, project_revisio
     except (yaml.YAMLError, LakehouseDescriptorError, KeyError, TypeError, UnicodeDecodeError) as error:
         raise _PolicyUnusable(f"alerts.yml is not valid: {error}") from error
     return _Cached(activation_revision, alerts_doc, products)
+
+
+def _governance_without_policy(store: PolicyStore, project_revision: str, descriptors: Any) -> dict[str, Any]:
+    """The product ids of a revision that has no alerts.yml. Nothing alerts on them unless `--policy-file` overrides
+    the policy, so a governance.yml that cannot be read degrades to none instead of raising `policy_unreadable`."""
+    if descriptors is None or GOVERNANCE_ENTRY not in descriptors.entries:
+        return _NO_GOVERNANCE
+    prefix = f"{revision_prefix(project_revision)}/descriptors"
+    try:
+        document = yaml.safe_load(_checked(store, prefix, GOVERNANCE_ENTRY, descriptors.entries[GOVERNANCE_ENTRY]))
+        if not isinstance(document, dict):
+            raise LakehouseDescriptorError("governance.yml must hold a YAML object")
+        return _products(document)
+    except (_PolicyUnusable, yaml.YAMLError, LakehouseDescriptorError, KeyError, TypeError, UnicodeDecodeError):
+        log.warning("governance.yml of revision %s could not be read", project_revision, exc_info=True)
+        return _NO_GOVERNANCE
 
 
 def _checked(store: PolicyStore, prefix: str, entry: str, expected: str) -> str:

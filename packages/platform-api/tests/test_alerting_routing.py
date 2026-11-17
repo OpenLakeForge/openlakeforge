@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from _alerting_fakes import FakeBucket, publish, settings_mapping
 from openlakeforge_core import AlertPolicy, parse_alert_policy
+from openlakeforge_services.dagster import DagsterJob, DagsterRun
 from test_alerting import BASE, NOW, FakeDagster, FakeNotifier, _evaluate, _failed, _settings, _told
 
 from openlakeforge_platform_api.alerting import __main__ as entrypoint
@@ -224,3 +225,44 @@ def test_a_notification_whose_policy_was_read_and_routes_nobody_still_leaves_the
 def _condition(bucket: FakeBucket, notification_id: str) -> str:
     outbox = bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["outbox"]
     return next(e["notification"]["kind"] for e in outbox if e["notification"]["id"] == notification_id)
+
+
+class _ProductDagster(FakeDagster):
+    """A Dagster whose one job is the governance product `order_revenue`'s pipeline."""
+
+    def list_jobs(self) -> list[DagsterJob]:
+        return [DagsterJob("loc", "repo", "order_revenue_pipeline", "")]
+
+
+def test_a_policy_override_matches_product_rules_on_a_revision_without_alerts_yml() -> None:
+    bucket = FakeBucket()
+    publish(bucket, alerts=None)
+    ops, chat = FakeNotifier(), FakeNotifier()
+    override = parse_alert_policy(
+        {
+            "apiVersion": "openlakeforge.io/v1beta1",
+            "kind": "AlertPolicy",
+            "routes": {"on-call": "ops", "sales": "chat"},
+            "rules": [
+                {"match": {"domain": "*", "product": "*"}, "notify": ["on-call"], "when": {"run_failed": {}}},
+                {
+                    "match": {"domain": "sales", "product": "order_revenue"},
+                    "notify": ["sales"],
+                    "when": {"run_failed": {}},
+                },
+            ],
+        }
+    )
+    stamp = (NOW - timedelta(minutes=30)).timestamp()
+    dagster = _ProductDagster([DagsterRun("run-1", "order_revenue_pipeline", "FAILURE", stamp - 60, stamp - 59, stamp)])
+
+    run_once(
+        settings=_settings(OPS, CHAT),
+        store=AlertStore(bucket, BASE),
+        dagster={"dev": dagster},
+        notifiers={"ops": ops, "chat": chat},
+        now=NOW,
+        policy_override=override,
+    )
+
+    assert (_told(ops), _told(chat)) == ([], [("dev", "run_failed", "opened")])
