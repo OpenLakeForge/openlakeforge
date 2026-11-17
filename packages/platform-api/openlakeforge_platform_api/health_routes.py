@@ -100,6 +100,7 @@ def _probe(request: Request, stage: str, now: datetime) -> tuple[IntegrationStat
         namespace=namespace,
         dagster_graphql_url=settings.dagster_graphql_urls.get(stage),
         trino_url=settings.trino_urls.get(stage),
+        polaris_health_url=settings.polaris_health_url,
         bucket=buckets[0] if buckets else None,
         log_archive_base_uri=archive.base_uri if archive else None,
         log_archive_namespace=archive.namespace if archive else None,

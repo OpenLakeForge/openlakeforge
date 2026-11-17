@@ -124,23 +124,44 @@ def positive_probes(document: dict[str, Any]) -> list[tuple[str, dict[str, str],
     return probes
 
 
-def stage_wide(document: dict[str, Any]) -> set[str]:
-    """Protected workloads that every stage pod may reach: the rows whose source is the whole stage namespace."""
+def stage_wide(document: dict[str, Any]) -> set[tuple[str, int]]:
+    """(workload, port) pairs every stage pod may reach: the rows whose source is the whole stage namespace.
+
+    Per port, not per workload: F9 opens Polaris's 8181 to stage pods, and its 8182 only to the platform API (F43).
+    """
     return {
-        workload
+        (workload, int(port))
         for workload in PROTECTED
         for row in document["flows"]
         if row["from"] == {"scope": "stage"} and row["to"].get("pods") == document["workloads"][workload]
+        for port in row["ports"]
     }
 
 
+def judge_probes(
+    namespace: str, workload: str, ip: str, rcs: dict[int, int], allowed: set[tuple[str, int]]
+) -> list[str]:
+    """Isolation problems from one probe pod's connects to one workload (port to curl exit code)."""
+    open_ports = {port for port in rcs if (workload, port) in allowed}
+    problems = [
+        f"{namespace} -> {workload} {ip}:{port} was not dropped (rc={rc})"
+        for port, rc in rcs.items()
+        if port not in open_ports and rc != 28
+    ]
+    # A control: a broken probe cannot pass vacuously. One served port is enough.
+    if open_ports and all(rcs[port] in NOT_REACHED for port in open_ports):
+        problems.append(f"control {namespace} -> {workload}:{sorted(open_ports)} did not connect (rc={rcs})")
+    return problems
+
+
 def workload_ports(document: dict[str, Any], workload: str) -> list[int]:
-    """The ports a flow row opens to the workload."""
+    """Every port a flow row opens to the workload, so a negative probe covers ones only a labelled source reaches."""
     labels = document["workloads"][workload]
-    for row in document["flows"]:
-        if row["to"].get("pods") == labels:
-            return [int(port) for port in row["ports"]]
-    raise E2EError(f"no flow row reaches workload {workload}")
+    rows = [row for row in document["flows"] if row["to"].get("pods") == labels]
+    ports = list(dict.fromkeys(int(port) for row in rows for port in row["ports"]))
+    if not ports:
+        raise E2EError(f"no flow row reaches workload {workload}")
+    return ports
 
 
 def _pod_ip(cfg: E2EConfig, namespace: str, labels: dict[str, str]) -> str | None:
@@ -231,14 +252,14 @@ def check_negative_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
     kubectl(cfg, ["create", "namespace", UNTRUSTED_NAMESPACE])
     problems: list[str] = []
     try:
-        # (namespace, name, allowed): the probes are unlabelled, so only the stage-wide rows (F6, F9, F12) apply,
-        # and a stage namespace reaches its own coordinator.
+        # (namespace, name, allowed (workload, port) pairs): the probes are unlabelled, so only the stage-wide rows
+        # (F6, F9, F12) apply, and a stage namespace reaches its own coordinator.
         cases = [
             (UNTRUSTED_NAMESPACE, "outside", set()),
-            (cfg.namespace, "stage", stage_wide(document) | {f"trino@{cfg.namespace}"}),
+            (cfg.namespace, "stage", stage_wide(document) | {(f"trino@{cfg.namespace}", port) for port in TRINO_PORTS}),
             (cfg.platform_namespace, "platform", set()),
             *(
-                (ns, f"stage-{ns}", stage_wide(document) | {f"trino@{ns}"})
+                (ns, f"stage-{ns}", stage_wide(document) | {(f"trino@{ns}", port) for port in TRINO_PORTS})
                 for ns in stage_namespaces
                 if ns != cfg.namespace
             ),
@@ -247,16 +268,7 @@ def check_negative_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
             with _probe_pod(cfg, namespace, {}, f"olf-e2e-deny-{name}") as pod:
                 for workload, (ip, ports) in targets.items():
                     rcs = {port: _connect(cfg, namespace, pod, ip, port) for port in ports}
-                    if workload in allowed:
-                        # a control: a broken probe cannot pass vacuously. One served port is enough.
-                        if all(rc in NOT_REACHED for rc in rcs.values()):
-                            problems.append(f"control {namespace} -> {workload}:{ports} did not connect (rc={rcs})")
-                    else:
-                        problems += [
-                            f"{namespace} -> {workload} {ip}:{port} was not dropped (rc={rc})"
-                            for port, rc in rcs.items()
-                            if rc != 28
-                        ]
+                    problems += judge_probes(namespace, workload, ip, rcs, allowed)
     finally:
         kubectl(cfg, ["delete", "namespace", UNTRUSTED_NAMESPACE, "--ignore-not-found", "--wait=false"])
     if problems:

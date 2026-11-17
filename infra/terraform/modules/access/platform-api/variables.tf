@@ -218,6 +218,12 @@ variable "log_collector_probe_url" {
   default     = null
 }
 
+variable "polaris_health_url" {
+  description = "Base URL of Polaris's management port; the service probe reads /q/health/ready from it without a credential, over F43. Null leaves the Polaris signal disabled."
+  type        = string
+  default     = null
+}
+
 variable "service_callers" {
   description = "Service principal name to the one ServiceAccount that may authenticate as it with a projected token, checked by a TokenReview (ADR 0021, decision 3). Today only alert-evaluator, the alerts module's ServiceAccount. Empty by default: no token but an issuer's is accepted and no ClusterRole is created."
   type        = map(object({ namespace = string, service_account = string }))

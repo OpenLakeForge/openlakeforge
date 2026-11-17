@@ -296,6 +296,11 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: log-collector}}
     ports: [2021] # the collector pods' spool probe (ADR 0022, decision 2), read by the stage health route; the kubelet's readiness read is F24
     tag: T # needs a health read on a running cluster
+  - id: F43
+    from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
+    ports: [8182] # Polaris's management port, read for /q/health/ready only (ADR 0021, decision 7); the REST API is on 8181
+    tag: T # needs a health read on a running cluster
   - id: F44
     from: {scope: shared, pods: {openlakeforge.io/job: alert-evaluator}}
     to: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}

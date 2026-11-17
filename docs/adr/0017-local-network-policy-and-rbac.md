@@ -214,6 +214,7 @@ port [D]).
 | F41 | the alert evaluator | the alert e2e's stub receiver (`olf-system`, label `openlakeforge.io/e2e=alert-receiver`, #1173) | 8443 | the receiver's URL is `olf-e2e-alert-receiver.olf-system.svc`; F40 excludes pod and Service ranges, so the stub needs its own row (post-DNAT port), as F29 does for Dex | T; a flow-file row keyed on the label the e2e sets |
 | F44 | the alert evaluator | the platform API (`olf-system`, `app.kubernetes.io/name=platform-api`) 8080 | 8080 | each stage's services route (`GET /api/v1/stages/{stage}/health/services`; [ADR 0023](0023-alert-evaluation-and-webhook-delivery.md), decision 11), with a projected ServiceAccount token for the audience `openlakeforge-platform-api` that the API checks with a TokenReview over its own F20 egress ([ADR 0021](0021-platform-api.md), decision 3); the Service is `platform-api`, so the URL is `http://platform-api.olf-system:8080` | T |
 | F42 | the platform API | the log collector's spool probe (`olf-system`, `app.kubernetes.io/name=log-collector`) 2021 | 2021 | the age of the oldest spooled file and the spool's size, per stage ([ADR 0022](0022-pod-log-collection-and-archive-format.md), decision 2), read from every collector pod through the headless Service `log-collector-probe`; the answer is two numbers per stage and no log text | T |
+| F43 | the platform API | Polaris (`olf-system`, `app.kubernetes.io/name=polaris`) 8182 | 8182 | the service probe `polaris.readiness` ([ADR 0021](0021-platform-api.md), decision 7): `GET /q/health/ready` on the management port, through the headless Service `polaris-mgmt`, with no credential. The REST API (8181) is not opened to the platform API, so the probe proves the service is up and not that a catalog read or a grant works | T |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
@@ -233,7 +234,7 @@ Denied by construction, and tested (negative matrix below): everything not in
 the table. Notably stage to stage (DEV cannot reach PROD's Dagster or
 Superset), stage to Dex, Postgres from outside the F6 sources, SeaweedFS
 master, filer and volume ports from outside, Polaris's management port 8182
-from anywhere, Trino from an unlisted namespace, and any pod to Dagster except
+from anything but the platform API (F43), Trino from an unlisted namespace, and any pod to Dagster except
 Traefik and the stage's own namespace.
 
 **Known leak the network cannot close.** Any pod allowed to reach Traefik
@@ -658,6 +659,13 @@ as it admitted the collector. One row renders both halves: the collector's ingre
 else, and the API's egress to the collector's pods.
 
 F39's key gained the alert policy's read grant (ADR 0023, decision 10, slice AP-b): `Read`, with no `List` and no `Write`, on each enabled stage's `activations/<stage>/ACTIVE.json` and `activations/<stage>/revisions/*`, and on `project/revisions/*`. No Secret, Role or flow row changed: the evaluator already reaches the S3 gateway over F39 with the same key, so `release/network-flows.yaml` and the e2e network pins stand. `project/revisions/*` also exposes every frozen file of every revision to this key (dbt SQL, Dagster code, Floe contracts); the maintainer accepted that reach. Whether SeaweedFS honours a `*` in the middle of an action path, which would narrow it to `project/revisions/sha256/*/descriptors/*`, is not tested yet (see ADR 0023, History).
+
+F43 added (#798, ADR 0021 decision 7): the platform API reads Polaris's readiness check, `GET /q/health/ready` on the
+management port 8182, through the chart's headless Service `polaris-mgmt` [V: `helm template` of the pinned chart 1.8.0
+renders that Service, the container port and the chart's own readiness probe on the same path]. The request carries no
+credential and the row opens no other port, so the platform API still has no flow to the REST API on 8181 and no
+Polaris grant. One row renders both halves: Polaris's ingress on 8182 from the platform API's pods and nothing else, and
+the API's egress to Polaris's pods.
 
 F44 added (ADR 0023, decision 11; ADR 0021, decision 3): the alert evaluator reads each stage's health from the platform API
 on 8080, instead of probing the stages itself. Its pod projects one ServiceAccount token for the audience

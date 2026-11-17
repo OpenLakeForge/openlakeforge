@@ -46,6 +46,7 @@ One JSON file, at `$OPENLAKEFORGE_PLATFORM_API_SETTINGS` (default
 | `ca_file` | Optional CA bundle added to the system roots for the issuer's TLS |
 | `dagster_graphql_urls` | Optional; each enabled stage's Dagster GraphQL URL. A stage without one answers 404 on the Dagster routes |
 | `stage_namespaces`, `trino_urls` | Optional; each probed stage's namespace (where its Role and the pod's token exist) and its Trino coordinator base URL. A stage with no namespace is not probed |
+| `polaris_health_url` | Optional; Polaris's management base URL. The probe reads `/q/health/ready` with no credential; absent, the Polaris signal is `disabled` |
 | `openmetadata_url` | Optional; OpenMetadata's in-cluster base URL. Without it the OpenMetadata routes answer 404 |
 | `log_archives` | Optional; each enabled stage's archive, `{"base_uri": "s3://…", "namespace": "…"}`: where its archiver writes and the namespace it archives. A stage without one answers 404 on the logs route; the namespace is never taken from a request |
 | `person_query`, `query_endpoints` | Per-person SQL: the switch, and each stage's Trino `{"statement_url", "catalog"}` |

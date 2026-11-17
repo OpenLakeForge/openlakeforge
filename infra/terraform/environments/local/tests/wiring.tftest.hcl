@@ -282,6 +282,11 @@ run "service_probes_are_wired_to_each_stage_namespace" {
   }
 
   assert {
+    condition     = jsondecode(module.platform_api[0].settings_json).polaris_health_url == "http://polaris-mgmt.olf-system.svc:8182"
+    error_message = "the probe reads Polaris's management port, not the catalog's REST port"
+  }
+
+  assert {
     condition     = length(terraform_data.platform_api_probe_grant) == 1
     error_message = "the F20 egress is static, so the root must check the probe grant accompanies the platform API"
   }
