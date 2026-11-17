@@ -79,6 +79,23 @@ class AlertStore:
             self._put(copy, body)
             return AlertState()
 
+    def read_object(self, key: str) -> bytes | None:
+        """An object of the state bucket by its full key, or None when it does not exist."""
+        try:
+            return self._client.get_object(Bucket=self._bucket, Key=key)["Body"].read()
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") in _MISSING:
+                return None
+            raise StoreError(f"{key} could not be read: {error}") from error
+        except BotoCoreError as error:
+            raise StoreError(f"{key} could not be read: {error}") from error
+
+    def read_policy_cache(self, stage: str) -> bytes | None:
+        return self.read_object(self._key("state", "v1", "policy", f"{safe_name(stage)}.json"))
+
+    def write_policy_cache(self, stage: str, body: bytes) -> None:
+        self._put(self._key("state", "v1", "policy", f"{safe_name(stage)}.json"), body)
+
     def write_state(self, state: AlertState, *, evaluated_at: datetime) -> None:
         """The state, stamped with `evaluated_at` so a quiet but working evaluator is told from a stopped one.
 

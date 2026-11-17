@@ -23,6 +23,7 @@ from openlakeforge_core.health import HealthState, Scope, Signal, service_signal
 from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.notify import Notifier
 
+from openlakeforge_platform_api.alerting.policy import read_stage_policy
 from openlakeforge_platform_api.alerting.settings import EvaluatorSettings, LinkSettings
 from openlakeforge_platform_api.alerting.store import AlertStore, PendingRecord
 from openlakeforge_platform_api.pipeline_health import read_stage_pipelines
@@ -45,6 +46,8 @@ class RunSummary:
     delivered: int
     failed: int
     expired: int
+    # Stages whose alert policy could not be used this run. Read and logged only: AP-c applies the policy.
+    policy_unreadable: tuple[str, ...] = ()
 
 
 def run_once(
@@ -63,6 +66,7 @@ def run_once(
     previous = store.read_state(now)
     # Transitions of the stored state whose history writes did not all land last run: replay them now.
     _flush_history(store, store.read_pending_history(previous))
+    policy_unreadable = _read_policies(settings, store, now)
     signals, scopes = _read_stages(settings, dagster, quality or {}, previous, now)
     evaluation = evaluate(
         previous,
@@ -157,7 +161,21 @@ def run_once(
             },
         )
     store.write_state(state, evaluated_at=now)
-    return RunSummary(len(evaluation.notifications), delivered, failed, len(expired))
+    return RunSummary(len(evaluation.notifications), delivered, failed, len(expired), policy_unreadable)
+
+
+def _read_policies(settings: EvaluatorSettings, store: AlertStore, now: datetime) -> tuple[str, ...]:
+    """Reads every stage's policy (ADR 0023, decision 10). It changes nothing yet: `evaluate` still alerts on every
+    condition at its default, and the unreadable ones are only logged, until the policy is applied."""
+    names = [receiver.name for receiver in settings.receivers]
+    unreadable = []
+    for stage in settings.stages:
+        found = read_stage_policy(stage, store, now, receivers=names)
+        if found.unreadable:
+            unreadable.append(stage)
+        else:
+            log.info("alert policy of stage %s: %s", stage, found.revision or "none")
+    return tuple(unreadable)
 
 
 def _flush_history(store: AlertStore, pending: list[PendingRecord]) -> None:

@@ -74,6 +74,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except StoreError as error:
         log.error("alert state is unavailable, nothing was delivered: %s", error)
         return 1
+    for stage in summary.policy_unreadable:
+        log.warning("alert policy of stage %s was not usable this run; see the warning above", stage)
     log.info(
         "evaluated: %d new notifications, %d delivered, %d failed, %d expired",
         summary.notifications,
