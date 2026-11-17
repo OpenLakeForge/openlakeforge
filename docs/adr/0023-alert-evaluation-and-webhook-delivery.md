@@ -2,13 +2,15 @@
 
 ## Status
 
-Decided, **not built**. Nothing in `infra/`, `tools/olf` or `packages/` changes
-with this record. What binds today is the direction: a small evaluator that runs
-as a CronJob in `olf-system`, state kept as objects in the ops bucket, and one
-generic HTTPS webhook adapter. Slices #1168 to #1173 build it (see "Build
-order"). Tags used below: **[V]** checked in this repository at the commit this
-record was written against; **[T]** a claim the implementing slice must test
-before relying on it.
+Decided and **built** on the local provider: slices #1168 to #1173 (see "Build
+order") deliver an evaluator that runs as a CronJob in `olf-system`, state kept
+as objects in the ops bucket, and one generic HTTPS webhook adapter. Local
+reports `alerts.supported = true`; AWS and Azure keep `false`. The History
+records how each slice landed. Not built: the history retention rule (see
+"Retention"), which stays a request. Tags used below: **[V]** checked in this
+repository at the commit this record was written against; **[T]** a claim the
+implementing slice must test before relying on it; a [T] whose slice has
+landed is answered in History, not edited in place.
 
 Every decision carries a basis. **Maintainer** means the maintainer chose it on
 2026-11-16 and it binds every slice of #23. **Default, revisit** means the issue
@@ -18,7 +20,7 @@ record had to fill a gap the issue left; it is listed again under "Open items".
 
 Which conditions alert, their thresholds and who is told move to
 [ADR 0024](0024-alert-policy-as-code.md), decided, not built: a project's
-`lakehouse_code/alerts.yml` declares them per product and stage. Until it is
+`lakehouse_code/alerts.yml` declares them per product and stage. Until that is
 built, Decision 2's conditions and Decision 4's stage routing bind as written
 here; afterwards Decision 2's severities are the defaults of a declared
 condition and a receiver's `stages` is a ceiling on the policy's routes.
@@ -460,3 +462,6 @@ manifests for a real run, as the evaluator reads only the manifest. No deviation
 
 2026-11-17: ADR 0024 takes over condition selection, thresholds and routing
 (alert policy as code). The decisions above are unchanged until it is built.
+
+2026-11-17: the Status says the slices are built, as the entries above record;
+it still read "not built". No decision changed.

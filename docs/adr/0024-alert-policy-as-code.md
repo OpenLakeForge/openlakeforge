@@ -15,8 +15,12 @@ beside it; **[T]** a claim the implementing slice must test, or an upstream
 claim not verified here, before anyone relies on it.
 
 Every decision carries a basis. **Maintainer** means the maintainer chose it on
-2026-11-17 and it binds every slice. **Proposed** means this record had to fill
-a gap; each one is listed again under "Open questions" with a recommendation.
+2026-11-17 and it binds every slice. **Proposed, accepted by default
+2026-11-17 (maintainer may revisit)** means this record proposed it, the
+maintainer accepted the recommendation without changing it, and it binds the
+build until the maintainer changes it here. **Proposed** means this record had
+to fill a gap that was not put to the maintainer as a question; it binds the
+build until review changes it. No question is open.
 
 ## Context
 
@@ -73,7 +77,7 @@ fields at any level are rejected, as in every descriptor (ADR 0005). Matching
 uses `governance.yml` ids: a product is matched through its job
 `<id>_pipeline`, and its domain is the one it is nested under. A job that is no
 product's (`gold_maintenance`, `silver_maintenance`) is matched only by a rule
-whose `match` is `"*"` for both **(proposed)**.
+whose `match` is `"*"` for both **(proposed, accepted by default 2026-11-17; maintainer may revisit)**.
 
 ### Conditions and their options
 
@@ -90,12 +94,12 @@ with `m`, `h` or `d` (`30m`, `26h`, `2d`). `warn_after` must be below
 `critical_after` when both are set; either may be set alone. Thresholds and
 cadence options do not mix in one rule.
 
-- **`freshness`** keeps the alert kind `stale_output` **(proposed)**, so
+- **`freshness`** keeps the alert kind `stale_output` **(proposed, accepted by default 2026-11-17; maintainer may revisit)**, so
   fingerprints, payloads (`condition: stale_output`) and the guide's runbook
   anchors do not change. With thresholds, it opens at `warning` past
   `warn_after` and escalates to `critical` past `critical_after`, through the
   existing escalation rule (one `escalated` notification). It applies whatever
-  the schedule's state **(proposed)**: a DEV pipeline has no schedule, and a
+  the schedule's state **(proposed, accepted by default 2026-11-17; maintainer may revisit)**: a DEV pipeline has no schedule, and a
   declared bound is the team's statement that it should have run. A job with no
   success among the runs read (25, `RUN_WINDOW`) stays `unknown` and opens
   nothing, as today. Full SLAs, with business calendars and partitions, stay in
@@ -190,8 +194,8 @@ names cannot be checked here (Decision 2).
 | --- | --- |
 | Maintainer | `openlakeforge.yaml` keeps the named receivers backed by Kubernetes Secrets, which the ops team owns. `alerts.yml` refers to them by name only, through `routes`. Credentials never enter the repository. |
 | Maintainer | A route naming a receiver the profile does not declare fails activation, which has the profile. `olf check` validates only the structure. |
-| Proposed | The check runs in `deploy_revision` (`tools/olf/olf/infra/deployment/activation.py`), beside `_require_source_bindings`, before the rollout, and only when the profile declares at least one receiver. With none, no evaluator exists (ADR 0023, Decision 1) and nothing reads the policy, so a project template that ships an `alerts.yml` still activates on a profile without receivers. |
-| Proposed | The receiver's `stages` filter is **kept**, as a ceiling the ops team owns: a notification reaches a receiver only when a rule routes it there **and** the receiver's `stages` include the stage. A product rule cannot page a PROD-only on-call from DEV. Omitted `stages` resolves to every enabled stage, so the ceiling is open by default. |
+| Proposed, accepted by default 2026-11-17 (maintainer may revisit) | The check runs in `deploy_revision` (`tools/olf/olf/infra/deployment/activation.py`), beside `_require_source_bindings`, before the rollout, and only when the profile declares at least one receiver. With none, no evaluator exists (ADR 0023, Decision 1) and nothing reads the policy, so a project template that ships an `alerts.yml` still activates on a profile without receivers. |
+| Proposed, accepted by default 2026-11-17 (maintainer may revisit) | The receiver's `stages` filter is **kept**, as a ceiling the ops team owns: a notification reaches a receiver only when a rule routes it there **and** the receiver's `stages` include the stage. A product rule cannot page a PROD-only on-call from DEV. Omitted `stages` resolves to every enabled stage, so the ceiling is open by default. |
 
 The profile can change after a stage is activated. A route whose receiver has
 since disappeared is skipped; the evaluator delivers to the routes that remain
@@ -226,9 +230,9 @@ Platform conditions are not product-scoped and are not affected (Decision 7).
 
 | Basis | Decision |
 | --- | --- |
-| Proposed | For each scope, stage and condition, the **most specific** matching rule wins: a named product, then a named domain with `product: "*"`, then the global `"*"`/`"*"`. A rule names a product whether or not it also names the domain. |
-| Proposed | `notify` is the **winning rule's** only, not the union of every matching rule. |
-| Proposed | Two rules at the same specificity that set the same condition for an overlapping stage are a validation error, never resolved by file order. |
+| Maintainer | For each scope, stage and condition, the **most specific** matching rule wins: a named product, then a named domain with `product: "*"`, then the global `"*"`/`"*"`. A rule names a product whether or not it also names the domain. |
+| Maintainer | `notify` is the **winning rule's** only, not the union of every matching rule. |
+| Maintainer | Two rules at the same specificity that set the same condition for an overlapping stage are a validation error, never resolved by file order. |
 
 The choice is per condition, so a product rule that sets only `freshness`
 still takes `run_failed` from the domain or global rule.
@@ -266,8 +270,9 @@ the fingerprint, so editing a rule never turns one incident into two.
 | Maintainer | `alerts.yml` is an entry of the revision's `descriptors` component. Each evaluation reads `activations/<stage>/ACTIVE.json`, then that revision's `alerts.yml` from the ops bucket. |
 | Maintainer | This needs a new read grant on the `openlakeforge-alerts` key. |
 | Proposed | The evaluator also reads the same revision's `governance.yml`, to map jobs to product ids and domains, and the revision's sidecar, to check both files' sha256 against the manifest. |
-| Proposed | A stage with no activation, or whose revision has no `alerts.yml`, has an empty policy, and no warning: both are normal states. |
-| Proposed | A stage whose policy cannot be used keeps its **last good policy** and raises a stage-scoped `policy_unreadable` warning to the platform receivers (Decision 7). |
+| Proposed, accepted by default 2026-11-17 (maintainer may revisit) | A stage with no activation, or whose revision has no `alerts.yml`, has an empty policy, and no warning: both are normal states. |
+| Maintainer | A stage whose policy cannot be used keeps its **last good policy**, cached at `alerts/state/v1/policy/<stage>.json`, and raises a stage-scoped `policy_unreadable` warning to the platform receivers (Decision 7). |
+| Maintainer | The new read grant covers `project/revisions/*` (see "The new grant"). Slice 24-b tests whether SeaweedFS honours a wildcard in the middle of an action path and, if it does, narrows the grant to the `descriptors` component. |
 
 The read path, per stage and evaluation:
 
@@ -306,7 +311,9 @@ than the two files it needs. The content carries no credential by construction,
 and the value scan rejects concrete secrets before publication (ADR 0012), but
 the key's reach is wider than its use **[T: whether SeaweedFS honours a
 wildcard in the middle of an action path, which would narrow it to
-`project/revisions/sha256/*/descriptors/*`]**. See open question 4.
+`project/revisions/sha256/*/descriptors/*`]**. The maintainer accepted the
+wider grant; slice 24-b runs that test and narrows the grant when the wildcard
+works.
 
 ## Decision 7: platform conditions stay with the profile
 
@@ -319,15 +326,16 @@ two Dagster read components **[V]**.
 
 | Basis | Decision |
 | --- | --- |
-| Proposed | `alerts.yml` cannot name a platform condition; the schema rejects them as unknown `when` keys. |
-| Proposed | They go to the profile's platform receivers: a new optional `spec.observability.alerts.platform_receivers`, a list of receiver names. Omitted means every receiver, which is today's behaviour. Each receiver's `stages` ceiling still applies. |
+| Maintainer | `alerts.yml` cannot name a platform condition; the schema rejects them as unknown `when` keys. |
+| Maintainer | They go to the profile's platform receivers: a new optional `spec.observability.alerts.platform_receivers`, a list of receiver names. Omitted means every receiver, which is today's behaviour. Each receiver's `stages` ceiling still applies. |
 
 The product team owns `alerts.yml`; the ops team owns the cluster, the
 receivers and the Secrets. A Dagster that cannot be read, or a policy the
 evaluator cannot use, is the ops team's problem whatever the product, and
 routing it from a file the ops team does not own would let one bad revision
-silence the platform's own alarms. **Flagged for the maintainer**: the profile
-field is a schema change to `DeploymentProfile`, which ADR 0011 owns.
+silence the platform's own alarms. The field is a schema change to
+`DeploymentProfile`, so slice 24-c records it in ADR 0011 and the deployment
+profile reference.
 
 ## Decision 8: what changes in the merged code
 
@@ -336,13 +344,14 @@ field is a schema change to `DeploymentProfile`, which ADR 0011 owns.
 | `packages/core/openlakeforge_core/alert_policy.py` (new) | `AlertPolicy`, `AlertRule`, condition options; `load_alert_policy`, `validate_alert_policy`; `resolve_policy(policy, governance, stage) -> ResolvedPolicy`, which answers per job and condition: enabled, options, route names |
 | `packages/core/openlakeforge_core/alerts.py` | `evaluate(previous, signals, now, *, policy: ResolvedPolicy, ...)`. A signal whose condition the policy does not enable for its scope is ignored, and its open incident resolves silently. `_severity_of` takes the severity from the options instead of constants; `quality` applies `on`; `stale_output` can open at `warning` |
 | `packages/core/openlakeforge_core/health.py` | `evaluate_freshness` gains an age mode: `warn_after` and `critical_after`, measured from the last success's end, for any schedule state |
-| `packages/platform-api/openlakeforge_platform_api/pipeline_health.py` | `read_stage_pipelines` and `_evaluate` take per-job grace and thresholds from the resolved policy. `SCHEDULE_GRACE` becomes the default grace and `RUN_MAX_AGE` stays the bound for a job with no running schedule. The health routes call it without a policy, so they keep today's cadence-derived signals **(proposed)** |
+| `packages/platform-api/openlakeforge_platform_api/pipeline_health.py` | `read_stage_pipelines` and `_evaluate` take per-job grace and thresholds from the resolved policy. `SCHEDULE_GRACE` becomes the default grace and `RUN_MAX_AGE` stays the bound for a job with no running schedule. The health routes call it without a policy, so they keep today's cadence-derived signals **(proposed, accepted by default 2026-11-17; maintainer may revisit)** |
 | `packages/platform-api/openlakeforge_platform_api/alerting/run.py` | Reads each stage's policy (Decision 6) before evaluating. Routing replaces `receiver.routes(stage)` with the winning rule's routes, mapped to receivers and capped by each receiver's `stages`; platform conditions route to the platform receivers |
 | `packages/platform-api/openlakeforge_platform_api/alerting/settings.py` | `ReceiverSetting.stages` is kept as the ceiling. New: the ops bucket's activation and revision prefixes per stage, and `platform_receivers` |
 | `tools/olf/olf/infra/project_revision.py` | `_descriptors_component` adds `alerts.yml` when it exists; the component is a path map, so the revision schema does not change **[V: `ComponentEntries.entries`]** |
 | `tools/olf/olf/infra/deployment/activation.py` | The route check of Decision 2 |
-| `tools/olf/olf/common/profile.py` | `platform_receivers`, if Decision 7 is accepted. The receiver `stages` filter is kept, not deprecated |
+| `tools/olf/olf/common/profile.py` | `platform_receivers` (Decision 7). The receiver `stages` filter is kept, not deprecated |
 | `infra/terraform/modules/storage/seaweedfs/credentials.tf` | The read grant of Decision 6 |
+| `packages/platform-api/openlakeforge_platform_api/alerting/__main__.py` | A `--policy-file` flag, for the e2e only, beside `--now` and `--state-prefix` (ADR 0023, Decision 3): it replaces every stage's policy, so slice 24-c can test silence and precedence without building a revision per case. The CronJob never passes it **(proposed, accepted by default 2026-11-17; maintainer may revisit)** |
 
 ADR 0023 keeps evaluation, state, delivery, links, network and retention.
 Its Decision 2 table becomes the defaults of a declared condition, and its
@@ -401,42 +410,23 @@ under ADR 0020.
 - The portal and the health routes keep the cadence-derived view; a team's
   freshness thresholds show up only as alerts until the routes read the policy.
 
-## Open questions
+## Questions answered on 2026-11-17
 
-Each has a recommended answer, which this record has used above.
+PR #1203 put eleven questions to the maintainer. None stays open.
 
-1. **`notify`: the winner's or the union?** Recommended: the winning rule's
-   only (Decision 4).
-2. **Platform conditions.** Recommended: routed by a new profile field
-   `spec.observability.alerts.platform_receivers`, every receiver when omitted;
-   never by `alerts.yml` (Decision 7).
-3. **An unusable policy.** Recommended: keep the last good policy and raise
-   `policy_unreadable` (`warning`) to the platform receivers; an absent
-   activation or an absent `alerts.yml` is an empty policy with no warning
-   (Decision 6).
-4. **The width of the read grant.** Recommended: accept `Read` on
-   `project/revisions/*`, and narrow it in slice 24-b if SeaweedFS honours a
-   mid-path wildcard. The alternative, activation copying the two files under
-   `activations/<stage>/`, contradicts the decided read path.
-5. **The receiver `stages` filter.** Recommended: keep it as an ops-owned
-   ceiling rather than deprecate it (Decision 2).
-6. **Jobs of no product.** Recommended: only the global `"*"`/`"*"` rule
-   matches `gold_maintenance` and `silver_maintenance`. The alert e2e runs on
-   `gold_maintenance`, so this keeps it working.
-7. **The `freshness` key and the `stale_output` kind.** Recommended: keep the
-   kind, so fingerprints, payloads and runbook anchors do not change. Renaming
-   the kind is a payload change for every receiver.
-8. **Thresholds without a running schedule.** Recommended: a declared
-   `warn_after` or `critical_after` applies in any schedule state; a team that
-   stops a pipeline on purpose changes the rule.
-9. **The health routes and the policy.** Recommended: the routes stay
-   policy-free in v0.7.
-10. **The activation route check without receivers.** Recommended: skipped when
-    the profile has no receiver, so the sample project activates everywhere.
-11. **An e2e flag for the policy.** Recommended: a `--policy-file` flag, for
-    the e2e only, beside `--now` and `--state-prefix` (ADR 0023, Decision 3),
-    so slice 24-c can test silence and precedence without building a revision
-    per case.
+| # | Question | Answer | Basis | Where |
+| --- | --- | --- | --- | --- |
+| 1 | `notify`: the winner's or the union? | The most specific rule's only; same-level overlaps are a validation error | Maintainer | Decision 4 |
+| 2 | Who routes platform conditions? | `spec.observability.alerts.platform_receivers` (omitted: every receiver), never `alerts.yml` | Maintainer | Decision 7 |
+| 3 | A policy that cannot be used | Keep the last good policy at `alerts/state/v1/policy/<stage>.json`; raise `policy_unreadable` to the platform receivers | Maintainer | Decision 6 |
+| 4 | The width of the read grant | Accept `project/revisions/*`; slice 24-b tests a mid-path wildcard and narrows the grant if SeaweedFS honours it | Maintainer | Decision 6 |
+| 5 | The receiver `stages` filter | Kept, as an ops-owned ceiling | Proposed, accepted by default 2026-11-17 (maintainer may revisit) | Decision 2 |
+| 6 | Jobs of no product | Matched only by the global `"*"`/`"*"` rule | Proposed, accepted by default 2026-11-17 (maintainer may revisit) | Decision 1 |
+| 7 | `freshness` and `stale_output` | The alert kind stays `stale_output` | Proposed, accepted by default 2026-11-17 (maintainer may revisit) | Decision 1 |
+| 8 | Thresholds without a running schedule | They apply in any schedule state | Proposed, accepted by default 2026-11-17 (maintainer may revisit) | Decision 1 |
+| 9 | The health routes and the policy | The routes stay policy-free in v0.7 | Proposed, accepted by default 2026-11-17 (maintainer may revisit) | Decision 8 |
+| 10 | The route check without receivers | Skipped when the profile declares none | Proposed, accepted by default 2026-11-17 (maintainer may revisit) | Decision 2 |
+| 11 | An e2e flag for the policy | `--policy-file`, for the e2e only | Proposed, accepted by default 2026-11-17 (maintainer may revisit) | Decision 8 |
 
 ## Build order
 
@@ -446,7 +436,7 @@ Each slice stays under the 15-file, 600-line cap in AGENTS.md.
 | --- | --- | --- |
 | 24-a | `docs/schema/alert-policy.schema.json`; `openlakeforge_core/alert_policy.py` with the precedence resolver; `olf check contracts`; `olf alert explain`; the sample project's `alerts.yml`. No runtime reads it yet | ADR 0005; `docs/reference/descriptors.md` |
 | 24-b | `alerts.yml` in the `descriptors` component; the pointer, activation and sidecar readers in core; the evaluator's read path, last good policy and `policy_unreadable`; the read grant; the activation route check. The evaluator reads the policy and does not apply it yet | ADR 0012; ADR 0017 (F39) |
-| 24-c | `alerts.evaluate` takes the resolved policy; options, thresholds and routing; `pipeline_health` thresholds; `platform_receivers`, if accepted; the conformance profile's receiver rename; the e2e cases for silence, precedence and thresholds | `docs/reference/deployment-profile.md` |
+| 24-c | `alerts.evaluate` takes the resolved policy; options, thresholds and routing; `pipeline_health` thresholds; `platform_receivers`; the conformance profile's receiver rename; the e2e cases for silence, precedence and thresholds | `docs/reference/deployment-profile.md` |
 | 24-d | The alerts guide (the migration callout, the policy, each condition's options), the policy reference, the health-signals page | `docs/guides/operations/alerts.md`, `docs/reference/` |
 
 Slice 24-c is where behaviour changes, so the sample policy (24-a), the read
@@ -467,3 +457,7 @@ path (24-b) and the migration land before or with it.
 
 2026-11-17: created. Takes over condition selection, thresholds and routing
 from ADR 0023.
+
+2026-11-17: the maintainer answered the eleven questions of PR #1203:
+questions 1 to 4 as recommended, decided; 5 to 11 accepted by default as
+recommended. "Open questions" becomes "Questions answered on 2026-11-17".
