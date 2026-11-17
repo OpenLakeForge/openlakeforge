@@ -143,6 +143,18 @@ locals {
             for action in ["Read", "List"] : "${action}:${var.alerts_credentials.ops_bucket_name}/${prefix}*"
           ]
         ]),
+        # The alert policy (ADR 0023, decision 10): each stage's pointer and activation records, and the frozen
+        # revisions. Read only, no List: the evaluator follows keys it derives. `project/revisions/*` holds every
+        # file of every revision, wider than the two descriptors it needs; the maintainer accepted that. Whether
+        # SeaweedFS honours a `*` in the middle of an action path, which would narrow it to
+        # `project/revisions/sha256/*/descriptors/*`, is still untested (ADR 0023, History).
+        flatten([
+          for stage in var.alerts_credentials.policy_stages : [
+            "Read:${var.alerts_credentials.ops_bucket_name}/activations/${stage}/ACTIVE.json",
+            "Read:${var.alerts_credentials.ops_bucket_name}/activations/${stage}/revisions/*",
+          ]
+        ]),
+        length(var.alerts_credentials.policy_stages) == 0 ? [] : ["Read:${var.alerts_credentials.ops_bucket_name}/project/revisions/*"],
       )
     }],
   )

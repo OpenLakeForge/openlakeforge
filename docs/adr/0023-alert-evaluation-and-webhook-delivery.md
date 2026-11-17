@@ -795,7 +795,7 @@ None stays open.
 | 23-e | #1172 | The CronJob, the key, the flow rows, the Secret check, `alerts.supported = true` locally | ADR 0017 flow table, ADR 0021 |
 | 23-f | #1173 | E2e: failed, missed, stale and quality incidents into a stub; the alerts documentation and runbook anchors | `docs/reference/`, `docs/technical-debt.md` |
 
-### The alert policy (not built)
+### The alert policy (AP-a and AP-b built)
 
 Each slice stays under the 15-file, 600-line cap in AGENTS.md. AP-c is where
 behaviour changes, so the sample policy (AP-a), the read path (AP-b) and the
@@ -897,3 +897,21 @@ slices are built; it still read "not built". The design was first drafted as a
 separate ADR 0024 and folded in here, per AGENTS.md rule 8.
 
 2026-11-17: quality key renamed from `on` to `level`, because YAML 1.1 parsers read `on` as true (maintainer).
+
+2026-11-17: alert policy slice AP-b built (#1208, #1209 and the grant PR stacked on them). The evaluator now reads each
+stage's policy and does not apply it: `run_once` reads and logs it, and the alerts that fire are unchanged until AP-c.
+`alerts.yml` joins the `descriptors` component when the project has one **[V: `_descriptors_component`,
+`olf/infra/project_revision.py`]**, and the pointer, activation and sidecar readers moved to `openlakeforge_core`
+(`project_activation.py`, `project_revision.py`, `stages.py`) with `olf` importing them **[V]**. The reader is
+`alerting/policy.py`. Two details this record left open: the cache at `alerts/state/v1/policy/<stage>.json` holds the
+activation revision, the `alerts.yml` document and the product ids of `governance.yml`, and the job map is derived
+from them on each read, so a newer `openlakeforge_core` re-validates the cache and discards one it can no longer
+parse; and a route naming a receiver the profile no longer declares is reported as `policy_unreadable` while the
+policy itself is still used and cached. The read grant is `Read` on each enabled stage's `ACTIVE.json` and
+`revisions/*` and on `project/revisions/*` (`credentials.tf`, tested in `alerts_identity.tftest.hcl`); no flow, Secret
+or e2e network pin changed, since the evaluator already reaches the gateway over F39 **[V: the grant is a key action
+list, not a flow]**. The activation route check runs in `deploy_revision` beside `_require_source_bindings` and is
+skipped when the profile declares no receiver **[V]**; it also refuses an `alerts.yml` that cannot be parsed while
+receivers exist, because its routes cannot then be checked. Still open **[T]**: whether SeaweedFS honours a `*` in the
+middle of an action path. It could not be run without a cluster, so the accepted `project/revisions/*` grant stands and
+the narrowing to `project/revisions/sha256/*/descriptors/*` is not done.
