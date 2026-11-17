@@ -324,9 +324,9 @@ the same specificity that set the same condition for an overlapping stage are
 an error. A job that is no product's, such as `gold_maintenance`, is matched
 by the global rule only.
 
-`alerts.yml` is read with YAML 1.2 booleans, so `on` in `quality: {level: error}`
-stays a key. `olf check contracts` does not check receiver names, because only
-activation has the profile.
+Quote a route, receiver or domain name that YAML reads as a boolean (`on`,
+`off`, `yes`, `no`, `y`, `n`). `olf check contracts` does not check receiver
+names, because only activation has the profile.
 
 ## Implementation files
 

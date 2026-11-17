@@ -85,3 +85,9 @@ def test_contracts_check_rejects(tmp_path: Path, text: str, fragment: str) -> No
 def test_contracts_check_reports_schema_errors_instead_of_raising(tmp_path: Path, text: str) -> None:
     result = _check_alert_policy_conformance(_project(tmp_path, text), schema_root=SCHEMAS)
     assert not result.ok and "schema violation" in result.detail
+
+
+def test_contracts_check_reports_an_unquoted_boolean_route_name(tmp_path: Path) -> None:
+    text = EXAMPLE.replace("on-call: on-call", "on: on-call").replace("notify: [on-call]", "notify: [on]")
+    result = _check_alert_policy_conformance(_project(tmp_path, text), schema_root=SCHEMAS)
+    assert not result.ok and "schema violation" in result.detail
