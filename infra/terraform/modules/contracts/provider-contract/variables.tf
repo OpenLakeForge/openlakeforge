@@ -126,6 +126,30 @@ variable "observability" {
   default = {}
 }
 
+variable "metrics_query" {
+  description = "Where the platform API reads metrics (ADR 0024, decision 6). api names the protocol, never the product. Both stay null unless the provider's metrics capability is supported; the contract carries them as null otherwise."
+  type = object({
+    api = optional(string)
+    url = optional(string)
+  })
+  default = {}
+
+  validation {
+    condition     = (var.metrics_query.api == null) == (var.metrics_query.url == null)
+    error_message = "metrics_query.api and metrics_query.url are set together or both null."
+  }
+
+  validation {
+    condition     = var.metrics_query.api == null || var.metrics_query.api == "prometheus-http-v1"
+    error_message = "metrics_query.api must be \"prometheus-http-v1\" or null."
+  }
+
+  validation {
+    condition     = var.metrics_query.url == null || try(length(var.metrics_query.url) > 0, false)
+    error_message = "metrics_query.url must be a non-empty string or null."
+  }
+}
+
 variable "observability_support" {
   description = "Which observability capabilities this provider can honour today. A capability reported false is advertised as unsupported in the contract, whatever the profile asks for. The two *_retention flags say whether anything applies the requested retention_days to the stored data; they stay false until an adapter does."
   type = object({

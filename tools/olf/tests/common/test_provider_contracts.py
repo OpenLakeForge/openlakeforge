@@ -253,6 +253,40 @@ def test_observability_capabilities_are_optional_for_a_contract_already_in_state
     parse_provider_contracts(contract, _topology(contract))
 
 
+_METRICS_ENDPOINT = {
+    "supported": True,
+    "query_api": "prometheus-http-v1",
+    "query_url": "http://prometheus.olf-system.svc:9090",
+}
+
+
+def test_metrics_query_endpoint_is_null_in_the_local_contract_and_accepted_when_supported() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    metrics = contract["shared"]["observability"]["metrics"]
+    assert metrics["query_api"] is None and metrics["query_url"] is None
+    parse_provider_contracts(contract, _topology(contract))
+
+    metrics.update(_METRICS_ENDPOINT)
+    parsed = parse_provider_contracts(contract, _topology(contract))
+    assert parsed.shared.values["observability"]["metrics"]["query_url"] == _METRICS_ENDPOINT["query_url"]
+
+
+def test_metrics_query_endpoint_is_optional_for_a_contract_already_in_state() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    metrics = contract["shared"]["observability"]["metrics"]
+    del metrics["query_api"], metrics["query_url"]
+
+    parse_provider_contracts(contract, _topology(contract))
+
+
+def test_metrics_query_endpoint_requires_a_supported_capability() -> None:
+    contract = _fixture("local-provider-contracts-v3.json")
+    contract["shared"]["observability"]["metrics"].update({**_METRICS_ENDPOINT, "supported": False})
+
+    with pytest.raises(ProviderContractError, match="only when supported"):
+        parse_provider_contracts(contract, _topology(contract))
+
+
 @pytest.mark.parametrize(
     ("mutate", "match"),
     [
@@ -262,6 +296,12 @@ def test_observability_capabilities_are_optional_for_a_contract_already_in_state
         (lambda observability: observability["metrics"].__setitem__("retention_days", 0), "positive integer"),
         (lambda observability: observability["metrics"].pop("retention_supported"), "retention_supported"),
         (lambda observability: observability["grafana"].__setitem__("url", "x"), "unsupported fields"),
+        (lambda observability: observability["metrics"].__setitem__("query_api", "promql-v2"), "query_api must be"),
+        (lambda observability: observability["metrics"].__setitem__("query_url", ""), "non-empty string"),
+        (lambda observability: observability["metrics"].__setitem__("query_url", 9090), "non-empty string"),
+        (lambda observability: observability["metrics"].__setitem__("query_api", "prometheus-http-v1"), "set together"),
+        (lambda observability: observability["metrics"].__setitem__("query_url", "http://m:9090"), "set together"),
+        (lambda observability: observability["alerts"].__setitem__("query_url", "http://m:9090"), "unsupported fields"),
     ],
 )
 def test_observability_capabilities_fail_closed_on_a_malformed_shape(mutate, match: str) -> None:
@@ -319,6 +359,15 @@ _AGREEMENT_CASES = {
     "metrics-without-retention-days": _drop(("metrics", "retention_days")),
     "archive-without-retention-supported": _drop((*_ARCHIVE, "retention_supported")),
     "non-boolean-retention-supported": _set(("metrics", "retention_supported"), "no"),
+    "metrics-endpoint": _set(
+        ("metrics",), {**_METRICS_ENDPOINT, "enabled": True, "retention_days": 7, "retention_supported": True}
+    ),
+    "metrics-endpoint-unsupported": lambda o: o["metrics"].update({**_METRICS_ENDPOINT, "supported": False}),
+    "metrics-unknown-api": _set(("metrics", "query_api"), "promql-v2"),
+    "metrics-api-without-url": _set(("metrics", "query_api"), "prometheus-http-v1"),
+    "metrics-url-without-api": _set(("metrics", "query_url"), "http://m"),
+    "metrics-empty-url": _set(("metrics", "query_url"), ""),
+    "metrics-endpoint-fields-absent": lambda o: [o["metrics"].pop("query_api"), o["metrics"].pop("query_url")],
     "archive-disabled": _set((*_ARCHIVE, "enabled"), False),
     "boolean-retention-days": _set((*_ARCHIVE, "retention_days"), True),
     "zero-retention-days": _set((*_ARCHIVE, "retention_days"), 0),
