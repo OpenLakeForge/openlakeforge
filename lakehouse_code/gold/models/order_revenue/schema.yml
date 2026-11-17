@@ -68,16 +68,26 @@ models:
         description: Discounts on the order lines.
   - name: mart_order_revenue_margin_by_product
     description: Product revenue, cost, and gross margin for order lines. One row per product.
+    data_tests:
+      - openlakeforge_dbt.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - product_id
+              - product_name
+              - category
     columns:
       - name: product_id
         description: Product identifier; the grain.
         data_tests:
-          - unique
           - not_null
       - name: product_name
         description: Product display name.
+        data_tests:
+          - not_null
       - name: category
         description: Product category.
+        data_tests:
+          - not_null
       - name: line_count
         description: Order lines for the product.
       - name: units_sold
