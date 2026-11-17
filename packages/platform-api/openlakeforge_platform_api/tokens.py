@@ -38,6 +38,8 @@ class Principal:
     username: str | None = None
     # Dex's `federated_claims` (needs the `federated:id` scope); Polaris names the person's principal from it.
     federated_claims: Mapping[str, Any] | None = None
+    # Set instead of `role` for a service principal (ADR 0021, decision 3), which holds no canonical role.
+    service: str | None = None
 
 
 def canonical_role(claim: Any, role_mapping: Mapping[str, tuple[str, ...]], precedence: tuple[str, ...]) -> str | None:

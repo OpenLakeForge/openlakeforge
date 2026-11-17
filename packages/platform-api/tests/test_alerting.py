@@ -841,3 +841,19 @@ def test_the_entrypoint_exits_two_when_quality_is_configured_but_the_key_is_not(
     code, _ = _run_entrypoint(monkeypatch, tmp_path, _with_quality(dev="s3://ops/activations/dev/"))
 
     assert code == 2
+
+
+def test_the_platform_api_url_and_its_token_file_come_together() -> None:
+    both = {"platform_api_url": "http://platform-api.olf-system:8080", "platform_api_token_file": "/t/token"}
+
+    parsed = EvaluatorSettings.from_mapping({**settings_mapping(), **both})
+
+    assert (parsed.platform_api_url, parsed.platform_api_token_file) == tuple(both.values())
+    assert EvaluatorSettings.from_mapping(settings_mapping()).platform_api_url is None
+    for broken in (
+        {"platform_api_url": both["platform_api_url"]},
+        {"platform_api_token_file": both["platform_api_token_file"]},
+        {**both, "platform_api_url": "platform-api:8080"},
+    ):
+        with pytest.raises(SettingsError):
+            EvaluatorSettings.from_mapping({**settings_mapping(), **broken})

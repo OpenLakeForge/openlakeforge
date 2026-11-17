@@ -35,6 +35,7 @@ from openlakeforge_platform_api.models import Health, WhoAmI
 from openlakeforge_platform_api.permissions import ANONYMOUS, EVERY_STAGE, Permission, PermissionMatrix
 from openlakeforge_platform_api.quality_health import QualityReader, s3_quality_reader
 from openlakeforge_platform_api.service_probes import ListableStore, ServiceProbes, StageProber, bounded_s3_config
+from openlakeforge_platform_api.service_tokens import ReviewUnavailable, ServiceTokenValidator
 from openlakeforge_platform_api.settings import QUERY_SIGNING_KEY_ENV, Settings, quality_key_envs
 from openlakeforge_platform_api.tokens import InvalidToken, IssuerUnavailable, Principal, TokenValidator
 
@@ -115,6 +116,20 @@ def _enforce(request: Request) -> None:
     token = _bearer_token(request)
     if token is None:
         _refuse(request, permission, 401, "a bearer token is required", _UNAUTHORIZED)
+    services: ServiceTokenValidator = request.app.state.service_validator
+    if services.is_service_token(token):
+        try:
+            principal = services.validate(token)
+        except InvalidToken as exc:
+            _refuse(request, permission, 401, f"token refused: {exc}", _UNAUTHORIZED)
+        except ReviewUnavailable:
+            # Fail closed: an API server that cannot say who the caller is admits nobody.
+            _refuse(request, permission, 503, "the service token could not be reviewed")
+        request.state.principal = principal
+        if not matrix.allows(operation, None, stage, service=principal.service):
+            _refuse(request, permission, 403, f"service {principal.service!r} may not perform {operation!r}")
+        # No `request.state.token`: it is a Kubernetes credential, which no service the API forwards to may receive.
+        return
     validator: TokenValidator = request.app.state.validator
     try:
         principal = validator.validate(token)
@@ -302,6 +317,7 @@ def create_app(
     *,
     permissions: PermissionMatrix | None = None,
     validator: TokenValidator | None = None,
+    service_validator: ServiceTokenValidator | None = None,
     object_store: ObjectStore | None = None,
     audit: AuditLog | None = None,
     files_store: files.FileStore | None = None,
@@ -338,6 +354,7 @@ def create_app(
     app.state.service_probes = service_probes or owned_probes
     app.state.permissions = permissions or PermissionMatrix.packaged(settings.precedence)
     app.state.validator = validator or TokenValidator(settings)
+    app.state.service_validator = service_validator or ServiceTokenValidator(settings)
     app.state.object_store = object_store or _object_store(settings)
     app.state.files_store = files_store or _files_store(settings)
     app.state.quality_readers = _quality_readers(settings) if quality_readers is None else quality_readers

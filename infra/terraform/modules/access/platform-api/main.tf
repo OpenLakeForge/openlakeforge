@@ -49,6 +49,9 @@ locals {
     # whose password is mounted below; the username is the same on every stage.
     superset_urls     = var.superset_urls
     superset_username = length(var.superset_service_users) == 0 ? null : local.superset_username
+    # Who may call as a service principal, and with which token audience (service_tokens.py).
+    service_callers  = var.service_callers
+    service_audience = var.service_audience
   }
 }
 
@@ -89,7 +92,7 @@ resource "kubernetes_deployment_v1" "platform_api" {
         # ADR 0021 decisions 6 and 7: no Kubernetes permission beyond its own
         # mounts, unless probe_namespaces names the stage namespaces it may list.
         service_account_name            = kubernetes_service_account_v1.platform_api.metadata[0].name
-        automount_service_account_token = length(var.probe_namespaces) > 0
+        automount_service_account_token = length(var.probe_namespaces) > 0 || length(var.service_callers) > 0
 
         container {
           name              = "platform-api"

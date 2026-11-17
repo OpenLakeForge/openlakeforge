@@ -12,7 +12,10 @@ from typing import Any
 ANONYMOUS = "anonymous"
 EVERY_STAGE = "*"
 REQUIRED_KEYS = frozenset({"role", "stages"})
-ALLOWED_KEYS = REQUIRED_KEYS | {"changes_state", "role_stages"}
+ALLOWED_KEYS = REQUIRED_KEYS | {"changes_state", "role_stages", "services"}
+# The service principals a route may name (ADR 0021, decision 3). They are not canonical roles and sit in no
+# precedence: a row lists each one that may call it, and a service not listed is refused whatever its identity.
+SERVICE_CALLERS = frozenset({"alert-evaluator"})
 
 
 class PermissionMatrixError(ValueError):
@@ -29,6 +32,8 @@ class Permission:
     # A role listed here is limited to these stages instead of `stages`, which every other role at or above the floor
     # keeps. Lets one row give a lower role less than a higher one, e.g. data-engineer on dev only.
     role_stages: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
+    # The service principals allowed in addition to the roles at or above the floor, on the row's `stages`.
+    services: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -56,8 +61,19 @@ class PermissionMatrix:
             if role == ANONYMOUS and changes_state:
                 raise PermissionMatrixError(f"operation {name!r}: an anonymous operation cannot change state")
             role_stages = cls._role_stages(str(name), row.get("role_stages", {}), role, stages, precedence)
+            services = row.get("services", [])
+            if not isinstance(services, list) or not set(services) <= SERVICE_CALLERS:
+                raise PermissionMatrixError(
+                    f"operation {name!r}: services must list names from {sorted(SERVICE_CALLERS)}"
+                )
+            if services and (role == ANONYMOUS or changes_state):
+                raise PermissionMatrixError(f"operation {name!r}: a service may only call an authenticated read")
             operations[str(name)] = Permission(
-                role=role, stages=tuple(stages), changes_state=changes_state, role_stages=role_stages
+                role=role,
+                stages=tuple(stages),
+                changes_state=changes_state,
+                role_stages=role_stages,
+                services=tuple(services),
             )
         return cls(operations=operations, precedence=precedence)
 
@@ -91,10 +107,11 @@ class PermissionMatrix:
         text = resources.files(__package__).joinpath("permissions.toml").read_text(encoding="utf-8")
         return cls.from_mapping(tomllib.loads(text), precedence)
 
-    def allows(self, operation: str, role: str | None, stage: str | None = None) -> bool:
-        """Whether `role` may perform `operation`, on `stage` when the request names one.
+    def allows(self, operation: str, role: str | None, stage: str | None = None, *, service: str | None = None) -> bool:
+        """Whether `role`, or the service principal `service`, may perform `operation`, on `stage` when it names one.
 
-        An operation with no row is refused: the matrix fails closed.
+        An operation with no row is refused: the matrix fails closed. A service is allowed only where the row names
+        it; it holds no role, so the role floor never applies to it.
         """
         permission = self.operations.get(operation)
         if permission is None:
@@ -104,6 +121,8 @@ class PermissionMatrix:
                 return False
         elif EVERY_STAGE not in permission.stages and stage not in permission.stages:
             return False
+        if service is not None:
+            return service in permission.services
         if permission.role == ANONYMOUS:
             return True
         if role is None or role not in self.precedence:

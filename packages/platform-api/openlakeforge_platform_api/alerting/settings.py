@@ -51,6 +51,10 @@ class EvaluatorSettings:
     s3_endpoint_url: str | None = None
     s3_region: str = "us-east-1"
     ca_file: str | None = None
+    # The platform API's base URL and the file holding the projected ServiceAccount token the evaluator presents to it
+    # (ADR 0023, decision 11). Both or neither: without them no service signal is read.
+    platform_api_url: str | None = None
+    platform_api_token_file: str | None = None
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> EvaluatorSettings:
@@ -78,6 +82,8 @@ class EvaluatorSettings:
                 s3_endpoint_url=data.get("s3_endpoint_url") or None,
                 s3_region=str(data.get("s3_region") or "us-east-1"),
                 ca_file=data.get("ca_file") or None,
+                platform_api_url=data.get("platform_api_url") or None,
+                platform_api_token_file=data.get("platform_api_token_file") or None,
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"alert evaluator settings are incomplete: {exc!r}") from exc
@@ -113,6 +119,10 @@ class EvaluatorSettings:
             stray = sorted(set(receiver.stages) - set(self.stages))
             if stray:
                 raise SettingsError(f"receiver {receiver.name!r} names stages that are not enabled: {', '.join(stray)}")
+        if (self.platform_api_url is None) != (self.platform_api_token_file is None):
+            raise SettingsError("platform_api_url and platform_api_token_file must be set together")
+        if self.platform_api_url is not None and urlsplit(self.platform_api_url).scheme not in ("http", "https"):
+            raise SettingsError("platform_api_url must be an http(s) base URL")
         if self.links.dagster_scheme not in ("http", "https"):
             raise SettingsError("links.dagster_scheme must be http or https")
         template = self.links.dagster_host_template

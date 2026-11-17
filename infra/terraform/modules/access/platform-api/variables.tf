@@ -223,3 +223,20 @@ variable "polaris_health_url" {
   type        = string
   default     = null
 }
+
+variable "service_callers" {
+  description = "Service principal name to the one ServiceAccount that may authenticate as it with a projected token, checked by a TokenReview (ADR 0021, decision 3). Today only alert-evaluator, the alerts module's ServiceAccount. Empty by default: no token but an issuer's is accepted and no ClusterRole is created."
+  type        = map(object({ namespace = string, service_account = string }))
+  default     = {}
+
+  validation {
+    condition     = alltrue([for name in keys(var.service_callers) : contains(["alert-evaluator"], name)])
+    error_message = "service_callers names only principals the API's permission matrix knows (SERVICE_CALLERS in permissions.py)."
+  }
+}
+
+variable "service_audience" {
+  description = "The audience a service caller's projected token must carry; the alerts module projects its token for this value."
+  type        = string
+  default     = "openlakeforge-platform-api"
+}

@@ -301,3 +301,8 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
     ports: [8182] # Polaris's management port, read for /q/health/ready only (ADR 0021, decision 7); the REST API is on 8181
     tag: T # needs a health read on a running cluster
+  - id: F44
+    from: {scope: shared, pods: {openlakeforge.io/job: alert-evaluator}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
+    ports: [8080] # each stage's health route (ADR 0023, decision 11), with a projected ServiceAccount token the API checks with a TokenReview over its F20 egress
+    tag: T # needs an evaluation reading stage health on a running cluster

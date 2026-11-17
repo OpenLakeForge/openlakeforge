@@ -184,6 +184,22 @@ For those calls it therefore:
   some of them (`role_stages = { data-engineer = ["dev"] }`), and a role it does
   not name keeps `stages`. Its keys are checked against the role precedence when
   the matrix loads;
+- **admits one service principal besides people**: `alert-evaluator`, the alert
+  evaluator's CronJob (ADR 0023, decision 11). Its pod projects a ServiceAccount
+  token for the audience `openlakeforge-platform-api`, valid ten minutes and
+  refreshed by the kubelet. A bearer token whose unverified `iss` is not the
+  issuer's goes to a TokenReview, made with the API's own ServiceAccount; the
+  token is accepted only if the API server authenticates it for that audience
+  and names exactly the ServiceAccount in the settings' `service_callers`
+  (`system:serviceaccount:<namespace>:<name>`). The result is a principal with
+  no canonical role, which the matrix admits only where a row lists it in
+  `services`. Today that is `get_stage_health`: the stage health route and
+  nothing else, every stage, no write and no audit entry. An invalid token, a
+  wrong audience or another ServiceAccount is a 401, a ServiceAccount that has
+  no row for the route a 403, and an API server that cannot answer the review a
+  503: the review fails closed and never falls back to the issuer's path or to
+  an anonymous caller. The token is never forwarded to a service. The issuer's
+  tokens are routed by their `iss` and never sent to the API server;
 - **holds the narrowest credential each service offers**, mounted from a
   Secret (architectural rule 7): a Superset service user rather than `admin`
   wherever Superset's API allows the operation, a read-only object-store key
@@ -349,12 +365,17 @@ stage namespace.
 | Each stage namespace, as a `Role` and `RoleBinding` | core | `pods` | `list` |
 | Each stage namespace | `apps` | `deployments`, `statefulsets` | `list` |
 
-Nothing else: no `ClusterRole`, no `get` or `watch`, nothing in `olf-system`
+Nothing else for probes: no `get` or `watch`, nothing in `olf-system`
 (the object store is probed over S3, not through Kubernetes), no `secrets`,
 `pods/log`, `pods/exec` or `events`. The module's `probe_namespaces` creates
 the Roles and mounts the ServiceAccount token only when it is non-empty, so a
 deployment without it is as before; it refuses `kube-system` and the API's own
-namespace. Terraform tests assert the exact rules. Restarts are judged over a
+namespace. Terraform tests assert the exact rules. The one ClusterRole the API
+holds is not a probe's: with `service_callers` set, `tokenreviews` `create` in
+`authentication.k8s.io` (decision 3), bound to the API's ServiceAccount, which
+then mounts its token even with no `probe_namespaces`. A TokenReview is a
+cluster-scoped create, so it cannot be a namespaced Role; it reads nothing and
+cannot act as the token's holder. Restarts are judged over a
 recent window, never the lifetime `restartCount`, which does not reset.
 
 The probes live in `openlakeforge_platform_api.service_probes`, behind the
@@ -699,3 +720,9 @@ Polaris principal and a grant the platform API does not hold, and ADR 0019
 defers data-plane authorization. A profile that deploys no catalog leaves
 `polaris_health_url` out and the signal is `disabled`. Polaris is one service
 for every stage, so each stage's health reads the same answer.
+
+2026-11-17: alert policy slice AP-c, service identity (ADR 0023, decision 11). The platform API gains a second
+authentication branch for a service principal, `alert-evaluator`: a projected ServiceAccount token checked with a
+TokenReview, admitted only for the evaluator's exact ServiceAccount and only on `get_stage_health` (decision 3). It
+needs the API's first ClusterRole, `tokenreviews` `create` (decision 7), and F44 from the evaluator to the API
+(ADR 0017). A TokenReview that cannot be made answers 503, where a review of an unknown identity answers 401 or 403.
