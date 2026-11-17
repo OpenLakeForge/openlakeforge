@@ -8,7 +8,9 @@ live here once rather than duplicated per file.
 from __future__ import annotations
 
 import email.policy
+import importlib
 import json
+import os
 import re
 import shutil
 import threading
@@ -23,6 +25,20 @@ from openlakeforge_core import inventory_for
 
 from olf.common.profile import StageName
 from olf.infra.e2e._shell import E2EConfig, Environment, Suite
+
+# The runtime tests `importorskip` the Dagster stack, which only the `dagster` dependency group installs. A CI
+# job that installs the group sets this so a package missing from it is an import error rather than a skipped
+# module that reads as green. The other `importorskip` calls (kubernetes, sqlalchemy, ...) stay skips.
+_REQUIRED_MODULES = ("dagster", "dagster_dbt", "floe_dagster", "dlt")
+if os.environ.get("OLF_REQUIRE_DAGSTER") == "1":
+    _importorskip = pytest.importorskip
+
+    def _import_required(modname: str, *args: object, **kwargs: object) -> object:
+        if modname in _REQUIRED_MODULES:
+            return importlib.import_module(modname)
+        return _importorskip(modname, *args, **kwargs)
+
+    pytest.importorskip = _import_required
 
 
 @pytest.fixture(autouse=True)
