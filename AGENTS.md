@@ -281,8 +281,8 @@ therefore no longer needs updating from `main` by hand; `checks.yml` runs on
 | Validate repository structure | Deploy slim kind smoke |
 | Validate infrastructure contracts | Validate release readiness |
 | Validate provider contracts | Test runtime with Dagster |
-| Validate project-code runtime | |
-| Validate deployment tooling | |
+| Validate project-code runtime | Lint and type-check Python |
+| Validate deployment tooling | Validate platform API |
 | Validate product dbt projects | |
 
 The ruleset also **requires every review thread to be resolved**, which is what
