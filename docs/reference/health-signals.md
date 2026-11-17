@@ -201,6 +201,28 @@ refused reads `unknown`, a component that is not deployed reads `disabled`, and 
 and are reused for 10. The components, what each proves and what to do are in the
 [service health guide](../guides/operations/service-health.md).
 
+## Health and the alert policy
+
+The health routes do not read the alert policy. `GET /api/v1/stages/{stage}/health`,
+`GET /api/v1/stages/{stage}/health/pipelines` and `olf health` report every
+signal of every pipeline whatever `lakehouse_code/alerts.yml` says, so a
+condition the policy leaves silent, or a project with no policy, still shows
+as `critical` or `warning` here. The policy decides what notifies; health
+decides what is true. The alert evaluator reads the same signals through
+`read_stage_pipelines`, passing the stage's policy to apply a rule's `grace`
+and `freshness` thresholds; the routes pass none, so they keep the
+cadence-derived signals described above.
+
+`GET /api/v1/stages/{stage}/health/services` is the services half of the stage
+health and nothing else: the `stage` and its `services` list, from the probes
+alone, with no Dagster read and no quality integration. It answers within the
+probes' own timeout even while Dagster hangs. The alert evaluator reads it for
+the platform conditions `service_degraded` and `health_unreadable`
+([alerts guide](../guides/operations/alerts.md#service_degraded)); its service
+principal, `alert-evaluator`, is the only service principal the permission
+matrix admits, and this is the only route it may call. People read it with the
+same `data-engineer` role floor as the full stage health.
+
 ## Rollup
 
 `rollup` returns the worst state of signals from one stage. The order, worst

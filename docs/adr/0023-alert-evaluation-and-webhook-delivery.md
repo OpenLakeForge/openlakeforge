@@ -6,7 +6,8 @@ Partly built. The evaluator, its incident state and the webhook adapter are
 built on the local provider by slices #1168 to #1173 (see "Build order"): a
 CronJob in `olf-system`, state kept as objects in the ops bucket, and one
 generic HTTPS webhook adapter. Local reports `alerts.supported = true`; AWS and
-Azure keep `false`. Not built: the history retention rule (see "Retention") and the last slice of the alert policy (AP-d).
+Azure keep `false`. Not built: the history retention rule (see "Retention"). The alert policy is
+built (slices AP-a to AP-d), documentation included.
 
 The alert policy is decided: a project's `lakehouse_code/alerts.yml` declares
 which conditions alert per product and stage, with which thresholds, and who
@@ -877,7 +878,7 @@ None stays open.
 | 23-e | #1172 | The CronJob, the key, the flow rows, the Secret check, `alerts.supported = true` locally | ADR 0017 flow table, ADR 0021 |
 | 23-f | #1173 | E2e: failed, missed, stale and quality incidents into a stub; the alerts documentation and runbook anchors | `docs/reference/`, `docs/technical-debt.md` |
 
-### The alert policy (AP-a and AP-b built, AP-c in progress)
+### The alert policy (built)
 
 Each slice stays under the 15-file, 600-line cap in AGENTS.md. AP-c is where
 behaviour changes, so the sample policy (AP-a), the read path (AP-b) and the
@@ -888,7 +889,7 @@ migration land before or with it.
 | AP-a | `docs/schema/alert-policy.schema.json`; `openlakeforge_core/alert_policy.py` with the precedence resolver; `olf check contracts`; `olf alert explain`; the sample project's `alerts.yml`. No runtime reads it yet | ADR 0005; `docs/reference/descriptors.md` |
 | AP-b | `alerts.yml` in the `descriptors` component; the pointer, activation and sidecar readers in core; the evaluator's read path, last good policy and `policy_unreadable`; the read grant and its wildcard test; the activation route check. The evaluator reads the policy and does not apply it yet | ADR 0012; ADR 0017 (F39) |
 | AP-c | `alerts.evaluate` takes the resolved policy; options, thresholds and routing; `pipeline_health` thresholds; `platform_receivers`; `--policy-file`; the conformance profile's receiver rename; the e2e cases for silence, precedence and thresholds | ADR 0011; `docs/reference/deployment-profile.md` |
-| AP-d | The alerts guide (the migration callout, the policy, each condition's options), the policy reference, the health-signals page | `docs/guides/operations/alerts.md`, `docs/reference/` |
+| AP-d (built) | The alerts guide (the migration callout, the policy, each condition's options), the policy reference, the health-signals page | `docs/guides/operations/alerts.md`, `docs/reference/` |
 
 What the policy slices change in the merged code:
 
@@ -1063,3 +1064,5 @@ change above). The full route gathers the Dagster reads with the probes, so a st
 evaluator's timeout and `health_unreadable` replaced every service signal during the outage service incidents matter
 most. The new route returns the probes' `services` list alone, bounded by their 5 second timeout, and is the only route the
 evaluator's service principal may call (ADR 0021).
+
+2026-11-17: alert policy slice AP-d built: the alerts guide (migration callout, policy, options, platform conditions), the policy reference, the health-signals note and the release note. No deviation from the decisions above.

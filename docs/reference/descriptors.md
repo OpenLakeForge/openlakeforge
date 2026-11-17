@@ -294,39 +294,11 @@ rules:
       quality: {level: error}
 ```
 
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `routes` | map of route name to receiver name | yes | Names are lowercase with hyphens, as receiver names are. |
-| `defaults.stages` | list of `dev`, `uat`, `prod` | no | Stages a rule applies to when it names none; every stage. |
-| `defaults.notify` | list of route names | no | Routes a rule notifies when it names none. |
-| `rules[].match.domain`, `rules[].match.product` | identifier or `"*"` | yes | A domain `name` and product `id` of `governance.yml`. |
-| `rules[].stages` | list of stages | no | `defaults.stages` when omitted. |
-| `rules[].notify` | list of route names | no | `defaults.notify` when omitted; a rule with no route is an error. |
-| `rules[].when` | map of condition to options or `false` | yes | At least one condition; `false` turns off a condition a less specific rule turns on. |
-
-| `when` key | Options | Default |
-| --- | --- | --- |
-| `run_failed` | `severity`: `warning` or `critical` | `critical` |
-| `missed_run` | `grace`: a duration; `severity` | `15m`; `critical` |
-| `freshness` | `warn_after`, `critical_after`: durations since the last success. Without them, `grace` and `severity` apply to cadence-derived staleness | `15m`; `critical` |
-| `quality` | `level`: `warn` or `error` | `warn` |
-| `schedule_mismatch` | `severity` | `warning` |
-
-`{}` turns a condition on with its defaults. A duration is a positive integer
-with `m`, `h` or `d`. `warn_after` must be below `critical_after`, and
-thresholds do not mix with `grace` or `severity`. Platform conditions cannot
-be named here.
-
-For each stage and condition, the most specific matching rule wins: a rule
-that names a product, then a domain with `product: "*"`, then the global
-`"*"`/`"*"`. `notify` is the winning rule's own list, not a union. Two rules at
-the same specificity that set the same condition for an overlapping stage are
-an error. A job that is no product's, such as `gold_maintenance`, is matched
-by the global rule only.
-
-Quote a route, receiver or domain name that YAML reads as a boolean (`on`,
-`off`, `yes`, `no`, `y`, `n`). `olf check contracts` does not check receiver
-names, because only activation has the profile.
+Every key, type, default and allowed value is in the
+[alert policy reference](alert-policy.md). Quote a route, receiver or domain
+name that YAML reads as a boolean (`on`, `off`, `yes`, `no`, `y`, `n`).
+`olf check contracts` does not check receiver names, because only activation
+has the profile.
 
 ## Implementation files
 
