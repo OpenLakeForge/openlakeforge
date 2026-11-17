@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 from openlakeforge_core import load_lakehouse_inventory
-from openlakeforge_core.alert_policy import load_alert_policy
+from openlakeforge_core.alert_policy import parse_alert_policy
 from openlakeforge_core.descriptors import LakehouseDescriptorError
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
@@ -33,7 +33,7 @@ from olf.common.runtime_contract import RUNTIME_ENV as _RUNTIME_ENV
 from olf.common.runtime_contract import RuntimeContractError, runtime_contract_at
 from olf.common.tooling import docker as docker_tooling
 from olf.infra import k8s
-from olf.infra.artifact_store import RevisionStore
+from olf.infra.artifact_store import ArtifactStoreError, RevisionStore
 from olf.infra.deployment import contract_env
 from olf.infra.deployment.artifact_steps import deploy_optional_layer_artifacts, sync_catalog_namespaces
 from olf.infra.deployment.engine import DeploymentProvider, is_cloud_provider, is_local_provider
@@ -41,7 +41,7 @@ from olf.infra.deployment.source_bindings import source_binding_status
 from olf.infra.project_activation import ProjectActivation, ProjectActivationError, commit_active
 from olf.infra.project_activation import active as active_activation
 from olf.infra.project_activation import publish as publish_activation
-from olf.infra.project_revision import ProjectRevisionError, is_local_image, materialize, verify
+from olf.infra.project_revision import ProjectRevisionError, is_local_image, materialize, revision_prefix, verify
 
 _RELEASE = "openlakeforge-project"
 _LOG_ARCHIVE = "openlakeforge-k8s-log-archive"
@@ -387,20 +387,27 @@ def _require_source_bindings(
         )
 
 
-def _require_alert_receivers(provider: DeploymentProvider, *, root: Path) -> None:
+def _require_alert_receivers(provider: DeploymentProvider, *, store: RevisionStore, revision: str) -> None:
     """A route of the revision's `alerts.yml` names a receiver the profile declares (ADR 0023, decision 4).
 
     Skipped when the profile declares no receiver: no evaluator exists then, nothing reads the policy, and a
     project template that ships an `alerts.yml` must still activate. `olf check contracts` cannot make this check,
-    it has no profile.
+    it has no profile. It runs before the no-op fast path because the binding digest leaves the receivers out: a
+    profile that drops a receiver changes nothing else, and the active revision would keep routing to it.
     """
     declared = {receiver.name for receiver in provider.context.topology.observability.alert_receivers}
-    path = root / "lakehouse_code" / "alerts.yml"
-    if not declared or not path.is_file():
+    if not declared:
         return
+    key = f"{revision_prefix(revision)}/descriptors/lakehouse_code/alerts.yml"
     try:
-        policy = load_alert_policy(path)
-    except (LakehouseDescriptorError, yaml.YAMLError, OSError) as exc:
+        content = store.read(key)
+        if content is None:
+            return
+        document = yaml.safe_load(content.decode("utf-8"))
+        if not isinstance(document, dict):
+            raise LakehouseDescriptorError("alerts.yml must contain a YAML object")
+        policy = parse_alert_policy(document)
+    except (LakehouseDescriptorError, yaml.YAMLError, UnicodeDecodeError, ArtifactStoreError) as exc:
         raise ActivationError(
             f"the revision's alerts.yml cannot be read, so its routes cannot be checked: {exc}"
         ) from exc
@@ -894,6 +901,7 @@ def deploy_revision(
     # on a newer distribution whose Dagster subchart and rendered values differ, so re-activating it there must
     # not match the earlier activation and skip the rollout.
     activation_distribution_version = running_version or manifest.distribution_version
+    _require_alert_receivers(provider, store=store, revision=manifest.revision)
     previous = active_activation(store, stage=context.stage)
     if (
         previous is not None
@@ -965,7 +973,6 @@ def deploy_revision(
             # binds per stage but this stage has not bound would only fail
             # later, as a run pod that cannot start.
             _require_source_bindings(provider, root=root, namespace=context.namespace, env=env)
-            _require_alert_receivers(provider, root=root)
             # Report import (#130) must run inside this stage-scoped contract
             # environment: it is what makes `deploy_optional_layer_artifacts`
             # below read the revision `materialize()`d above, under `root`,

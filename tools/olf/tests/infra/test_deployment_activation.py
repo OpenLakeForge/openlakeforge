@@ -1758,3 +1758,20 @@ def test_activation_refuses_an_alerts_yml_it_cannot_read_when_receivers_exist(ha
         activation_module.deploy_revision(
             provider, revision=manifest.revision, store=harness.store, profile_name="acceptance"
         )
+
+
+def test_a_redeploy_rechecks_routes_after_the_profile_drops_a_receiver(harness, external_project: Path) -> None:  # noqa: ANN001
+    revision = _publish_with_alerts(harness, external_project)
+    first = harness.make_provider("dev")
+    _with_receivers(first, "pager")
+    activation_module.deploy_revision(first, revision=revision, store=harness.store, profile_name="acceptance")
+    active = project_activation.active(harness.store, stage=StageName.DEV)
+    assert active is not None
+
+    # Only the receivers change: the binding digest ignores them, so the inputs still match the active record.
+    second = harness.make_provider("dev")
+    _with_receivers(second, "chat")
+    with pytest.raises(activation_module.ActivationError, match=r"on-call -> pager"):
+        activation_module.deploy_revision(second, revision=revision, store=harness.store, profile_name="acceptance")
+
+    assert project_activation.active(harness.store, stage=StageName.DEV) == active
