@@ -59,6 +59,28 @@ def test_a_revision_without_alerts_yml_has_an_empty_policy_and_no_warning() -> N
     assert found.revision == activation.activation_revision
 
 
+def test_a_revision_without_alerts_yml_still_carries_its_governance_for_a_policy_override() -> None:
+    bucket = FakeBucket()
+    publish(bucket, alerts=None)
+
+    found = read(bucket)
+
+    assert found.governance is not None and found.governance["domains"]
+    assert found.unreadable is None
+
+
+def test_an_unreadable_governance_without_alerts_yml_degrades_to_none_without_a_warning() -> None:
+    bucket = FakeBucket()
+    activation = publish(bucket, alerts=None)
+    key = f"{revision_prefix(activation.project_revision)}/descriptors/lakehouse_code/governance.yml"
+    bucket.objects[key] = b"tampered"
+
+    found = read(bucket)
+
+    assert found.governance == {"domains": []}
+    assert found.unreadable is None and found.policy.rules == ()
+
+
 def test_the_cached_policy_is_used_without_reading_the_revision_again() -> None:
     bucket = FakeBucket()
     activation = publish(bucket)

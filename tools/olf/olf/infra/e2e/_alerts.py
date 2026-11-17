@@ -7,6 +7,10 @@ default). The evaluator runs as a Job made from the CronJob with `--state-prefix
 stays inside the `alerts/` grant of the evaluator's S3 key, which `--state-prefix` would otherwise leave. The Job also
 trusts the stub's CA through its own settings file, whatever the route TLS mode is.
 
+Alerts are silent unless a policy declares them (ADR 0023, decision 2), and these incidents are on a job of no
+product, so they depend on the sample project's global rules in `lakehouse_code/alerts.yml` and on the conformance
+profile's `on-call` receiver, which that file routes to. Change either and these cases go quiet.
+
 The real CronJob is suspended meanwhile: it would send the same incidents to the same receiver from its own state.
 Local only, and only when the stub is the evaluator's sole receiver, so a test incident never reaches a real webhook;
 the receiver is a pod in the shared namespace that the evaluator reaches over flow F41 (ADR 0017).

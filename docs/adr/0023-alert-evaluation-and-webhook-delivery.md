@@ -326,7 +326,8 @@ failure the design already accepts.
 
 `--now <timestamp>` fixes the evaluation clock and `--state-prefix <prefix>`
 points state and history at a different prefix. `--policy-file <path>` replaces
-every stage's alert policy, so the e2e can test silence and precedence without
+every stage's alert policy (rules matched against the `governance.yml` of the
+revision the stage runs), so a test can exercise silence and precedence without
 building a revision per case **(proposed, accepted by default 2026-11-17;
 maintainer may revisit)**. All three are for the e2e only (Default, revisit:
 acceptable). They let #1173 inject a missed run by moving the clock instead of
@@ -969,3 +970,12 @@ now also records the maintainer's decision of the same day that platform service
 receivers only, and that they are not built: the evaluator has no Role, flow or read that gets it the signals, so
 Decision 7 and Decision 11 say what is missing and the options go to the maintainer. Decision 2 lost its
 "service signals are not an alert source" line and Open item 4 was answered.
+
+2026-11-17: alert policy slice AP-c, part three: the migration. The conformance profile's receiver is `on-call` (its
+Secret is unchanged), so the sample project's `alerts.yml` routes resolve and the activation route check passes in the
+nightly. The alert e2e needs no policy of its own: its incidents are on `gold_maintenance`, which the sample's global
+rule matches for `run_failed` and `quality` in every stage and for `missed_run`, `freshness` and `schedule_mismatch` in
+PROD, the only stage with a schedule. `--policy-file` is built (`run_once(policy_override=)`) and unit-tested, but the
+e2e does not use it: the Job runs the evaluator image with no way to mount a file, and the cases for silence,
+precedence, thresholds and routing are unit tests (`test_alerting*.py`, `test_alerts_policy.py`,
+`test_pipeline_health.py`). The alerts guide's migration callout and the release note are AP-d.
