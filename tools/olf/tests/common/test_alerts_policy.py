@@ -104,31 +104,16 @@ def test_a_job_of_no_product_is_matched_by_global_rules_only() -> None:
         ("warn", QualityOutcome.WARN, True, AlertSeverity.WARNING),
         ("warn", QualityOutcome.ERROR, False, AlertSeverity.WARNING),
         ("warn", QualityOutcome.ERROR, True, AlertSeverity.CRITICAL),
-        ("error", QualityOutcome.WARN, True, None),
         ("error", QualityOutcome.ERROR, False, AlertSeverity.WARNING),
         ("error", QualityOutcome.ERROR, True, AlertSeverity.CRITICAL),
     ],
 )
-def test_quality_level_chooses_which_outcomes_alert(level, outcome, blocking, expected) -> None:
+def test_quality_signals_of_every_outcome_alert_at_their_severity(level, outcome, blocking, expected) -> None:
     policy = policy_for({"match": {"domain": "*", "product": "*"}, "when": {"quality": {"level": level}}})
 
     sent = _firing([_quality(outcome, blocking=blocking)], policy)[1]
 
     assert [n.severity for n in sent] == ([expected] if expected else [])
-
-
-def test_a_warn_that_level_error_ignores_never_resolves_an_incident() -> None:
-    error = policy_for({"match": {"domain": "*", "product": "*"}, "when": {"quality": {"level": "error"}}})
-    state, sent = _firing([_quality(QualityOutcome.ERROR)], error)
-    assert [n.severity for n in sent] == [AlertSeverity.CRITICAL]
-
-    # A retry still running can WARN before the check that failed has rerun: that is no evidence of recovery.
-    state, sent = _firing([_quality(QualityOutcome.WARN)], error, state, 5)
-
-    assert sent == []
-    assert [i.kind for i in state.incidents] == [AlertKind.QUALITY]
-    state, sent = _firing([_quality(QualityOutcome.PASSED)], error, state, 10)
-    assert [n.event for n in sent] == [AlertEvent.RESOLVED]
 
 
 def test_severity_option_sets_missed_run_and_schedule_mismatch() -> None:

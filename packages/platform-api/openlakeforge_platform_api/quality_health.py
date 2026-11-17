@@ -171,7 +171,9 @@ def _summarize(
         signal = evaluate_quality(scope, observation, now=now, max_age=max_age)
         if level == "error" and signal.outcome is QualityOutcome.WARN:
             # Still subject to the rules below: a pass in an incomplete manifest proves nothing.
-            signal = replace(signal, state=HealthState.HEALTHY, reason="quality checks passed")
+            signal = replace(
+                signal, state=HealthState.HEALTHY, reason="quality checks passed", outcome=QualityOutcome.PASSED
+            )
         signals.append(signal)
     if signals:
         worst = worst_state(signal.state for signal in signals)

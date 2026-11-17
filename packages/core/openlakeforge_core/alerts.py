@@ -18,9 +18,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, NamedTuple
 
-from .alert_policy import ConditionOptions, Freshness, Quality, ResolvedPolicy
+from .alert_policy import ConditionOptions, Freshness, ResolvedPolicy
 from .health import HealthState, Scope, Signal, SignalKind
-from .quality import QualityOutcome
 
 PAYLOAD_SCHEMA = "openlakeforge.alert.v1"
 FINGERPRINT_VERSION = "1"
@@ -399,9 +398,8 @@ def _observe(signal: Signal, policy: Mapping[str, ResolvedPolicy]) -> list[_Obse
         options = _declared(policy, scope, kind) if kind in POLICY_CONDITION else None
         if kind in POLICY_CONDITION and options is None:
             continue
-        state = _state_under(kind, signal, options)
-        severity = _severity_of(kind, state, options)
-        health = state
+        severity = _severity_of(kind, signal.state, options)
+        health = signal.state
         if health in (HealthState.WARNING, HealthState.CRITICAL) and severity is None:
             if kind is not AlertKind.STAGE_UNREADABLE:
                 # A state this kind does not alert on (a canceled run, a freshness warning) says nothing either way.
@@ -453,19 +451,6 @@ def _kinds_of(signal: Signal) -> tuple[AlertKind, ...]:
     if signal.kind is SignalKind.SERVICE and signal.component in UNREADABLE_COMPONENTS:
         return (AlertKind.STAGE_UNREADABLE,)
     return ()
-
-
-def _state_under(kind: AlertKind, signal: Signal, options: ConditionOptions | None) -> HealthState:
-    """`level: error` does not alert on a WARN. An ignored WARN is no evidence either way, so it must not resolve an
-    incident: a retry still running can WARN before the check that failed has rerun."""
-    if (
-        kind is AlertKind.QUALITY
-        and isinstance(options, Quality)
-        and options.level == "error"
-        and signal.outcome is QualityOutcome.WARN
-    ):
-        return HealthState.UNKNOWN
-    return signal.state
 
 
 def _severity_of(kind: AlertKind, state: HealthState, options: ConditionOptions | None) -> AlertSeverity | None:
