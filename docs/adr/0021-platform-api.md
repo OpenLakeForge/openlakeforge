@@ -193,8 +193,13 @@ For those calls it therefore:
   and names exactly the ServiceAccount in the settings' `service_callers`
   (`system:serviceaccount:<namespace>:<name>`). The result is a principal with
   no canonical role, which the matrix admits only where a row lists it in
-  `services`. Today that is `get_stage_health`: the stage health route and
-  nothing else, every stage, no write and no audit entry. An invalid token, a
+  `services`. Today that is `get_stage_service_health`, `GET
+  /api/v1/stages/{stage}/health/services`: the services half of the stage
+  health, from the probes alone, and nothing else, every stage, no write and no
+  audit entry. It is a route of its own because the full health route also
+  reads Dagster, several calls of up to 30 seconds each, so it can outlast the
+  evaluator exactly when Dagster is down; the services route is bounded by the
+  probes' own timeout (5 seconds). An invalid token, a
   wrong audience or another ServiceAccount is a 401, a ServiceAccount that has
   no row for the route a 403, and an API server that cannot answer the review a
   503: the review fails closed and never falls back to the issuer's path or to
@@ -723,6 +728,10 @@ for every stage, so each stage's health reads the same answer.
 
 2026-11-17: alert policy slice AP-c, service identity (ADR 0023, decision 11). The platform API gains a second
 authentication branch for a service principal, `alert-evaluator`: a projected ServiceAccount token checked with a
-TokenReview, admitted only for the evaluator's exact ServiceAccount and only on `get_stage_health` (decision 3). It
+TokenReview, admitted only for the evaluator's exact ServiceAccount and only on the services-only `get_stage_service_health` (decision 3). It
 needs the API's first ClusterRole, `tokenreviews` `create` (decision 7), and F44 from the evaluator to the API
 (ADR 0017). A TokenReview that cannot be made answers 503, where a review of an unknown identity answers 401 or 403.
+
+2026-11-17: `GET /api/v1/stages/{stage}/health/services` (`get_stage_service_health`) added, returning the stage and the
+`services` list of `get_stage_health` without a Dagster read. The alert evaluator's service principal is admitted there
+and no longer on `get_stage_health`, whose Dagster reads are unbounded across calls (decision 3).

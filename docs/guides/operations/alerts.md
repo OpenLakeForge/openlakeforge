@@ -166,6 +166,24 @@ Critical. Dagster for a stage could not be read in 3 consecutive evaluations.
 Check that the stage's Dagster webserver is running. While it lasts, that
 stage's open incidents are held, not resolved.
 
+### service_degraded
+
+Warning or critical, one incident per stage and component, sent to the platform
+receivers only. A Dagster or Trino workload that is not ready alerts at
+`warning` or `critical`, as `GET /api/v1/stages/{stage}/health/services` reports it. The
+object store that cannot be listed and the log archive's spool age, spool size
+and newest object alert at `critical` only. The incident resolves when the
+component reports `healthy`; an `unknown` or `disabled` component changes
+nothing. There are no reminders. Read the component's `reason` in the health
+routes' `services` list.
+
+### health_unreadable
+
+Critical. The platform API's health route for a stage could not be read in 3
+consecutive evaluations, to the platform receivers only. Check that the
+`platform-api` pod is running. While it lasts, open `service_degraded` incidents
+stay open: an API that cannot answer is not evidence that the services recovered.
+
 ## Check it
 
 The health routes do not depend on receivers: with none declared,

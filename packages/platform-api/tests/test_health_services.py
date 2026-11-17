@@ -280,3 +280,24 @@ def test_settings_refuse_probe_targets_that_cannot_be_probed(
 ) -> None:
     with pytest.raises(SettingsError, match=message):
         _settings(settings, **extra)
+
+
+def test_the_services_route_answers_from_the_probes_alone_and_never_reads_dagster(
+    settings: Settings, dagster: ScheduledDagster, mint: Mint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def hang(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("the services route must not read Dagster")
+
+    monkeypatch.setattr("openlakeforge_platform_api.health_routes._read", hang)
+    monkeypatch.setattr("openlakeforge_platform_api.health_routes.read_stage_pipelines", hang)
+    probes = FakeProbes([_signal("trino.workloads", HealthState.CRITICAL)])
+    api = TestClient(_app(settings, dagster, probes))
+
+    response = api.get(f"{STAGE}/services", headers=_as(mint, "data-engineer"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"stage", "services"}
+    assert body["stage"] == "dev"
+    assert [(s["component"], s["state"]) for s in body["services"]] == [("trino.workloads", "critical")]
+    assert api.get(f"{STAGE}/services", headers=_as(mint, "viewer")).status_code == 403

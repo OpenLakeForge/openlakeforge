@@ -29,6 +29,7 @@ from openlakeforge_platform_api.models import (
     ServiceHealth,
     StageHealth,
     StagePipelineState,
+    StageServiceHealth,
 )
 from openlakeforge_platform_api.pipeline_health import (
     RUN_MAX_AGE,
@@ -167,6 +168,17 @@ async def get_stage_health(request: Request, stage: str) -> StageHealth:
         services=[_service(signal) for signal in service_signals],
         integrations=[dagster, services, _quality(request, stage), _METRICS_NOT_PROVIDED],
     )
+
+
+async def get_stage_service_health(request: Request, stage: str) -> StageServiceHealth:
+    """The stage's service probes and nothing else.
+
+    No Dagster read runs here, so the answer takes about the probes' own timeout (`PROBE_TIMEOUT`) even while Dagster
+    hangs. The alert evaluator reads this route and not `get_stage_health`, whose pipeline reads are unbounded across
+    calls: during a Dagster outage that route would outlast the evaluator and no service incident could open.
+    """
+    _, signals = await run_in_threadpool(_probe, request, stage, datetime.now(UTC))
+    return StageServiceHealth(stage=stage, services=[_service(signal) for signal in signals])
 
 
 def list_pipeline_health(request: Request, stage: str) -> PipelinesHealth:

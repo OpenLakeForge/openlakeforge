@@ -21,6 +21,8 @@ from openlakeforge_core.alert_policy import AlertPolicy, ResolvedPolicy, resolve
 from openlakeforge_core.alerts import (
     ALERT_POLICY,
     DAGSTER_READ_API,
+    PLATFORM_HEALTH,
+    SERVICE_COMPONENTS,
     AlertEvent,
     AlertState,
     HistoryEvent,
@@ -34,6 +36,7 @@ from openlakeforge_services.notify import Notifier
 
 from openlakeforge_platform_api.alerting.policy import StagePolicy, read_stage_policy
 from openlakeforge_platform_api.alerting.routing import routed_receivers
+from openlakeforge_platform_api.alerting.service_health import HealthReadError, StageHealthReader
 from openlakeforge_platform_api.alerting.settings import EvaluatorSettings, LinkSettings
 from openlakeforge_platform_api.alerting.store import AlertStore, PendingRecord
 from openlakeforge_platform_api.pipeline_health import read_stage_pipelines
@@ -69,6 +72,7 @@ def run_once(
     now: datetime,
     quality: Mapping[str, QualityReader] | None = None,
     policy_override: AlertPolicy | None = None,
+    health: StageHealthReader | None = None,
     delivery_budget: float = DELIVERY_BUDGET_SECONDS,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> RunSummary:
@@ -81,6 +85,9 @@ def run_once(
     policy = {stage: found.resolved for stage, found in stage_policies.items() if _usable(found)}
     signals, scopes = _read_stages(settings, dagster, quality or {}, previous, now, policy)
     signals += [_policy_signal(stage, stage in policy_unreadable, now) for stage in settings.stages]
+    if health is not None:
+        for stage in settings.stages:
+            signals += _health_signals(health, stage, now)
     evaluation = evaluate(
         previous,
         signals,
@@ -219,6 +226,35 @@ def _policy_signal(stage: str, unreadable: bool, now: datetime) -> Signal:
         now=now,
         max_age=_READ_SIGNAL_MAX_AGE,
     )
+
+
+def _health_signals(health: StageHealthReader, stage: str, now: datetime) -> list[Signal]:
+    """The stage's service signals from the platform API, or one `unknown` read signal when it cannot be read.
+
+    An unreadable API sends no component signal: with none, every open `service_degraded` incident is left as it
+    was, so a restarting API neither resolves a firing incident nor reads as every service being healthy.
+    """
+    scope = Scope(stage=stage)
+    try:
+        services = health(stage)
+    except HealthReadError as error:
+        log.warning("stage %s: %s", stage, error)
+        return [
+            service_signal(
+                scope, PLATFORM_HEALTH, HealthState.UNKNOWN, str(error), now=now, max_age=_READ_SIGNAL_MAX_AGE
+            )
+        ]
+    signals = [
+        service_signal(scope, service.component, service.state, service.reason, now=now, max_age=_READ_SIGNAL_MAX_AGE)
+        for service in services
+        if service.component in SERVICE_COMPONENTS
+    ]
+    return [
+        service_signal(
+            scope, PLATFORM_HEALTH, HealthState.HEALTHY, "stage health read", now=now, max_age=_READ_SIGNAL_MAX_AGE
+        ),
+        *signals,
+    ]
 
 
 def _flush_history(store: AlertStore, pending: list[PendingRecord]) -> None:

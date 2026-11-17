@@ -38,6 +38,30 @@ UNREADABLE_COMPONENTS = frozenset({DAGSTER_READ_API, DAGSTER_PIPELINES})
 # The SERVICE component the evaluator reports for a stage's alert policy: WARNING while it cannot be used, HEALTHY once
 # it reads cleanly.
 ALERT_POLICY = "alert-policy"
+# The platform API's stage health route, read by the evaluator (ADR 0023, decision 11). One SERVICE signal per stage:
+# HEALTHY when the route answered, UNKNOWN when it could not be read.
+PLATFORM_HEALTH = "platform-api.health"
+# The service components that open a `service_degraded` incident, with whether a `warning` state counts. The three
+# log archive signals and the object store alert at `critical` only; a component absent here never alerts, whatever
+# its state, so a new probe is silent until this record names it.
+SERVICE_COMPONENTS = {
+    "dagster.workloads": True,
+    "trino.workloads": True,
+    "object-store.list": False,
+    "log-archive.spool-age": False,
+    "log-archive.spool-size": False,
+    "log-archive.newest-object": False,
+}
+# The text a `service_degraded` notification carries, since the component is not a payload field (ADR 0023,
+# decision 4). The probe's own reason can embed counts and is never sent.
+_SERVICE_REASONS = {
+    "dagster.workloads": "Dagster workloads are degraded",
+    "trino.workloads": "Trino workloads are degraded",
+    "object-store.list": "the object store cannot be listed",
+    "log-archive.spool-age": "the log archive's spool is not draining",
+    "log-archive.spool-size": "the log archive's spool is too large",
+    "log-archive.newest-object": "the log archive receives no new objects",
+}
 # Bounds the state document: a pipeline failing every five minutes must not grow its incident forever.
 MAX_RUN_IDS = 20
 
@@ -50,11 +74,18 @@ class AlertKind(StrEnum):
     QUALITY = "quality"
     STAGE_UNREADABLE = "stage_unreadable"
     POLICY_UNREADABLE = "policy_unreadable"
+    SERVICE_DEGRADED = "service_degraded"
+    HEALTH_UNREADABLE = "health_unreadable"
 
 
 # Conditions about the platform, not a product: no rule in alerts.yml governs them and they go to the profile's platform
 # receivers (ADR 0023, decision 11).
-PLATFORM_KINDS = frozenset({AlertKind.STAGE_UNREADABLE, AlertKind.POLICY_UNREADABLE})
+PLATFORM_KINDS = frozenset(
+    {AlertKind.STAGE_UNREADABLE, AlertKind.POLICY_UNREADABLE, AlertKind.SERVICE_DEGRADED, AlertKind.HEALTH_UNREADABLE}
+)
+# Unreadable conditions that open only after UNREADABLE_THRESHOLD unknown evaluations in a row, then at `critical`: a
+# restarting API or Dagster is not an incident.
+_COUNTED = frozenset({AlertKind.STAGE_UNREADABLE, AlertKind.HEALTH_UNREADABLE})
 
 
 class AlertSeverity(StrEnum):
@@ -105,6 +136,7 @@ _REASONS = frozenset(
         "schedule does not match its descriptor",
         "stage could not be read",
         "alert policy could not be used",
+        "stage health could not be read",
         "recovered",
     }
 )
@@ -116,6 +148,8 @@ _DEFAULT_REASON = {
     AlertKind.QUALITY: "a blocking quality check failed",
     AlertKind.STAGE_UNREADABLE: "stage could not be read",
     AlertKind.POLICY_UNREADABLE: "alert policy could not be used",
+    AlertKind.SERVICE_DEGRADED: "a platform service is degraded",
+    AlertKind.HEALTH_UNREADABLE: "stage health could not be read",
 }
 _RECOVERED = "recovered"
 _WITHIN_GRACE = "the expected run is within its grace period"
@@ -294,7 +328,7 @@ def evaluate(
     unknown_counts = {
         _unreadable_key(item): min(previous.unknown_counts.get(_unreadable_key(item), 0) + 1, unreadable_threshold)
         for item in observed.values()
-        if item.kind is AlertKind.STAGE_UNREADABLE and item.health is HealthState.UNKNOWN
+        if item.kind in _COUNTED and item.health is HealthState.UNKNOWN
     }
 
     # Causes first, so a stale output can see whether one of them is open.
@@ -304,10 +338,7 @@ def evaluate(
             # The incident opened for this very occurrence, which now reads as inside its grace: a rule raised the
             # grace. A later occurrence came due after the incident opened, and does not clear an older miss.
             item = replace(item, health=HealthState.HEALTHY)
-        if (
-            item.kind is AlertKind.STAGE_UNREADABLE
-            and unknown_counts.get(_unreadable_key(item), 0) >= unreadable_threshold
-        ):
+        if item.kind in _COUNTED and unknown_counts.get(_unreadable_key(item), 0) >= unreadable_threshold:
             item = replace(item, health=HealthState.CRITICAL, reason=_DEFAULT_REASON[item.kind])
         if item.health in (HealthState.WARNING, HealthState.CRITICAL) and item.severity is not None:
             if current is None:
@@ -384,7 +415,7 @@ def _classify(signals: Iterable[Signal], policy: Mapping[str, ResolvedPolicy]) -
 
 
 def _rank(item: _Observed) -> tuple[int, int]:
-    if item.kind is AlertKind.STAGE_UNREADABLE and item.health is HealthState.UNKNOWN:
+    if item.kind in _COUNTED and item.health is HealthState.UNKNOWN:
         # Either read being unknown keeps the stage unreadable, even beside a degraded answer from the other.
         return 4, 0
     return _PRECEDENCE[item.health], 1 if item.severity is AlertSeverity.CRITICAL else 0
@@ -416,7 +447,7 @@ def _observe(signal: Signal, policy: Mapping[str, ResolvedPolicy]) -> list[_Obse
         options = _declared(policy, scope, kind) if kind in POLICY_CONDITION else None
         if kind in POLICY_CONDITION and options is None:
             continue
-        severity = _severity_of(kind, signal.state, options)
+        severity = _severity_of(kind, signal.state, options, signal.component)
         health = signal.state
         if health in (HealthState.WARNING, HealthState.CRITICAL) and severity is None:
             if kind is not AlertKind.STAGE_UNREADABLE:
@@ -435,7 +466,10 @@ def _observe(signal: Signal, policy: Mapping[str, ResolvedPolicy]) -> list[_Obse
         ):
             # Only a failed pipeline read means anything; it is never evidence that the stage is readable.
             continue
-        component = None
+        component = signal.component if kind is AlertKind.SERVICE_DEGRADED else None
+        reason = signal.reason if signal.reason in _REASONS else _DEFAULT_REASON[kind]
+        if kind is AlertKind.SERVICE_DEGRADED:
+            reason = _SERVICE_REASONS[str(signal.component)]
         observed.append(
             _Observed(
                 kind=kind,
@@ -443,7 +477,7 @@ def _observe(signal: Signal, policy: Mapping[str, ResolvedPolicy]) -> list[_Obse
                 component=component,
                 health=health,
                 severity=severity,
-                reason=signal.reason if signal.reason in _REASONS else _DEFAULT_REASON[kind],
+                reason=reason,
                 run_id=signal.run,
                 fingerprint=fingerprint(scope, kind, component),
                 grace_due=signal.due if kind is AlertKind.MISSED_RUN and signal.reason == _WITHIN_GRACE else None,
@@ -470,13 +504,25 @@ def _kinds_of(signal: Signal) -> tuple[AlertKind, ...]:
         return (AlertKind.STAGE_UNREADABLE,)
     if signal.kind is SignalKind.SERVICE and signal.component == ALERT_POLICY:
         return (AlertKind.POLICY_UNREADABLE,)
+    if signal.kind is SignalKind.SERVICE and signal.component == PLATFORM_HEALTH:
+        return (AlertKind.HEALTH_UNREADABLE,)
+    if signal.kind is SignalKind.SERVICE and signal.component in SERVICE_COMPONENTS:
+        return (AlertKind.SERVICE_DEGRADED,)
     return ()
 
 
-def _severity_of(kind: AlertKind, state: HealthState, options: ConditionOptions | None) -> AlertSeverity | None:
+def _severity_of(
+    kind: AlertKind, state: HealthState, options: ConditionOptions | None, component: str | None = None
+) -> AlertSeverity | None:
+    if kind is AlertKind.SERVICE_DEGRADED:
+        if state is HealthState.CRITICAL:
+            return AlertSeverity.CRITICAL
+        return (
+            AlertSeverity.WARNING if state is HealthState.WARNING and SERVICE_COMPONENTS.get(str(component)) else None
+        )
     if kind is AlertKind.POLICY_UNREADABLE:
         return AlertSeverity.WARNING if state is HealthState.WARNING else None
-    if kind is AlertKind.STAGE_UNREADABLE:
+    if kind in _COUNTED:
         # Becomes critical only through the consecutive-unknown counter, never from a single signal.
         return AlertSeverity.CRITICAL if state is HealthState.UNKNOWN else None
     if kind is AlertKind.QUALITY:
@@ -490,7 +536,8 @@ def _severity_of(kind: AlertKind, state: HealthState, options: ConditionOptions 
 
 
 def _unreadable_key(item: _Observed) -> str:
-    return item.scope.stage
+    # The stage alone for `stage_unreadable`, as stored since it was built; one counter per condition otherwise.
+    return item.scope.stage if item.kind is AlertKind.STAGE_UNREADABLE else f"{item.scope.stage}:{item.kind.value}"
 
 
 def _is_active(scope: Scope, stages: Collection[str] | None, scopes: Collection[Scope] | None) -> bool:
