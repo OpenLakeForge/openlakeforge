@@ -86,6 +86,7 @@ All `new` commands validate the result before writing and accept
 | --- | --- |
 | `olf profile validate --project .` | `openlakeforge.yaml` |
 | `olf profile resolve --project . --json` | Prints the resolved stages and capabilities |
+| `olf alert explain --stage <stage> --product <id>` | Prints, per condition, the `alerts.yml` rule that wins for a product in a stage, its options and its routes, from `alerts.yml` and `governance.yml`; needs no cluster or credential. A project with no `alerts.yml` prints that nothing alerts. Exits 1 for an invalid policy or an unknown product, and 2 for an unknown stage |
 | `olf check contracts` | `governance.yml`, every `source.yaml`, and the Floe project's namespaces |
 | `olf project migrate [--dry-run]` | Rewrites `openlakeforge.yaml` from `v1alpha1` to `v1beta1` (`spec.access.issuer` becomes `tls`), `governance.yml` from `v1beta1` to `v1beta2` and each `source.yaml` from `v1alpha3` to `v1beta1`; `--dry-run` prints the diff and changes nothing. See [Migrate from v0.5 alpha](../guides/migrate-from-v0-5-alpha.md) |
 | `olf project graph --project .` | Prints the Source → Domain → Product → Dashboard lineage as Mermaid text |
