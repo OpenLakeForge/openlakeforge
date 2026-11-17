@@ -38,6 +38,7 @@ dev = [
   "mypy>=1.13,<2",
   "pytest>=9.0.3,<10",
   "pytest-cov>=6,<7",
+  "pytest-xdist>=3.6,<4",
   "ruff>=0.6",
   "types-jsonschema>=4.26.0.20260518",
   "types-pyyaml>=6.0.12.20260815",
