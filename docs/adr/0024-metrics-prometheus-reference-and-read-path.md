@@ -112,10 +112,15 @@ existing modules already write directly. Open item 9.
 
 Storage sizes. Prometheus "stores an average of only 1-2 bytes per sample", and
 keeps at least three 128 MB write-ahead-log segments ([storage](https://prometheus.io/docs/prometheus/latest/storage/)
-**[V]**). The ceiling is set by a **series budget of 10,000** active series,
-which the per-target `sample_limit`s below add up to: 10,000 series every 30 s
-is 333 samples per second, at 2 bytes about 58 MB a day, so 7 days about 0.4 GB
-and 30 days about 1.7 GB, plus the write-ahead log. The baseline expected on
+**[V]**). Sizing uses a **series budget of 10,000** active series. The budget
+is an operating target the e2e measures, **not a ceiling Prometheus enforces**:
+`sample_limit` bounds one scrape, not the head series that accumulate as pods
+come and go, and the limits below permit far more than 10,000 at their maxima
+(20 kubelet targets at 2,000 samples alone allow 40,000). What does bound the
+disk is `retention.size`: whatever the series count, the oldest blocks go first,
+so a series explosion shortens history instead of filling the volume. 10,000
+series every 30 s is 333 samples per second, at 2 bytes about 58 MB a day, so
+7 days about 0.4 GB and 30 days about 1.7 GB, plus the write-ahead log. The baseline expected on
 Full with two stages is a few thousand series **[T: the slice measures it]**,
 well under the budget.
 
@@ -178,7 +183,13 @@ source of per-job label sets; a Pushgateway would need user code to push and
 would keep the last value of a job that stopped. Derived in the API, the
 runs and durations chart also works on Slim, where no Prometheus runs. The read
 is bounded: a range of at most 7 days and at most 500 runs per stage, the newest
-first **[T: the GraphQL filter and limit the slice uses]**. Open item 5.
+first **[T: the GraphQL filter and limit the slice uses]**. A cap can cut a
+range short, so the API never serves a capped read as complete history: when
+the cap is reached, the response carries `complete: false` and `covered_from`,
+the oldest run's creation time, and every step before `covered_from` is `null`.
+A busy pipeline can still displace a quieter one inside the covered interval;
+per-job reads, each capped, are the slice's alternative if the measured stage
+volume makes that common. Open item 5.
 
 ### Unsupported, recorded
 
@@ -228,7 +239,7 @@ Limits, so a misbehaving target fails visibly instead of growing the database:
 | `label_value_length_limit` | 256 bytes | Same failure mode **[V]** |
 | `target_limit` per job | kubelet 20; Trino 3; SeaweedFS 4; kube-state-metrics 1 | Experimental upstream **[V]**; a target explosion fails the job |
 | Recording rule groups | each group sets `limit`, the series a rule may produce, at 500 | A rule over the limit fails its evaluation **[T: field name at 3.13]** |
-| Series budget | `prometheus_tsdb_head_series` under 10,000 | The e2e asserts it (Build order) |
+| Series budget | `prometheus_tsdb_head_series` under 10,000 on the reference deployment | An operating target, not an enforced bound: the e2e asserts it on one deployment, and a deployment that exceeds it loses history to `retention.size` rather than disk. Head series above the budget for 30 minutes is a `warning` on the metrics integration, so the overrun is visible **[T: the slice wires the signal]** |
 
 ## Decision 4: the read path
 
@@ -284,7 +295,9 @@ Response envelope, for both sources:
             "points": [["2026-11-17T04:01:00Z", 0], ["2026-11-17T04:02:00Z", null]]}]}
 ```
 
-A step without a sample is `null`, never `0`. `state` is `unavailable` with no
+A step without a sample is `null`, never `0`. A Dagster-sourced series adds
+`complete` and, when `false`, `covered_from` (Decision 2); a Prometheus series
+is always `complete: true` within retention. `state` is `unavailable` with no
 `lines` when Prometheus does not answer or a target behind the series has
 `up == 0` for the whole range; `disabled` when the profile turns metrics off;
 `not_provided` when the provider reports `metrics.supported = false`. The stage
@@ -353,10 +366,17 @@ Prometheus, and the kubelet's `SubjectAccessReview` authorizes it
 **[T: kind's kubelet runs `--authorization-mode=Webhook`]**. Prometheus cannot
 verify the kubelet's certificate on kind, whose kubelets serve self-signed
 certificates unless the foundation enables `serverTLSBootstrap` and approves the
-CSRs **[T]**. The proposal is `insecure_skip_verify` on that one job, recorded as
-a limitation: an attacker who can already impersonate a node address inside the
-cluster network could feed false usage numbers, and gains no credential, because
-the token is a ServiceAccount token valid only for `nodes/metrics`. Open item 8.
+CSRs **[T]**. Skipping verification is **not only a data-integrity risk**: an
+endpoint that impersonates a node address receives Prometheus's ServiceAccount
+bearer token, and can replay it with all of Prometheus's grants, `nodes`
+`get`/`list`/`watch` as well as `nodes/metrics`, until the projected token
+expires. That exposes node objects and per-container usage, no Secret, log, exec
+or spec; it is still a credential disclosure. The proposal for the **local kind
+reference only** is `insecure_skip_verify` on that one job, with the projected
+token's lifetime at the minimum (`expirationSeconds: 600`) and the risk recorded
+as a limitation; any provider other than local must verify kubelet
+certificates, and enabling `serverTLSBootstrap` in the kind foundation removes
+the exception. Open item 8.
 
 ## Decision 6: provider neutrality
 
@@ -468,7 +488,7 @@ decisions above assume it.
 | 5 | Execution counters and durations | **From Dagster reads in the API**, not Prometheus; they then work on Slim too |
 | 6 | Prometheus authentication | **None in v0.7**: one NetworkPolicy ingress row from the platform API. Basic auth or TLS via `--web.config.file` is added when a second consumer (#210) needs a route |
 | 7 | Read floor | **`data-engineer` on every stage**, the health routes' floor, for stage and platform series alike |
-| 8 | Kubelet certificate verification on kind | **Skip verification on the kubelet job only**, with the token for authorization, recorded as a limitation; enabling `serverTLSBootstrap` in the kind foundation is a separate change |
+| 8 | Kubelet certificate verification on kind | **Skip verification on the kubelet job, on local only**, accepting that an impersonated node address receives Prometheus's token (node reads and usage, no Secrets) for at most its 10-minute lifetime; every other provider verifies; enabling `serverTLSBootstrap` in the kind foundation is a separate change that removes the exception |
 | 9 | Chart or Terraform resources | **Terraform `kubernetes_*` resources** with pinned images, as the log collector and the alert evaluator are |
 | 10 | Version line | **Prometheus 3.13 LTS** (3.13.5), moving to the next LTS (due 2027-06) rather than following every minor |
 
