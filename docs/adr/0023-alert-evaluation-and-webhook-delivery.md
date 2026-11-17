@@ -138,7 +138,7 @@ for that product and stage.
 | `run_failed` | the latest run of a product's job failed (`execution` is `critical`) | `critical` | `severity` | Default, revisit: critical signals alert |
 | `missed_run` | `expected_run` is `critical`: a running schedule, a due time past its grace (default 15 minutes), no run started since | `critical` | `grace`, `severity` | Default, revisit |
 | `stale_output` | cadence-derived: a running schedule's job has no success since the previous due time plus grace. With thresholds: the last success is older than `warn_after` (`warning`) or `critical_after` (`critical`) | `critical` | declared as `freshness`: `warn_after`, `critical_after`, or `grace` and `severity` | Default, revisit for the cadence rule; thresholds are Maintainer |
-| `quality` | the latest quality outcome is `warn` or a non-blocking `error` (severity `warning`), or a blocking `error` (severity `critical`). One condition with two severities, so a warning that turns into a blocking error stays one incident (see Severity escalation) | `warning` or `critical` | `on`: `warn` or `error` | Default, revisit: quality WARN alerts as `warning`; critical signals alert |
+| `quality` | the latest quality outcome is `warn` or a non-blocking `error` (severity `warning`), or a blocking `error` (severity `critical`). One condition with two severities, so a warning that turns into a blocking error stays one incident (see Severity escalation) | `warning` or `critical` | `level`: `warn` or `error` | Default, revisit: quality WARN alerts as `warning`; critical signals alert |
 | `schedule_mismatch` | a PROD schedule the product's cadence declares running is stopped in Dagster (#1175, #209 slice c) | `warning` | `severity` | From #1169; resolves silently when the declaration or the schedule changes |
 | `stage_unreadable` | Dagster for a stage could not be read in 3 consecutive evaluations | `critical` | none: a platform condition (Decision 11) | Default, revisit for the count of 3; the severity is proposed |
 | `policy_unreadable` | the stage's alert policy cannot be used (Decision 10) | `warning` | none: a platform condition (Decision 11) | Maintainer |
@@ -496,7 +496,7 @@ default 2026-11-17; maintainer may revisit)**; the alert e2e runs on
 | `run_failed` | `run_failed` | `severity`: `warning` or `critical` | `critical` |
 | `missed_run` | `missed_run` | `grace`: a duration; `severity` | `15m` (`SCHEDULE_GRACE`); `critical` |
 | `freshness` | `stale_output` | `warn_after`, `critical_after`: durations since the last successful run. With neither, cadence-derived staleness applies, with `grace` (default `15m`) and `severity` (default `critical`) | cadence-derived |
-| `quality` | `quality` | `on`: `warn` or `error` | `warn` |
+| `quality` | `quality` | `level`: `warn` or `error` | `warn` |
 | `schedule_mismatch` | `schedule_mismatch` | `severity` | `warning` |
 
 `{}` turns a condition on with its defaults. A duration is a positive integer
@@ -507,12 +507,12 @@ cadence options do not mix in one rule.
 - **`freshness`** keeps the alert kind `stale_output` **(proposed, accepted by
   default 2026-11-17; maintainer may revisit)**, so fingerprints, payloads
   (`condition: stale_output`) and the guide's runbook anchors do not change.
-- **`quality`** with `on: warn` alerts on a WARN or a non-blocking ERROR at
-  `warning` and a blocking ERROR at `critical`. With `on: error`, a WARN alone
+- **`quality`** with `level: warn` alerts on a WARN or a non-blocking ERROR at
+  `warning` and a blocking ERROR at `critical`. With `level: error`, a WARN alone
   does not alert. The signal says which outcome it saw, not only its state
   **[T: today the two warning cases differ only by their reason string; slice
   AP-c carries the outcome on the signal instead of parsing text]**. Floe and
-  dbt keep their own thresholds; `on` only chooses which outcome alerts.
+  dbt keep their own thresholds; `level` only chooses which outcome alerts.
 - **`missed_run`**'s `grace` replaces `SCHEDULE_GRACE` for that product, which
   also moves the evidence bound it feeds (`_evidence_bound`). Detection still
   waits for the next 5-minute evaluation.
@@ -540,7 +540,7 @@ rules:
       missed_run: {}
       freshness: {}
       schedule_mismatch: {}
-      quality: {on: error}
+      quality: {level: error}
 
   # DEV failures go to the engineers' channel, as warnings.
   - match: {domain: "*", product: "*"}
@@ -553,7 +553,7 @@ rules:
   - match: {domain: sales, product: "*"}
     notify: [sales]
     when:
-      quality: {on: warn}
+      quality: {level: warn}
 
   # One product with a business bound and a slower queue.
   - match: {domain: sales, product: order_revenue}
@@ -575,7 +575,7 @@ What it resolves to for `order_revenue` in PROD (Decision 9):
 | `run_failed` | global | `critical` | `on-call` |
 | `missed_run` | `order_revenue` | grace `30m`, `critical` | `sales`, `on-call` |
 | `freshness` | `order_revenue` | warn `26h`, critical `30h` | `sales`, `on-call` |
-| `quality` | `sales` domain | `on: warn` | `sales` |
+| `quality` | `sales` domain | `level: warn` | `sales` |
 | `schedule_mismatch` | global | `warning` | `on-call` |
 
 In DEV the only match is the second rule: a failed run notifies `data-eng` as a
@@ -813,7 +813,7 @@ What the policy slices change in the merged code:
 | File | Change |
 | --- | --- |
 | `packages/core/openlakeforge_core/alert_policy.py` (new) | `AlertPolicy`, `AlertRule`, condition options; `load_alert_policy`, `validate_alert_policy`; `resolve_policy(policy, governance, stage) -> ResolvedPolicy`, which answers per job and condition: enabled, options, route names |
-| `packages/core/openlakeforge_core/alerts.py` | `evaluate(previous, signals, now, *, policy: ResolvedPolicy, ...)`. A signal whose condition the policy does not enable for its scope is ignored, and its open incident resolves silently. `_severity_of` takes the severity from the options instead of constants; `quality` applies `on`; `stale_output` can open at `warning` |
+| `packages/core/openlakeforge_core/alerts.py` | `evaluate(previous, signals, now, *, policy: ResolvedPolicy, ...)`. A signal whose condition the policy does not enable for its scope is ignored, and its open incident resolves silently. `_severity_of` takes the severity from the options instead of constants; `quality` applies `level`; `stale_output` can open at `warning` |
 | `packages/core/openlakeforge_core/health.py` | `evaluate_freshness` gains an age mode: `warn_after` and `critical_after`, measured from the last success's end, for any schedule state |
 | `packages/platform-api/openlakeforge_platform_api/pipeline_health.py` | `read_stage_pipelines` and `_evaluate` take per-job grace and thresholds from the resolved policy. `SCHEDULE_GRACE` becomes the default grace and `RUN_MAX_AGE` stays the bound for a job with no running schedule. The health routes call it without a policy, so they keep the cadence-derived signals |
 | `packages/platform-api/openlakeforge_platform_api/alerting/run.py` | Reads each stage's policy (Decision 10) before evaluating. Routing replaces `receiver.routes(stage)` with the winning rule's routes, mapped to receivers and capped by each receiver's `stages`; platform conditions route to the platform receivers |
@@ -895,3 +895,5 @@ with the receiver's `stages` as a ceiling; Decisions 8 to 11, the answered
 questions and the AP slices were added. The Status now says the evaluator
 slices are built; it still read "not built". The design was first drafted as a
 separate ADR 0024 and folded in here, per AGENTS.md rule 8.
+
+2026-11-17: quality key renamed from `on` to `level`, because YAML 1.1 parsers read `on` as true (maintainer).
