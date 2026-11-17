@@ -588,9 +588,9 @@ dbt-common==1.38.0 \
     #   dbt-adapters
     #   dbt-core
     #   dbt-trino
-dbt-core==1.11.12 \
-    --hash=sha256:108ced0a65d1f5330e86920df5c7182f79cd6ddcedf8f2d73c7928a310751ae8 \
-    --hash=sha256:3b7760a3760a6db8a14a6ef38fb86532b2c2b150d49beaa1feb0f50170baa86e
+dbt-core==1.11.17 \
+    --hash=sha256:5ca4c9df1d9f40f36c042de9f301ad8693cd2b5953cfcef74a1e7bf86209a8ed \
+    --hash=sha256:adbaea0291401571df31ff3b4d5b537f0402fa38fb4a2e3fad2b24eac5cb8fa9
     # via
     #   dagster-dbt
     #   dbt-trino
@@ -3097,9 +3097,9 @@ sqlglotrs==0.7.3 \
     --hash=sha256:f7a4dbc6ce7cf04c4db28302299d44257fdc259260102266fdcd84c7f47ece0a \
     --hash=sha256:fe1ef1bedbb34b87dfb4e99a911026f8895ff2514b222cfd82cd08033406de2e
     # via sqlglot
-sqlparse==0.5.5 \
-    --hash=sha256:12a08b3bf3eec877c519589833aed092e2444e68240a3577e8e26148acc7b1ba \
-    --hash=sha256:e20d4a9b0b8585fdf63b10d30066c7c94c5d7a7ec47c889a2d83a3caa93ff28e
+sqlparse==0.6.1 \
+    --hash=sha256:3be5a72d04c873d690d7c6dedd33d6fae2ef82759881ceec02fc2efd0cba564f \
+    --hash=sha256:ca722573f848ff2d30e40ea30f53a104b7dea7635ea9285891263eb2c58fb6e7
     # via dbt-core
 starlette==1.3.1 \
     --hash=sha256:05d0213193f2fbaae60e2ecb593b4add4262ad4e46536b54abe36f11a71724e0 \

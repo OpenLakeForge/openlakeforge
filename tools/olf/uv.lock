@@ -3,11 +3,11 @@ revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
-    "python_full_version >= '3.15' and (platform_python_implementation == 'PyPy' or sys_platform == 'emscripten')",
+    "(python_full_version >= '3.15' and platform_python_implementation == 'PyPy') or (python_full_version >= '3.15' and sys_platform == 'emscripten')",
     "python_full_version == '3.14.*' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
-    "python_full_version == '3.14.*' and (platform_python_implementation == 'PyPy' or sys_platform == 'emscripten')",
+    "(python_full_version == '3.14.*' and platform_python_implementation == 'PyPy') or (python_full_version == '3.14.*' and sys_platform == 'emscripten')",
     "python_full_version == '3.13.*' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
-    "python_full_version == '3.13.*' and (platform_python_implementation == 'PyPy' or sys_platform == 'emscripten')",
+    "(python_full_version == '3.13.*' and platform_python_implementation == 'PyPy') or (python_full_version == '3.13.*' and sys_platform == 'emscripten')",
     "python_full_version < '3.13'",
 ]
 
@@ -731,7 +731,7 @@ wheels = [
 
 [[package]]
 name = "dbt-core"
-version = "1.11.12"
+version = "1.11.17"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "agate" },
@@ -757,9 +757,9 @@ dependencies = [
     { name = "sqlparse" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ae/26/ab9584f57f8a5561693e909f15cbe109d07584defbd2a910efc003bad0ae/dbt_core-1.11.12.tar.gz", hash = "sha256:108ced0a65d1f5330e86920df5c7182f79cd6ddcedf8f2d73c7928a310751ae8", size = 973664, upload-time = "2026-07-01T13:17:45.514Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1f/26/be96811b865ecd8a23c1c07057970b362837095697165f6bc14c4e57423e/dbt_core-1.11.17.tar.gz", hash = "sha256:adbaea0291401571df31ff3b4d5b537f0402fa38fb4a2e3fad2b24eac5cb8fa9", size = 976799, upload-time = "2026-11-06T07:08:32.803Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/60/c8/9f958ad09b2cab584e081058d743ef031350fba306e85ef5d4fc3425b40d/dbt_core-1.11.12-py3-none-any.whl", hash = "sha256:3b7760a3760a6db8a14a6ef38fb86532b2c2b150d49beaa1feb0f50170baa86e", size = 1062483, upload-time = "2026-07-01T13:17:43.867Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/a6/1aa2e83bc122150f1b464684ca4c59e2a9bd6ba9cafff77757ad9a19b629/dbt_core-1.11.17-py3-none-any.whl", hash = "sha256:5ca4c9df1d9f40f36c042de9f301ad8693cd2b5953cfcef74a1e7bf86209a8ed", size = 1065809, upload-time = "2026-11-06T07:08:30.809Z" },
 ]
 
 [[package]]
@@ -1877,7 +1877,7 @@ dagster = [
     { name = "dagster", specifier = "==1.13.7" },
     { name = "dagster-dbt", specifier = "==0.29.7" },
     { name = "dagster-floe", extras = ["floe"], specifier = "==0.6.0" },
-    { name = "dbt-core", specifier = "==1.11.12" },
+    { name = "dbt-core", specifier = "==1.11.17" },
     { name = "dbt-trino", specifier = "==1.10.2" },
     { name = "dlt", specifier = "==1.29.0" },
     { name = "floe-python", specifier = "==0.10.1" },
@@ -3187,11 +3187,11 @@ wheels = [
 
 [[package]]
 name = "sqlparse"
-version = "0.5.5"
+version = "0.6.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/90/76/437d71068094df0726366574cf3432a4ed754217b436eb7429415cf2d480/sqlparse-0.5.5.tar.gz", hash = "sha256:e20d4a9b0b8585fdf63b10d30066c7c94c5d7a7ec47c889a2d83a3caa93ff28e", size = 120815, upload-time = "2025-12-19T07:17:45.073Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/e0/361c764ea58cc1a75f7b4b424a74b08449db8bfa5e9199c7275999fdd1b9/sqlparse-0.6.1.tar.gz", hash = "sha256:ca722573f848ff2d30e40ea30f53a104b7dea7635ea9285891263eb2c58fb6e7", size = 182236, upload-time = "2026-11-01T18:06:45.951Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/4b/359f28a903c13438ef59ebeee215fb25da53066db67b305c125f1c6d2a25/sqlparse-0.5.5-py3-none-any.whl", hash = "sha256:12a08b3bf3eec877c519589833aed092e2444e68240a3577e8e26148acc7b1ba", size = 46138, upload-time = "2025-12-19T07:17:46.573Z" },
+    { url = "https://files.pythonhosted.org/packages/df/ff/2fee788e82e75be8f210c65c5d103bf44c880e3769c884652a4cd911b8ba/sqlparse-0.6.1-py3-none-any.whl", hash = "sha256:3be5a72d04c873d690d7c6dedd33d6fae2ef82759881ceec02fc2efd0cba564f", size = 51200, upload-time = "2026-11-01T18:06:47.434Z" },
 ]
 
 [[package]]
