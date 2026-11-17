@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -39,8 +40,6 @@ def test_doctor_json_output_has_valid_schema_on_error() -> None:
 
 def test_doctor_json_progress_not_in_stdout(tmp_path: Path) -> None:
     """doctor --json redirects progress to stderr, not stdout."""
-    from pathlib import Path
-
     # Create minimal project structure
     (tmp_path / "openlakeforge.yaml").write_text("name: test\n")
 

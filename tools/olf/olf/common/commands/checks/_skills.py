@@ -71,7 +71,10 @@ def skills(
         result = {
             "command": "check skills",
             "ok": len(errors) == 0,
-            "items": [{"id": f"skills_error_{i}", "status": "fail", "message": err, "remedy": None} for i, err in enumerate(errors, 1)],
+            "items": [
+                {"id": f"skills_error_{i}", "status": "fail", "message": err, "remedy": None}
+                for i, err in enumerate(errors, 1)
+            ],
         }
         typer.echo(json.dumps(result, indent=2))
         if errors:

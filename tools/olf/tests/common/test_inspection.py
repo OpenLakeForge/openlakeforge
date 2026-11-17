@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from olf.common.deployment.inspection import DoctorReport, DoctorItem
+from olf.common.deployment.inspection import DoctorItem, DoctorReport
 
 
 def test_doctor_report_as_dict_all_passing() -> None:

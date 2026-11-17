@@ -43,7 +43,10 @@ def infra(
                 "infra/terraform/environments/aws-poc",
             )
             terraform = str(tools.resolver.resolve("terraform"))
-            tools.runner.run([terraform, "fmt", "-check", "-recursive", str(root / "infra/terraform")], stream_output=True)
+            tools.runner.run(
+                [terraform, "fmt", "-check", "-recursive", str(root / "infra/terraform")],
+                stream_output=True,
+            )
             for relative in roots:
                 directory = root / relative
                 tools.terraform.init(
@@ -102,7 +105,9 @@ def infra(
                     env=env,
                 )
                 if release_name == "polaris" and "polaris.persistence.type=relational-jdbc" not in result.stdout:
-                    raise typer.Exit(code=fail("rendered Polaris chart is not configured for relational JDBC persistence"))
+                    raise typer.Exit(
+                        code=fail("rendered Polaris chart is not configured for relational JDBC persistence")
+                    )
 
         if json_output:
             typer.echo(json.dumps({"command": "check infra", "ok": True, "items": []}, indent=2))

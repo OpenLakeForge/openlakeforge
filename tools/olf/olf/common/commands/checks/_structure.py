@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
+import json as json_module
 import shlex
+import sys
 from pathlib import Path
 
 import typer
 import yaml
 
 from olf.common.commands.checks._shared import _root
+from olf.common.dashboard_checks import validate_superset_assets
 from olf.common.log import fail
 from olf.common.tooling.toolkit import Toolkit
 
@@ -299,11 +303,6 @@ def structure(
     ),
 ) -> None:
     """Validate the essential repository skeleton and prohibit shell scripts."""
-    import contextlib
-    import json as json_module
-    import sys
-    from olf.common.dashboard_checks import validate_superset_assets
-
     root = _root(repo_root)
 
     # Suppress progress output when producing JSON

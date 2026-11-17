@@ -42,10 +42,9 @@ def project_code(
     try:
         with progress:
             if sys.version_info[:2] != (3, 12):
+                python_version = f"{sys.version_info[0]}.{sys.version_info[1]}"
                 raise typer.Exit(
-                    code=fail(
-                        f"project-code check requires Python >=3.12,<3.13; found {sys.version_info[0]}.{sys.version_info[1]}"
-                    )
+                    code=fail(f"project-code check requires Python >=3.12,<3.13; found {python_version}")
                 )
             _refuse_per_product_dbt_projects(project.gold_root)
             cache = _check_cache_root(project.root, project.distribution_root) / "project-code"
@@ -64,10 +63,12 @@ def project_code(
                     raise typer.Exit(code=fail(str(exc))) from exc
                 project_digest = hashlib.sha256((project_digest + requirements.read_text()).encode()).hexdigest()[:16]
             domain_digest = _source_tree_digest(project.distribution_root / "packages/core")
-            site = cache / f"py{sys.version_info.major}{sys.version_info.minor}-{project_digest}-{domain_digest}" / "site"
+            py_version = f"py{sys.version_info.major}{sys.version_info.minor}"
+            site = cache / f"{py_version}-{project_digest}-{domain_digest}" / "site"
             if not (site / ".complete").is_file():
                 site.mkdir(parents=True, exist_ok=True)
-                pyproject = tomllib.loads((project.distribution_root / "images/project-code/pyproject.toml").read_text())
+                pyproject_path = project.distribution_root / "images/project-code/pyproject.toml"
+                pyproject = tomllib.loads(pyproject_path.read_text())
                 _uv_pip_install(target=site, requirements=pyproject["project"]["dependencies"], cwd=project.root)
                 if requirements.is_file():
                     # Held to the platform pins, as the image build does, so the check runs the image's versions.
@@ -84,9 +85,10 @@ def project_code(
             # (#627). Emptied each run so a renamed or added product gets its profile.
             dbt_profiles = cache / "dbt-profiles"
             shutil.rmtree(dbt_profiles, ignore_errors=True)
+            runtime_path = project.distribution_root / "packages/runtime"
             env = {
                 "PATH": f"{site / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
-                "PYTHONPATH": f"{site}{os.pathsep}{project.root}{os.pathsep}{project.distribution_root / 'packages/runtime'}",
+                "PYTHONPATH": f"{site}{os.pathsep}{project.root}{os.pathsep}{runtime_path}",
                 # The stage binding openlakeforge_runtime.floe_profile renders the Floe profile from;
                 # the check only builds definitions, so none of these is contacted.
                 "OPENLAKEFORGE_STORAGE_BRONZE_BUCKET": "lakehouse-dev-bronze",
@@ -106,7 +108,7 @@ def project_code(
                 "OPENLAKEFORGE_LOG_BASE_URI": "s3://openlakeforge-ops/logs",
                 "OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI": "s3://openlakeforge-ops/runs",
                 "OPENLAKEFORGE_DBT_PROFILES_DIR": str(dbt_profiles),
-                "OPENLAKEFORGE_DBT_PACKAGES_DIR": str(project.distribution_root / "packages/runtime/openlakeforge_runtime/dbt"),
+                "OPENLAKEFORGE_DBT_PACKAGES_DIR": str(runtime_path / "openlakeforge_runtime/dbt"),
             }
             _run([sys.executable, "-m", "olf.common.project_code_check", str(project.root)], cwd=project.root, env=env)
             # The image build runs the same two commands (#725). The install is the

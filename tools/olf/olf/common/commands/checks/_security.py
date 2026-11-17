@@ -66,7 +66,12 @@ def security(
         section, _, name = waived.partition(":")
         is_ok = is_waived(root, section, name, date.today())
         if json_output:
-            typer.echo(json.dumps({"command": "check security", "ok": is_ok, "waived": {"section": section, "name": name}}, indent=2))
+            result = {
+                "command": "check security",
+                "ok": is_ok,
+                "waived": {"section": section, "name": name},
+            }
+            typer.echo(json.dumps(result, indent=2))
         raise typer.Exit(code=0 if is_ok else 1)
 
     progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
@@ -94,7 +99,10 @@ def security(
         result = {
             "command": "check security",
             "ok": len(errors) == 0,
-            "items": [{"id": f"security_error_{i}", "status": "fail", "message": err, "remedy": None} for i, err in enumerate(errors, 1)],
+            "items": [
+                {"id": f"security_error_{i}", "status": "fail", "message": err, "remedy": None}
+                for i, err in enumerate(errors, 1)
+            ],
         }
         typer.echo(json.dumps(result, indent=2))
         if errors:

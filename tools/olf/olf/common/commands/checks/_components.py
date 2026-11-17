@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import contextlib
+import json as json_module
 import shlex
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
 import typer
 import yaml
 
+from olf.common import release
 from olf.common.commands.checks._shared import _root, _run
 from olf.common.log import fail
 from olf.common.tooling.toolkit import Toolkit
@@ -22,11 +26,6 @@ def components(
     ),
 ) -> None:
     """Validate component catalog pins and release-readiness inputs."""
-    import contextlib
-    import json as json_module
-    import sys
-    from olf.common import release
-
     root = _root(repo_root)
 
     progress = contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()

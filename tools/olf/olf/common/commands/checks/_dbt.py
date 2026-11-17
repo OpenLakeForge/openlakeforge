@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -29,8 +28,8 @@ def dbt(
 ) -> None:
     """Render, resolve, parse, and compile the Gold dbt project."""
     import contextlib
-    import json
     import sys
+
     from olf.common.project import ProjectSpec
 
     root = _root(repo_root)
