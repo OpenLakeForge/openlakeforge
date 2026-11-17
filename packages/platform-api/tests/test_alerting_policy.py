@@ -314,3 +314,34 @@ def test_an_unexpected_error_from_the_store_is_unreadable_not_fatal(caplog: pyte
 
     assert found.unreadable is not None and "the client library broke" in found.unreadable
     assert any(record.exc_info for record in caplog.records)
+
+
+def test_a_date_as_a_product_id_is_unreadable_not_fatal() -> None:
+    bucket = FakeBucket()
+    publish(bucket, governance="domains:\n  - name: sales\n    products:\n      - id: 2026-01-01\n")
+
+    found = read(bucket)
+
+    assert found.unreadable is not None and "strings" in found.unreadable
+    assert CACHE not in bucket.objects
+
+
+def test_a_cache_that_cannot_be_serialised_keeps_the_fresh_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    import datetime
+
+    import openlakeforge_platform_api.alerting.policy as policy_module
+
+    bucket = FakeBucket()
+    publish(bucket)
+    real = policy_module.json.dumps
+
+    def dumps(value: Any, **kwargs: Any) -> str:
+        if isinstance(value, dict) and value.get("schema_version") == policy_module.CACHE_SCHEMA:
+            value = {**value, "read_at": datetime.date(2026, 1, 1)}
+        return real(value, **kwargs)
+
+    monkeypatch.setattr(policy_module.json, "dumps", dumps)
+
+    found = read(bucket)
+
+    assert found.unreadable is None and found.policy.routes == {"on-call": "ops"}

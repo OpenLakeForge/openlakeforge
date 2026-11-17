@@ -158,12 +158,17 @@ def _checked(store: PolicyStore, prefix: str, entry: str, expected: str) -> str:
 
 def _products(governance: dict[str, Any]) -> dict[str, Any]:
     """Only the ids the resolver and the `match` checks read: the cache holds no business metadata."""
-    return {
-        "domains": [
-            {"name": domain["name"], "products": [{"id": product["id"]} for product in domain.get("products", [])]}
-            for domain in governance["domains"]
-        ]
-    }
+    domains = [
+        {"name": domain["name"], "products": [{"id": product["id"]} for product in domain.get("products", [])]}
+        for domain in governance["domains"]
+    ]
+    # An unquoted `2026-01-01` is a date to YAML: it would match nothing and break the cache's JSON.
+    ids = [domain["name"] for domain in domains] + [
+        product["id"] for domain in domains for product in domain["products"]
+    ]
+    if not all(isinstance(value, str) for value in ids):
+        raise LakehouseDescriptorError("governance.yml domain names and product ids must be strings")
+    return {"domains": domains}
 
 
 def _finish(stage: str, cached: _Cached, receivers: Collection[str] | None, unreadable: str | None) -> StagePolicy:
@@ -221,6 +226,6 @@ def _write_cache(stage: str, store: PolicyStore, cached: _Cached, now: datetime)
     }
     try:
         store.write_policy_cache(stage, json.dumps(document, sort_keys=True, separators=(",", ":")).encode())
-    except StoreError as error:
+    except Exception as error:  # noqa: BLE001 - serialising or storing the cache must never cost the policy
         # The policy just read is good and is used now; only the fallback for a later failure is lost.
         log.warning("alert policy cache of stage %s was not written: %s", stage, error)
