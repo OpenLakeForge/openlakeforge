@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from openlakeforge_core.alert_policy import ResolvedPolicy
 from openlakeforge_core.alerts import DAGSTER_READ_API, AlertState, HistoryEvent, Incident, evaluate
 from openlakeforge_core.alerts_state import drop_notification, expire_outbox, record_attempt, record_delivery
 from openlakeforge_core.health import HealthState, Scope, Signal, service_signal
@@ -46,7 +47,7 @@ class RunSummary:
     delivered: int
     failed: int
     expired: int
-    # Stages whose alert policy could not be used this run. Read and logged only: AP-c applies the policy.
+    # Stages whose alert policy could not be used this run.
     policy_unreadable: tuple[str, ...] = ()
 
 
@@ -66,12 +67,13 @@ def run_once(
     previous = store.read_state(now)
     # Transitions of the stored state whose history writes did not all land last run: replay them now.
     _flush_history(store, store.read_pending_history(previous))
-    policy_unreadable = _read_policies(settings, store, now)
-    signals, scopes = _read_stages(settings, dagster, quality or {}, previous, now)
+    policy_unreadable, policy = _read_policies(settings, store, now)
+    signals, scopes = _read_stages(settings, dagster, quality or {}, previous, now, policy)
     evaluation = evaluate(
         previous,
         signals,
         now,
+        policy=policy,
         links=lambda incident: _links(settings.links, incident),
         active_stages=settings.stages,
         active_scopes=scopes,
@@ -164,18 +166,26 @@ def run_once(
     return RunSummary(len(evaluation.notifications), delivered, failed, len(expired), policy_unreadable)
 
 
-def _read_policies(settings: EvaluatorSettings, store: AlertStore, now: datetime) -> tuple[str, ...]:
-    """Reads every stage's policy (ADR 0023, decision 10). It changes nothing yet: `evaluate` still alerts on every
-    condition at its default, and the unreadable ones are only logged, until the policy is applied."""
+def _read_policies(
+    settings: EvaluatorSettings, store: AlertStore, now: datetime
+) -> tuple[tuple[str, ...], dict[str, ResolvedPolicy]]:
+    """Every stage's policy (ADR 0023, decision 10): the stages whose policy is not fully usable, and what to apply.
+
+    A stage with no policy at all, never read and not readable now, is left out so its open incidents are held: an
+    object store hiccup on the first read after the cache was lost must not resolve what is firing.
+    """
     names = [receiver.name for receiver in settings.receivers]
     unreadable = []
+    resolved: dict[str, ResolvedPolicy] = {}
     for stage in settings.stages:
         found = read_stage_policy(stage, store, now, receivers=names)
         if found.unreadable:
             unreadable.append(stage)
         else:
             log.info("alert policy of stage %s: %s", stage, found.revision or "none")
-    return tuple(unreadable)
+        if found.revision is not None or not found.unreadable:
+            resolved[stage] = found.resolved
+    return tuple(unreadable), resolved
 
 
 def _flush_history(store: AlertStore, pending: list[PendingRecord]) -> None:
@@ -192,6 +202,7 @@ def _read_stages(
     quality: Mapping[str, QualityReader],
     previous: AlertState,
     now: datetime,
+    policy: Mapping[str, ResolvedPolicy],
 ) -> tuple[list[Signal], list[Scope]]:
     """Signals of every enabled stage, and the products that still exist in the stages that could be read.
 
@@ -201,7 +212,7 @@ def _read_stages(
     signals: list[Signal] = []
     scopes: list[Scope] = []
     for stage in settings.stages:
-        status, pipelines = read_stage_pipelines(dagster.get(stage), stage, now, quality.get(stage))
+        status, pipelines = read_stage_pipelines(dagster.get(stage), stage, now, quality.get(stage), policy.get(stage))
         readable = status.status == "available"
         # Exactly one per stage and evaluation: a stage with none would have its unreadable counter reset.
         signals.append(

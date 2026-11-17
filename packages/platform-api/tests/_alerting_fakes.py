@@ -70,6 +70,12 @@ rules:
 """
 
 
+EVERYTHING = POLICY.replace(
+    "      run_failed: {}\n",
+    "      run_failed: {}\n      missed_run: {}\n      freshness: {}\n      quality: {}\n      schedule_mismatch: {}\n",
+)
+
+
 def _bytes(content: str | bytes) -> bytes:
     return content if isinstance(content, bytes) else content.encode()
 
@@ -121,3 +127,11 @@ def publish(
     if activate:
         bucket.objects[active_key(stage)] = pointer_document(activation.activation_revision)
     return activation
+
+
+def declare_everything(bucket: FakeBucket, stages: tuple[str, ...]) -> None:
+    """Give each stage that has no activation a policy that turns every product condition on. Alerts are silent
+    unless declared, and most evaluator tests are about incidents, not the policy."""
+    for stage in stages:
+        if active_key(stage) not in bucket.objects:
+            publish(bucket, stage=stage, alerts=EVERYTHING)

@@ -9,9 +9,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from _alerting_fakes import FakeBucket
+from _alerting_fakes import EVERYTHING, FakeBucket, declare_everything, publish
 from conftest import Mint
 from fastapi.testclient import TestClient
+from openlakeforge_core import parse_alert_policy, resolve_policy
 from openlakeforge_core.quality import (
     PipelineOutcome,
     QualityManifest,
@@ -80,6 +81,12 @@ def _result(
         observed_at=NOW - timedelta(minutes=20),
         dagster_run_id=run_id,
     )
+
+
+def _declared() -> FakeBucket:
+    bucket = FakeBucket()
+    declare_everything(bucket, ("dev",))
+    return bucket
 
 
 def _store(*results: QualityResult, run_id: str = "run-1", complete: bool = True) -> FakeBucket:
@@ -216,7 +223,7 @@ def test_without_a_reader_a_pipeline_carries_no_quality_signal() -> None:
 
 
 def test_the_alert_evaluator_opens_a_quality_incident_from_a_blocking_error_manifest() -> None:
-    state, notifier = FakeBucket(), FakeNotifier()
+    state, notifier = _declared(), FakeNotifier()
     manifests = QualityReader(_store(_result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED)), BASE)
 
     run_once(
@@ -238,7 +245,7 @@ def test_the_alert_evaluator_opens_nothing_for_a_pipeline_whose_manifest_passed_
         notifier = FakeNotifier()
         run_once(
             settings=_settings(A),
-            store=AlertStore(FakeBucket(), "s3://ops/alerts/"),
+            store=AlertStore(_declared(), "s3://ops/alerts/"),
             dagster={"dev": FakeDagster([_run()])},
             notifiers={"ops": notifier},
             now=NOW,
@@ -363,7 +370,7 @@ def test_a_finished_run_after_a_running_one_resolves_through_its_own_manifest() 
 
 
 def test_a_running_retry_does_not_resolve_an_open_quality_incident_and_a_completed_one_does() -> None:
-    state, notifier = FakeBucket(), FakeNotifier()
+    state, notifier = _declared(), FakeNotifier()
     store = AlertStore(state, "s3://ops/alerts/")
     failed = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
 
@@ -419,7 +426,7 @@ def test_a_running_retry_does_not_resolve_an_open_quality_incident_and_a_complet
 
 
 def test_an_unreadable_failed_manifest_keeps_an_open_incident_open_and_silent() -> None:
-    store = AlertStore(FakeBucket(), "s3://ops/alerts/")
+    store = AlertStore(_declared(), "s3://ops/alerts/")
     notifier = FakeNotifier()
     old = _result(QualityOutcome.PASSED, run_id="run-1")
     blocked = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-2")
@@ -542,3 +549,113 @@ def test_a_quality_prefix_for_a_stage_that_is_not_enabled_is_refused(settings: S
         _api_settings(settings, quality_manifests={"staging": "s3://ops/activations/staging/"})
     with pytest.raises(SettingsError, match="ending in /"):
         _api_settings(settings, quality_manifests={"dev": "s3://ops/activations/dev"})
+
+
+def test_a_warn_before_a_non_blocking_error_in_one_manifest_still_reports_the_error() -> None:
+    warn = _result(QualityOutcome.WARN, check="a_warn")
+    error = _result(QualityOutcome.ERROR, PipelineOutcome.CONTINUED, check="b_error")
+
+    for results in ((warn, error), (error, warn)):
+        _, (pipeline,) = read_stage_pipelines(FakeDagster([_run()]), "dev", NOW, QualityReader(_store(*results), BASE))
+        (quality,) = [s for s in pipeline.signals if s.kind.value == "quality"]
+
+        assert (quality.state.value, quality.outcome) == ("warning", QualityOutcome.ERROR)
+
+
+def _level_error_signal(runs: list[DagsterRun], stored: list[QualityManifest]):
+    bucket = FakeBucket()
+    for manifest in stored:
+        bucket.objects[manifest.ops_key] = manifest.to_json().encode()
+    policy = parse_alert_policy(
+        {
+            "apiVersion": "openlakeforge.io/v1beta1",
+            "kind": "AlertPolicy",
+            "routes": {"ops": "ops"},
+            "defaults": {"notify": ["ops"]},
+            "rules": [{"match": {"domain": "*", "product": "*"}, "when": {"quality": {"level": "error"}}}],
+        }
+    )
+    resolved = resolve_policy(policy, {"domains": []}, "dev")
+    _, (pipeline,) = read_stage_pipelines(FakeDagster(runs), "dev", NOW, QualityReader(bucket, BASE), resolved)
+    return [signal for signal in pipeline.signals if signal.kind.value == "quality"]
+
+
+def test_level_error_does_not_let_a_newer_runs_warn_hide_an_older_runs_blocking_error() -> None:
+    failed = QualityManifest(
+        "dev",
+        "sales",
+        "orders",
+        "run-1",
+        (_result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1"),),
+        complete=True,
+    )
+    retry = QualityManifest(
+        "dev", "sales", "orders", "run-2", (_result(QualityOutcome.WARN, run_id="run-2"),), complete=False
+    )
+
+    (signal,) = _level_error_signal(_two_runs("FAILURE", "STARTED"), [failed, retry])
+
+    assert (signal.state.value, signal.run) == ("critical", "run-1")
+
+
+@pytest.mark.parametrize("order", [("a_warn", "b_error"), ("a_error", "b_warn")])
+def test_level_error_reads_a_warn_beside_a_non_blocking_error_as_the_error_whatever_the_order(
+    order: tuple[str, str],
+) -> None:
+    checks = {
+        "a_warn": _result(QualityOutcome.WARN, check="a_warn"),
+        "b_warn": _result(QualityOutcome.WARN, check="b_warn"),
+        "a_error": _result(QualityOutcome.ERROR, PipelineOutcome.CONTINUED, check="a_error"),
+        "b_error": _result(QualityOutcome.ERROR, PipelineOutcome.CONTINUED, check="b_error"),
+    }
+    manifest = QualityManifest("dev", "sales", "orders", "run-1", tuple(checks[name] for name in order), complete=True)
+
+    (signal,) = _level_error_signal([_run()], [manifest])
+
+    assert (signal.state.value, signal.outcome) == ("warning", QualityOutcome.ERROR)
+
+
+def test_level_error_reads_a_complete_manifest_of_only_warns_as_a_pass_and_an_incomplete_one_as_unknown() -> None:
+    warn = _result(QualityOutcome.WARN)
+
+    (complete,) = _level_error_signal(
+        [_run()], [QualityManifest("dev", "sales", "orders", "run-1", (warn,), complete=True)]
+    )
+    (partial,) = _level_error_signal(
+        [_run()], [QualityManifest("dev", "sales", "orders", "run-1", (warn,), complete=False)]
+    )
+
+    assert (complete.state.value, partial.state.value) == ("healthy", "unknown")
+
+
+@pytest.mark.parametrize("extra", [(), (QualityOutcome.PASSED,)], ids=["warn only", "passed and warn"])
+def test_level_error_a_complete_retry_with_only_warns_resolves_the_blocking_error_incident(
+    extra: tuple[QualityOutcome, ...],
+) -> None:
+    bucket = FakeBucket()
+    publish(bucket, alerts=EVERYTHING.replace("quality: {}", "quality: {level: error}"))
+    notifier, store, manifests = FakeNotifier(), AlertStore(bucket, "s3://ops/alerts/"), FakeBucket()
+
+    def tick(runs: list[DagsterRun], stored: QualityManifest, minutes: int) -> list[str]:
+        manifests.objects[stored.ops_key] = stored.to_json().encode()
+        notifier.sent.clear()
+        run_once(
+            settings=_settings(A),
+            store=store,
+            dagster={"dev": FakeDagster(runs)},
+            notifiers={"ops": notifier},
+            now=NOW + timedelta(minutes=minutes),
+            quality={"dev": QualityReader(manifests, BASE)},
+        )
+        return [f"{p['event']}:{p['severity']}" for _, p in notifier.sent if p["condition"] == "quality"]
+
+    blocked = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-1")
+    assert tick(
+        _two_runs("FAILURE"), QualityManifest("dev", "sales", "orders", "run-1", (blocked,), complete=True), 0
+    ) == ["opened:critical"]
+    results = tuple(
+        _result(outcome, run_id="run-2", check=f"check_{index}")
+        for index, outcome in enumerate((*extra, QualityOutcome.WARN))
+    )
+    retry = QualityManifest("dev", "sales", "orders", "run-2", results, complete=True)
+    assert tick(_two_runs("FAILURE", "SUCCESS"), retry, 5) == ["resolved:critical"]

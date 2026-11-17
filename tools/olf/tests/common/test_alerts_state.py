@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from _alerts_support import evaluate
 from openlakeforge_core import (
     DAGSTER_READ_API,
     MAX_OUTBOX_RUNS,
@@ -14,7 +15,6 @@ from openlakeforge_core import (
     Signal,
     SignalKind,
     drop_notification,
-    evaluate,
     expire_outbox,
     record_attempt,
     record_delivery,

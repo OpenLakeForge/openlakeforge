@@ -86,6 +86,12 @@ class Signal:
     evidence_uri: str | None = None
     # Which service a SERVICE signal is about ("dagster", "trino", "object-store"); None for pipeline signals.
     component: str | None = None
+    # What a QUALITY signal saw. Its state alone cannot tell a WARN from a non-blocking ERROR, and the alert policy's
+    # `level` chooses between them.
+    outcome: QualityOutcome | None = None
+    # When the occurrence an EXPECTED_RUN signal speaks about came due; the alert evaluator uses it to tell a raised
+    # grace on the same occurrence from a new one.
+    due: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.stage:
@@ -205,7 +211,7 @@ def evaluate_expected_run(
         state, reason = HealthState.HEALTHY, "the expected run is within its grace period"
     else:
         state, reason = HealthState.CRITICAL, "an expected run did not start"
-    return _signal(SignalKind.EXPECTED_RUN, scope, state, reason, schedule, max_age)
+    return _signal(SignalKind.EXPECTED_RUN, scope, state, reason, schedule, max_age, due=schedule.last_expected_at)
 
 
 def evaluate_freshness(
@@ -249,6 +255,41 @@ def evaluate_freshness(
     return _signal(SignalKind.FRESHNESS, scope, state, reason, last_success, grace, run=last_success.run, expires=False)
 
 
+def evaluate_freshness_age(
+    scope: Scope,
+    last_success: RunObservation | None,
+    *,
+    now: datetime,
+    warn_after: timedelta | None,
+    critical_after: timedelta | None,
+) -> Signal:
+    """Age of the last success against the bounds the alert policy declares, whatever the schedule's state.
+
+    Either bound may be absent. Like `evaluate_freshness`, a missing success is `unknown`: the caller reads a window
+    of runs and cannot tell "never" from "older than the window".
+    """
+    _require_aware(now)
+    if warn_after is None and critical_after is None:
+        raise ValueError("an age bound needs warn_after or critical_after")
+    if last_success is None:
+        return _signal(
+            SignalKind.FRESHNESS, scope, HealthState.UNKNOWN, "no successful run on record", None, timedelta(0)
+        )
+    _require_aware(last_success.observed_at)
+    if last_success.status is not RunStatus.SUCCEEDED:
+        raise ValueError("freshness takes the latest successful run, not a run that did not succeed")
+    age = now - last_success.observed_at
+    if critical_after is not None and age >= critical_after:
+        state, reason = HealthState.CRITICAL, "the last success is older than its critical bound"
+    elif warn_after is not None and age >= warn_after:
+        state, reason = HealthState.WARNING, "the last success is older than its warning bound"
+    else:
+        state, reason = HealthState.HEALTHY, "the last success is within its bounds"
+    return _signal(
+        SignalKind.FRESHNESS, scope, state, reason, last_success, timedelta(0), run=last_success.run, expires=False
+    )
+
+
 def evaluate_quality(scope: Scope, quality: QualityObservation | None, *, now: datetime, max_age: timedelta) -> Signal:
     _check_clock(now, max_age)
     if quality is None:
@@ -266,7 +307,7 @@ def evaluate_quality(scope: Scope, quality: QualityObservation | None, *, now: d
         state, reason = HealthState.CRITICAL, "a blocking quality check failed"
     else:
         state, reason = HealthState.WARNING, "a non-blocking quality check failed"
-    return _signal(SignalKind.QUALITY, scope, state, reason, quality, max_age, run=quality.run)
+    return _signal(SignalKind.QUALITY, scope, state, reason, quality, max_age, run=quality.run, outcome=quality.outcome)
 
 
 def evaluate_workload(
@@ -401,6 +442,8 @@ def _signal(
     *,
     run: str | None = None,
     expires: bool = True,
+    outcome: QualityOutcome | None = None,
+    due: datetime | None = None,
 ) -> Signal:
     observed_at = observation.observed_at if observation else None
     return Signal(
@@ -416,4 +459,6 @@ def _signal(
         # A freshness verdict expires at the next due time, which this module cannot know: the consumer re-evaluates.
         expires_at=observed_at + max_age if observed_at and expires else None,
         evidence_uri=observation.evidence_uri if observation else None,
+        outcome=outcome,
+        due=due,
     )
