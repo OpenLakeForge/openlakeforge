@@ -10,6 +10,8 @@ What each probe proves, and what it does not (the table is ADR 0021, decision 7)
   `restart_window`. Not that the service answers.
 - `dagster.read-api`: the webserver answers GraphQL with a code location loaded. Not that a run would launch.
 - `trino.readiness`: the coordinator finished starting. Not workers, catalogs or Polaris access.
+- `polaris.readiness`: the catalog's management port answers its readiness check without a credential. Not that a
+  catalog read works, that a grant holds or that the metastore holds the stage's catalog.
 - `object-store.list`: the endpoint is reachable and the key may list the bucket. Not that a write is durable.
 - `log-archive.spool-age`, `log-archive.spool-size`: how old the collector's oldest unsent file is and how full its
   spool is, over every collector pod (ADR 0022, decision 2). Not that an object reached the bucket.
@@ -71,6 +73,9 @@ _DAGSTER_QUERY = """
 }
 """
 
+# SmallRye Health, under Polaris's Quarkus management interface, answers a failed readiness check with this status.
+_NOT_READY = 503
+
 KubeList = Callable[[str], Mapping[str, Any]]
 HttpGetJson = Callable[[str, float], Mapping[str, Any]]
 DagsterQuery = Callable[[str, str], Mapping[str, Any]]
@@ -108,6 +113,9 @@ class StageTargets:
     dagster_graphql_url: str | None = None
     # The coordinator's base URL, e.g. http://trino.olf-dev:8080.
     trino_url: str | None = None
+    # The catalog's management base URL, e.g. http://polaris-mgmt.olf-system.svc:8182. Polaris is one service for every
+    # stage, so each stage reads the same answer; None when the profile deploys no catalog.
+    polaris_health_url: str | None = None
     # The bucket the object-store probe lists; None when no store is configured.
     bucket: str | None = None
     # Label selectors for the controllers of each component, from the chart's own labels.
@@ -227,6 +235,7 @@ class ServiceProbes:
                 lambda: self._workloads(targets, "trino.workloads", targets.trino_selector or DEFAULT_TRINO_SELECTOR),
             ),
             ("trino.readiness", targets.trino_url is not None, lambda: self._trino(targets)),
+            ("polaris.readiness", targets.polaris_health_url is not None, lambda: self._polaris(targets)),
             (
                 "object-store.list",
                 targets.bucket is not None and self._store is not None,
@@ -337,6 +346,29 @@ class ServiceProbes:
         if info.get("starting") is False:
             return _Outcome(HealthState.HEALTHY, "Trino coordinator has finished starting")
         raise ProbeError("Trino's answer did not say whether it is starting")
+
+    def _polaris(self, targets: StageTargets) -> _Outcome:
+        assert targets.polaris_health_url is not None
+        url = f"{targets.polaris_health_url.rstrip('/')}/q/health/ready"
+        try:
+            answer = self._http_get_json(url, self._timeout.total_seconds())
+        except requests.HTTPError as exc:
+            # Quarkus answers 503 with a body whose status is DOWN when a readiness check fails; any other refusal is
+            # not Polaris speaking (a proxy, a wrong port), so it says nothing about the catalog.
+            response = exc.response
+            if response is not None and response.status_code == _NOT_READY and _body_status(response) == "DOWN":
+                return _Outcome(HealthState.CRITICAL, "Polaris reports itself not ready")
+            log.warning("Polaris probe failed", exc_info=True)
+            raise ProbeError(f"Polaris did not answer ({_cause(exc)})") from exc
+        except (requests.RequestException, ValueError) as exc:
+            log.warning("Polaris probe failed", exc_info=True)
+            raise ProbeError(f"Polaris did not answer ({_cause(exc)})") from exc
+        status = answer.get("status")
+        if status == "UP":
+            return _Outcome(HealthState.HEALTHY, "Polaris answers its readiness check")
+        if status == "DOWN":
+            return _Outcome(HealthState.CRITICAL, "Polaris reports itself not ready")
+        raise ProbeError("Polaris's answer did not say whether it is ready")
 
     def _spool_enabled(self, targets: StageTargets) -> bool:
         return targets.spool_probe_url is not None and self._spool_read is not None
@@ -450,6 +482,7 @@ COMPONENT_SOURCES = {
     "dagster.read-api": "dagster-graphql",
     "trino.workloads": "kubernetes",
     "trino.readiness": "trino-http",
+    "polaris.readiness": "polaris-http",
     "object-store.list": "s3",
     SPOOL_AGE_COMPONENT: "log-collector",
     SPOOL_SIZE_COMPONENT: "log-collector",
@@ -539,6 +572,14 @@ def _cause(exc: BaseException) -> str:
     response = getattr(exc, "response", None)
     status = getattr(response, "status_code", None)
     return f"HTTP {status}" if isinstance(status, int) else type(exc).__name__
+
+
+def _body_status(response: requests.Response) -> object:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return body.get("status") if isinstance(body, dict) else None
 
 
 def bounded_s3_config(timeout: timedelta) -> Config:

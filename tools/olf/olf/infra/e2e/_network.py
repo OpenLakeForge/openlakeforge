@@ -135,12 +135,13 @@ def stage_wide(document: dict[str, Any]) -> set[str]:
 
 
 def workload_ports(document: dict[str, Any], workload: str) -> list[int]:
-    """The ports a flow row opens to the workload."""
+    """Every port a flow row opens to the workload, so a negative probe covers ones only a labelled source reaches."""
     labels = document["workloads"][workload]
-    for row in document["flows"]:
-        if row["to"].get("pods") == labels:
-            return [int(port) for port in row["ports"]]
-    raise E2EError(f"no flow row reaches workload {workload}")
+    rows = [row for row in document["flows"] if row["to"].get("pods") == labels]
+    ports = list(dict.fromkeys(int(port) for row in rows for port in row["ports"]))
+    if not ports:
+        raise E2EError(f"no flow row reaches workload {workload}")
+    return ports
 
 
 def _pod_ip(cfg: E2EConfig, namespace: str, labels: dict[str, str]) -> str | None:

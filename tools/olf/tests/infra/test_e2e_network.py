@@ -20,10 +20,17 @@ def test_positive_probes_cover_pod_to_pod_t_rows() -> None:
     assert any(scope == "stage" and not labels and port == 8181 for scope, labels, _, port in probes)
 
 
+def test_only_the_platform_api_is_probed_against_polaris_management_port() -> None:
+    probes = positive_probes(FLOWS)
+    to_polaris = FLOWS["workloads"]["polaris"]
+    sources = [labels for _, labels, destination, port in probes if port == 8182 and destination["pods"] == to_polaris]
+    assert sources == [{"app.kubernetes.io/name": "platform-api"}]
+
+
 def test_every_protected_backend_has_a_port() -> None:
     assert {workload: workload_ports(FLOWS, workload) for workload in PROTECTED} == {
         "postgresql": [5432],
-        "polaris": [8181],
+        "polaris": [8181, 8182],
         "openmetadata": [8585],
         "dex": [5556],
     }
