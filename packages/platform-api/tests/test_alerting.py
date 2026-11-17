@@ -13,7 +13,7 @@ from typing import Any
 
 import certifi
 import pytest
-from _alerting_fakes import FakeBucket, settings_mapping
+from _alerting_fakes import FakeBucket, publish, settings_mapping
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -135,6 +135,27 @@ def test_two_evaluations_of_the_same_dagster_state_send_one_notification() -> No
     assert payload["condition"] == "run_failed"
     assert payload["links"]["run"] == "http://dagster-dev.example.test/runs/run-1"
     assert bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["outbox"] == []
+
+
+def test_the_stage_policy_is_read_but_does_not_change_what_alerts_yet() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    activation = publish(bucket, alerts="kind: not a policy\n")
+    # The policy names no `run_failed` rule and cannot even be parsed, yet the failed run still notifies.
+    summary = _evaluate(_settings(A), bucket, dagster, {"ops": notifier})
+
+    assert summary.policy_unreadable == ("dev",)
+    assert [payload["condition"] for _, payload in notifier.sent] == ["run_failed"]
+    assert activation.activation_revision
+
+
+def test_a_clean_policy_read_is_not_reported_unreadable() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    publish(bucket)
+
+    summary = _evaluate(_settings(A), bucket, dagster, {"ops": notifier})
+
+    assert summary.policy_unreadable == ()
+    assert len(notifier.sent) == 1
 
 
 def test_a_crash_between_the_state_write_and_delivery_redelivers_once_with_the_same_key() -> None:
