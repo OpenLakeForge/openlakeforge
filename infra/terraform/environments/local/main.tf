@@ -406,6 +406,8 @@ module "platform_api" {
   quality_reader_secret_names = module.seaweedfs.quality_reader_secret_names
   # The collector's spool probes (ADR 0022, decision 2), read over F42.
   log_collector_probe_url = module.log_collector.probe_url
+  # Polaris's management port, read over F43 (readiness only, no credential).
+  polaris_health_url = module.polaris.health_url
   # Audit records (ADR 0021, decision 3): stored with the write-only key the
   # same Job mints, over the same flow.
   audit_base_uri           = "${local.artifact_base_uri}/${local.platform_api_audit_prefix}"

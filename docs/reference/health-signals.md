@@ -34,9 +34,22 @@ that points at the retained evidence rather than carrying log text.
 ## What a service row says about itself
 
 The stage health route returns each service with its `component`, a `source` (what the probe asked: `kubernetes`,
-`dagster-graphql`, `trino-http`, `s3` or `log-collector`; never an address), `observed_at`, `expires_at` and
+`dagster-graphql`, `trino-http`, `polaris-http`, `s3` or `log-collector`; never an address), `observed_at`, `expires_at` and
 `max_age_seconds`, the gap between the two. Probes run when the route is read and are reused for a few seconds, so
 `max_age_seconds` says how long an answer stays usable; it is not a polling interval.
+
+| Component | Source | `healthy` means | Does not mean |
+| --- | --- | --- | --- |
+| `dagster.workloads`, `trino.workloads` | `kubernetes` | Pods ready, schedulable, not crash looping | The service answers |
+| `dagster.read-api` | `dagster-graphql` | The webserver answers with a code location loaded | A run would launch |
+| `trino.readiness` | `trino-http` | The coordinator finished starting | Workers, catalogs or Polaris access work |
+| `polaris.readiness` | `polaris-http` | The catalog's management port answers `/q/health/ready` as UP, sent with no credential | A catalog read works, a grant holds, or the stage's catalog exists |
+| `object-store.list` | `s3` | The endpoint is reachable and the key may list the bucket | A write is durable |
+
+`polaris.readiness` is `critical` when Polaris answers that it is not ready (HTTP 503 or a DOWN status), and `unknown`
+when it does not answer, answers something else or the probe times out. It reads `disabled` in a profile that deploys no
+catalog. Polaris is one service for every stage, so each stage's health shows the same answer. The probe holds no
+Polaris principal, so a `healthy` row says the service is up and nothing about the data plane.
 
 The `metrics` integration reads `not_provided` while no metrics source is connected to the API (#21). That is an
 absent source, not a failure, and it blanks nothing: the service rows do not depend on it.

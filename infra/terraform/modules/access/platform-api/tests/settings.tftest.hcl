@@ -168,3 +168,16 @@ run "the_collector_probe_url_reaches_the_settings" {
     error_message = "the spool probe URL must reach settings.json"
   }
 }
+
+run "the_polaris_health_url_reaches_the_settings" {
+  command = plan
+
+  variables {
+    polaris_health_url = "http://polaris-mgmt.olf-system.svc:8182"
+  }
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).polaris_health_url == "http://polaris-mgmt.olf-system.svc:8182"
+    error_message = "the Polaris readiness URL must reach settings.json"
+  }
+}

@@ -54,3 +54,8 @@ output "stage_contracts" {
     }
   }
 }
+
+output "health_url" {
+  description = "Base URL of Polaris's management port, which answers /q/health/ready without a credential. Reached by the platform API's service probe over F43; it serves no catalog data."
+  value       = local.health_uri
+}
