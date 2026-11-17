@@ -121,7 +121,7 @@ once #22 slice b lands.
     "archive": {"enabled": true, "retention_days": 30, "retention_supported": false, "supported": true},
     "search": {"enabled": false, "supported": false}
   },
-  "metrics": {"enabled": false, "retention_days": 7, "retention_supported": false, "supported": false},
+  "metrics": {"enabled": false, "retention_days": 7, "retention_supported": false, "supported": false, "query_api": null, "query_url": null},
   "grafana": {"enabled": false, "supported": false},
   "alerts": {"receivers": [], "supported": false}
 }
@@ -137,7 +137,12 @@ for; `retention_supported` is whether anything applies it to the stored data.
 It is `false` on every provider today, because no lifecycle rule reaches the log
 prefix, so a 90-day archive setting is a request and not a guarantee until #22
 slice b (archive) and #21 (metrics) enforce it. Only the archive and metrics
-carry the two retention fields. Alert receivers carry a name and a type, never
+carry the two retention fields. `metrics` also carries the optional `query_api` and `query_url`, the endpoint the
+platform API reads metrics from (ADR 0024, decision 6). `query_api` names the protocol, never the product; the only value
+is `prometheus-http-v1` (the Prometheus HTTP API's `/api/v1/query` and
+`/api/v1/query_range` with PromQL). The two are set together or both `null`, and
+only when `supported` is `true`. Every provider renders `null` today; the local
+adapter fills them when it lands (#21 slice M-b). Alert receivers carry a name and a type, never
 their Secret reference. The four capability fields appear together or not at all, so
 contracts already in state stay readable.
 

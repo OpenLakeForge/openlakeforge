@@ -45,7 +45,7 @@ output "provider_contracts" {
             archive = { enabled = true, retention_days = var.observability.archive_retention_days, retention_supported = var.observability_support.logs_archive_retention, supported = var.observability_support.logs_archive }
             search  = { enabled = var.observability.search_enabled, supported = var.observability_support.logs_search }
           }
-          metrics = { enabled = var.observability.metrics_enabled, retention_days = var.observability.metrics_retention_days, retention_supported = var.observability_support.metrics_retention, supported = var.observability_support.metrics }
+          metrics = { enabled = var.observability.metrics_enabled, retention_days = var.observability.metrics_retention_days, retention_supported = var.observability_support.metrics_retention, supported = var.observability_support.metrics, query_api = var.metrics_query.api, query_url = var.metrics_query.url }
           grafana = { enabled = var.observability.grafana_enabled, supported = var.observability_support.grafana }
           alerts  = { receivers = var.observability.alert_receivers, supported = var.observability_support.alerts }
         }

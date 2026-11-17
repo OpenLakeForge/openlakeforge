@@ -53,7 +53,7 @@
       "ref": "shared/observability",
       "implementation": "observability.object_log_archive_on_eks",
       "logs": {"archive": {"enabled": true, "retention_days": 90, "retention_supported": false, "supported": true}, "search": {"enabled": false, "supported": false}},
-      "metrics": {"enabled": true, "retention_days": 7, "retention_supported": false, "supported": false},
+      "metrics": {"enabled": true, "retention_days": 7, "retention_supported": false, "supported": false, "query_api": null, "query_url": null},
       "grafana": {"enabled": false, "supported": false},
       "alerts": {"receivers": [], "supported": false}
     }

@@ -56,6 +56,8 @@ _ACCESS_INGRESS_FIELDS = {"base_domain", "tls", "tls_mode", "routes"}
 _ACCESS_LEGACY_TLS_FIELD = "issuer"
 # Observability capabilities (#332). A contract already in state predates them, so they are optional as a group.
 _OBSERVABILITY_FIELDS = {"logs", "metrics", "grafana", "alerts"}
+_METRICS_QUERY_FIELDS = frozenset({"query_api", "query_url"})
+_METRICS_QUERY_APIS = frozenset({"prometheus-http-v1"})
 # Services a route may publish to users, by the last segment of their contract
 # ref. Everything else (metadata database, ops storage, catalog service,
 # registry, ...) can only be routed as internal, and Dagster code servers have
@@ -486,6 +488,19 @@ def _parse_shared(
     return SharedPlatformContract(values=_frozen(parsed))
 
 
+def _check_metrics_query(metrics: Mapping[str, Any], *, where: str) -> None:
+    api = metrics.get("query_api")
+    url = metrics.get("query_url")
+    if api is not None and api not in _METRICS_QUERY_APIS:
+        raise ProviderContractError(f"{where}.query_api must be one of {sorted(_METRICS_QUERY_APIS)!r} or null")
+    if url is not None and (not isinstance(url, str) or not url):
+        raise ProviderContractError(f"{where}.query_url must be a non-empty string or null")
+    if (api is None) != (url is None):
+        raise ProviderContractError(f"{where}.query_api and {where}.query_url are set together or both null")
+    if api is not None and metrics["supported"] is not True:
+        raise ProviderContractError(f"{where} carries a query endpoint only when supported is true")
+
+
 def _check_observability(binding: Mapping[str, Any]) -> None:
     if not _OBSERVABILITY_FIELDS <= set(binding):
         if _OBSERVABILITY_FIELDS & set(binding):
@@ -501,7 +516,15 @@ def _check_observability(binding: Mapping[str, Any]) -> None:
         "grafana": (binding["grafana"], set()),
     }
     for name, (value, extra) in capabilities.items():
-        capability = _fields(value, where=f"{where}.{name}", required={"enabled", "supported"} | extra)
+        # Only metrics reads a query endpoint. Optional so a contract already
+        # in state stays readable; Terraform renders both as null until an
+        # adapter fills them (ADR 0024, decision 6).
+        capability = _fields(
+            value,
+            where=f"{where}.{name}",
+            required={"enabled", "supported"} | extra,
+            optional=_METRICS_QUERY_FIELDS if name == "metrics" else frozenset(),
+        )
         for flag in ("enabled", "supported", "retention_supported"):
             if flag in capability and not isinstance(capability[flag], bool):
                 raise ProviderContractError(f"{where}.{name}.{flag} must be a boolean")
@@ -509,6 +532,8 @@ def _check_observability(binding: Mapping[str, Any]) -> None:
             days = capability["retention_days"]
             if isinstance(days, bool) or not isinstance(days, int) or days < 1:
                 raise ProviderContractError(f"{where}.{name}.retention_days must be a positive integer")
+        if name == "metrics":
+            _check_metrics_query(capability, where=f"{where}.metrics")
     alerts = _fields(binding["alerts"], where=f"{where}.alerts", required={"receivers", "supported"})
     if not isinstance(alerts["supported"], bool) or not isinstance(alerts["receivers"], list | tuple):
         raise ProviderContractError(f"{where}.alerts must carry a boolean supported and a receivers list")

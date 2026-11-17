@@ -245,7 +245,7 @@ run "observability_reports_what_the_profile_asks_for_next_to_what_is_supported" 
   }
 
   assert {
-    condition     = output.provider_contracts.shared.observability.logs.archive.retention_days == 90 && output.provider_contracts.shared.observability.metrics == { enabled = true, retention_days = 14, retention_supported = false, supported = false }
+    condition     = output.provider_contracts.shared.observability.logs.archive.retention_days == 90 && output.provider_contracts.shared.observability.metrics.enabled && output.provider_contracts.shared.observability.metrics.retention_days == 14 && !output.provider_contracts.shared.observability.metrics.retention_supported && !output.provider_contracts.shared.observability.metrics.supported && output.provider_contracts.shared.observability.metrics.query_api == null && output.provider_contracts.shared.observability.metrics.query_url == null
     error_message = "requested retention and metrics reach the contract, with metrics still unsupported"
   }
 
@@ -271,4 +271,38 @@ run "observability_support_is_declared_per_provider" {
     ])
     error_message = "support, and whether retention is enforced, are reported per capability"
   }
+}
+
+run "metrics_query_endpoint_renders_when_set" {
+  command = plan
+
+  variables {
+    observability_support = { logs_archive = true, logs_archive_retention = false, logs_search = false, metrics = true, metrics_retention = true, grafana = false, alerts = false }
+    metrics_query         = { api = "prometheus-http-v1", url = "http://prometheus.olf-system.svc:9090" }
+  }
+
+  assert {
+    condition     = output.provider_contracts.shared.observability.metrics.query_api == "prometheus-http-v1" && output.provider_contracts.shared.observability.metrics.query_url == "http://prometheus.olf-system.svc:9090"
+    error_message = "the metrics query endpoint reaches the contract"
+  }
+}
+
+run "metrics_query_rejects_an_unknown_api" {
+  command = plan
+
+  variables {
+    metrics_query = { api = "promql-v2", url = "http://x" }
+  }
+
+  expect_failures = [var.metrics_query]
+}
+
+run "metrics_query_requires_both_fields" {
+  command = plan
+
+  variables {
+    metrics_query = { api = "prometheus-http-v1" }
+  }
+
+  expect_failures = [var.metrics_query]
 }
