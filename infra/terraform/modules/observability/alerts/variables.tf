@@ -132,3 +132,15 @@ variable "runbook_base_url" {
   type        = string
   default     = null
 }
+
+variable "platform_api_url" {
+  description = "Base URL of the platform API Service, http://<service>.<namespace>:<port> (flow F44, ADR 0023, decision 11). The evaluator reads each stage's health from it. Null leaves the platform service alerts off."
+  type        = string
+  default     = null
+}
+
+variable "platform_api_audience" {
+  description = "Audience of the projected ServiceAccount token the evaluator presents to the platform API; the API's service_audience must match."
+  type        = string
+  default     = "openlakeforge-platform-api"
+}

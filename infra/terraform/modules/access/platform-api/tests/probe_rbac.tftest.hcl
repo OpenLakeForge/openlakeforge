@@ -119,3 +119,56 @@ run "settings_carry_the_probe_namespaces_and_trino_base_urls" {
     error_message = "the settings must render the namespace map and the Trino base URL per stage"
   }
 }
+
+# ADR 0021 decision 3: a service caller's token is checked with a TokenReview, the API's one ClusterRole.
+run "no_cluster_role_without_a_service_caller" {
+  command = plan
+
+  assert {
+    condition     = length(kubernetes_cluster_role_v1.token_review) == 0 && length(kubernetes_cluster_role_binding_v1.token_review) == 0
+    error_message = "without service_callers no ClusterRole or binding may exist"
+  }
+}
+
+run "a_service_caller_gets_tokenreview_create_and_nothing_else" {
+  command = plan
+
+  variables {
+    service_callers = { "alert-evaluator" = { namespace = "olf-system", service_account = "alert-evaluator" } }
+  }
+
+  assert {
+    condition = (
+      length(kubernetes_cluster_role_v1.token_review[0].rule) == 1
+      && join(",", kubernetes_cluster_role_v1.token_review[0].rule[0].api_groups) == "authentication.k8s.io"
+      && join(",", kubernetes_cluster_role_v1.token_review[0].rule[0].resources) == "tokenreviews"
+      && join(",", kubernetes_cluster_role_v1.token_review[0].rule[0].verbs) == "create"
+    )
+    error_message = "the ClusterRole must grant create on tokenreviews only"
+  }
+
+  assert {
+    condition     = kubernetes_cluster_role_binding_v1.token_review[0].subject[0].name == "platform-api" && kubernetes_cluster_role_binding_v1.token_review[0].subject[0].namespace == "olf-system"
+    error_message = "only the API's own ServiceAccount is bound"
+  }
+
+  assert {
+    condition     = kubernetes_deployment_v1.platform_api.spec[0].template[0].spec[0].automount_service_account_token == true
+    error_message = "the API needs its token to ask the API server for the review"
+  }
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).service_callers["alert-evaluator"].service_account == "alert-evaluator" && jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).service_audience == "openlakeforge-platform-api"
+    error_message = "settings name the one ServiceAccount and the audience"
+  }
+}
+
+run "an_unknown_service_principal_is_refused" {
+  command = plan
+
+  variables {
+    service_callers = { root = { namespace = "olf-system", service_account = "x" } }
+  }
+
+  expect_failures = [var.service_callers]
+}

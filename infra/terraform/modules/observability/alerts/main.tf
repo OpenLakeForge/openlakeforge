@@ -9,6 +9,8 @@ locals {
   # ADR 0017's flow rows F38 to F40 select on this label.
   pod_labels = merge(local.labels, { "openlakeforge.io/job" = "alert-evaluator" })
 
+  token_dir = "/var/run/secrets/openlakeforge/platform-api"
+
   # Named by position: receiver names allow '-', which an environment variable
   # name does not, and two names could otherwise map to one variable.
   receiver_envs = {
@@ -35,14 +37,18 @@ locals {
       dagster_host_template = var.dagster_host_template
       runbook_base_url      = var.runbook_base_url
     }
-    s3_endpoint_url = var.s3_endpoint_url
-    s3_region       = var.s3_region
-    ca_file         = var.ca_configmap_name == null ? null : "/ca/ca.crt"
+    # The platform API's stage health route (ADR 0023, decision 11), read with the projected token below.
+    platform_api_url        = var.platform_api_url
+    platform_api_token_file = var.platform_api_url == null ? null : "${local.token_dir}/token"
+    s3_endpoint_url         = var.s3_endpoint_url
+    s3_region               = var.s3_region
+    ca_file                 = var.ca_configmap_name == null ? null : "/ca/ca.crt"
   }
 }
 
-# No Role is bound: the evaluator needs no Kubernetes API access while service
-# signals are not alerted (ADR 0023, decision 7).
+# No Role is bound and the default token is not mounted: the evaluator holds no
+# Kubernetes API access. Its one credential for the cluster is the projected
+# token below, which only the platform API accepts (ADR 0023, decision 7).
 resource "kubernetes_service_account_v1" "evaluator" {
   count = local.enabled ? 1 : 0
 
@@ -174,6 +180,14 @@ resource "kubernetes_cron_job_v1" "evaluator" {
                 mount_path = "/tmp"
               }
               dynamic "volume_mount" {
+                for_each = var.platform_api_url == null ? [] : [1]
+                content {
+                  name       = "platform-api-token"
+                  mount_path = local.token_dir
+                  read_only  = true
+                }
+              }
+              dynamic "volume_mount" {
                 for_each = var.ca_configmap_name == null ? [] : [1]
                 content {
                   name       = "ca"
@@ -211,6 +225,23 @@ resource "kubernetes_cron_job_v1" "evaluator" {
               name = "settings"
               config_map {
                 name = kubernetes_config_map_v1.settings[0].metadata[0].name
+              }
+            }
+            # A token for the platform API alone: the audience keeps the Kubernetes API server and every other service from
+            # accepting it, and the kubelet refreshes it well inside its ten minutes.
+            dynamic "volume" {
+              for_each = var.platform_api_url == null ? [] : [1]
+              content {
+                name = "platform-api-token"
+                projected {
+                  sources {
+                    service_account_token {
+                      audience           = var.platform_api_audience
+                      expiration_seconds = 600
+                      path               = "token"
+                    }
+                  }
+                }
               }
             }
             volume {

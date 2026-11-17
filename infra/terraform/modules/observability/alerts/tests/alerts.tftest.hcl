@@ -179,3 +179,41 @@ run "a_manifest_prefix_for_a_stage_that_is_not_enabled_is_refused" {
 
   expect_failures = [var.quality_manifests]
 }
+
+run "the_platform_api_token_is_projected_with_its_own_audience" {
+  command = plan
+
+  variables {
+    receivers        = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" }]
+    platform_api_url = "http://platform-api.olf-system:8080"
+  }
+
+  assert {
+    condition = (
+      kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].automount_service_account_token == false
+      && length([for v in kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].volume : v if v.name == "platform-api-token"]) == 1
+    )
+    error_message = "the default token stays unmounted; one projected token is mounted"
+  }
+
+  assert {
+    condition = (
+      jsondecode(kubernetes_config_map_v1.settings[0].data["alerts.json"]).platform_api_url == "http://platform-api.olf-system:8080"
+      && jsondecode(kubernetes_config_map_v1.settings[0].data["alerts.json"]).platform_api_token_file == "/var/run/secrets/openlakeforge/platform-api/token"
+    )
+    error_message = "the settings carry the API's URL and the token path"
+  }
+}
+
+run "without_the_api_url_no_token_is_projected" {
+  command = plan
+
+  variables {
+    receivers = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" }]
+  }
+
+  assert {
+    condition     = length([for v in kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].volume : v if v.name == "platform-api-token"]) == 0
+    error_message = "no URL, no token"
+  }
+}

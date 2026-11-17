@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from openlakeforge_platform_api.permissions import SERVICE_CALLERS
+
 
 class SettingsError(ValueError):
     """The settings file is missing a field or contradicts itself; the API refuses to start."""
@@ -37,6 +39,14 @@ class QueryEndpointSetting:
 
     statement_url: str
     catalog: str
+
+
+@dataclass(frozen=True)
+class ServiceCallerSetting:
+    """The one ServiceAccount a service principal may authenticate as (ADR 0021, decision 3)."""
+
+    namespace: str
+    service_account: str
 
 
 @dataclass(frozen=True)
@@ -109,6 +119,11 @@ class Settings:
     # Base URL of the log collector's spool probes, a headless Service with one address per collector pod (ADR 0022,
     # decision 2). Without it the spool signals are `disabled`.
     log_collector_probe_url: str | None = None
+    # A pod's projected ServiceAccount token, checked with a TokenReview, authenticates a service principal. The token
+    # must carry `service_audience`, and its ServiceAccount must be the one named here. None: no token but an issuer's
+    # is accepted.
+    service_callers: Mapping[str, ServiceCallerSetting] = field(default_factory=dict)
+    service_audience: str = "openlakeforge-platform-api"
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -160,6 +175,11 @@ class Settings:
                 stage_namespaces={str(stage): str(ns) for stage, ns in (data.get("stage_namespaces") or {}).items()},
                 trino_urls={str(stage): str(url) for stage, url in (data.get("trino_urls") or {}).items()},
                 log_collector_probe_url=data.get("log_collector_probe_url") or None,
+                service_callers={
+                    str(name): ServiceCallerSetting(str(caller["namespace"]), str(caller["service_account"]))
+                    for name, caller in (data.get("service_callers") or {}).items()
+                },
+                service_audience=str(data.get("service_audience") or "openlakeforge-platform-api"),
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -237,6 +257,11 @@ class Settings:
         probe = urlsplit(self.log_collector_probe_url or "http://x:1")
         if probe.scheme != "http" or not probe.hostname or probe.port is None:
             raise SettingsError("log_collector_probe_url must be an http://<host>:<port> base URL")
+        unknown = sorted(set(self.service_callers) - SERVICE_CALLERS)
+        if unknown:
+            raise SettingsError(f"service_callers names unknown service principals: {', '.join(unknown)}")
+        if not all(c.namespace and c.service_account for c in self.service_callers.values()):
+            raise SettingsError("service_callers needs a namespace and a service_account for each caller")
         stray = sorted(set(self.quality_manifests) - set(self.stages))
         if stray:
             raise SettingsError(f"quality_manifests names stages that are not enabled: {', '.join(stray)}")

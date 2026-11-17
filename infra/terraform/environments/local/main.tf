@@ -327,6 +327,9 @@ module "alerts" {
   ca_configmap_name     = local.route_tls ? module.in_cluster_resolution[0].ca_configmap_name : null
   dagster_scheme        = local.route_scheme
   dagster_host_template = local.access_enabled ? "dagster-{stage}.${local.base_domain}" : null
+  # Flow F44. Built from the module's defaults, never from module.platform_api, so the evaluator does not order after
+  # the API and the API's service caller below needs only this module's ServiceAccount name.
+  platform_api_url = local.platform_api_enabled && local.alerts_enabled ? "http://platform-api.${kubernetes_namespace_v1.shared.metadata[0].name}:8080" : null
 }
 
 module "cert_manager" {
@@ -437,6 +440,11 @@ module "platform_api" {
     stage => "http://${module.trino[stage].service_name}.${local.stage_namespaces[stage]}.svc.cluster.local:${module.trino[stage].http_port}"
   }
   bootstrap_job_image = local.bootstrap_job_image
+  # The alert evaluator reads stage health as a service principal (ADR 0021, decision 3): its token is accepted for
+  # this ServiceAccount alone.
+  service_callers = local.alerts_enabled ? {
+    "alert-evaluator" = { namespace = kubernetes_namespace_v1.shared.metadata[0].name, service_account = "alert-evaluator" }
+  } : {}
 }
 
 # The F20 egress row to the API server is static, so it is open whenever the
