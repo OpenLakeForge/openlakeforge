@@ -218,6 +218,20 @@ def test_a_rule_that_disappears_resolves_its_incident_without_a_notification() -
     assert sorted(events) == ["opened", "resolved_silently"]
 
 
+def test_a_severity_the_rule_lowers_is_recorded_in_history_and_sends_nothing() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+    publish(bucket)
+    settings = _settings(A)
+    _evaluate(settings, bucket, dagster, {"ops": notifier})
+    publish(bucket, alerts=_policy("run_failed: {severity: warning}"), seed="b")
+
+    _evaluate(settings, bucket, dagster, {"ops": notifier}, NOW + timedelta(minutes=5))
+
+    assert [p["event"] for _, p in notifier.sent] == ["opened"]
+    changed = [r for r in bucket.under("alerts/history/").values() if r.get("event") == "severity_changed"]
+    assert [(r["condition"], r["severity"]) for r in changed] == [("run_failed", "warning")]
+
+
 def test_a_policy_that_cannot_be_read_and_was_never_cached_holds_the_open_incident() -> None:
     bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
     publish(bucket)

@@ -21,6 +21,7 @@ from openlakeforge_core import (
     evaluate_quality,
     service_signal,
 )
+from openlakeforge_core.alerts import Notification
 from openlakeforge_core.health import QualityObservation, RunObservation, RunStatus
 
 T0 = datetime(2026, 11, 17, 12, 0, tzinfo=UTC)
@@ -255,3 +256,40 @@ def test_the_stage_unreadable_condition_is_not_governed_by_the_policy() -> None:
         state = evaluate(state, unreadable, _at(minute * 5), policy={"prod": ResolvedPolicy(stage="prod")}).state
 
     assert [i.kind for i in state.incidents] == [AlertKind.STAGE_UNREADABLE]
+
+
+def test_a_severity_move_without_a_notification_is_history_only() -> None:
+    policy = policy_for(
+        {
+            "match": {"domain": "*", "product": "*"},
+            "when": {"freshness": {"warn_after": "26h", "critical_after": "30h"}},
+        }
+    )
+    state = AlertState()
+    seen = []
+    for minutes, hours in [(0, 31), (5, 27), (10, 31), (15, 27)]:
+        result = evaluate(state, [_age(hours)], _at(minutes), policy=policy)
+        state = result.state
+        seen.append(([n.event for n in result.notifications], [e.event for e in result.events]))
+
+    assert seen == [
+        ([AlertEvent.OPENED], [AlertEvent.OPENED]),
+        ([], [AlertEvent.SEVERITY_CHANGED]),
+        ([], [AlertEvent.SEVERITY_CHANGED]),
+        ([], [AlertEvent.SEVERITY_CHANGED]),
+    ]
+
+
+def test_a_severity_changed_event_cannot_become_a_notification() -> None:
+    with pytest.raises(ValueError, match="severity_changed"):
+        Notification(
+            "n",
+            AlertEvent.SEVERITY_CHANGED,
+            "i",
+            AlertSeverity.WARNING,
+            AlertKind.RUN_FAILED,
+            ORDERS,
+            "r",
+            _at(0),
+            _at(0),
+        )
