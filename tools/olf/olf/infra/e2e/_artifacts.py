@@ -37,7 +37,7 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
     bucket = provider_contracts["shared"]["ops_storage"]["bucket_name"]
     if cfg.env == "aws":
         client = aws_session(cfg_environ(cfg), region=aws_stack_region(cfg)).client("s3")
-        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory)
+        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory, pod_log_layout=_pod_log_layout(cfg))
         return
 
     assert cfg.seaweedfs_local_port is not None
@@ -75,7 +75,12 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
             config=Config(s3={"addressing_style": "path"}),
         )
         wait_for_bucket(client, bucket, endpoint)
-        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory)
+        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory, pod_log_layout=_pod_log_layout(cfg))
+
+
+def _pod_log_layout(cfg: E2EConfig) -> str:
+    # The node collector writes v2 on local; the polling CronJob writes v1 (`k8s`) elsewhere.
+    return "v2" if cfg.env == "local" else "k8s"
 
 
 def trigger_log_archive_job(cfg: E2EConfig) -> None:
@@ -109,6 +114,8 @@ def assert_ops_artifacts(
     bucket: str,
     namespace: str,
     inventory: LakehouseInventory,
+    *,
+    pod_log_layout: str = "k8s",
 ) -> None:
     # A product-less domain (see olf domain new) has no product job selecting
     # its Silver tables, so Floe never runs for it and it never writes a
@@ -130,7 +137,7 @@ def assert_ops_artifacts(
     for prefix in (
         *dbt_prefixes,
         *scoped_artifact_prefixes,
-        f"{activation_prefix}/logs/k8s/namespace={namespace}/",
+        f"{activation_prefix}/logs/{pod_log_layout}/namespace={namespace}/",
     ):
         require_s3_prefix(client, bucket, prefix)
 

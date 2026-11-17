@@ -50,7 +50,7 @@ def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytes
     monkeypatch.setattr(
         _artifacts,
         "assert_ops_artifacts",
-        lambda _client, bucket, namespace, _inventory: artifact_checks.append((bucket, namespace)),
+        lambda _client, bucket, namespace, _inventory, **_kw: artifact_checks.append((bucket, namespace)),
     )
 
     _artifacts.check_ops_artifacts(local_cfg)
@@ -97,3 +97,18 @@ def test_assert_ops_artifacts_accepts_floe_reports_under_the_stage_activation_pr
 
     with pytest.raises(E2EError, match=r"s3://ops/floe/reports/.* or s3://ops/activations/prod/floe/reports/"):
         _artifacts.assert_ops_artifacts(ActivatedStageBucket(), "ops", "olf-prod", E2E_INVENTORY)
+
+
+def test_the_local_stack_is_checked_for_collector_archives_and_others_for_polling_ones() -> None:
+    seen: list[str] = []
+
+    class Bucket:
+        def list_objects_v2(self, *, Bucket: str, Prefix: str, MaxKeys: int) -> dict[str, Any]:  # noqa: N803
+            seen.append(Prefix)
+            return {"Contents": [{"Key": Prefix + "x"}]}
+
+    for layout in ("v2", "k8s"):
+        _artifacts.assert_ops_artifacts(Bucket(), "ops", "olf-dev", E2E_INVENTORY, pod_log_layout=layout)
+
+    assert "activations/dev/logs/v2/namespace=olf-dev/" in seen
+    assert "activations/dev/logs/k8s/namespace=olf-dev/" in seen
