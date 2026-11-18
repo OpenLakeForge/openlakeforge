@@ -1,5 +1,9 @@
+# The rewrite_tag emitter holds a Flush interval of records before the engine hands them to the S3 output, and a
+# record it cannot take keeps its input tag, which no output matches: it is lost without an error. Flush 1 keeps that
+# hold to a second of ingest, below the emitter's limit: 5000 lines/s of 1 KB lost 67% at Flush 5 and none at Flush 1
+# with the limit set below.
 [SERVICE]
-    Flush                       5
+    Flush                       1
     Grace                       30
     Log_Level                   info
     HTTP_Server                 On
@@ -60,7 +64,8 @@
     Rule                        $date ^(\d{4}-\d{2}-\d{2})$ ${route.namespace}.$date false
     Emitter_Name                retag_${stage}
     Emitter_Storage.type        filesystem
-    Emitter_Mem_Buf_Limit       10M
+    # Above one Flush interval of the e2e's heaviest ingest (about 6 MB/s): at 10M that rate still lost 2% at Flush 1.
+    Emitter_Mem_Buf_Limit       20M
 
 [FILTER]
     Name                        record_modifier
