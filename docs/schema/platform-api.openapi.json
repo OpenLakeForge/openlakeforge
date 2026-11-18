@@ -1108,6 +1108,102 @@
         "title": "PipelineHealth",
         "type": "object"
       },
+      "PipelineQuality": {
+        "description": "The manifest behind one product pipeline's quality signal: counts and a run id, no check, table or row.",
+        "properties": {
+          "complete": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Complete"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QualityCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "state": {
+            "enum": [
+              "healthy",
+              "warning",
+              "critical",
+              "unknown",
+              "disabled"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "domain",
+          "product",
+          "run_id",
+          "observed_at",
+          "complete",
+          "state",
+          "counts",
+          "reason"
+        ],
+        "title": "PipelineQuality",
+        "type": "object"
+      },
       "PipelineSchedule": {
         "properties": {
           "last_expected_at": {
@@ -1188,6 +1284,45 @@
           "pipelines"
         ],
         "title": "PipelinesHealth",
+        "type": "object"
+      },
+      "QualityCounts": {
+        "description": "Results of one quality manifest, or a sum of them, by `QualityOutcome`.",
+        "properties": {
+          "blocking": {
+            "title": "Blocking",
+            "type": "integer"
+          },
+          "error": {
+            "title": "Error",
+            "type": "integer"
+          },
+          "not_run": {
+            "title": "Not Run",
+            "type": "integer"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "integer"
+          },
+          "unknown": {
+            "title": "Unknown",
+            "type": "integer"
+          },
+          "warn": {
+            "title": "Warn",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "passed",
+          "warn",
+          "error",
+          "not_run",
+          "unknown",
+          "blocking"
+        ],
+        "title": "QualityCounts",
         "type": "object"
       },
       "QueryCapabilities": {
@@ -1695,6 +1830,52 @@
           "state"
         ],
         "title": "StagePipelineState",
+        "type": "object"
+      },
+      "StageQualityHealth": {
+        "properties": {
+          "evaluated_at": {
+            "format": "date-time",
+            "title": "Evaluated At",
+            "type": "string"
+          },
+          "integrations": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationStatus"
+            },
+            "title": "Integrations",
+            "type": "array"
+          },
+          "pipelines": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineQuality"
+            },
+            "title": "Pipelines",
+            "type": "array"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "totals": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QualityCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "stage",
+          "evaluated_at",
+          "integrations",
+          "totals",
+          "pipelines"
+        ],
+        "title": "StageQualityHealth",
         "type": "object"
       },
       "StageServiceHealth": {
@@ -2554,6 +2735,46 @@
           }
         },
         "summary": "List Pipeline Health"
+      }
+    },
+    "/api/v1/stages/{stage}/health/quality": {
+      "get": {
+        "description": "Each product pipeline's quality outcome counts, and their sum over the stage.",
+        "operationId": "get_stage_quality_health_api_v1_stages__stage__health_quality_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StageQualityHealth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Stage Quality Health"
       }
     },
     "/api/v1/stages/{stage}/health/services": {

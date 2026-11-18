@@ -58,6 +58,12 @@ services = ["alert-evaluator"]
 role = "data-engineer"
 stages = ["*"]
 
+# Outcome counts of the manifest behind each pipeline's quality signal, read in the same pass as list_pipeline_health
+# (#1257). Counts and run ids only, no check, table or row, so the floor is the same. Read-only and not audited.
+[operations.get_stage_quality_health]
+role = "data-engineer"
+stages = ["*"]
+
 # Resource history from the metrics backend and run series from Dagster (ADR 0024, decision 4). The API sends only
 # the catalog's named series over its fixed ranges; no route takes a query. A series carries no log text or data, so
 # the floor is the health routes'. Read-only and not audited.

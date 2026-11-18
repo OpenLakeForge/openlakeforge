@@ -179,6 +179,14 @@ as `not_provided`; with it the integration is `available`. The reader's key is
 `Read` and `List` on that stage's `run-artifacts/quality/` prefix only
 (`quality_reader_credentials` in `modules/storage/seaweedfs`).
 
+`GET /api/v1/stages/{stage}/health/quality` counts the results of the manifest
+that decided each pipeline's `quality` signal, by outcome, with `blocking` (the
+errors that blocked the pipeline) beside `error` rather than added to it. It
+reads in the same pass as `/health/pipelines`, so its `state` is that signal,
+and a pipeline the walk above reached no run for reads `unknown` with no run.
+Counts are `null` where the manifest is absent or unusable, never zeros, and an
+incomplete manifest keeps its counts with `complete: false`.
+
 ## Quality publication to OpenMetadata
 
 Publishing a run's quality manifest to OpenMetadata is separate from the

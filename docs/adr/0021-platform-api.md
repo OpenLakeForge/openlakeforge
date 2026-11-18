@@ -812,3 +812,9 @@ copy of the names; and `last_success_at`, the newest archive object's write time
 the reconciler's last published result for `quality-sync.publication`, null otherwise. The probe table gains the
 display name and service columns and the `quality-sync.publication` and `service-probes` rows. The alert evaluator,
 which keys on `component`, is unchanged.
+
+2026-11-18: #1257. `GET /api/v1/stages/{stage}/health/quality` (`get_stage_quality_health`) added at the health routes'
+floor, read-only and not audited: per product pipeline, the outcome counts of the quality manifest behind its `quality`
+signal, read in the same `read_stage_pipelines` pass as `list_pipeline_health`, and their sum. Counts and run ids only;
+an absent or unusable manifest has no counts rather than zeros. The whole read is held to a 20-second deadline. ADR
+0023's quality manifest and signal are unchanged.

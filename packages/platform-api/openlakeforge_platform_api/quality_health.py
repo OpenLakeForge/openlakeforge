@@ -75,6 +75,8 @@ class QualityRead(NamedTuple):
     signal: Signal
     # The manifest exists but could not be used (read error, malformed, foreign), as opposed to being absent.
     unreadable: bool
+    # The manifest the signal was read from; None when it is absent or unusable.
+    manifest: QualityManifest | None = None
 
 
 class QualityReader:
@@ -148,7 +150,7 @@ def quality_signal(
         # The store's message can name keys and endpoints: the log has it, the answer does not.
         log.warning("quality manifest of %s run %s in stage %s was not usable: %s", job, run_id, scope.stage, error)
         manifest = None
-    return QualityRead(_summarize(scope, manifest, now=now, max_age=max_age, level=level), unreadable)
+    return QualityRead(_summarize(scope, manifest, now=now, max_age=max_age, level=level), unreadable, manifest)
 
 
 def _summarize(
