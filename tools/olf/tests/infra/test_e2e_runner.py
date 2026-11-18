@@ -46,9 +46,7 @@ def test_prepare_config_distribution_root_defaults_to_repo_root(monkeypatch: pyt
     unset `distribution_root` must fall back to `repo_root` exactly."""
     monkeypatch.delenv("OPENLAKEFORGE_CONTRACT_TERRAFORM_DIR", raising=False)
 
-    cfg = _runner.prepare_config(
-        "local", suite=None, namespace="lakehouse", kube_context="", repo_root=E2E_REPO_ROOT
-    )
+    cfg = _runner.prepare_config("local", suite=None, namespace="lakehouse", kube_context="", repo_root=E2E_REPO_ROOT)
 
     assert cfg.distribution_root == E2E_REPO_ROOT
     assert cfg.foundation_terraform_dir == E2E_REPO_ROOT / "infra/terraform/foundations/local-kind"
@@ -135,21 +133,50 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
         (
             "local",
             [
-                "namespaces", "jobs", "tables", "serial", "maintenance",
-                "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
-                "perimeter", "break-glass", "latency", "outage",
-                "superset", "openmetadata", "artifacts", "short-lived", "collector-restart", "retention", "delivery",
+                "namespaces",
+                "jobs",
+                "tables",
+                "serial",
+                "maintenance",
+                "token-lifetime",
+                "recovery",
+                "traefik",
+                "renewal",
+                "network",
+                "portal",
+                "perimeter",
+                "break-glass",
+                "latency",
+                "outage",
+                "superset",
+                "openmetadata",
+                "artifacts",
+                "short-lived",
+                "collector-restart",
+                "retention",
+                "footprint",
+                "delivery",
                 "spool-limit",
-                "alerts", "isolation",
-                "exposure", "rotation",
+                "alerts",
+                "isolation",
+                "exposure",
+                "rotation",
             ],
         ),
         *(
             (
                 env,
                 [
-                    "namespaces", "jobs", "tables", "serial", "maintenance", "token-lifetime",
-                    "superset", "openmetadata", "artifacts", "isolation",
+                    "namespaces",
+                    "jobs",
+                    "tables",
+                    "serial",
+                    "maintenance",
+                    "token-lifetime",
+                    "superset",
+                    "openmetadata",
+                    "artifacts",
+                    "isolation",
                 ],
             )
             for env in ("azure", "aws")
@@ -179,6 +206,7 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "check_short_lived_pod_output", lambda _cfg: calls.append("short-lived"))
     monkeypatch.setattr(_runner, "check_collector_restart", lambda _cfg: calls.append("collector-restart"))
     monkeypatch.setattr(_runner, "check_archive_retention", lambda _cfg: calls.append("retention"))
+    monkeypatch.setattr(_runner, "check_collection_footprint", lambda _cfg: calls.append("footprint"))
     monkeypatch.setattr(_runner, "check_delivery_signals_follow_an_outage", lambda _cfg: calls.append("delivery"))
     monkeypatch.setattr(_runner, "check_spool_limit_is_the_loss_point", lambda _cfg: calls.append("spool-limit"))
     monkeypatch.setattr(_runner, "check_portal_lists_routes", lambda _cfg: calls.append("portal"))
@@ -199,7 +227,7 @@ def test_core_checks_skip_every_drill_and_keep_exposure_before_rotation(tmp_path
     cfg = e2e_cfg(tmp_path)
     labels = [a.label for a in _runner.full_assertions(cfg)]
     drills = [a.label for a in _runner.full_assertions(cfg) if a.tier == "drill"]
-    assert len(drills) == 14
+    assert len(drills) == 15
     assert labels.index("identity credential exposure") < labels.index("credential preservation across a redeploy")
     assert labels.index("identity credential exposure") < labels.index("workload secret rotation")
     assert [a.label for a in _runner.full_assertions(e2e_cfg(tmp_path, env="aws")) if a.tier == "drill"] == []
@@ -279,6 +307,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "check_short_lived_pod_output", lambda _cfg: calls.append("short-lived"))
     monkeypatch.setattr(_runner, "check_collector_restart", lambda _cfg: calls.append("collector-restart"))
     monkeypatch.setattr(_runner, "check_archive_retention", lambda _cfg: calls.append("retention"))
+    monkeypatch.setattr(_runner, "check_collection_footprint", lambda _cfg: calls.append("footprint"))
     monkeypatch.setattr(_runner, "check_delivery_signals_follow_an_outage", lambda _cfg: calls.append("delivery"))
     monkeypatch.setattr(_runner, "check_spool_limit_is_the_loss_point", lambda _cfg: calls.append("spool-limit"))
     monkeypatch.setattr(_runner, "check_alert_delivery", lambda _cfg: calls.append("alerts"))
@@ -290,12 +319,31 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     _runner.run_full(e2e_cfg(tmp_path))
 
     assert calls == [
-        "namespaces", "jobs", "tables", "serial", "maintenance",
-        "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
-        "perimeter", "break-glass", "outage",
-        "artifacts", "short-lived", "collector-restart", "retention", "delivery",
-                "spool-limit",
-        "alerts", "isolation", "exposure", "rotation",
+        "namespaces",
+        "jobs",
+        "tables",
+        "serial",
+        "maintenance",
+        "token-lifetime",
+        "recovery",
+        "traefik",
+        "renewal",
+        "network",
+        "portal",
+        "perimeter",
+        "break-glass",
+        "outage",
+        "artifacts",
+        "short-lived",
+        "collector-restart",
+        "retention",
+        "footprint",
+        "delivery",
+        "spool-limit",
+        "alerts",
+        "isolation",
+        "exposure",
+        "rotation",
     ]
     skipped = "perimeter dashboard latency, Superset dashboards, OpenMetadata governance assets"
     assert f"Skipped e2e assertions: {skipped}" in messages
@@ -453,9 +501,7 @@ def test_prepare_kube_context_updates_aws_context_when_existing_context_is_unusa
     ]
 
 
-def test_terraform_output_honors_external_state_root(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_terraform_output_honors_external_state_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """An installed distribution's AWS/Azure foundation state lives under
     OLF_HOME (OPENLAKEFORGE_TERRAFORM_STATE_ROOT/_DATA_ROOT), not next to
     the foundation Terraform directory - terraform_output must translate
@@ -523,7 +569,11 @@ def test_run_retry_transient_kubectl_retries_tls_timeout(monkeypatch: pytest.Mon
     attempts = 0
 
     def run(
-        args: list[str], *, capture: bool = False, input_text: str | None = None, env=None  # noqa: ANN001
+        args: list[str],
+        *,
+        capture: bool = False,
+        input_text: str | None = None,
+        env=None,  # noqa: ANN001
     ) -> str:
         nonlocal attempts
         attempts += 1
@@ -544,7 +594,11 @@ def test_run_retry_transient_kubectl_does_not_retry_query_errors(
     attempts = 0
 
     def run(
-        args: list[str], *, capture: bool = False, input_text: str | None = None, env=None  # noqa: ANN001
+        args: list[str],
+        *,
+        capture: bool = False,
+        input_text: str | None = None,
+        env=None,  # noqa: ANN001
     ) -> str:
         nonlocal attempts
         attempts += 1

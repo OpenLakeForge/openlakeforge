@@ -81,6 +81,9 @@
     s3_key_format               /${route.key_prefix}namespace=$TAG[0]/date=$TAG[1]/${stage}-$UUID.ndjson.gz
     store_dir                   /var/fluent-bit/spool-${stage}
     store_dir_limit_size        ${spool_limit_size}
+    # The default of 5 retries gave up after about a minute and moved the file out of the spool, where nothing resends
+    # it and the spool signals cannot see it. Retrying until store_dir_limit_size makes that limit the loss point.
+    retry_limit                 1000000
     retry_exhausted_action      quarantine
     quarantine_dir_limit_size   ${quarantine_limit_size}
     storage.total_limit_size    ${chunk_limit_size}
