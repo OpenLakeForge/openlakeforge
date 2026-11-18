@@ -8,7 +8,7 @@ import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.common.deployment.context import DeploymentContext, DeploymentFeatures, Profile
-from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.release._manifest import load_catalog
 from olf.common.tooling.process import CommandResult
@@ -158,6 +158,47 @@ class _ScriptedRunner(RecordingRunner):
         if argv[1:3] == ["image", "inspect"]:
             return CommandResult(argv=(), returncode=1, stdout="", stderr="", duration_seconds=0.0)
         return CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0)
+
+
+class _IncompleteDockerStore(_ScriptedRunner):
+    """Docker before 29.9 holding an image whose blobs its pull skipped: the save, or each node's import, fails."""
+
+    def __init__(self, *, fail: str, node_pull_ok: bool = True) -> None:
+        super().__init__()
+        self._fail = fail
+        self._node_pull_ok = node_pull_ok
+
+    def run(self, command, **kwargs):  # type: ignore[override]
+        argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+        failing = (self._fail == "save" and argv[1:2] == ["save"]) or (
+            self._fail == "import" and "ctr" in argv and "import" in argv
+        )
+        if failing:
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            raise CommandExecutionError(argv, 1, stderr="content digest sha256:a635e3d8: not found")
+        if "crictl" in argv and "pull" in argv and not self._node_pull_ok:
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            return CommandResult(argv=(), returncode=1, stdout="", stderr="EOF", duration_seconds=0.0)
+        return super().run(command, **kwargs)
+
+
+@pytest.mark.parametrize("fail", ["save", "import"])
+def test_an_image_docker_cannot_archive_is_pulled_by_the_node_at_its_pin(tmp_path: Path, fail: str) -> None:
+    runner = _IncompleteDockerStore(fail=fail)
+    image = _CATALOG["kube_state_metrics"]
+
+    prefetch.load_image_into_nodes(_config(tmp_path, profile=Profile.SLIM), _toolkit(runner), image, env={})
+
+    node_pulls = [c.argv for c in runner.calls if "crictl" in c.argv and "pull" in c.argv]
+    assert node_pulls == [["docker", "exec", "node-a", "crictl", "pull", image]]
+
+
+def test_an_image_neither_docker_nor_the_node_can_provide_fails_naming_the_docker_fix(tmp_path: Path) -> None:
+    runner = _IncompleteDockerStore(fail="save", node_pull_ok=False)
+    image = _CATALOG["kube_state_metrics"]
+
+    with pytest.raises(DeploymentPreconditionError, match="Docker Engine 29.9"):
+        prefetch.load_image_into_nodes(_config(tmp_path, profile=Profile.SLIM), _toolkit(runner), image, env={})
 
 
 def test_prefetch_images_skips_images_already_present_on_every_node(tmp_path: Path) -> None:

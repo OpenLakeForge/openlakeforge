@@ -16,7 +16,7 @@ from pathlib import Path
 
 from olf.common import log
 from olf.common.deployment.context import DeploymentFeatures
-from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.release._manifest import load_catalog
 from olf.common.tooling.toolkit import Toolkit
@@ -207,7 +207,18 @@ def _prefetch_one_image(
 
     archive = scratch_dir / archive_filename(image)
     log.step(f"Saving {archive_image}...")
-    tools.docker.save(archive_image, output_path=archive, env=env)
+    # Docker before 29.9 with the containerd image store skips a layer's blob on pull when a snapshot with the
+    # same diff ID is already unpacked, and `docker save` then leaves the blob out of the archive. kube-state-metrics
+    # shares its distroless base layers with cert-manager under other blob digests, so on the CI runner's Docker
+    # 29.4.2 its archive lacked the amd64 content and `ctr import` failed "content digest ...: not found" (#21).
+    # Another pull cannot repair the store, so the nodes pull such an image at its pin themselves.
+    try:
+        tools.docker.save(archive_image, output_path=archive, env=env)
+    except CommandExecutionError as exc:
+        archive.unlink(missing_ok=True)
+        for node in nodes:
+            _pull_on_node(image, tools, node, cause=exc, env=env)
+        return
 
     errors: list[BaseException] = []
     if archive_image != image:
@@ -219,14 +230,18 @@ def _prefetch_one_image(
     def load(node: str) -> None:
         try:
             log.step(f"Loading {image} into kind node '{node}'...")
-            tools.docker.exec_(
-                node,
-                ["ctr", "--namespace=k8s.io", "images", "import", "--snapshotter=overlayfs", "-"],
-                privileged=True,
-                interactive=True,
-                stdin_path=archive,
-                env=env,
-            )
+            try:
+                tools.docker.exec_(
+                    node,
+                    ["ctr", "--namespace=k8s.io", "images", "import", "--snapshotter=overlayfs", "-"],
+                    privileged=True,
+                    interactive=True,
+                    stdin_path=archive,
+                    env=env,
+                )
+            except CommandExecutionError as exc:
+                _pull_on_node(image, tools, node, cause=exc, env=env)
+                return
             if archive_image != image:
                 # The import names only the tag. `crictl pull` would add the digest name too, but it resolves
                 # the digest against the registry first, which fails on a node with no egress (#757).
@@ -248,3 +263,17 @@ def _prefetch_one_image(
         raise errors[0]
     # Every node holds its own copy now; keeping the archive until the run ends doubled the disk use.
     archive.unlink(missing_ok=True)
+
+
+def _pull_on_node(
+    image: str, tools: Toolkit, node: str, *, cause: CommandExecutionError, env: Mapping[str, str]
+) -> None:
+    """Have the node's containerd pull `image` itself, for when Docker could not hand it a complete archive."""
+    log.warn(f"Docker could not provide a complete archive of {image}; kind node '{node}' pulls it instead.")
+    result = tools.docker.exec_(node, ["crictl", "pull", image], env=env, check=False)
+    if not result.ok:
+        raise DeploymentPreconditionError(
+            f"Could not load {image} into kind node '{node}'. Docker could not archive it ({cause}), and the "
+            f"node could not pull it: {result.stderr.strip()}. Docker Engine 29.9 or later archives it; a node "
+            "without registry access needs that."
+        ) from cause
