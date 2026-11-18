@@ -115,6 +115,39 @@ def admin_client(route: Route, email: str, password: str, stored_token: str | No
     return client
 
 
+def reconcile_admin_password(client: OpenMetadataClient, route: Route, email: str, password: str) -> None:
+    """Make the Secret's password log the built-in admin in whenever basic login is on (#1281).
+
+    `admin_client` changes the default password only on its basic-login fallback, so a stack first
+    deployed with SSO, which always takes the bot-token path, kept `admin` / `admin` once basic
+    login came back. `client` may hold the bot token: OpenMetadata signs that itself, so it is
+    accepted under either provider, and an administrator's USER request needs no old password.
+    """
+    probe = route.client(OpenMetadataClient)
+    if probe.request("GET", "/api/v1/system/config/auth").get("provider") != "basic":
+        return  # under SSO the local admin has no login to repair, and changePassword is refused
+    try:
+        probe.login(email, password)
+        return
+    except OpenMetadataError:
+        pass
+    log.info("Setting the OpenMetadata admin password to the one in Secret " + ADMIN_SECRET)
+    try:
+        client.request(
+            "PUT",
+            "/api/v1/users/changePassword",
+            json_body={
+                "username": "admin",
+                "newPassword": password,
+                "confirmPassword": password,
+                "requestType": "USER",
+            },
+        )
+    except OpenMetadataError as exc:
+        raise OpenMetadataError(f"OpenMetadata refused the admin password change: {exc}") from exc
+    probe.login(email, password)
+
+
 def _bearer_token(client: OpenMetadataClient, user_id: str, who: str) -> str:
     """Mint an unlimited JWT for the user and read it back; reject an encrypted (fernet) value."""
     client.request("PUT", f"/api/v1/users/generateToken/{user_id}", json_body=_JSON)
@@ -184,6 +217,7 @@ def bootstrap_auth(
     wait_healthy(route)
     stored = automation_token(namespace, environ=environ)
     client = admin_client(route, email, password, stored)
+    reconcile_admin_password(client, route, email, password)
     # Created while basic login still works; with SSO off basic login keeps working, so no bot.
     if sso and client.token != stored:
         ensure_automation_bot(client, route, namespace, environ)

@@ -65,6 +65,8 @@ class _Handler(BaseHTTPRequestHandler):
         bearer = (self.headers.get("Authorization") or "").removeprefix("Bearer ")
         if path == "/api/v1/system/config/jwks":
             return self._reply(200 if srv.healthy else 503, {})
+        if path == "/api/v1/system/config/auth":
+            return self._reply(200, {"provider": "custom-oidc" if srv.sso else "basic"})
         if path == "/api/v1/users/login":
             if srv.sso:
                 return self._reply(403, {})
@@ -77,6 +79,13 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/v1/users/loggedInUser":
             return self._reply(srv.probe_status or 200, user)
         if path == "/api/v1/users/changePassword":
+            # Only the basic authenticator implements it; SELF checks the old password, USER needs an admin.
+            if srv.sso:
+                return self._reply(500, {})
+            if body["requestType"] == "SELF" and (bearer != "admin-jwt" or body["oldPassword"] != srv.password):
+                return self._reply(401, {})
+            if body["requestType"] == "USER" and not user["isAdmin"]:
+                return self._reply(403, {})
             srv.password = body["newPassword"]
             return self._reply(200, {})
         if path == "/api/v1/users":
@@ -285,3 +294,45 @@ def test_an_ingestion_token_is_not_rotated_when_verification_is_unavailable(om: 
 
     assert store[("ns", _auth.INGESTION_BOT_SECRET)] == original
     assert ("PUT", "/api/v1/users/generateToken/id-ingestion-bot") not in om.calls
+
+
+def _stack_first_deployed_with_identity(om: FakeServer, store: dict) -> str:
+    """The bot token stored and working, the Secret written, and the built-in admin still on `admin`."""
+    om.users["olf-automation"] = {"id": "id-olf-automation", "isAdmin": True}
+    om.tokens["id-olf-automation"] = "bot-jwt"
+    store[("ns", _auth.AUTOMATION_BOT)] = {_auth.AUTOMATION_JWT_KEY: "bot-jwt"}
+    store[("ns", _auth.ADMIN_SECRET)] = {"admin-password": "from-the-secretAa1!"}
+    return "from-the-secretAa1!"
+
+
+@pytest.mark.parametrize("sso", [False, True])
+def test_the_token_path_sets_the_secrets_password_once_basic_login_is_back(
+    om: FakeServer, store: dict, capsys: pytest.CaptureFixture[str], sso: bool
+) -> None:
+    password = _stack_first_deployed_with_identity(om, store)
+
+    _run(om, sso=sso)
+
+    assert om.password == password
+    assert OpenMetadataClient(om.url).login(EMAIL, password) is None
+    captured = capsys.readouterr()
+    assert password not in captured.out + captured.err
+
+
+def test_the_token_path_leaves_a_password_that_already_logs_in_alone(om: FakeServer, store: dict) -> None:
+    om.password = _stack_first_deployed_with_identity(om, store)
+
+    _run(om)
+
+    assert ("PUT", "/api/v1/users/changePassword") not in om.calls
+
+
+def test_under_sso_the_token_path_does_not_touch_the_password(om: FakeServer, store: dict) -> None:
+    _stack_first_deployed_with_identity(om, store)
+    om.sso = True
+
+    _run(om, sso=True)
+
+    assert om.password == "admin"
+    assert ("POST", "/api/v1/users/login") not in om.calls
+    assert ("PUT", "/api/v1/users/changePassword") not in om.calls
