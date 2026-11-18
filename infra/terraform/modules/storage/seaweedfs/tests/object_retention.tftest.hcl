@@ -74,3 +74,28 @@ run "days_are_a_whole_number_of_at_least_one" {
 
   expect_failures = [var.object_retention]
 }
+
+# ADR 0017: SeaweedFS admits only the pods a flow row of release/network-flows.yaml names, so the Job's pod labels
+# must contain every label of a row's source that reaches the master (9333) and the filer (8888).
+run "the_job_is_admitted_to_the_master_and_filer" {
+  command = plan
+
+  variables {
+    object_retention = {
+      bucket   = "ops"
+      days     = 30
+      prefixes = ["activations/dev/logs/v2/"]
+    }
+  }
+
+  assert {
+    condition = anytrue([
+      for flow in yamldecode(file("${path.module}/../../../../../release/network-flows.yaml")).flows :
+      length(try(flow.from.pods, {})) > 0
+      && alltrue([for k, v in try(flow.from.pods, {}) : lookup(kubernetes_job_v1.object_retention[0].spec[0].template[0].metadata[0].labels, k, null) == v])
+      && try(flow.to.pods["app.kubernetes.io/name"], "") == "seaweedfs"
+      && contains(flow.ports, 9333) && contains(flow.ports, 8888)
+    ])
+    error_message = "no flow row admits the retention Job's pods to the SeaweedFS master and filer"
+  }
+}

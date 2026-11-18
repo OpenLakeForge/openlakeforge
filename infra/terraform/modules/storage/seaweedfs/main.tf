@@ -203,8 +203,10 @@ resource "kubernetes_job_v1" "object_retention" {
 
     template {
       metadata {
+        # The bucket Job's identity: both are one-shot `weed shell` Jobs of this module that configure the ops
+        # bucket through the master and filer, so the F17 flow that admits one admits the other, and no new reach.
         labels = merge(local.labels, {
-          "openlakeforge.io/job"       = "retention-bootstrap"
+          "openlakeforge.io/job"       = "bucket-bootstrap"
           "openlakeforge.io/readiness" = "required"
         })
         annotations = local.bucket_job_annotations
