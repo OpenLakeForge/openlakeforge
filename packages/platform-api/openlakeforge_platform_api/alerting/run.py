@@ -156,8 +156,9 @@ def run_once(
                 delivered += 1
             elif result.status == "rejected":
                 # A 4xx other than 408/429 will not change on retry (ADR 0023, decision 4): settle this receiver so the
-                # next runs do not resend it; the history record above keeps the real outcome, `rejected`.
-                state = record_delivery(state, notification.id, name, routed=routed)
+                # next runs do not resend it; the history record above keeps the real outcome, `rejected`, and the incident
+                # reads `undeliverable` once the entry settles.
+                state = record_delivery(state, notification.id, name, routed=routed, rejected=True)
                 failed += 1
             else:
                 failed += 1

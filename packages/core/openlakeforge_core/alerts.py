@@ -111,6 +111,17 @@ class AlertEvent(StrEnum):
 
 HISTORY_ONLY_EVENTS = frozenset({AlertEvent.RESOLVED_SILENTLY, AlertEvent.SEVERITY_CHANGED})
 
+
+class DeliveryOutcome(StrEnum):
+    """How a notification left the outbox. A queued one has no outcome yet: it is pending."""
+
+    DELIVERED = "delivered"
+    # It expired, or a receiver refused it for good (a 4xx that a retry will not change).
+    UNDELIVERABLE = "undeliverable"
+    # No receiver was routed to it, so nobody was told.
+    UNROUTED = "unrouted"
+
+
 # The `when` key of `alerts.yml` that turns each product condition on. The platform conditions
 # (`stage_unreadable`) are absent: no rule governs them (ADR 0023, decision 11).
 POLICY_CONDITION = {
@@ -166,6 +177,22 @@ _STALE_CAUSES = frozenset({AlertKind.RUN_FAILED, AlertKind.MISSED_RUN})
 
 
 @dataclass(frozen=True)
+class Delivery:
+    """The outcome of an incident's latest notification to leave the outbox (ADR 0023, decision 3).
+
+    Kept on the open incident because the outbox forgets a notification once it settles: without this, a delivered one
+    and an expired one would read the same. Counts only, never a receiver's name or URL.
+    """
+
+    event: AlertEvent
+    outcome: DeliveryOutcome
+    # Receivers it was sent to, those that accepted it, and the attempts made over all of them.
+    receivers: int
+    delivered: int
+    attempts: int
+
+
+@dataclass(frozen=True)
 class Incident:
     id: str
     fingerprint: str
@@ -182,6 +209,7 @@ class Incident:
     component: str | None = None
     run_ids: tuple[str, ...] = ()
     resolved_at: datetime | None = None
+    delivery: Delivery | None = None
 
 
 @dataclass(frozen=True)
@@ -240,8 +268,10 @@ class OutboxEntry:
     notification: Notification
     # Delivery attempts made per receiver name; the sender owns the retry policy.
     attempts: Mapping[str, int] = field(default_factory=dict)
-    # Receivers that have accepted it; the entry is dropped once every routed receiver is here.
+    # Receivers that have settled it; the entry is dropped once every routed receiver is here.
     delivered: frozenset[str] = frozenset()
+    # Those of `delivered` that refused it for good rather than accepting it.
+    rejected: frozenset[str] = frozenset()
     # Evaluations this entry has waited through, so an undeliverable one can expire.
     runs: int = 0
 

@@ -8,8 +8,11 @@ from _alerts_support import evaluate
 from openlakeforge_core import (
     DAGSTER_READ_API,
     MAX_OUTBOX_RUNS,
+    AlertEvent,
     AlertState,
     AlertStateError,
+    Delivery,
+    DeliveryOutcome,
     HealthState,
     Scope,
     Signal,
@@ -114,6 +117,61 @@ def test_state_round_trips_through_json() -> None:
     assert json.loads(state_to_json(state))["schema_version"] == 1
 
 
+def test_a_settled_notification_leaves_its_outcome_on_the_open_incident() -> None:
+    state, notification_id = _queued()
+    state = record_attempt(record_attempt(state, notification_id, "ops"), notification_id, "ops")
+    state = record_delivery(state, notification_id, "ops", routed={"ops"})
+
+    assert state.outbox == ()
+    assert state.incidents[0].delivery == Delivery(
+        event=AlertEvent.OPENED, outcome=DeliveryOutcome.DELIVERED, receivers=1, delivered=1, attempts=2
+    )
+
+
+def test_a_refusal_by_one_receiver_makes_the_notification_undeliverable() -> None:
+    state, notification_id = _queued()
+    routed = {"ops", "chat"}
+    for name in sorted(routed):
+        state = record_attempt(state, notification_id, name)
+    state = record_delivery(state, notification_id, "chat", routed=routed, rejected=True)
+    assert state_from_json(state_to_json(state)) == state
+    state = record_delivery(state, notification_id, "ops", routed=routed)
+
+    assert state.outbox == ()
+    assert state_from_json(state_to_json(state)) == state
+    assert state.incidents[0].delivery == Delivery(
+        event=AlertEvent.OPENED, outcome=DeliveryOutcome.UNDELIVERABLE, receivers=2, delivered=1, attempts=2
+    )
+
+
+def test_an_expired_notification_is_undeliverable_and_a_dropped_one_unrouted() -> None:
+    state, notification_id = _queued()
+    dropped = drop_notification(state, notification_id)
+    assert dropped.incidents[0].delivery is not None
+    assert dropped.incidents[0].delivery.outcome is DeliveryOutcome.UNROUTED
+
+    state = record_attempt(state, notification_id, "ops")
+    for minutes in range(1, MAX_OUTBOX_RUNS + 1):
+        state = evaluate(state, [FAILED], _at(5 * minutes)).state
+    state, expired = expire_outbox(state)
+
+    assert [entry.notification.id for entry in expired] == [notification_id]
+    assert state.incidents[0].delivery == Delivery(
+        event=AlertEvent.OPENED, outcome=DeliveryOutcome.UNDELIVERABLE, receivers=1, delivered=0, attempts=1
+    )
+
+
+def test_a_state_written_before_outcomes_were_kept_still_reads() -> None:
+    document = _document()
+    del document["incidents"][0]["delivery"]
+    del document["outbox"][0]["rejected"]
+
+    restored = state_from_json(json.dumps(document))
+
+    assert restored.incidents[0].delivery is None
+    assert restored.outbox[0].rejected == frozenset()
+
+
 def _document() -> dict:
     state = evaluate(AlertState(), [FAILED], T0).state
     return json.loads(state_to_json(state))
@@ -152,6 +210,15 @@ def _with(path: list, value: object) -> str:
         _with(["outbox", 0, "attempts"], {"ops": "2"}),
         _with(["outbox", 0, "notification", "links"], [["only-one"]]),
         _with(["outbox", 0, "notification", "event"], "resolved_silently"),
+        _with(["outbox", 0, "rejected"], "ops"),
+        _with(
+            ["incidents", 0, "delivery"],
+            {"event": "opened", "outcome": "lost", "receivers": 1, "delivered": 0, "attempts": 1},
+        ),
+        _with(
+            ["incidents", 0, "delivery"],
+            {"event": "opened", "outcome": "delivered", "receivers": -1, "delivered": 0, "attempts": 1},
+        ),
     ],
 )
 def test_malformed_state_is_refused(text: str) -> None:

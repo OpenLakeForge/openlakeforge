@@ -138,7 +138,9 @@ def test_two_evaluations_of_the_same_dagster_state_send_one_notification() -> No
     assert payload["event"] == "opened"
     assert payload["condition"] == "run_failed"
     assert payload["links"]["run"] == "http://dagster-dev.example.test/runs/run-1"
-    assert bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["outbox"] == []
+    state = bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]
+    assert state["outbox"] == []
+    assert state["incidents"][0]["delivery"]["outcome"] == "delivered"
 
 
 def _told(notifier: FakeNotifier) -> list[tuple[str, str, str]]:
@@ -474,7 +476,16 @@ def test_a_rejected_delivery_is_not_resent_and_is_recorded_as_rejected() -> None
     assert len(rejecting.sent) == 1
     records = bucket.under("alerts/history/v1/")
     assert [r["outcome"] for r in records.values() if r["record"] == "delivery"] == ["rejected"]
-    assert bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["outbox"] == []
+    state = bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]
+    assert state["outbox"] == []
+    # Settled, but nobody was told: the open incident must not read as delivered.
+    assert state["incidents"][0]["delivery"] == {
+        "event": "opened",
+        "outcome": "undeliverable",
+        "receivers": 1,
+        "delivered": 0,
+        "attempts": 1,
+    }
 
 
 def test_a_receiver_only_gets_the_stages_it_names() -> None:
@@ -505,7 +516,7 @@ def test_a_notification_nobody_is_routed_to_leaves_the_outbox() -> None:
 
     state = bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]
     assert state["outbox"] == []
-    assert len(state["incidents"]) == 1
+    assert [incident["delivery"]["outcome"] for incident in state["incidents"]] == ["unrouted"]
 
 
 def test_a_notification_that_cannot_be_delivered_expires_into_an_undeliverable_record() -> None:
@@ -520,7 +531,9 @@ def test_a_notification_that_cannot_be_delivered_expires_into_an_undeliverable_r
     (record,) = (r for r in bucket.under("alerts/history/v1/").values() if r["record"] == "undeliverable")
     assert record["receivers"] == ["ops"]
     assert record["attempts"] == {"ops": MAX_OUTBOX_RUNS + 1}
-    assert bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]["outbox"] == []
+    state = bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]
+    assert state["outbox"] == []
+    assert state["incidents"][0]["delivery"]["outcome"] == "undeliverable"
     sends = len(notifier.sent)
     _evaluate(settings, bucket, dagster, {"ops": notifier}, NOW + timedelta(hours=2))
     assert len(notifier.sent) == sends

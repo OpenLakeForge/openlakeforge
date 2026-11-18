@@ -17,6 +17,8 @@ from .alerts import (
     AlertKind,
     AlertSeverity,
     AlertState,
+    Delivery,
+    DeliveryOutcome,
     Incident,
     Notification,
     OutboxEntry,
@@ -41,24 +43,28 @@ def record_attempt(state: AlertState, notification_id: str, receiver: str) -> Al
     )
 
 
-def record_delivery(state: AlertState, notification_id: str, receiver: str, *, routed: Collection[str]) -> AlertState:
-    """Mark a receiver as having accepted a notification; the entry goes once every routed receiver has it."""
+def record_delivery(
+    state: AlertState, notification_id: str, receiver: str, *, routed: Collection[str], rejected: bool = False
+) -> AlertState:
+    """Mark a receiver as having settled a notification; the entry goes once every routed receiver has.
+
+    `rejected` settles it without delivering: the receiver refused it in a way a retry will not change.
+    """
+    refused = frozenset({receiver}) if rejected else frozenset()
     marked = _update(
-        state, notification_id, lambda entry: replace(entry, delivered=entry.delivered | frozenset({receiver}))
+        state,
+        notification_id,
+        lambda entry: replace(entry, delivered=entry.delivered | {receiver}, rejected=entry.rejected | refused),
     )
-    return replace(
+    return _settle(
         marked,
-        outbox=tuple(
-            entry
-            for entry in marked.outbox
-            if entry.notification.id != notification_id or not set(routed) <= entry.delivered
-        ),
+        [e for e in marked.outbox if e.notification.id == notification_id and set(routed) <= e.delivered],
     )
 
 
 def drop_notification(state: AlertState, notification_id: str) -> AlertState:
-    """Remove a notification outright, for a sender that has decided it can never be delivered."""
-    return replace(state, outbox=tuple(entry for entry in state.outbox if entry.notification.id != notification_id))
+    """Remove a notification nobody is left to send to: no receiver is routed, or every routed one has settled it."""
+    return _settle(state, [entry for entry in state.outbox if entry.notification.id == notification_id])
 
 
 def expire_outbox(state: AlertState, max_runs: int = MAX_OUTBOX_RUNS) -> tuple[AlertState, list[OutboxEntry]]:
@@ -66,8 +72,38 @@ def expire_outbox(state: AlertState, max_runs: int = MAX_OUTBOX_RUNS) -> tuple[A
     if max_runs < 1:
         raise ValueError("max_runs must be at least 1")
     expired = [entry for entry in state.outbox if entry.runs >= max_runs]
-    kept = tuple(entry for entry in state.outbox if entry.runs < max_runs)
-    return replace(state, outbox=kept), expired
+    return _settle(state, expired, expired=True), expired
+
+
+def _settle(state: AlertState, entries: list[OutboxEntry], *, expired: bool = False) -> AlertState:
+    """Remove `entries` from the outbox, keeping each one's outcome on its incident while that is still open."""
+    gone = {entry.notification.id for entry in entries}
+    outcomes = {entry.notification.incident_id: _delivery(entry, expired=expired) for entry in entries}
+    return replace(
+        state,
+        incidents=tuple(
+            replace(incident, delivery=outcomes[incident.id]) if incident.id in outcomes else incident
+            for incident in state.incidents
+        ),
+        outbox=tuple(entry for entry in state.outbox if entry.notification.id not in gone),
+    )
+
+
+def _delivery(entry: OutboxEntry, *, expired: bool) -> Delivery:
+    receivers = set(entry.attempts) | entry.delivered
+    if expired or entry.rejected:
+        outcome = DeliveryOutcome.UNDELIVERABLE
+    elif not receivers:
+        outcome = DeliveryOutcome.UNROUTED
+    else:
+        outcome = DeliveryOutcome.DELIVERED
+    return Delivery(
+        event=entry.notification.event,
+        outcome=outcome,
+        receivers=len(receivers),
+        delivered=len(entry.delivered - entry.rejected),
+        attempts=sum(entry.attempts.values()),
+    )
 
 
 def _update(state: AlertState, notification_id: str, change: Any) -> AlertState:
@@ -86,6 +122,7 @@ def state_to_json(state: AlertState) -> str:
                 "notification": _notification_to_dict(entry.notification),
                 "attempts": dict(sorted(entry.attempts.items())),
                 "delivered": sorted(entry.delivered),
+                "rejected": sorted(entry.rejected),
                 "runs": entry.runs,
             }
             for entry in state.outbox
@@ -134,6 +171,17 @@ def _incident_to_dict(incident: Incident) -> dict[str, Any]:
         "reason": incident.reason,
         "component": incident.component,
         "run_ids": list(incident.run_ids),
+        "delivery": None if incident.delivery is None else _delivery_to_dict(incident.delivery),
+    }
+
+
+def _delivery_to_dict(delivery: Delivery) -> dict[str, Any]:
+    return {
+        "event": delivery.event.value,
+        "outcome": delivery.outcome.value,
+        "receivers": delivery.receivers,
+        "delivered": delivery.delivered,
+        "attempts": delivery.attempts,
     }
 
 
@@ -218,6 +266,19 @@ def _incident_from_dict(value: Any) -> Incident:
         reason=_str(item["reason"]),
         component=_opt_str(item["component"]),
         run_ids=tuple(_str(run) for run in _list(item["run_ids"])),
+        # Absent from a state written before outcomes were kept: unknown, not delivered.
+        delivery=None if item.get("delivery") is None else _delivery_from_dict(item["delivery"]),
+    )
+
+
+def _delivery_from_dict(value: Any) -> Delivery:
+    item = _dict(value)
+    return Delivery(
+        event=AlertEvent(_str(item["event"])),
+        outcome=DeliveryOutcome(_str(item["outcome"])),
+        receivers=_int(item["receivers"]),
+        delivered=_int(item["delivered"]),
+        attempts=_int(item["attempts"]),
     )
 
 
@@ -227,6 +288,7 @@ def _entry_from_dict(value: Any) -> OutboxEntry:
         notification=_notification_from_dict(item["notification"]),
         attempts=_counts(item["attempts"]),
         delivered=frozenset(_str(receiver) for receiver in _list(item["delivered"])),
+        rejected=frozenset(_str(receiver) for receiver in _list(item.get("rejected", []))),
         runs=_int(item["runs"]),
     )
 
