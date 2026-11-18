@@ -59,7 +59,7 @@ images:
   - {name: dagster_control_plane, owner: malon64, expired_at: 2026-12-15, statement: "127 fixable HIGH/CRITICAL findings at first scan"}
   - {name: dex, owner: malon64, expired_at: 2026-12-15, statement: "30 fixable HIGH/CRITICAL findings at first scan"}
   - {name: fluent_bit, owner: malon64, expired_at: 2026-12-15, statement: "34 fixable HIGH findings in the Debian 13 base at first scan (5.2.0 is the newest upstream release)"}
-  - {name: openmetadata_ingestion, owner: malon64, expired_at: 2026-12-15, statement: "docker.getcollate.io rate-limits anonymous pulls, so it was not scanned at first run"}
+  - {name: openmetadata_ingestion, owner: malon64, expired_at: 2027-02-15, statement: "upstream-built OpenMetadata ingestion-base 1.13.6; scanned from docker.io on 2026-11-18 (Security scans run 44289344717): 259 OS findings (HIGH 255, CRITICAL 4) on Debian 13.7, plus language and binary targets; waived until the next OpenMetadata release bump, review by 2027-02-15"}
   - {name: k8s_bootstrap, owner: malon64, expired_at: 2026-12-15, statement: "719 fixable HIGH/CRITICAL findings at first scan"}
   - {name: oauth2_proxy, owner: malon64, expired_at: 2026-12-15, statement: "6 fixable HIGH/CRITICAL findings at first scan"}
   - {name: opensearch, owner: malon64, expired_at: 2026-12-15, statement: "463 fixable HIGH/CRITICAL findings at first scan"}

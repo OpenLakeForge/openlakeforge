@@ -99,7 +99,7 @@ resource "helm_release" "openmetadata" {
       ]
       preMigrateInitContainers = [{
         name            = "olf-java-trust"
-        image           = "docker.getcollate.io/openmetadata/server:${var.chart_version}"
+        image           = "docker.io/openmetadata/server:${var.chart_version}"
         imagePullPolicy = "IfNotPresent"
         command         = ["/bin/sh", "-ec"]
         args = [<<-EOT
