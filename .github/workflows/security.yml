@@ -128,7 +128,6 @@ jobs:
       # this login from ~/.docker/config.json, keyed by registry, so the token reaches Docker
       # Hub only (TRIVY_USERNAME/TRIVY_PASSWORD would go to every registry). Fork pull
       # requests and callers that do not pass the token skip it and scan anonymously.
-      # docker.getcollate.io fronts Docker Hub under its own host, so it still pulls anonymously.
       - name: Log in to Docker Hub
         if: env.DOCKERHUB_TOKEN != ''
         env:

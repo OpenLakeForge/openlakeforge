@@ -188,7 +188,7 @@ def test_docker_hub_login_runs_before_the_scan_with_the_org_credentials_and_only
 
 def test_the_docker_hub_token_never_reaches_trivy_as_a_registry_agnostic_credential() -> None:
     # Trivy sends TRIVY_USERNAME/TRIVY_PASSWORD to every registry it pulls from (ghcr.io,
-    # docker.getcollate.io, ...); the docker config the login writes is keyed by registry instead.
+    # quay.io, ...); the docker config the login writes is keyed by registry instead.
     job = _workflow()["jobs"]["catalog-images"]
     scan = _catalog_steps()[_step_index(_SCAN)]
     trivy_env = {name for step in job["steps"] for name in step.get("env", {}) if name.startswith("TRIVY_")}
