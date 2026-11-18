@@ -56,6 +56,7 @@ def _configured(settings: Settings) -> Settings:
         quality_sync_summaries={"dev": "s3://olf-ops/activations/dev/quality-sync/summary.json"},
         metrics_enabled=True,
         metrics_url="http://prometheus:9090",
+        alerts_state_base_uri="s3://olf-ops/alerts/state/",
     )
 
 
@@ -63,6 +64,7 @@ def _api(settings: Settings, **kwargs: Any) -> TestClient:
     kwargs.setdefault("service_probes", RefusingProbes())
     kwargs.setdefault("object_store", RefusingStore())
     kwargs.setdefault("quality_readers", {"dev": RefusingStore()})
+    kwargs.setdefault("alert_state_store", RefusingStore())
     return TestClient(create_app(settings, **kwargs))
 
 
@@ -109,7 +111,7 @@ def test_sources_are_reported_from_configuration(settings: Settings, mint: Mint)
         "quality-sync": "available",
         "logs": "available",
         "metrics": "available",
-        "alerts": "not_provided",
+        "alerts": "available",
     }
     assert _sources(body, "prod") == {
         "dagster": "available",
@@ -118,7 +120,7 @@ def test_sources_are_reported_from_configuration(settings: Settings, mint: Mint)
         "quality-sync": "not_provided",
         "logs": "not_provided",
         "metrics": "available",
-        "alerts": "not_provided",
+        "alerts": "available",
     }
 
 
@@ -127,13 +129,13 @@ def test_a_stage_with_no_source_is_never_available_and_says_why(settings: Settin
     uat = next(entry for entry in body["stages"] if entry["stage"] == "uat")
     by_name = {capability["name"]: capability for capability in uat["capabilities"]}
 
-    assert {name: entry["status"] for name, entry in by_name.items() if name != "metrics"} == {
+    # Metrics and alerts are platform-wide, so they read the same on every stage.
+    assert {name: entry["status"] for name, entry in by_name.items() if name not in ("metrics", "alerts")} == {
         "dagster": "disabled",
         "services": "disabled",
         "quality": "not_provided",
         "quality-sync": "not_provided",
         "logs": "not_provided",
-        "alerts": "not_provided",
     }
     assert all(entry["reason"] for entry in by_name.values())
 
@@ -191,3 +193,21 @@ def test_without_probes_services_are_disabled_and_publication_unavailable(settin
 
 def test_a_token_is_still_required(settings: Settings) -> None:
     assert _api(_configured(settings)).get(PATH).status_code == 401
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"alert_state_store": None}, {}],
+    ids=["no-key", "no-state-uri"],
+)
+def test_alerts_are_not_provided_without_a_state_uri_or_a_key(
+    settings: Settings, mint: Mint, extra: dict[str, Any]
+) -> None:
+    configured = _configured(settings)
+    if not extra:
+        configured = _settings(settings, dagster_graphql_urls={"dev": "http://dagster-dev:80/graphql"})
+    api = _api(configured, alert_state_store=None if extra else RefusingStore())
+
+    body = api.get(PATH, headers=_as(mint, "platform-admin")).json()
+
+    assert _sources(body, "dev")["alerts"] == "not_provided"

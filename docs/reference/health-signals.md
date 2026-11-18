@@ -384,7 +384,7 @@ it answers; the health routes say whether it does. Each entry carries a
 | `quality-sync` | The stage has a quality-sync summary and the API has probes | `not_provided` without a summary, `unavailable` without probes |
 | `logs` | The stage has a log archive and the API its read key | `not_provided` without an archive, `unavailable` without the key |
 | `metrics` | The profile enables metrics and the provider gives a query URL | `disabled` when the profile turns them off, `not_provided` without a URL |
-| `alerts` | Never yet: no route serves alert incidents | `not_provided` |
+| `alerts` | The alert evaluator's state is configured and the API has its read key | `not_provided` |
 
 ## Rollup
 

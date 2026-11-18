@@ -139,6 +139,11 @@ class Settings:
     metrics_enabled: bool = False
     metrics_url: str | None = None
     metrics_retention_days: int = 7
+    # The alert evaluator's base, s3://<ops bucket>/alerts/, whose state/v1/state.json the incidents route reads (ADR
+    # 0023, decision 3). The key, Read and List on its `state/` only, comes from the environment
+    # (OPENLAKEFORGE_ALERTS_ACCESS_KEY_ID, OPENLAKEFORGE_ALERTS_SECRET_ACCESS_KEY). Without both the route answers
+    # `not_provided`.
+    alerts_state_base_uri: str | None = None
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -204,6 +209,7 @@ class Settings:
                 metrics_enabled=data.get("metrics_enabled") is True,
                 metrics_url=data.get("metrics_url") or None,
                 metrics_retention_days=int(data.get("metrics_retention_days", 7)),
+                alerts_state_base_uri=data.get("alerts_state_base_uri") or None,
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -312,6 +318,12 @@ class Settings:
                 raise SettingsError("metrics_url is set but metrics_enabled is not")
         if self.metrics_retention_days < 1:
             raise SettingsError("metrics_retention_days must be positive")
+        if self.alerts_state_base_uri is not None and not (
+            urlsplit(self.alerts_state_base_uri).scheme == "s3"
+            and urlsplit(self.alerts_state_base_uri).netloc
+            and self.alerts_state_base_uri.endswith("/")
+        ):
+            raise SettingsError("alerts_state_base_uri must be s3://<bucket>/<prefix>/, ending in /")
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")

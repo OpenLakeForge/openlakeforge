@@ -17,6 +17,8 @@ from .alerts import (
     AlertKind,
     AlertSeverity,
     AlertState,
+    Delivery,
+    DeliveryOutcome,
     Incident,
     Notification,
     OutboxEntry,
@@ -26,6 +28,10 @@ from .health import Scope
 STATE_SCHEMA_VERSION = 1
 # Evaluator runs (5 minutes apart, about an hour) a notification may wait before it is undeliverable.
 MAX_OUTBOX_RUNS = 12
+# An incident is notified at most once per event (a notification's id is `<incident>:<event>`, and `notified_severity`
+# only rises, so it escalates once at most), and it opens before it escalates: the event alone orders its notifications.
+# They can settle out of that order, as an opening that waits out its expiry behind a delivered escalation does.
+_NOTIFICATION_ORDER = (AlertEvent.OPENED, AlertEvent.ESCALATED, AlertEvent.RESOLVED)
 
 
 class AlertStateError(ValueError):
@@ -41,24 +47,28 @@ def record_attempt(state: AlertState, notification_id: str, receiver: str) -> Al
     )
 
 
-def record_delivery(state: AlertState, notification_id: str, receiver: str, *, routed: Collection[str]) -> AlertState:
-    """Mark a receiver as having accepted a notification; the entry goes once every routed receiver has it."""
+def record_delivery(
+    state: AlertState, notification_id: str, receiver: str, *, routed: Collection[str], rejected: bool = False
+) -> AlertState:
+    """Mark a receiver as having settled a notification; the entry goes once every routed receiver has.
+
+    `rejected` settles it without delivering: the receiver refused it in a way a retry will not change.
+    """
+    refused = frozenset({receiver}) if rejected else frozenset()
     marked = _update(
-        state, notification_id, lambda entry: replace(entry, delivered=entry.delivered | frozenset({receiver}))
+        state,
+        notification_id,
+        lambda entry: replace(entry, delivered=entry.delivered | {receiver}, rejected=entry.rejected | refused),
     )
-    return replace(
+    return _settle(
         marked,
-        outbox=tuple(
-            entry
-            for entry in marked.outbox
-            if entry.notification.id != notification_id or not set(routed) <= entry.delivered
-        ),
+        [e for e in marked.outbox if e.notification.id == notification_id and set(routed) <= e.delivered],
     )
 
 
 def drop_notification(state: AlertState, notification_id: str) -> AlertState:
-    """Remove a notification outright, for a sender that has decided it can never be delivered."""
-    return replace(state, outbox=tuple(entry for entry in state.outbox if entry.notification.id != notification_id))
+    """Remove a notification nobody is left to send to: no receiver is routed, or every routed one has settled it."""
+    return _settle(state, [entry for entry in state.outbox if entry.notification.id == notification_id])
 
 
 def expire_outbox(state: AlertState, max_runs: int = MAX_OUTBOX_RUNS) -> tuple[AlertState, list[OutboxEntry]]:
@@ -66,8 +76,59 @@ def expire_outbox(state: AlertState, max_runs: int = MAX_OUTBOX_RUNS) -> tuple[A
     if max_runs < 1:
         raise ValueError("max_runs must be at least 1")
     expired = [entry for entry in state.outbox if entry.runs >= max_runs]
-    kept = tuple(entry for entry in state.outbox if entry.runs < max_runs)
-    return replace(state, outbox=kept), expired
+    return _settle(state, expired, expired=True), expired
+
+
+def notification_order(event: AlertEvent) -> int:
+    """Where an incident's notification of `event` falls among its others: a higher one is the later notification."""
+    return _NOTIFICATION_ORDER.index(event)
+
+
+def _settle(state: AlertState, entries: list[OutboxEntry], *, expired: bool = False) -> AlertState:
+    """Remove `entries` from the outbox, keeping on each open incident the outcome of its latest settled notification.
+
+    An older notification that settles after a newer one leaves the newer one's outcome in place.
+    """
+    gone = {entry.notification.id for entry in entries}
+    outcomes: dict[str, Delivery] = {}
+    for entry in entries:
+        outcome = _delivery(entry, expired=expired)
+        if not _older(outcome, outcomes.get(entry.notification.incident_id)):
+            outcomes[entry.notification.incident_id] = outcome
+    return replace(
+        state,
+        incidents=tuple(
+            replace(incident, delivery=outcomes[incident.id])
+            if incident.id in outcomes and not _older(outcomes[incident.id], incident.delivery)
+            else incident
+            for incident in state.incidents
+        ),
+        outbox=tuple(entry for entry in state.outbox if entry.notification.id not in gone),
+    )
+
+
+def _older(outcome: Delivery, than: Delivery | None) -> bool:
+    return than is not None and notification_order(outcome.event) < notification_order(than.event)
+
+
+def _delivery(entry: OutboxEntry, *, expired: bool) -> Delivery:
+    receivers = set(entry.attempts) | entry.delivered
+    accepted = entry.delivered - entry.rejected
+    if expired or entry.rejected:
+        outcome = DeliveryOutcome.UNDELIVERABLE
+    elif not accepted:
+        # Not expired, refused by nobody and accepted by nobody: it left because no receiver is routed to it, from the
+        # start or after those it was being retried to were removed from the routes. Nobody was told.
+        outcome = DeliveryOutcome.UNROUTED
+    else:
+        outcome = DeliveryOutcome.DELIVERED
+    return Delivery(
+        event=entry.notification.event,
+        outcome=outcome,
+        receivers=len(receivers),
+        delivered=len(accepted),
+        attempts=sum(entry.attempts.values()),
+    )
 
 
 def _update(state: AlertState, notification_id: str, change: Any) -> AlertState:
@@ -81,15 +142,7 @@ def state_to_json(state: AlertState) -> str:
     document = {
         "schema_version": STATE_SCHEMA_VERSION,
         "incidents": [_incident_to_dict(incident) for incident in state.incidents],
-        "outbox": [
-            {
-                "notification": _notification_to_dict(entry.notification),
-                "attempts": dict(sorted(entry.attempts.items())),
-                "delivered": sorted(entry.delivered),
-                "runs": entry.runs,
-            }
-            for entry in state.outbox
-        ],
+        "outbox": [_entry_to_dict(entry) for entry in state.outbox],
         "unknown_counts": dict(sorted(state.unknown_counts.items())),
         "sequences": dict(sorted(state.sequences.items())),
     }
@@ -117,12 +170,27 @@ def state_from_json(text: str) -> AlertState:
         raise AlertStateError(f"alert state is malformed: {error!r}") from error
 
 
+# `rejected` and `delivery` are written only when set, so a state without them serializes exactly as the evaluator
+# before them wrote it: pending history is tagged with a digest of that text (`state_digest` in the platform API), and
+# a digest that changed across an upgrade would drop history still waiting to be replayed.
+def _entry_to_dict(entry: OutboxEntry) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "notification": _notification_to_dict(entry.notification),
+        "attempts": dict(sorted(entry.attempts.items())),
+        "delivered": sorted(entry.delivered),
+        "runs": entry.runs,
+    }
+    if entry.rejected:
+        item["rejected"] = sorted(entry.rejected)
+    return item
+
+
 def _scope_to_dict(scope: Scope) -> dict[str, str | None]:
     return {"stage": scope.stage, "domain": scope.domain, "product": scope.product, "table": scope.table}
 
 
 def _incident_to_dict(incident: Incident) -> dict[str, Any]:
-    return {
+    item: dict[str, Any] = {
         "id": incident.id,
         "fingerprint": incident.fingerprint,
         "kind": incident.kind.value,
@@ -134,6 +202,19 @@ def _incident_to_dict(incident: Incident) -> dict[str, Any]:
         "reason": incident.reason,
         "component": incident.component,
         "run_ids": list(incident.run_ids),
+    }
+    if incident.delivery is not None:
+        item["delivery"] = _delivery_to_dict(incident.delivery)
+    return item
+
+
+def _delivery_to_dict(delivery: Delivery) -> dict[str, Any]:
+    return {
+        "event": delivery.event.value,
+        "outcome": delivery.outcome.value,
+        "receivers": delivery.receivers,
+        "delivered": delivery.delivered,
+        "attempts": delivery.attempts,
     }
 
 
@@ -218,6 +299,19 @@ def _incident_from_dict(value: Any) -> Incident:
         reason=_str(item["reason"]),
         component=_opt_str(item["component"]),
         run_ids=tuple(_str(run) for run in _list(item["run_ids"])),
+        # Absent from a state written before outcomes were kept: unknown, not delivered.
+        delivery=None if item.get("delivery") is None else _delivery_from_dict(item["delivery"]),
+    )
+
+
+def _delivery_from_dict(value: Any) -> Delivery:
+    item = _dict(value)
+    return Delivery(
+        event=AlertEvent(_str(item["event"])),
+        outcome=DeliveryOutcome(_str(item["outcome"])),
+        receivers=_int(item["receivers"]),
+        delivered=_int(item["delivered"]),
+        attempts=_int(item["attempts"]),
     )
 
 
@@ -227,6 +321,7 @@ def _entry_from_dict(value: Any) -> OutboxEntry:
         notification=_notification_from_dict(item["notification"]),
         attempts=_counts(item["attempts"]),
         delivered=frozenset(_str(receiver) for receiver in _list(item["delivered"])),
+        rejected=frozenset(_str(receiver) for receiver in _list(item.get("rejected", []))),
         runs=_int(item["runs"]),
     )
 

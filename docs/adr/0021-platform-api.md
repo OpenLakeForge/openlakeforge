@@ -115,6 +115,7 @@ cannot accept the person's token. Per service:
 | Superset | Report export and import | The platform API's Superset service credential | **The platform API** |
 | Dagster | Runs and jobs | None (Dagster checks nothing); the platform API reaches it over its own flow rows | **The platform API** |
 | Object store | Archived log reads | The platform API's read-only key for the log prefix | **The platform API** |
+| Object store | Open alert incidents and their delivery | The platform API's read-only alert state key | **The platform API** |
 | Object store | The files explorer: list, download, upload, create folders, rename and delete, in the enabled stages' layer buckets and the ops bucket | The platform API's files key | **The platform API** |
 
 A call that carries the person's token takes one of two routes. A CLI command
@@ -215,7 +216,11 @@ For those calls it therefore:
   minted in-cluster like the others, mounted from its own Secret, and used by
   its own client, never the log reader's. The object store cannot narrow it
   below a bucket and cannot tell one person from another, so the API decides
-  access (the files explorer below);
+  access (the files explorer below). The alert incidents route reads the
+  evaluator's state with a fourth, the **alert state key**, identity
+  `openlakeforge-platform-api-alerts`, `Read` and `List` on `alerts/state/*` of
+  the ops bucket only ([ADR 0023](0023-alert-evaluation-and-webhook-delivery.md),
+  decision 3);
 - **reaches Dagster's GraphQL API through its own rows in
   `release/network-flows.yaml`**, and its permission matrix is the only check
   on what it asks there, since Dagster checks nothing;
@@ -825,3 +830,10 @@ role allows at least one monitoring route, by the matrix and its `role_stages`, 
 stage's sources (`dagster`, `services`, `quality`, `quality-sync`, `logs`, `metrics`, `alerts`) in the health routes'
 `available`, `disabled`, `unavailable` and `not_provided` vocabulary. It is built from the settings alone, so it says a
 source is configured, never that it answers, and names no host, URI or bucket.
+
+2026-11-18: #1258. `GET /api/v1/stages/{stage}/alerts/incidents` (`list_alert_incidents`) added at the health routes'
+floor, read-only and not audited, with no acknowledgement: the stage's open incidents from the alert evaluator's
+`state.json`, each with its latest notification's delivery, from payload-allowlist fields and counts only. A new read-only
+object-store identity, the alert state key (`Read` and `List` on `alerts/state/*`), joins decision 3's list and the
+service table. A missing, unreadable or unparsable state is `unavailable` with no incidents, and a state older than two
+evaluator runs is `stale`. The read is held to a 10-second deadline, and the API never writes the state.

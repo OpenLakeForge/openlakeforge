@@ -29,6 +29,7 @@ MONITORING_OPERATIONS = (
     "list_logs",
     "list_stage_metrics",
     "get_stage_metric",
+    "list_alert_incidents",
 )
 
 
@@ -64,10 +65,15 @@ def _metrics(settings: Settings) -> MonitoringCapability:
     return MonitoringCapability(name="metrics", status="available", reason="a metrics backend is configured")
 
 
-# No route reads alert incidents yet; the entry turns `available` with the route that does.
-_ALERTS = MonitoringCapability(
-    name="alerts", status="not_provided", reason="the platform API serves no alert incidents"
-)
+def _alerts(request: Request) -> MonitoringCapability:
+    # The same condition `alert_routes.list_alert_incidents` answers `not_provided` on, so the two never disagree.
+    if request.app.state.settings.alerts_state_base_uri is None or request.app.state.alert_state_store is None:
+        return MonitoringCapability(
+            name="alerts",
+            status="not_provided",
+            reason="no alert evaluator, or no key to read its state, is configured",
+        )
+    return MonitoringCapability(name="alerts", status="available", reason="the alert evaluator's state is configured")
 
 
 def _from(status: IntegrationStatus) -> MonitoringCapability:
@@ -83,7 +89,7 @@ def _capabilities(request: Request, stage: str) -> list[MonitoringCapability]:
         _from(health_routes._quality_sync(request, stage)),
         _logs(request, stage),
         _metrics(settings),
-        _ALERTS,
+        _alerts(request),
     ]
 
 

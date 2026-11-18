@@ -56,6 +56,7 @@ def test_the_shipped_app_serves_only_its_routes(settings: Settings) -> None:
         ("/api/v1/monitoring-capabilities", "GET"),
         ("/api/v1/platform/metrics/{series}", "GET"),
         ("/api/v1/query-capabilities", "GET"),
+        ("/api/v1/stages/{stage}/alerts/incidents", "GET"),
         ("/api/v1/stages/{stage}/buckets", "GET"),
         ("/api/v1/stages/{stage}/buckets/{bucket}/folders", "POST"),
         ("/api/v1/stages/{stage}/buckets/{bucket}/objects", "GET"),

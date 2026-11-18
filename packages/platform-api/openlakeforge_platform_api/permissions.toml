@@ -71,6 +71,13 @@ stages = ["*"]
 role = "viewer"
 stages = []
 
+# The stage's open alert incidents and whether their notifications were delivered, from the evaluator's state (#1258).
+# Payload-allowlist fields and delivery counts only, no receiver name or URL, so the floor is the health routes'.
+# Read-only and not audited; there is no acknowledgement (ADR 0023, decision 3).
+[operations.list_alert_incidents]
+role = "data-engineer"
+stages = ["*"]
+
 # Resource history from the metrics backend and run series from Dagster (ADR 0024, decision 4). The API sends only
 # the catalog's named series over its fixed ranges; no route takes a query. A series carries no log text or data, so
 # the floor is the health routes'. Read-only and not audited.
