@@ -818,3 +818,10 @@ floor, read-only and not audited: per product pipeline, the outcome counts of th
 signal, read in the same `read_stage_pipelines` pass as `list_pipeline_health`, and their sum. Counts and run ids only;
 an absent or unusable manifest has no counts rather than zeros. The whole read is held to a 20-second deadline. ADR
 0023's quality manifest and signal are unchanged.
+
+2026-11-18: #1259. `GET /api/v1/monitoring-capabilities` (`monitoring_capabilities`) added beside the query and files
+capability documents, row `viewer` with no stages, read-only and not audited: the enabled stages on which the caller's
+role allows at least one monitoring route, by the matrix and its `role_stages`, the routes it allows there, and each
+stage's sources (`dagster`, `services`, `quality`, `quality-sync`, `logs`, `metrics`, `alerts`) in the health routes'
+`available`, `disabled`, `unavailable` and `not_provided` vocabulary. It is built from the settings alone, so it says a
+source is configured, never that it answers, and names no host, URI or bucket.
