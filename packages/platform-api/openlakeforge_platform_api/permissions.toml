@@ -64,6 +64,13 @@ stages = ["*"]
 role = "data-engineer"
 stages = ["*"]
 
+# What a client may show on its monitoring page (#1259), in the style of file_capabilities: the stages on which the
+# caller's role allows at least one monitoring route, and which sources each is configured with. Built from the
+# settings and the matrix alone, with no read, so it is open to every role: an analyst or viewer gets no stage back.
+[operations.monitoring_capabilities]
+role = "viewer"
+stages = []
+
 # Resource history from the metrics backend and run series from Dagster (ADR 0024, decision 4). The API sends only
 # the catalog's named series over its fixed ranges; no route takes a query. A series carries no log text or data, so
 # the floor is the health routes'. Read-only and not audited.

@@ -966,6 +966,90 @@
         "title": "MetricSeriesInfo",
         "type": "object"
       },
+      "MonitoringCapabilities": {
+        "properties": {
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/MonitoringStage"
+            },
+            "title": "Stages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "stages"
+        ],
+        "title": "MonitoringCapabilities",
+        "type": "object"
+      },
+      "MonitoringCapability": {
+        "description": "Whether a stage is configured with one observability source. Configuration only: `available` says the source is\nthere, not that it answers; liveness is the health routes'.",
+        "properties": {
+          "name": {
+            "enum": [
+              "dagster",
+              "services",
+              "quality",
+              "quality-sync",
+              "logs",
+              "metrics",
+              "alerts"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "available",
+              "disabled",
+              "unavailable",
+              "not_provided"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "reason"
+        ],
+        "title": "MonitoringCapability",
+        "type": "object"
+      },
+      "MonitoringStage": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/MonitoringCapability"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "operations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "operations",
+          "capabilities"
+        ],
+        "title": "MonitoringStage",
+        "type": "object"
+      },
       "Objects": {
         "properties": {
           "files": {
@@ -2140,6 +2224,24 @@
           }
         },
         "summary": "File Capabilities"
+      }
+    },
+    "/api/v1/monitoring-capabilities": {
+      "get": {
+        "operationId": "monitoring_capabilities_api_v1_monitoring_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitoringCapabilities"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Monitoring Capabilities"
       }
     },
     "/api/v1/platform/metrics/{series}": {

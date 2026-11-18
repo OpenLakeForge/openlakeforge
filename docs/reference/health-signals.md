@@ -362,6 +362,30 @@ principal, `alert-evaluator`, is the only service principal the permission
 matrix admits, and this is the only route it may call. People read it with the
 same `data-engineer` role floor as the full stage health.
 
+## Monitoring capabilities
+
+`GET /api/v1/monitoring-capabilities` tells a client what its monitoring page
+can show before it calls any route above. It lists the enabled stages on which
+the caller's role may call at least one monitoring route, with those routes in
+`operations`, and the stage's sources in `capabilities`. Any role may ask: an
+`analyst` or `viewer` gets `stages: []`, a `data-engineer` gets every stage
+with `list_logs` on `dev` only, and a `platform-admin` gets everything.
+
+The answer is built from the API's settings and its permission matrix alone,
+with no probe or read, so `available` means the source is configured, not that
+it answers; the health routes say whether it does. Each entry carries a
+`reason`, which names no host, URI or bucket.
+
+| Source | `available` when | Otherwise |
+| --- | --- | --- |
+| `dagster` | The stage has a Dagster GraphQL URL | `disabled` |
+| `services` | The API has service probes and the stage a namespace | `disabled` |
+| `quality` | The stage has a quality manifest prefix and its read-only key | `not_provided` |
+| `quality-sync` | The stage has a quality-sync summary and the API has probes | `not_provided` without a summary, `unavailable` without probes |
+| `logs` | The stage has a log archive and the API its read key | `not_provided` without an archive, `unavailable` without the key |
+| `metrics` | The profile enables metrics and the provider gives a query URL | `disabled` when the profile turns them off, `not_provided` without a URL |
+| `alerts` | Never yet: no route serves alert incidents | `not_provided` |
+
 ## Rollup
 
 `rollup` returns the worst state of signals from one stage. The order, worst
