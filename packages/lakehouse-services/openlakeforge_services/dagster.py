@@ -285,6 +285,14 @@ class DagsterClient:
 
     def list_runs(self, *, job_name: str = "", limit: int = 20) -> list[DagsterRun]:
         """The most recent runs, newest first, optionally of one job."""
+        # Dagster's run filter still names the job `pipelineName`.
+        return self._runs({"pipelineName": job_name} if job_name else {}, limit)
+
+    def list_runs_created_after(self, created_after: float, *, limit: int) -> list[DagsterRun]:
+        """Every job's runs created after `created_after` (Unix seconds), newest first, at most `limit` of them."""
+        return self._runs({"createdAfter": created_after}, limit)
+
+    def _runs(self, run_filter: Mapping[str, Any], limit: int) -> list[DagsterRun]:
         result = self.graphql(
             f"""
             query Runs($filter: RunsFilter, $limit: Int) {{
@@ -296,8 +304,7 @@ class DagsterClient:
               }}
             }}
             """,
-            # Dagster's run filter still names the job `pipelineName`.
-            {"filter": {"pipelineName": job_name} if job_name else {}, "limit": limit},
+            {"filter": dict(run_filter), "limit": limit},
         )["runsOrError"]
         if result.get("__typename") != "Runs":
             raise ServiceClientError(f"Dagster could not list runs: {result.get('message', result)}")

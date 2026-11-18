@@ -474,6 +474,9 @@ module "platform_api" {
   # Quality summaries (#1186): each stage's manifests, read with its own key.
   quality_manifests           = { for name in keys(local.enabled_stages) : name => "${local.artifact_base_uri}/activations/${name}/" }
   quality_reader_secret_names = module.seaweedfs.quality_reader_secret_names
+  # Publication lag (#798): the summary each governed stage's reconciler writes, read with the files key below,
+  # which already holds Read on the ops bucket. Slim has no reconciler and no entry.
+  quality_sync_summaries = { for name in keys(local.governed_stages) : name => "${local.artifact_base_uri}/activations/${name}/quality-sync/summary.json" }
   # The collector's spool probes (ADR 0022, decision 2), read over F42.
   log_collector_probe_url = module.log_collector.probe_url
   # Polaris's management port, read over F43 (readiness only, no credential).

@@ -9,6 +9,10 @@ on:
     branches:
       - main
   workflow_call:
+    # Optional: without it the catalog-image job scans anonymously (see its login step).
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -119,6 +123,20 @@ jobs:
         with:
           version: v0.76.1
 
+      # Anonymous pulls share Docker Hub's per-address limit with every job on the runner's
+      # address (#1250); logged in, they count against the org account instead. Trivy reads
+      # this login from ~/.docker/config.json, keyed by registry, so the token reaches Docker
+      # Hub only (TRIVY_USERNAME/TRIVY_PASSWORD would go to every registry). Fork pull
+      # requests and callers that do not pass the token skip it and scan anonymously.
+      - name: Log in to Docker Hub
+        if: env.DOCKERHUB_TOKEN != ''
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       # Pulling ~20 third-party images on every pull request would burn registry
       # rate limits and fail unrelated changes on new CVEs; main and releases scan them all.
       - name: Scan the images pinned in the component catalog
@@ -137,6 +155,9 @@ jobs:
           for name, ref in yaml.safe_load(open('release/component-catalog.yaml'))['components']['images'].items():
               print(name, ref)
           ")"
+          scan_log="$(mktemp)"
+          # Status text, not bare codes: a bare 429 or 503 can occur inside an image digest.
+          transient='TOOMANYREQUESTS|too many requests|status code (429|5[0-9][0-9])|(500 Internal Server Error|502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout)|timeout|timed out|deadline exceeded|connection reset|unexpected EOF'
           failed=0
           while read -r name ref; do
             report="evidence/image-${name}.json"
@@ -146,15 +167,22 @@ jobs:
               code=0
               detail=summary
             fi
-            # Registries rate-limit anonymous pulls from shared runner addresses. A waived
-            # image never blocks, so only an unwaived one fails on a scan that cannot run.
+            # Registries rate-limit anonymous pulls from shared runner addresses (#1250 lost
+            # three 60 s retries to Docker Hub's TOOMANYREQUESTS), so a registry-side error
+            # backs off with jitter before retrying. Any other failure is not retried: trivy
+            # image exits 0 on findings, so a failure here means the scan did not run. A
+            # waived image never blocks, so only an unwaived one fails on a scan that cannot run.
             scanned=0
-            for attempt in 1 2 3; do
-              if trivy image --image-src remote --scanners vuln --format json --output "${report}" "${ref}" </dev/null; then
+            for attempt in 1 2 3 4; do
+              if trivy image --image-src remote --scanners vuln --format json --output "${report}" "${ref}" \
+                  </dev/null 2>&1 | tee "${scan_log}"; then
                 scanned=1
                 break
               fi
-              sleep 60
+              (( attempt < 4 )) && grep -Eqi "${transient}" "${scan_log}" || break
+              delay=$(( 30 * 2 ** (attempt - 1) + RANDOM % 15 ))
+              echo "::notice::registry error scanning ${name} (attempt ${attempt}); retrying in ${delay}s"
+              sleep "${delay}"
             done
             if [[ "${scanned}" == 0 ]]; then
               echo "::warning::could not scan ${name}"

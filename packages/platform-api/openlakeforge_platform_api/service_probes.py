@@ -17,6 +17,9 @@ What each probe proves, and what it does not (the table is ADR 0021, decision 7)
   spool is, over every collector pod (ADR 0022, decision 2). Not that an object reached the bucket.
 - `log-archive.newest-object`: the stage's newest archive object, listed with the log reader's key. Covers a
   collector that is down, which the spool probe cannot see; an idle stage reads the same as a stalled one.
+- `quality-sync.publication`: the quality reconciler's last summary, read with the files key: how long ago its last pass
+  ended, how old the oldest unpublished result is, and whether any gave up. Not whether the data passed its checks,
+  which is the `quality` signal, and not that OpenMetadata shows a result.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from openlakeforge_core import (
     ArchiveThresholds,
     HealthState,
+    QualityRecordError,
     Scope,
     Signal,
     SpoolObservation,
@@ -51,6 +55,12 @@ from openlakeforge_core import (
     parse_spool_report,
     service_signal,
     worst_state,
+)
+from openlakeforge_core.quality_sync import (
+    PUBLICATION_COMPONENT,
+    PublicationThresholds,
+    SyncSummary,
+    evaluate_publication,
 )
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
@@ -86,12 +96,20 @@ SpoolRead = Callable[[str], tuple[list[SpoolObservation], int]]
 ARCHIVE_DAYS = 2
 # A day's prefix holds one object per flush per node, far below this; the cap bounds a probe on a runaway prefix.
 _ARCHIVE_PAGES = 5
+# The summary is a few hundred bytes; a larger object is not the reconciler's and is read no further.
+_SUMMARY_MAX_BYTES = 64 * 1024
 
 
 class ListableStore(Protocol):
     """The one S3 call the object-store probe makes; boto3's S3 client satisfies it."""
 
     def list_objects_v2(self, **kwargs: Any) -> Any: ...
+
+
+class ReadableStore(Protocol):
+    """The one S3 call the publication probe makes; boto3's S3 client satisfies it."""
+
+    def get_object(self, **kwargs: Any) -> Any: ...
 
 
 class _Outcome(NamedTuple):
@@ -127,6 +145,9 @@ class StageTargets:
     log_archive_namespace: str | None = None
     # The collector probes' base URL (the headless Service); the spool of this stage is read from every pod.
     spool_probe_url: str | None = None
+    # The stage's quality-sync summary, s3://<ops>/activations/<stage>/quality-sync/summary.json; None on a stage with
+    # no quality reconciler (no OpenMetadata), whose publication signal is then `disabled`.
+    quality_sync_summary_uri: str | None = None
 
 
 class StageProber(Protocol):
@@ -153,7 +174,9 @@ class ServiceProbes:
         store: ListableStore | None,
         archive_store: ListableStore | None = None,
         spool_read: SpoolRead | None = None,
+        summary_store: ReadableStore | None = None,
         archive_thresholds: ArchiveThresholds = ArchiveThresholds(),  # noqa: B008 - frozen
+        publication_thresholds: PublicationThresholds = PublicationThresholds(),  # noqa: B008 - frozen
         timeout: timedelta = PROBE_TIMEOUT,
         ttl: timedelta = timedelta(seconds=60),
         restart_window: timedelta = timedelta(minutes=30),
@@ -167,7 +190,9 @@ class ServiceProbes:
         self._store = store
         self._archive_store = archive_store
         self._spool_read = spool_read
+        self._summary_store = summary_store
         self._archive_thresholds = archive_thresholds
+        self._publication_thresholds = publication_thresholds
         self._timeout = timeout
         self._ttl = ttl
         self._restart_window = restart_window
@@ -182,7 +207,11 @@ class ServiceProbes:
 
     @classmethod
     def in_cluster(
-        cls, store: ListableStore | None, archive_store: ListableStore | None = None, **options: Any
+        cls,
+        store: ListableStore | None,
+        archive_store: ListableStore | None = None,
+        summary_store: ReadableStore | None = None,
+        **options: Any,
     ) -> ServiceProbes:
         """Probes against the pod's own cluster; every call is bounded by the probe `timeout` (default 5 seconds).
 
@@ -194,6 +223,7 @@ class ServiceProbes:
         seconds = timeout.total_seconds()
         _require_bounded_store(store, seconds)
         _require_bounded_store(archive_store, seconds)
+        _require_bounded_store(summary_store, seconds)
         return cls(
             kube_list=in_cluster_kube_list(seconds),
             http_get_json=_http_get_json,
@@ -201,6 +231,7 @@ class ServiceProbes:
             store=store,
             archive_store=archive_store,
             spool_read=in_cluster_spool_read(seconds),
+            summary_store=summary_store,
             **options,
         )
 
@@ -265,6 +296,9 @@ class ServiceProbes:
             ),
         ]
         checks.extend(archive_checks)
+        checks.append(
+            (PUBLICATION_COMPONENT, targets.quality_sync_summary_uri is not None, lambda: self._publication(targets))
+        )
         now = self._clock()
         results = self._run([(name, check) for name, enabled, check in checks if enabled])
         signals = []
@@ -459,6 +493,35 @@ class ServiceProbes:
                 break
         return newest
 
+    def _publication(self, targets: StageTargets) -> _Outcome:
+        """The reconciler's summary judged by `evaluate_publication`. A summary that is missing or does not parse is
+        `unknown`: no pass has finished, or something other than the reconciler wrote it."""
+        uri = targets.quality_sync_summary_uri
+        assert uri is not None
+        if self._summary_store is None:
+            raise ProbeError("no key to read the publication summary with")
+        bucket, _, key = uri.removeprefix("s3://").partition("/")
+        summary: SyncSummary | None = None
+        try:
+            body = self._summary_store.get_object(Bucket=bucket, Key=key)["Body"].read(_SUMMARY_MAX_BYTES + 1)
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            if code not in {"NoSuchKey", "404"}:
+                raise ProbeError(f"the object store refused the summary read ({code or 'unknown error'})") from exc
+        except BotoCoreError as exc:
+            raise ProbeError(f"the object store is unreachable: {type(exc).__name__}") from exc
+        else:
+            try:
+                if len(body) > _SUMMARY_MAX_BYTES:
+                    raise QualityRecordError("the summary is too large")
+                summary = SyncSummary.from_json(body.decode())
+            except (QualityRecordError, UnicodeDecodeError):
+                return _Outcome(HealthState.UNKNOWN, "the publication summary is unreadable", uri)
+        signal = evaluate_publication(
+            targets.stage, summary, now=self._clock(), max_age=self._ttl, thresholds=self._publication_thresholds
+        )
+        return _Outcome(signal.state, signal.reason, uri)
+
     def _object_store(self, targets: StageTargets) -> _Outcome:
         assert self._store is not None and targets.bucket is not None
         try:
@@ -489,6 +552,7 @@ COMPONENT_SOURCES = {
     SPOOL_AGE_COMPONENT: "log-collector",
     SPOOL_SIZE_COMPONENT: "log-collector",
     NEWEST_OBJECT_COMPONENT: "s3",
+    PUBLICATION_COMPONENT: "quality-reconciler",
 }
 
 
@@ -590,7 +654,7 @@ def bounded_s3_config(timeout: timedelta) -> Config:
     return Config(connect_timeout=seconds, read_timeout=seconds, retries={"max_attempts": 1})
 
 
-def _require_bounded_store(store: ListableStore | None, seconds: float) -> None:
+def _require_bounded_store(store: ListableStore | ReadableStore | None, seconds: float) -> None:
     config = getattr(getattr(store, "meta", None), "config", None)
     for name in ("connect_timeout", "read_timeout"):
         value = getattr(config, name, None)

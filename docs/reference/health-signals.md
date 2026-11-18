@@ -34,7 +34,7 @@ that points at the retained evidence rather than carrying log text.
 ## What a service row says about itself
 
 The stage health route returns each service with its `component`, a `source` (what the probe asked: `kubernetes`,
-`dagster-graphql`, `trino-http`, `polaris-http`, `s3` or `log-collector`; never an address), `observed_at`, `expires_at` and
+`dagster-graphql`, `trino-http`, `polaris-http`, `s3`, `log-collector` or `quality-reconciler`; never an address), `observed_at`, `expires_at` and
 `max_age_seconds`, the gap between the two. Probes run when the route is read and are reused for a few seconds, so
 `max_age_seconds` says how long an answer stays usable; it is not a polling interval.
 
@@ -45,6 +45,7 @@ The stage health route returns each service with its `component`, a `source` (wh
 | `trino.readiness` | `trino-http` | The coordinator finished starting | Workers, catalogs or Polaris access work |
 | `polaris.readiness` | `polaris-http` | The catalog's management port answers `/q/health/ready` as UP, sent with no credential | A catalog read works, a grant holds, or the stage's catalog exists |
 | `object-store.list` | `s3` | The endpoint is reachable and the key may list the bucket | A write is durable |
+| `quality-sync.publication` | `quality-reconciler` | The reconciler's last pass is recent and no result waits too long or gave up ([below](#publication-health)) | The data passed its checks, or OpenMetadata shows a given result |
 
 `polaris.readiness` is `critical` when Polaris answers that it is not ready (HTTP 503 or a DOWN status), and `unknown`
 when it does not answer, answers something else or the probe times out. It reads `disabled` in a profile that deploys no
@@ -188,8 +189,8 @@ stage's activation prefix, one state object per run at
 | `last_success_at`, `last_failure_at` | Times of the last published and last failed result |
 | `last_error` | One line, never a response body |
 
-A stage without governance has no summary and no publisher, so a reader must
-treat a missing summary as `disabled`, not as a failed publisher. Retries back
+A stage without governance has no summary and no publisher; the health route
+reads that from its settings, not from a missing object. Retries back
 off from 1 minute to 1 hour. OpenMetadata statuses: PASS is `Success`, a blocking ERROR is `Failed`
 and an advisory WARN is `Aborted`, because `Failed` opens an incident in
 OpenMetadata 1.13.6 and `Success` would hide the warning. The original outcome
@@ -242,9 +243,39 @@ fails at the 240-second deadline; passes publish once the Secret exists. The
 AWS and Azure roots do not deploy the reconciler yet, so there the command
 below is the only way to publish.
 
-No health route reads `quality-sync/summary.json` yet. Today it is readable in
-the bucket and through the output of the command below; the health route and
-its alert condition are a separate change.
+### Publication health
+
+The stage health route reads each governed stage's summary as the service
+signal `quality-sync.publication`, apart from the `quality` signal: a lagging
+publisher never changes whether the data passed. The worst finding decides:
+
+| Finding | State |
+| --- | --- |
+| The summary is at least 15 minutes old (two scheduled passes missed) | `warning` |
+| The summary is at least 1 hour old | `critical` |
+| The oldest unpublished result has waited at least 30 minutes | `warning` |
+| It has waited at least 2 hours (the retry backoff has reached its 1-hour cap) | `critical` |
+| A result gave up after 10 attempts (`failed` above 0) | `critical` |
+| A manifest cannot be published at all (`rejected_runs` above 0) | `warning` |
+| None of the above | `healthy` |
+| No summary, a summary that does not parse or is another stage's, or a read that fails | `unknown` |
+| A stage without governance | `disabled` |
+
+The thresholds follow the schedule: a pass every 5 minutes that stops after
+240 seconds leaves a summary at most about 9 minutes old, and a result is
+published by the first pass after its manifest lands. A result waiting for its
+table to be registered counts toward the lag like any other. Lag and age are
+measured against the API's clock when the route is read, so a reconciler that
+stopped keeps aging. The `quality-sync` integration reads `available` on a
+governed stage and `not_provided` on one without governance, as on Slim, where
+no publisher exists to fail.
+
+The read uses the platform API's files key, which already holds `Read` on the
+whole ops bucket for the files explorer; no grant, Secret or flow was added.
+The settings name each governed stage's summary
+(`quality_sync_summaries`, rendered by `modules/access/platform-api`), so the
+key reads only that object for this signal. The signal does not raise an
+alert: `service_degraded` covers the components ADR 0023 lists.
 
 To publish without rerunning a pipeline, for a run that failed to publish or
 one older than the 30-day scan window:

@@ -140,6 +140,16 @@ def test_list_runs_without_a_job_sends_no_filter() -> None:
     assert sent == [{"filter": {}, "limit": 20}]
 
 
+def test_list_runs_created_after_filters_every_job_by_creation_time() -> None:
+    sent: list[Mapping[str, Any] | None] = []
+    client = _client({"runsOrError": {"__typename": "Runs", "results": [_RUN]}}, sent)
+
+    runs = client.list_runs_created_after(1699990000.0, limit=500)
+
+    assert sent == [{"filter": {"createdAfter": 1699990000.0}, "limit": 500}]
+    assert [run.run_id for run in runs] == ["run-1"]
+
+
 def test_list_runs_reports_dagsters_own_error() -> None:
     client = _client({"runsOrError": {"__typename": "PythonError", "message": "storage unavailable"}})
 

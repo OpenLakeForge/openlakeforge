@@ -16,8 +16,9 @@ from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from openlakeforge_core import HealthState
 from openlakeforge_core.quality import PipelineOutcome, QualityManifest, QualityOutcome, QualityResult
-from openlakeforge_core.quality_sync import SyncSummary
+from openlakeforge_core.quality_sync import SyncSummary, evaluate_publication
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 from openlakeforge_services.quality_publisher import QualityCatalog, QualityPublisher
 
@@ -196,7 +197,7 @@ def _check_publication(cfg: E2EConfig, stage: str, cronjob: Mapping[str, Any] | 
             for fqn in (*cases, case_fqn(silver, f"olf.floe.{CRON_RULE}")):
                 _delete_case(client, fqn)
             publisher.reconcile(limit=1)
-    _expect_clean_summary(cfg)
+    _expect_clean_summary(cfg, scheduled=cronjob is not None)
 
 
 def _reconciler_cronjob(cfg: E2EConfig, stage: str) -> dict[str, Any] | None:
@@ -337,11 +338,16 @@ def _delete_case(client: OpenMetadataClient, fqn: str) -> None:
         log.error(f"could not remove the e2e test case {fqn}: {exc}")
 
 
-def _expect_clean_summary(cfg: E2EConfig) -> None:
-    """With the synthetic runs gone, the stage's sync lag signal has nothing pending: the summary is readable."""
+def _expect_clean_summary(cfg: E2EConfig, *, scheduled: bool) -> None:
+    """With the synthetic runs gone the summary is readable. Where a reconciler keeps the stage published, the
+    stage's publication signal also reads healthy, judged with the thresholds the health route applies to it; without
+    one, the stage's own runs wait unpublished and their lag is expected."""
     stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
     with ops_bucket_client(cfg) as (s3, bucket):
         body = s3.get_object(Bucket=bucket, Key=f"activations/{stage}/quality-sync/summary.json")["Body"].read()
     summary = SyncSummary.from_json(body.decode())
     if summary.stage != stage:
         raise E2EError(f"the sync summary is for stage {summary.stage}, expected {stage}")
+    signal = evaluate_publication(stage, summary, now=datetime.now(UTC), max_age=timedelta(minutes=1))
+    if scheduled and signal.state is not HealthState.HEALTHY:
+        raise E2EError(f"quality-sync.publication is {signal.state.value} after a pass: {signal.reason}")

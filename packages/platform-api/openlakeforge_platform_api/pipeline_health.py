@@ -53,7 +53,7 @@ SCHEDULE_GRACE = DEFAULT_GRACE
 # Runs read per pipeline: enough to find a recent success and count failures without paging.
 RUN_WINDOW = 25
 
-_RUN_STATUS = {
+RUN_STATUS = {
     "SUCCESS": RunStatus.SUCCEEDED,
     "FAILURE": RunStatus.FAILED,
     "CANCELED": RunStatus.CANCELED,
@@ -81,7 +81,7 @@ def at(seconds: float) -> datetime:
 
 def _observation(run: DagsterRun) -> RunObservation:
     return RunObservation(
-        status=_RUN_STATUS.get(run.status, RunStatus.RUNNING),
+        status=RUN_STATUS.get(run.status, RunStatus.RUNNING),
         observed_at=at(run.ended_at or run.started_at or run.created_at),
         run=run.run_id,
     )

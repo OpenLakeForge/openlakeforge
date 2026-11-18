@@ -36,6 +36,7 @@ from openlakeforge_platform_api.quality_health import QualityReader, s3_quality_
 from openlakeforge_platform_api.service_probes import (
     PROBE_TIMEOUT,
     ListableStore,
+    ReadableStore,
     ServiceProbes,
     StageProber,
     bounded_s3_config,
@@ -272,8 +273,9 @@ def _probe_store(settings: Settings) -> ListableStore | None:
     """The S3 client the object-store probe lists with, or None when there is no key or no bucket to list.
 
     The files key, because it may list each stage's buckets: the log reader's key is scoped to the archive prefixes
-    and could not list a bucket's root. The probe only ever calls list_objects_v2 with it. The client is built with
-    `bounded_s3_config` so a hung store cannot hold a probe thread longer than the probe timeout.
+    and could not list a bucket's root. The probes only ever call list_objects_v2 with it, and get_object on a governed
+    stage's quality-sync summary. The client is built with `bounded_s3_config` so a hung store cannot hold a probe
+    thread longer than the probe timeout.
     """
     access_key = os.environ.get(FILES_ACCESS_KEY_ENV)
     secret_key = os.environ.get(FILES_SECRET_KEY_ENV)
@@ -333,11 +335,17 @@ def create_app(
     # matrix. ADR 0021 decision 5 commits the OpenAPI document under docs/schema.
     # Built once, here: it owns the probes' thread pool. Only where a stage namespace is configured, which is where
     # the Roles and the ServiceAccount token exist; elsewhere no probe could succeed and none is made.
-    owned_probes = (
-        ServiceProbes.in_cluster(_probe_store(settings), _archive_probe_store(settings), timeout=PROBE_TIMEOUT)
-        if service_probes is None and settings.stage_namespaces
-        else None
-    )
+    owned_probes: ServiceProbes | None = None
+    if service_probes is None and settings.stage_namespaces:
+        # The files key also reads each governed stage's quality-sync summary: it already holds Read on the whole ops
+        # bucket, so the publication signal needs no identity of its own.
+        probe_store = _probe_store(settings)
+        owned_probes = ServiceProbes.in_cluster(
+            probe_store,
+            _archive_probe_store(settings),
+            cast("ReadableStore | None", probe_store),
+            timeout=PROBE_TIMEOUT,
+        )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:

@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
+from openlakeforge_core.health import HealthState, Scope, Signal, service_signal, worst_state
 from openlakeforge_core.quality import QualityOutcome, QualityRecordError, QualityResult
 
 STATE_VERSION = 1
@@ -305,6 +306,78 @@ def summarize(
         last_failure_at=max(failures) if failures else None,
         last_error=last_error,
     )
+
+
+PUBLICATION_COMPONENT = "quality-sync.publication"
+
+
+@dataclass(frozen=True)
+class PublicationThresholds:
+    """When the publication signal turns `warning` and `critical` (#798).
+
+    The reconciler runs every 5 minutes and a pass stops after 240 seconds, so a working one leaves a summary at most
+    about 9 minutes old: the staleness warning is three schedule intervals (two passes missed in a row), critical is
+    twelve. A result is published by the first pass after its manifest lands; one that keeps failing is retried after
+    1, 2, 4, 8 minutes, so 30 minutes of lag is several refused passes and 2 hours is a backoff that has reached its
+    1-hour cap. A result that gave up (`failed`) waits for an operator, so it is critical at once.
+    """
+
+    stale_warning: timedelta = timedelta(minutes=15)
+    stale_critical: timedelta = timedelta(hours=1)
+    lag_warning: timedelta = timedelta(minutes=30)
+    lag_critical: timedelta = timedelta(hours=2)
+
+    def __post_init__(self) -> None:
+        if not timedelta(0) < self.stale_warning < self.stale_critical:
+            raise ValueError("the staleness thresholds must be positive, warning below critical")
+        if not timedelta(0) < self.lag_warning < self.lag_critical:
+            raise ValueError("the lag thresholds must be positive, warning below critical")
+
+
+def evaluate_publication(
+    stage: str,
+    summary: SyncSummary | None,
+    *,
+    now: datetime,
+    max_age: timedelta,
+    thresholds: PublicationThresholds = PublicationThresholds(),  # noqa: B008 - frozen, so sharing the default is safe
+) -> Signal:
+    """Whether the stage's quality results are reaching OpenMetadata, from the reconciler's last summary.
+
+    Publication only: whether the data passed its checks is the `quality` signal, read from the manifests. `None`
+    is a summary nobody could read or that does not exist yet, and is `unknown`: a reconciler that never finished a
+    pass must not read healthy.
+    """
+    scope = Scope(stage=stage)
+
+    def signal(state: HealthState, reason: str) -> Signal:
+        return service_signal(scope, PUBLICATION_COMPONENT, state, reason, now=now, max_age=max_age)
+
+    if summary is None:
+        return signal(HealthState.UNKNOWN, "no publication summary: the reconciler has not finished a pass")
+    if summary.stage != stage:
+        return signal(HealthState.UNKNOWN, f"the publication summary is stage {summary.stage!r}'s")
+    age = max(timedelta(0), now - summary.observed_at)
+    lag = None if summary.oldest_pending_at is None else max(timedelta(0), now - summary.oldest_pending_at)
+    error = f": {sanitize(summary.last_error)}" if summary.last_error else ""
+    findings = [(HealthState.HEALTHY, f"last pass {_minutes(age)} ago, {summary.pending} result(s) waiting")]
+    if age >= thresholds.stale_warning:
+        state = HealthState.CRITICAL if age >= thresholds.stale_critical else HealthState.WARNING
+        findings.append((state, f"no publication pass for {_minutes(age)}"))
+    if summary.failed:
+        gave_up = f"{summary.failed} result(s) gave up after {MAX_ATTEMPTS} attempts{error}"
+        findings.append((HealthState.CRITICAL, gave_up))
+    if lag is not None and lag >= thresholds.lag_warning:
+        state = HealthState.CRITICAL if lag >= thresholds.lag_critical else HealthState.WARNING
+        findings.append((state, f"{summary.pending} result(s) waiting, the oldest for {_minutes(lag)}{error}"))
+    if summary.rejected_runs:
+        findings.append((HealthState.WARNING, f"{summary.rejected_runs} manifest(s) cannot be published"))
+    worst = worst_state(state for state, _ in findings)
+    return signal(worst, next(reason for state, reason in findings if state is worst))
+
+
+def _minutes(age: timedelta) -> str:
+    return f"{age.total_seconds() / 60:.0f} min"
 
 
 def epoch_millis(moment: datetime) -> int:

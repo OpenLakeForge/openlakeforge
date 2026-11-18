@@ -447,6 +447,7 @@
               "dagster",
               "services",
               "quality",
+              "quality-sync",
               "metrics"
             ],
             "title": "Name",

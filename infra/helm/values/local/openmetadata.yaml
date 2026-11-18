@@ -74,7 +74,7 @@ openmetadata:
       metadataApiEndpoint: http://openmetadata:8585/api
       k8s:
         # namespace injected by Terraform yamlencode override
-        ingestionImage: "docker.getcollate.io/openmetadata/ingestion-base:1.13.6@sha256:29f8dcafc52bdbdb60dc3901569d9cd752cd10cb942375f5e08b53d38b05239e"
+        ingestionImage: "docker.io/openmetadata/ingestion-base:1.13.6@sha256:29f8dcafc52bdbdb60dc3901569d9cd752cd10cb942375f5e08b53d38b05239e"
         imagePullPolicy: "IfNotPresent"
         ttlSecondsAfterFinished: 3600
         activeDeadlineSeconds: 3600
