@@ -19,10 +19,17 @@
 #   collection's first write grows 7 volumes, and a write that finds no free
 #   slot fails as S3 InternalError. DEV+UAT+PROD is 10 collections, 70 slots
 #   (#208). Empty volumes are sparse, so slots are cheap.
+# metrics.volume: the Prometheus data PVC, only when metrics are enabled
+#   (ADR 0024, Decision 1). metrics.retention_size: its retention.size, 75% of
+#   the volume, because compaction can briefly exceed the cap. Provisional
+#   until the #21 slice M-f measures the footprint.
 sizes:
   small:
     object_store: {master: 1Gi, filer: 5Gi, volume: 20Gi, max_volumes: 80}
+    metrics: {volume: 4Gi, retention_size: 3GB}
   medium:
     object_store: {master: 2Gi, filer: 20Gi, volume: 300Gi, max_volumes: 380}
+    metrics: {volume: 8Gi, retention_size: 6GB}
   large:
     object_store: {master: 5Gi, filer: 50Gi, volume: 2Ti, max_volumes: 2128}
+    metrics: {volume: 16Gi, retention_size: 12GB}

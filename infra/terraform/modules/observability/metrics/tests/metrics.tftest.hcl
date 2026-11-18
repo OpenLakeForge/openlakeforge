@@ -1,0 +1,172 @@
+# ADR 0024 decisions 1 to 5: one bounded Prometheus, its scrape limits, the
+# stage label from namespaces and buckets, and a grant of nodes/metrics only.
+# Whether a disabled profile renders it at all is the local root's test.
+
+mock_provider "kubernetes" {}
+
+variables {
+  namespace        = "olf-system"
+  retention_days   = 7
+  volume_size      = "4Gi"
+  retention_size   = "3GB"
+  stage_namespaces = { dev = "olf-dev", prod = "olf-prod" }
+  trino_targets    = { dev = "trino.olf-dev.svc:8080", prod = "trino.olf-prod.svc:8080" }
+  object_store_targets = {
+    master = "seaweedfs-master.olf-system.svc:9327"
+    volume = "seaweedfs-volume.olf-system.svc:9327"
+    filer  = "seaweedfs-filer.olf-system.svc:9327"
+    s3     = "seaweedfs-s3.olf-system.svc:9327"
+  }
+  bucket_stages = { olf-dev-bronze = "dev", olf-prod-gold = "prod", olf-ops = "platform" }
+}
+
+run "every_scrape_is_bounded_and_history_is_capped" {
+  command = plan
+
+  assert {
+    condition = (
+      yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).global.label_limit == 16
+      && yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).global.label_value_length_limit == 256
+      && yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).global.scrape_interval == "30s"
+    )
+    error_message = "label count and length are limited for every job, at a 30 s interval"
+  }
+
+  assert {
+    condition = {
+      for job in yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).scrape_configs :
+      job.job_name => [job.sample_limit, try(job.target_limit, null)]
+      } == {
+      kubelet-resource = [2000, 20]
+      kubelet          = [2000, 20]
+      trino            = [500, 3]
+      object-store     = [500, 4]
+      prometheus       = [200, null]
+    }
+    error_message = "each job carries Decision 3's sample_limit and target_limit"
+  }
+
+  assert {
+    condition     = alltrue([for job in yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).scrape_configs : job.metric_relabel_configs[0].action == "keep"])
+    error_message = "every job keeps an allowlist before anything is stored"
+  }
+
+  assert {
+    condition     = yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).storage.tsdb.retention == { time = "7d", size = "3GB" }
+    error_message = "retention by time and by size, whichever comes first"
+  }
+
+  assert {
+    condition     = kubernetes_persistent_volume_claim_v1.data.spec[0].resources[0].requests["storage"] == "4Gi" && !kubernetes_persistent_volume_claim_v1.data.wait_until_bound
+    error_message = "the data volume is the size row's, and the apply does not wait on a WaitForFirstConsumer claim"
+  }
+}
+
+run "nothing_reloads_deletes_or_receives_over_http" {
+  command = plan
+
+  assert {
+    condition = length([
+      for arg in kubernetes_deployment_v1.prometheus.spec[0].template[0].spec[0].container[0].args : arg
+      if strcontains(arg, "enable-admin-api") || strcontains(arg, "enable-lifecycle") || strcontains(arg, "otlp") || strcontains(arg, "remote-write")
+    ]) == 0
+    error_message = "no admin API, lifecycle endpoint, OTLP receiver or remote-write receiver"
+  }
+
+  assert {
+    condition = alltrue([
+      for arg in ["--query.timeout=10s", "--query.max-samples=5000000", "--query.max-concurrency=4"] :
+      contains(kubernetes_deployment_v1.prometheus.spec[0].template[0].spec[0].container[0].args, arg)
+    ])
+    error_message = "queries are bounded in time, samples and concurrency"
+  }
+
+  assert {
+    condition     = kubernetes_deployment_v1.prometheus.spec[0].replicas == "1" && kubernetes_deployment_v1.prometheus.spec[0].strategy[0].type == "Recreate"
+    error_message = "one writer for one TSDB"
+  }
+}
+
+run "stage_comes_from_the_namespace_and_the_bucket" {
+  command = plan
+
+  assert {
+    condition = toset([
+      for rule in yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).scrape_configs[0].metric_relabel_configs :
+      "${rule.regex}=${rule.replacement}" if try(rule.target_label, "") == "stage"
+    ]) == toset(["olf-dev=dev", "olf-prod=prod", "olf-system=platform"])
+    error_message = "a kubelet series takes its stage from its namespace, olf-system as platform"
+  }
+
+  assert {
+    condition = toset([
+      for rule in yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).scrape_configs[3].metric_relabel_configs :
+      "${rule.regex}=${rule.replacement}" if try(rule.target_label, "") == "stage"
+    ]) == toset(["olf-dev-bronze=dev", "olf-prod-gold=prod", "olf-ops=platform"])
+    error_message = "an object-store series takes its stage from its bucket, the ops bucket as platform"
+  }
+}
+
+run "the_grant_is_node_discovery_and_nodes_metrics_only" {
+  command = plan
+
+  assert {
+    condition = (
+      length(kubernetes_cluster_role_v1.prometheus.rule) == 2
+      && kubernetes_cluster_role_v1.prometheus.rule[0].resources == tolist(["nodes"])
+      && kubernetes_cluster_role_v1.prometheus.rule[0].verbs == tolist(["get", "list", "watch"])
+      && kubernetes_cluster_role_v1.prometheus.rule[1].resources == tolist(["nodes/metrics"])
+      && kubernetes_cluster_role_v1.prometheus.rule[1].verbs == tolist(["get"])
+    )
+    error_message = "never nodes/proxy, pods, Services, ConfigMaps or Secrets"
+  }
+
+  assert {
+    condition = (
+      !kubernetes_deployment_v1.prometheus.spec[0].template[0].spec[0].automount_service_account_token
+      && kubernetes_deployment_v1.prometheus.spec[0].template[0].spec[0].volume[2].projected[0].sources[0].service_account_token[0].expiration_seconds == 600
+    )
+    error_message = "the token is projected at the shortest lifetime, never the default mount"
+  }
+
+  assert {
+    condition     = alltrue([for job in yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).scrape_configs : !try(job.tls_config.insecure_skip_verify, false)])
+    error_message = "the kubelet's certificate is verified unless a provider opts out"
+  }
+}
+
+run "kind_skips_kubelet_verification_on_the_kubelet_jobs_only" {
+  command = plan
+
+  variables {
+    kubelet_insecure_skip_verify = true
+  }
+
+  assert {
+    condition = [
+      for job in yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).scrape_configs : job.job_name
+      if try(job.tls_config.insecure_skip_verify, false)
+    ] == ["kubelet-resource", "kubelet"]
+    error_message = "only the kubelet jobs skip verification"
+  }
+}
+
+run "an_unbounded_retention_size_is_refused" {
+  command = plan
+
+  variables {
+    retention_size = "0"
+  }
+
+  expect_failures = [var.retention_size]
+}
+
+run "an_unknown_object_store_process_is_refused" {
+  command = plan
+
+  variables {
+    object_store_targets = { gateway = "seaweedfs-gateway.olf-system.svc:9327" }
+  }
+
+  expect_failures = [var.object_store_targets]
+}
