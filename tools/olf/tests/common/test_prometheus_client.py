@@ -20,6 +20,7 @@ class FakePrometheus(ThreadingHTTPServer):
         self.status = 200
         self.body: Any = {"status": "success", "data": {"resultType": "matrix", "result": []}}
         self.requests: list[tuple[str, dict[str, list[str]]]] = []
+        self.truncate = False
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -29,7 +30,8 @@ class FakePrometheus(ThreadingHTTPServer):
                 payload = server.body if isinstance(server.body, bytes) else json.dumps(server.body).encode()
                 self.send_response(server.status)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(payload)))
+                # A body shorter than its declared length: the connection ends mid-read.
+                self.send_header("Content-Length", str(len(payload) + (100 if server.truncate else 0)))
                 self.end_headers()
                 self.wfile.write(payload)
 
@@ -170,3 +172,10 @@ def test_an_answer_that_is_not_a_range_result_is_an_error_not_an_empty_chart(
 
     with pytest.raises(PrometheusError, match=message):
         PrometheusClient(prometheus.url).query_range("x", start=1700000000, end=1700000060, step=60)
+
+
+def test_a_body_cut_off_mid_read_is_a_transient_service_error(prometheus: FakePrometheus) -> None:
+    prometheus.truncate = True
+
+    with pytest.raises(TransientServiceError):
+        PrometheusClient(prometheus.url, timeout=2).query("up", time=1700000000)

@@ -3,9 +3,10 @@
 ## Status
 
 Proposed, awaiting the owner's approval (#21). Slices M-a, M-b and M-e under
-"Build order" are built, and of M-d the series catalog
-(`openlakeforge_core.metrics`) and the Prometheus client
-(`openlakeforge_services.prometheus`); the rest is not. This record decides the backend, the scrape
+"Build order" are built; of M-c, kube-state-metrics; of M-d, the series catalog
+(`openlakeforge_core.metrics`), the Prometheus client
+(`openlakeforge_services.prometheus`), the platform API's metrics settings and
+the health routes' `metrics` integration. The rest is not. This record decides the backend, the scrape
 baseline, the label policy, the read path through the platform API, the network
 and RBAC additions and the contract shape for `spec.observability.metrics`; the
 slices under "Build order" implement it once it is approved.

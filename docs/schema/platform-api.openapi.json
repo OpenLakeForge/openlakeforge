@@ -2146,7 +2146,7 @@
     },
     "/api/v1/stages/{stage}/health": {
       "get": {
-        "description": "A rollup of the stage's pipeline and service signals. Integrations that give none are never healthy.\n\nBoth reads block (Dagster's HTTP, and the probes for up to their timeout), so each runs on a worker thread,\ntogether: the event loop keeps serving other requests, and the stage answers in the slower read's time.",
+        "description": "A rollup of the stage's pipeline and service signals. Integrations that give none are never healthy.\n\nEvery read blocks (Dagster's HTTP, the probes and the metrics backend for up to their timeout), so each runs on a\nworker thread, together: the event loop keeps serving other requests, and the stage answers in the slowest read's\ntime. The metrics integration is reported, never folded into the state.",
         "operationId": "get_stage_health_api_v1_stages__stage__health_get",
         "parameters": [
           {
