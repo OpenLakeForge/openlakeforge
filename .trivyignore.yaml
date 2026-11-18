@@ -63,6 +63,7 @@ images:
   - {name: k8s_bootstrap, owner: malon64, expired_at: 2026-12-15, statement: "719 fixable HIGH/CRITICAL findings at first scan"}
   - {name: oauth2_proxy, owner: malon64, expired_at: 2026-12-15, statement: "6 fixable HIGH/CRITICAL findings at first scan"}
   - {name: opensearch, owner: malon64, expired_at: 2026-12-15, statement: "463 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: prometheus, owner: malon64, expired_at: 2027-01-15, statement: "2 fixable HIGH in bin/prometheus and bin/promtool at first scan: golang.org/x/net v0.60.0 CVE-2026-78661 (fixed 0.62.0) and google.golang.org/grpc v1.83.1 CVE-2026-84445 (fixed 1.83.2), both fixed upstream; no Prometheus release builds with both yet (3.13.5 is the LTS pin, 3.16.0 still has x/net 0.61.0), pending one"}
   - {name: polaris, owner: malon64, expired_at: 2026-12-15, statement: "124 fixable HIGH/CRITICAL findings at first scan"}
   - {name: polaris_admin_tool, owner: malon64, expired_at: 2026-12-15, statement: "102 fixable HIGH/CRITICAL findings at first scan"}
   - {name: portal, owner: malon64, expired_at: 2026-12-15, statement: "10 fixable HIGH/CRITICAL findings at first scan"}
