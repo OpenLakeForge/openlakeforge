@@ -28,6 +28,10 @@ class Kind:
         result = self._run(["get", "nodes", "--name", cluster_name], env=env)
         return [line for line in result.stdout.splitlines() if line]
 
+    def get_kubeconfig(self, cluster_name: str, *, env: Mapping[str, str] | None = None) -> CommandResult:
+        """The running cluster's kubeconfig on stdout; fails when no cluster of that name exists."""
+        return self._run(["get", "kubeconfig", "--name", cluster_name], env=env, check=False)
+
     def export_kubeconfig(
         self,
         cluster_name: str,
