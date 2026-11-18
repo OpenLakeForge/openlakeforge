@@ -146,6 +146,9 @@ class WorkloadObservation:
     # restarts whose lastState.terminated.finishedAt is within that window: the cluster's restartCount never
     # resets, so a lifetime count would keep the workload on WARNING forever.
     recent_restarts: int = 0
+    # Controllers set to zero replicas. The sums above hide one beside a ready sibling (Dagster's daemon beside its
+    # webserver), so it is counted on its own.
+    scaled_to_zero: int = 0
     evidence_uri: str | None = None
 
 
@@ -340,6 +343,8 @@ def evaluate_workload(
         state, reason = HealthState.CRITICAL, f"{ready}; {workload.unschedulable} unschedulable"
     elif workload.ready == 0:
         state, reason = HealthState.CRITICAL, ready
+    elif workload.scaled_to_zero:
+        state, reason = HealthState.WARNING, f"{ready}; {workload.scaled_to_zero} scaled to zero"
     elif workload.crash_looping:
         state, reason = HealthState.WARNING, f"{ready}; {workload.crash_looping} crash looping"
     elif workload.ready < workload.desired:

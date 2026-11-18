@@ -309,6 +309,7 @@ def _workload(desired: int, ready: int, observed_at: datetime = FRESH, **kwargs:
         (_workload(1, 1, crash_looping=1), HealthState.WARNING),
         (_workload(1, 1, recent_restarts=3), HealthState.WARNING),
         (_workload(0, 0), HealthState.WARNING),
+        (_workload(1, 1, scaled_to_zero=1), HealthState.WARNING),
         (_workload(1, 1, STALE), HealthState.UNKNOWN),
         (None, HealthState.UNKNOWN),
     ],
