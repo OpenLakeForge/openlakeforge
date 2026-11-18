@@ -281,7 +281,7 @@ The first catalog, mapped to #333's chart list:
 | --- | --- | --- | --- | --- |
 | `cpu_usage_cores` | stage, platform | `stage`, `component` | kubelet, joined to `kube_pod_labels` | service CPU |
 | `memory_working_set_bytes` | stage, platform | `stage`, `component` | kubelet, joined | service memory |
-| `container_restarts` | stage, platform | `stage`, `component` | kube-state-metrics, increase per step | (health context) |
+| `container_restarts` | stage, platform | `stage`, `component` | kube-state-metrics; the rule records restarts per minute, not a counter (a counter summed across pods drops when a pod goes, which `increase()` would count as restarts), so the API sums them per step (`sum_over_time`) | (health context) |
 | `node_cpu_usage_cores`, `node_memory_working_set_bytes` | platform | none | kubelet | cluster CPU and memory |
 | `trino_running_queries`, `trino_queued_queries` | stage | `stage` | Trino | Trino load |
 | `trino_failed_queries` | stage | `stage` | Trino, increase per step | Trino query errors |
@@ -527,6 +527,11 @@ bounds it.
 carries `complete` and `covered_from` on every series, so a client reads one
 shape whatever the source; `unavailable` also covers a series with no samples
 in the range.
+
+2026-11-18: `container_restarts` is read as the sum of M-c's per-minute
+increments over each step, not as the increase of a counter: the rule records
+increments because a counter summed across pods drops when a pod goes.
+`trino_failed_queries` stays an increase per step.
 
 2026-11-18: M-d complete with the catalog route. Each entry also names its
 source and the ranges the retention allows, so a client offers no range the
