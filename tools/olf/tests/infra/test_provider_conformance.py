@@ -159,6 +159,7 @@ _EXTERNAL_IDENTITY = {
     "role_mapping": {"platform-admin": ["olf-admins"]},
 }
 
+
 def _ok(stdout: str = "") -> CommandResult:
     return CommandResult(argv=(), returncode=0, stdout=stdout, stderr="", duration_seconds=0.0)
 
@@ -427,9 +428,14 @@ def _platform_apply(provider: Provider, adapter: Any) -> None:
     calling them, which is the regression that matters.
     """
     if provider is Provider.LOCAL:
+        from unittest import mock
+
+        from olf.infra.deployment.local import images
         from olf.infra.deployment.local import platform as local_platform
 
-        local_platform.platform_up(adapter.config, adapter.tools, env={})
+        # spec.access deploys the platform API (ADR 0021, decision 8); building it needs kind, which no guard does.
+        with mock.patch.object(images, "prepare_platform_api_image"):
+            local_platform.platform_up(adapter.config, adapter.tools, env={})
         return
     if provider in (Provider.AWS, Provider.AZURE):
         from olf.infra.deployment.cloud import platform as cloud_platform
@@ -550,6 +556,7 @@ def test_adapter_config_carries_the_shared_settings_surface(provider: Provider, 
         f"{config.terraform.apply_retry.max_attempts} attempts; a policy that never runs the command is not a "
         f"retry policy."
     )
+
 
 @every_provider
 def test_platform_root_declares_a_v3_stage_indexed_contract_surface(provider: Provider) -> None:
@@ -751,10 +758,7 @@ def test_contract_environment_resolves_only_the_stage_it_was_built_for(provider:
 
         others = {other.value for other in parsed.stages if other != name}
         leaked = sorted(
-            (key, other)
-            for key, value in exports.items()
-            for other in others
-            if _names_stage(value, other)
+            (key, other) for key, value in exports.items() for other in others if _names_stage(value, other)
         )
         assert not leaked, (
             f"{provider.value}'s {name.value!r} environment carries {leaked!r} as (export, stage named). A "
@@ -918,9 +922,7 @@ def test_logical_stage_identities_are_identical_across_providers() -> None:
 
     for stage in CONFORMANCE_STAGES:
         identities = {
-            provider.value: tuple(
-                actual for _, actual, _ in _logical_identities(stage, contracts.for_stage(stage))
-            )
+            provider.value: tuple(actual for _, actual, _ in _logical_identities(stage, contracts.for_stage(stage)))
             for provider, contracts in parsed.items()
         }
         assert len(set(identities.values())) == 1, (
@@ -969,9 +971,7 @@ def test_a_platform_apply_refuses_a_stage_dropped_only_from_the_cluster(provider
 
 
 @every_provider
-def test_a_platform_apply_proceeds_past_removal_under_the_explicit_opt_in(
-    provider: Provider, tmp_path: Path
-) -> None:
+def test_a_platform_apply_proceeds_past_removal_under_the_explicit_opt_in(provider: Provider, tmp_path: Path) -> None:
     """`--allow-stage-removal` is the one thing that lets the apply through,
     and it means the same on every provider."""
     adapter = _apply_ready_adapter(
@@ -1001,9 +1001,7 @@ def test_a_platform_apply_refuses_a_storage_size_below_the_volumes_it_finds(prov
 
 
 @every_provider
-def test_a_platform_apply_refuses_to_replace_the_pre_v0_3_shared_namespace(
-    provider: Provider, tmp_path: Path
-) -> None:
+def test_a_platform_apply_refuses_to_replace_the_pre_v0_3_shared_namespace(provider: Provider, tmp_path: Path) -> None:
     """Every root's shared-services namespace was `lakehouse` before the
     stage-aware rewrite. A namespace name is immutable, so an apply against an
     unmigrated cluster plans to destroy it - and the SeaweedFS, PostgreSQL, and
