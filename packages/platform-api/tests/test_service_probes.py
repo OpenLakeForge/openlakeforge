@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 import requests
@@ -18,6 +18,7 @@ from openlakeforge_core.quality_sync import PublicationThresholds, SyncSummary
 from openlakeforge_services.dagster import DagsterTransientError
 
 from openlakeforge_platform_api import service_probes
+from openlakeforge_platform_api.models import ServiceName
 from openlakeforge_platform_api.service_probes import (
     ProbeError,
     ServiceProbes,
@@ -128,6 +129,24 @@ class Archive:
 ARCHIVE_PREFIX = "activations/dev/logs/v2/namespace=olf-dev/date=2026-11-16/"
 
 
+class PagedArchive(Archive):
+    """The archive listed one object per page, as S3 does past `MaxKeys`."""
+
+    def list_objects_v2(self, **kwargs: Any) -> Any:
+        if self.error:
+            raise self.error
+        self.prefixes.append(kwargs["Prefix"])
+        keys = sorted(k for k in self.modified if k.startswith(kwargs["Prefix"]))
+        start = int(kwargs.get("ContinuationToken", 0))
+        page = keys[start : start + 1]
+        more = start + 1 < len(keys)
+        return {
+            "Contents": [{"Key": k, "LastModified": self.modified[k]} for k in page],
+            "IsTruncated": more,
+            **({"NextContinuationToken": str(start + 1)} if more else {}),
+        }
+
+
 def fresh_archive(age: timedelta = timedelta(minutes=2)) -> Archive:
     return Archive({ARCHIVE_PREFIX + "dev-1.ndjson.gz": NOW - age})
 
@@ -158,6 +177,7 @@ def summary(
     failed: int = 0,
     rejected: int = 0,
     error: str | None = None,
+    published: datetime | None = None,
 ) -> Summaries:
     """A bucket holding the reconciler's summary of a pass that ended `age` ago."""
     written = SyncSummary(
@@ -167,6 +187,7 @@ def summary(
         failed=failed,
         rejected_runs=rejected,
         oldest_pending_at=None if lag is None else NOW - lag,
+        last_success_at=published,
         last_error=error,
     )
     return Summaries({SUMMARY_KEY: written.to_json().encode()})
@@ -997,3 +1018,103 @@ def test_publication_thresholds_keep_warning_below_critical() -> None:
         PublicationThresholds(stale_warning=timedelta(hours=2))
     with pytest.raises(ValueError, match="lag"):
         PublicationThresholds(lag_critical=timedelta(minutes=10))
+
+
+YESTERDAY_PREFIX = "activations/dev/logs/v2/namespace=olf-dev/date=2026-11-15/"
+
+
+def newest_object(archive: Archive) -> Signal:
+    return by_component(probes(archive=archive).probe(ALL))["log-archive.newest-object"]
+
+
+def test_the_archive_write_time_is_the_newest_object_across_days_and_pages() -> None:
+    newest = NOW - timedelta(minutes=6)
+    archive = PagedArchive(
+        {
+            ARCHIVE_PREFIX + "dev-1.ndjson.gz": NOW - timedelta(minutes=40),
+            ARCHIVE_PREFIX + "dev-2.ndjson.gz": newest,
+            ARCHIVE_PREFIX + "dev-3.ndjson.gz": NOW - timedelta(minutes=20),
+            YESTERDAY_PREFIX + "dev-9.ndjson.gz": NOW - timedelta(hours=13),
+        }
+    )
+
+    signal = newest_object(archive)
+
+    assert signal.state is HealthState.HEALTHY
+    assert signal.last_success_at == newest
+    assert signal.observed_at == NOW
+
+
+def test_an_archive_written_only_yesterday_still_reports_that_write_while_critical() -> None:
+    written = NOW - timedelta(hours=13)
+
+    signal = newest_object(Archive({YESTERDAY_PREFIX + "dev-9.ndjson.gz": written}))
+
+    assert signal.state is HealthState.CRITICAL
+    assert signal.last_success_at == written
+
+
+def test_no_archive_write_time_for_an_empty_prefix_a_refused_listing_or_a_disabled_archive() -> None:
+    denied = Archive(error=ClientError({"Error": {"Code": "AccessDenied"}}, "ListObjectsV2"))
+    unreachable = Archive(error=EndpointConnectionError(endpoint_url="http://s3"))
+    bare = StageTargets(stage="dev", namespace="olf-dev")
+
+    for archive in (Archive(), denied, unreachable):
+        signal = newest_object(archive)
+        assert signal.state is HealthState.UNKNOWN
+        assert signal.last_success_at is None
+    disabled = by_component(probes().probe(bare))["log-archive.newest-object"]
+    assert disabled.state is HealthState.DISABLED
+    assert disabled.last_success_at is None
+
+
+def test_the_publication_signal_carries_the_last_published_result_time() -> None:
+    published = NOW - timedelta(minutes=8)
+
+    signal = publication(summary(published=published))
+    stalled = publication(summary(age=timedelta(hours=2), published=published))
+
+    assert signal.last_success_at == published
+    assert stalled.state is HealthState.CRITICAL
+    assert stalled.last_success_at == published
+
+
+def test_no_publication_time_when_nothing_was_published_or_the_summary_cannot_be_trusted() -> None:
+    published = NOW - timedelta(minutes=8)
+
+    assert publication(summary()).last_success_at is None
+    assert publication(Summaries()).last_success_at is None
+    assert publication(summary(stage="prod", published=published)).last_success_at is None
+    disabled = by_component(probes(summaries=summary(published=published)).probe(StageTargets("dev", "olf-dev")))
+    assert disabled[PUBLICATION].last_success_at is None
+
+
+def test_only_the_archive_and_publication_probes_carry_an_evidence_time() -> None:
+    signals = probes(summaries=summary(published=NOW - timedelta(minutes=8))).probe(ALL)
+
+    assert {str(s.component) for s in signals if s.last_success_at is not None} == {
+        "log-archive.newest-object",
+        PUBLICATION,
+    }
+
+
+def test_every_component_a_stage_can_list_has_a_label_and_a_service() -> None:
+    disabled = probes().probe(StageTargets(stage="dev", namespace="olf-dev"))
+    enabled = probes().probe(ALL)
+    emitted = {str(s.component) for s in disabled + enabled} | {service_probes.PROBES_FAILED_COMPONENT}
+
+    assert emitted <= set(service_probes.COMPONENTS)
+    assert set(service_probes.COMPONENTS) <= emitted, "a label for a component no probe emits"
+    assert set(get_args(ServiceName)) == set(service_probes.SERVICE_DISPLAY_NAMES)
+    for label in service_probes.COMPONENTS.values():
+        assert label.service in service_probes.SERVICE_DISPLAY_NAMES
+
+
+def test_display_names_name_no_host_namespace_or_container() -> None:
+    names = [label.display_name for label in service_probes.COMPONENTS.values()]
+    names += list(service_probes.SERVICE_DISPLAY_NAMES.values())
+
+    assert len({label.display_name for label in service_probes.COMPONENTS.values()}) == len(service_probes.COMPONENTS)
+    for name in names:
+        assert name and name[0].isupper()
+        assert not any(mark in name for mark in (".", ":", "/", "olf-", "svc", "_")), name

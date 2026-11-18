@@ -609,7 +609,9 @@ names cannot be checked here (Decision 4).
 
 An `olf alert explain --stage <stage> --product <id>` command prints the
 winning rule, options and routes per condition, offline, from `alerts.yml` and
-`governance.yml` **(proposed)**. It needs no credential, so it is top-level
+`governance.yml` **(proposed)**. `--job <name>` in place of `--product` explains
+one job as the evaluator resolves it: a job of no product, such as
+`gold_maintenance`, by the global rules alone. It needs no credential, so it is top-level
 under ADR 0020.
 
 ### Why not Dagster's own alerting
@@ -1072,3 +1074,6 @@ evaluator's service principal may call (ADR 0021).
 
 2026-11-17: the pointer grant became `activations/<stage>/ACTIVE.json*`. On kind, SeaweedFS answered the exact-object
 grant with AccessDenied, so every stage's policy read failed and no product alert could fire.
+
+2026-11-18: `olf alert explain` takes `--job` for a job of no product (#1280), which `--product` could not name although
+the global rules cover it. No deviation from the decisions above.

@@ -117,9 +117,12 @@ names the domain. Two rules of the same specificity that set the same condition
 for an overlapping stage are an error, never resolved by file order.
 
 `olf alert explain --stage <stage> --product <id>` prints the result for one
+product, and `--job <name>` in place of `--product` for one job: a job of no
+product gets the global rules alone, and `<product>_pipeline` resolves as that
 product. It exits `0` when the policy was read (including when there is no
 `alerts.yml`), `1` when the project, `governance.yml`, `alerts.yml` or the
-product is invalid, and `2` for a stage other than `dev`, `uat` or `prod`.
+product is invalid, and `2` for a stage other than `dev`, `uat` or `prod`, or
+unless exactly one of `--product` and `--job` is given.
 
 ## What is checked where
 

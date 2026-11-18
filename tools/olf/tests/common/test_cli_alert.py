@@ -50,6 +50,41 @@ def _explain(project: Path, stage: str, product: str) -> tuple[int, str]:
     return result.exit_code, result.output
 
 
+def _explain_job(project: Path, stage: str, job: str) -> tuple[int, str]:
+    result = runner.invoke(app, ["alert", "explain", "--stage", stage, "--job", job, "--project", str(project)])
+    return result.exit_code, result.output
+
+
+def test_explain_a_job_of_no_product_by_the_global_rules_alone(tmp_path: Path) -> None:
+    code, out = _explain_job(_project(tmp_path), "prod", "gold_maintenance")
+    assert code == 0
+    assert "job gold_maintenance (no product: global rules only) in prod" in out
+    assert "run_failed: severity=critical; rules[0] (*/*); notifies on-call -> on-call" in out
+    assert "quality: level=error; rules[0] (*/*)" in out
+    assert "sales" not in out
+
+
+def test_explain_a_product_pipeline_job_as_its_product(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    assert _explain_job(project, "prod", "order_revenue_pipeline") == _explain(project, "prod", "order_revenue")
+
+
+def test_explain_a_job_without_alerts_yml_is_not_an_error(tmp_path: Path) -> None:
+    code, out = _explain_job(_project(tmp_path, None), "prod", "gold_maintenance")
+    assert code == 0 and "nothing alerts for gold_maintenance" in out
+
+
+@pytest.mark.parametrize("args", [[], ["--product", "order_revenue", "--job", "gold_maintenance"]])
+def test_explain_needs_exactly_one_of_product_and_job(tmp_path: Path, args: list[str]) -> None:
+    result = runner.invoke(app, ["alert", "explain", "--stage", "prod", *args, "--project", str(_project(tmp_path))])
+    assert result.exit_code == 2 and "exactly one of --product and --job" in result.output
+
+
+def test_explain_reads_the_sample_project_for_a_maintenance_job() -> None:
+    code, out = _explain_job(ROOT, "prod", "gold_maintenance")
+    assert code == 0 and "run_failed: severity=critical" in out and "on-call -> on-call" in out
+
+
 def test_explain_names_the_winning_rule_options_and_routes_per_condition(tmp_path: Path) -> None:
     code, out = _explain(_project(tmp_path), "prod", "order_revenue")
     assert code == 0

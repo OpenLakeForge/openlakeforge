@@ -49,26 +49,36 @@ def _scope(policy: AlertPolicy, index: int) -> str:
 @app.command("explain")
 def explain(
     stage: str = typer.Option(..., "--stage", help="dev, uat or prod."),
-    product: str = typer.Option(..., "--product", help="A product id of governance.yml."),
+    product: str = typer.Option("", "--product", help="A product id of governance.yml."),
+    job: str = typer.Option("", "--job", help="A Dagster job name, such as a maintenance job of no product."),
     project: str = typer.Option("", "--project", help="Project root; the current project by default."),
 ) -> None:
-    """Print, per condition, the rule that wins for a product in a stage, its options and its routes.
+    """Print, per condition, the rule that wins for a product or a job in a stage, its options and its routes.
 
-    Exit 0 when the policy was read, including a project with no alerts.yml. Exit 1 when the project, the
-    policy or the product is invalid; exit 2 for an unknown stage.
+    A job resolves as the evaluator resolves it: `<product>_pipeline` as that product, any other job by the global
+    rules alone. Exit 0 when the policy was read, including a project with no alerts.yml. Exit 1 when the project,
+    the policy or the product is invalid; exit 2 for an unknown stage or unless exactly one of --product and --job
+    is given.
     """
     if stage not in STAGES:
         typer.echo(f"unknown stage {stage!r}; stages are {', '.join(STAGES)}")
+        raise typer.Exit(code=2)
+    if bool(product) == bool(job):
+        typer.echo("give exactly one of --product and --job")
         raise typer.Exit(code=2)
     try:
         code = writable_project_root(project) / "lakehouse_code"
         governance = load_governance_descriptor(code / "governance.yml")
         domains = {p["id"]: d["name"] for d in governance["domains"] for p in d.get("products", [])}
-        if product not in domains:
+        if product and product not in domains:
             raise LakehouseDescriptorError(f"{product!r} is not a product of governance.yml ({sorted(domains)})")
+        if job:
+            owner = job.removesuffix(JOB_SUFFIX) if job.endswith(JOB_SUFFIX) else ""
+            product = owner if owner in domains else ""
+        subject = product or job
         policy_path = code / "alerts.yml"
         if not policy_path.is_file():
-            typer.echo(f"No alerts.yml: nothing alerts for {product} in {stage}.")
+            typer.echo(f"No alerts.yml: nothing alerts for {subject} in {stage}.")
             return
         policy = load_alert_policy(policy_path, governance)
     except (LakehouseDescriptorError, RuntimeError, OSError) as exc:
@@ -78,8 +88,12 @@ def explain(
         typer.echo(f"alerts.yml or governance.yml is not valid YAML: {exc}")
         raise typer.Exit(code=1) from exc
 
-    resolved = resolve_conditions(policy, stage, domain=domains[product], product=product)
-    typer.echo(f"{product} (domain {domains[product]}, job {product}{JOB_SUFFIX}) in {stage}")
+    if product:
+        resolved = resolve_conditions(policy, stage, domain=domains[product], product=product)
+        typer.echo(f"{product} (domain {domains[product]}, job {product}{JOB_SUFFIX}) in {stage}")
+    else:
+        resolved = resolve_conditions(policy, stage)
+        typer.echo(f"job {job} (no product: global rules only) in {stage}")
     for condition in CONDITIONS:
         winner = resolved.get(condition)
         if winner is None:

@@ -92,12 +92,16 @@ class Signal:
     # When the occurrence an EXPECTED_RUN signal speaks about came due; the alert evaluator uses it to tell a raised
     # grace on the same occurrence from a new one.
     due: datetime | None = None
+    # When a SERVICE signal's component last did its job, by its own evidence (the newest archive object, the last
+    # published quality result); not when it was probed, which is `observed_at`.
+    last_success_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.stage:
             raise ValueError("a health signal needs a stage")
         _require_aware(self.observed_at)
         _require_aware(self.expires_at)
+        _require_aware(self.last_success_at)
 
 
 @dataclass(frozen=True)
@@ -365,10 +369,17 @@ def service_signal(
     now: datetime,
     max_age: timedelta,
     evidence_uri: str | None = None,
+    last_success_at: datetime | None = None,
 ) -> Signal:
-    """A SERVICE signal observed `now`: UNKNOWN when a probe could not answer, DISABLED for a component that is off."""
+    """A SERVICE signal observed `now`: UNKNOWN when a probe could not answer, DISABLED for a component that is off.
+
+    `last_success_at` is dropped on an UNKNOWN or DISABLED signal: a time read from an observation that is stale or
+    could not be judged must not stand beside it as if it were current evidence.
+    """
     _check_clock(now, max_age)
-    return _service(scope, component, state, reason, now, evidence_uri, max_age)
+    if state in (HealthState.UNKNOWN, HealthState.DISABLED):
+        last_success_at = None
+    return _service(scope, component, state, reason, now, evidence_uri, max_age, last_success_at=last_success_at)
 
 
 def worst_state(states: Iterable[HealthState]) -> HealthState:
@@ -424,6 +435,8 @@ def _service(
     observed_at: datetime | None,
     evidence_uri: str | None,
     max_age: timedelta,
+    *,
+    last_success_at: datetime | None = None,
 ) -> Signal:
     return Signal(
         kind=SignalKind.SERVICE,
@@ -434,6 +447,7 @@ def _service(
         observed_at=observed_at,
         expires_at=observed_at + max_age if observed_at else None,
         evidence_uri=evidence_uri,
+        last_success_at=last_success_at,
     )
 
 

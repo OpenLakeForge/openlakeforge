@@ -60,6 +60,15 @@ def env(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(_sso.k8s, "secret_value", lambda *_a, **_k: "client-secret")
     monkeypatch.setattr(_sso.k8s, "exec_succeeds", lambda *_a, **_k: state["probe"].pop(0) if state["probe"] else False)
     monkeypatch.setattr(_sso.k8s, "restart_deployment", restart)
+    monkeypatch.setattr(_sso, "ensure_admin_password", lambda *_a, **_k: "from-the-secret")
+    monkeypatch.setattr(_sso, "wait_healthy", lambda _route: None)
+    # The password reconciliation has its own tests against a fake server (test_openmetadata_bootstrap).
+    state["reconciled"] = []
+    monkeypatch.setattr(
+        _sso,
+        "reconcile_admin_password",
+        lambda _client, _route, email, password: state["reconciled"].append((state["restarts"], email, password)),
+    )
     clock = iter(range(0, 10_000, 5))
     monkeypatch.setattr(_sso.time, "sleep", lambda _s: None)
     monkeypatch.setattr(_sso.time, "monotonic", lambda: float(next(clock)))
@@ -154,6 +163,8 @@ def test_without_identity_a_server_left_on_sso_is_put_back_on_the_releases_basic
     assert "oidcConfiguration" not in put[0][2]["authenticationConfiguration"]
     assert put[0][2]["authorizerConfiguration"]["adminPrincipals"] == ["admin"]
     assert env["restarts"] == 1
+    # On the restarted server, which is the first to accept basic login (#1281).
+    assert env["reconciled"] == [(1, "admin@open-metadata.org", "from-the-secret")]
 
 
 def test_without_identity_a_server_already_on_basic_login_is_left_alone(env: dict[str, Any]) -> None:
@@ -163,3 +174,10 @@ def test_without_identity_a_server_already_on_basic_login_is_left_alone(env: dic
     run()
 
     assert [c[0] for c in FakeClient.calls] == ["GET"] and env["restarts"] == 0
+    assert env["reconciled"] == [(0, "admin@open-metadata.org", "from-the-secret")]
+
+
+def test_with_identity_the_admin_password_is_not_reconciled(env: dict[str, Any]) -> None:
+    run()
+
+    assert env["reconciled"] == []

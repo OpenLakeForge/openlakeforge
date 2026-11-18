@@ -115,6 +115,7 @@ def deploy_openmetadata_metadata(
             service=governance.service,
             remote_port=governance.remote_port,
             log_path=governance.log_path,
+            admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org", environ=source),
             environ=source,
         )
     except (om.OpenMetadataError, k8s.KubectlError) as exc:

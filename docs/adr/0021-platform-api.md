@@ -389,15 +389,32 @@ stage health route. Each emits a SERVICE `Signal` (`openlakeforge_core.health`) 
 is `unknown`; a component the deployment leaves out is `disabled` and not
 probed. A 200 never counts alone:
 
-| Probe | Proves | Does not prove |
-| --- | --- | --- |
-| `*.workloads` | pods ready, schedulable, not crash looping, restarts below 3 | that the service answers |
-| `dagster.read-api` | the webserver answers GraphQL and a code location is loaded | that a run would launch |
-| `trino.readiness` | the coordinator finished starting (`/v1/info`) | workers, catalogs, Polaris |
-| `polaris.readiness` | the catalog's management port answers `/q/health/ready` with no credential (F43, [ADR 0017](0017-local-network-policy-and-rbac.md)); a DOWN answer is `critical` | that a catalog read works, that a grant holds, or that the stage's catalog exists: the probe holds no Polaris credential and never touches the REST API |
-| `object-store.list` | the endpoint is reachable and the key may list the bucket | that a write is durable |
-| `log-archive.spool-age`, `log-archive.spool-size` | how old the collector's oldest unsent file is and how full its spool is, worst over every collector pod (F42; [ADR 0022](0022-pod-log-collection-and-archive-format.md), decision 2) | that an object reached the bucket |
-| `log-archive.newest-object` | the age of the newest object under the stage's `logs/v2/namespace=<ns>/`, listed with the log reader's key | that the stage logs anything: an idle stage reads the same as a stalled collector |
+| Probe | Display name | Service | Proves | Does not prove |
+| --- | --- | --- | --- | --- |
+| `dagster.workloads`, `trino.workloads` | Dagster workloads, Trino workloads | `dagster`, `trino` | pods ready, schedulable, not crash looping, restarts below 3 | that the service answers |
+| `dagster.read-api` | Dagster API | `dagster` | the webserver answers GraphQL and a code location is loaded | that a run would launch |
+| `trino.readiness` | Trino coordinator | `trino` | the coordinator finished starting (`/v1/info`) | workers, catalogs, Polaris |
+| `polaris.readiness` | Polaris catalog | `polaris` | the catalog's management port answers `/q/health/ready` with no credential (F43, [ADR 0017](0017-local-network-policy-and-rbac.md)); a DOWN answer is `critical` | that a catalog read works, that a grant holds, or that the stage's catalog exists: the probe holds no Polaris credential and never touches the REST API |
+| `object-store.list` | Object storage | `object-store` | the endpoint is reachable and the key may list the bucket | that a write is durable |
+| `log-archive.spool-age`, `log-archive.spool-size` | Log spool age, Log spool size | `log-archive` | how old the collector's oldest unsent file is and how full its spool is, worst over every collector pod (F42; [ADR 0022](0022-pod-log-collection-and-archive-format.md), decision 2) | that an object reached the bucket |
+| `log-archive.newest-object` | Newest archived log | `log-archive` | the age of the newest object under the stage's `logs/v2/namespace=<ns>/`, listed with the log reader's key; its `LastModified` is served as `last_success_at` | that the stage logs anything: an idle stage reads the same as a stalled collector |
+| `quality-sync.publication` | Quality publication | `quality-sync` | the quality reconciler's last summary, read with the files key: how long ago its last pass ended, how old the oldest unpublished result is, whether any gave up; its `last_success_at` is served as is | that the data passed its checks, or that OpenMetadata shows a given result |
+| `service-probes` | Service probes | `platform-api` | sent alone, `unknown`, when the probes themselves raised | anything about a service |
+
+Each row of the health routes' `services` (`ServiceHealth`) carries the
+`component` id, which stays the stable key, and beside it `display_name`,
+`service` and `service_display_name` from one map in `service_probes.py`, so a
+client groups rows by `service` (worst state per service) without parsing ids
+and keeps no copy of the names. The names are part of the contract: `service`
+is an enum in the committed OpenAPI document, renaming a display name is a
+reviewed change, and no name carries a host, namespace or container. A test
+fails when a component the probes can emit has no name; the route does not
+fall back to the raw id. `last_success_at` is the time the component last did
+its job by its own evidence, which `observed_at` (when the probe ran) is not.
+Only the two probes above that have such evidence set it; it is null when there
+is none (no archive object in the days listed, no result published), when the
+read failed, and whenever the state is `unknown` or `disabled`. It is never the
+probe time and never a default.
 
 The controllers of Dagster and Trino are found by label
 (`app.kubernetes.io/name=dagster` and `=trino`, overridable per stage); a
@@ -787,6 +804,14 @@ four ranges, at the health routes' floor, read-only and not audited. No route ta
 endpoints, so the portal's query page offers the stages, and the anonymous principal's queries reach Trino as the
 user `anonymous` with no bearer. The stage catalogs are not keyless without an issuer: Trino's catalog credential
 serves every request and holds the catalog's content, so the Web UI and Superset read too.
+
+2026-11-18: decision 7, #798 and #1262. `ServiceHealth` gains four additive fields on both health routes:
+`display_name`, `service` (an enum: `dagster`, `trino`, `polaris`, `object-store`, `log-archive`, `quality-sync`,
+`platform-api`) and `service_display_name` from one map beside each component's `source`, so no client keeps its own
+copy of the names; and `last_success_at`, the newest archive object's write time for `log-archive.newest-object` and
+the reconciler's last published result for `quality-sync.publication`, null otherwise. The probe table gains the
+display name and service columns and the `quality-sync.publication` and `service-probes` rows. The alert evaluator,
+which keys on `component`, is unchanged.
 
 2026-11-18: #1257. `GET /api/v1/stages/{stage}/health/quality` (`get_stage_quality_health`) added at the health routes'
 floor, read-only and not audited: per product pipeline, the outcome counts of the quality manifest behind its `quality`

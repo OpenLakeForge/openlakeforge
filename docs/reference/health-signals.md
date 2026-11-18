@@ -38,6 +38,13 @@ The stage health route returns each service with its `component`, a `source` (wh
 `max_age_seconds`, the gap between the two. Probes run when the route is read and are reused for a few seconds, so
 `max_age_seconds` says how long an answer stays usable; it is not a polling interval.
 
+Each row also carries `display_name` (such as `Dagster API`), `service` (one of `dagster`, `trino`, `polaris`,
+`object-store`, `log-archive`, `quality-sync`, `platform-api`) and `service_display_name`, so a client can group rows by
+service without parsing `component`, which stays the key to match on. `last_success_at` is the component's own evidence
+of its last success: the newest archive object's write time on `log-archive.newest-object`, the last published result
+on `quality-sync.publication`. It is null on every other row, when there is no such evidence or it could not be read,
+and whenever the row is `unknown` or `disabled`.
+
 | Component | Source | `healthy` means | Does not mean |
 | --- | --- | --- | --- |
 | `dagster.workloads`, `trino.workloads` | `kubernetes` | Pods ready, schedulable, not crash looping, and no matching Deployment or StatefulSet scaled to zero | The service answers |

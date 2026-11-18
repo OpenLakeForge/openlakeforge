@@ -331,6 +331,34 @@ def test_service_signal_carries_unknown_and_disabled_states() -> None:
     assert unknown.reason == "probe timed out"
 
 
+@pytest.mark.parametrize("state", [HealthState.HEALTHY, HealthState.WARNING, HealthState.CRITICAL])
+def test_service_signal_keeps_its_evidence_time_beside_a_judged_state(state: HealthState) -> None:
+    written = NOW - timedelta(minutes=40)
+
+    signal = service_signal(DEV, "archive", state, "x", now=NOW, max_age=MAX_AGE, last_success_at=written)
+
+    assert signal.last_success_at == written
+    assert signal.observed_at == NOW
+
+
+@pytest.mark.parametrize("state", [HealthState.UNKNOWN, HealthState.DISABLED])
+def test_service_signal_drops_the_evidence_time_of_a_stale_or_unjudged_observation(state: HealthState) -> None:
+    written = NOW - timedelta(minutes=40)
+
+    signal = service_signal(
+        DEV, "archive", state, "observation is stale", now=NOW, max_age=MAX_AGE, last_success_at=written
+    )
+
+    assert signal.last_success_at is None
+
+
+def test_a_naive_evidence_time_is_refused() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        service_signal(
+            DEV, "archive", HealthState.HEALTHY, "x", now=NOW, max_age=MAX_AGE, last_success_at=datetime(2026, 1, 1)
+        )
+
+
 def test_service_signal_expires_max_age_after_observation() -> None:
     signal = service_signal(DEV, "dagster", HealthState.HEALTHY, "ok", now=NOW, max_age=MAX_AGE)
     assert signal.observed_at == NOW

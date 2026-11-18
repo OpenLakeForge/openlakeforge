@@ -32,6 +32,15 @@ def test_export_kubeconfig_builds_exact_argv() -> None:
     ]
 
 
+def test_get_kubeconfig_does_not_raise_when_the_cluster_is_absent() -> None:
+    kind, runner = _kind(CommandResult(argv=(), returncode=1, stdout="", stderr="no nodes", duration_seconds=0.0))
+
+    result = kind.get_kubeconfig("openlakeforge-local")
+
+    assert runner.last_call.argv == ["kind", "get", "kubeconfig", "--name", "openlakeforge-local"]
+    assert not result.ok
+
+
 def test_load_docker_image_builds_exact_argv() -> None:
     kind, runner = _kind()
 
