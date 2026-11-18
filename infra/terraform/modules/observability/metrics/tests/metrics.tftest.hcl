@@ -290,6 +290,17 @@ run "served_series_carry_only_decision_3_labels_and_every_group_is_limited" {
   }
 
   assert {
+    condition = [
+      for rule in yamldecode(kubernetes_config_map_v1.prometheus.data["rules.yml"]).groups[0].rules : rule.expr if rule.record == "olf:container_restarts"
+      ] == [join("", [
+        "sum by (stage, component) ((clamp_min(kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 1m, 0)",
+        " or (kube_pod_container_status_restarts_total unless kube_pod_container_status_restarts_total offset 1m))",
+        " * on (namespace, pod) group_left (component) namespace_pod:kube_pod_labels:component)",
+    ])]
+    error_message = "restarts are counted per container before the sum, a new container's in full and never below zero"
+  }
+
+  assert {
     condition = contains(
       split("|", [for job in yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).scrape_configs : job.metric_relabel_configs[0].regex if job.job_name == "trino"][0]),
       "JMX_java_lang_TYPE_Memory_ATTRIBUTE_HeapMemoryUsage_used",

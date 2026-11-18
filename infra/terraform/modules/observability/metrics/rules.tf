@@ -14,16 +14,22 @@ locals {
     " \"component\", \"unlabelled\", \"label_app_kubernetes_io_name\", \"\")))",
   ])
   by_component = "on (namespace, pod) group_left (component) ${local.pod_component_rule}"
+  # A container first seen this minute has no sample a minute ago, so it counts
+  # its whole value: kube-state-metrics' counter starts at 0 with the container,
+  # and a crash on start is the case worth charting. clamp_min drops a negative
+  # difference, should the counter ever go back.
+  restarts            = "kube_pod_container_status_restarts_total"
+  restarts_per_minute = "(clamp_min(${local.restarts} - ${local.restarts} offset 1m, 0) or (${local.restarts} unless ${local.restarts} offset 1m))"
 
   rule_groups = {
     kubernetes = [
       { record = local.pod_component_rule, expr = local.pod_component },
       { record = "olf:cpu_usage_cores", expr = "sum by (stage, component) (rate(container_cpu_usage_seconds_total{stage!=\"\"}[2m]) * ${local.by_component})" },
       { record = "olf:memory_working_set_bytes", expr = "sum by (stage, component) (container_memory_working_set_bytes{stage!=\"\"} * ${local.by_component})" },
-      # Restarts in the minute before each evaluation, so the API sums the
-      # series over a step. A counter summed across pods would drop whenever a
-      # pod goes, which increase() reads as a reset and counts again.
-      { record = "olf:container_restarts", expr = "sum by (stage, component) ((kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 1m) * ${local.by_component})" },
+      # Restarts in the minute before each evaluation, per container, so the
+      # API sums the series over a step. A counter summed across pods would drop
+      # whenever a pod goes, which increase() reads as a reset and counts again.
+      { record = "olf:container_restarts", expr = "sum by (stage, component) (${local.restarts_per_minute} * ${local.by_component})" },
       { record = "olf:node_cpu_usage_cores", expr = "sum (rate(node_cpu_usage_seconds_total[2m]))" },
       { record = "olf:node_memory_working_set_bytes", expr = "sum (node_memory_working_set_bytes)" },
     ]
