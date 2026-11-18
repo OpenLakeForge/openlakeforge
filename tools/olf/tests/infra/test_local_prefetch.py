@@ -85,14 +85,15 @@ def test_dex_is_prefetched_only_for_the_github_issuer() -> None:
     assert any(image.startswith("ghcr.io/dexidp/dex:") for image in with_dex)
 
 
-def test_prometheus_is_prefetched_only_with_metrics() -> None:
+def test_the_metrics_images_are_prefetched_only_with_metrics() -> None:
     features = DeploymentFeatures(governance_enabled=False, analytics_enabled=False)
 
     without = prefetch.selected_images(features, server_arch="amd64", catalog_images=_CATALOG)
     with_metrics = prefetch.selected_images(features, server_arch="amd64", catalog_images=_CATALOG, metrics=True)
 
-    assert _CATALOG["prometheus"] not in without
-    assert set(with_metrics) - set(without) == {_CATALOG["prometheus"]}
+    metrics_images = {_CATALOG["prometheus"], _CATALOG["kube_state_metrics"]}
+    assert not metrics_images & set(without)
+    assert set(with_metrics) - set(without) == metrics_images
 
 
 @pytest.mark.parametrize(("profile", "pulled"), [(Profile.FULL, True), (Profile.SLIM, False)])
@@ -103,7 +104,8 @@ def test_prefetch_follows_the_profiles_metrics_setting(tmp_path: Path, profile: 
     prefetch.prefetch_images(config, _toolkit(runner), env={}, work_dir=tmp_path / "scratch")
 
     pulls = [c.argv for c in runner.calls if c.argv[:2] == ["docker", "pull"]]
-    assert any(_CATALOG["prometheus"] in argv for argv in pulls) is pulled
+    for name in ("prometheus", "kube_state_metrics"):
+        assert any(_CATALOG[name] in argv for argv in pulls) is pulled
 
 
 def test_polaris_images_arch_mapping() -> None:

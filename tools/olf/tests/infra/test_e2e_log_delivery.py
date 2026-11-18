@@ -115,6 +115,18 @@ def test_the_fill_script_writes_numbered_lines_the_reader_can_count() -> None:
     assert len(result.stderr.splitlines()[0]) > _log_delivery.FILL_LINE_PADDING
 
 
+def test_the_fill_script_fails_when_awk_does(tmp_path: Path) -> None:
+    (tmp_path / "awk").write_text("#!/bin/sh\necho 'awk: %*x formats are not supported' >&2\nexit 2\n")
+    (tmp_path / "awk").chmod(0o755)
+    script = _log_delivery.fill_script("tok", 3 * _log_delivery.FILL_LINES_PER_SECOND).replace("sleep 1", "true")
+
+    path = {"PATH": f"{tmp_path}:/usr/bin:/bin"}
+    result = subprocess.run(["sh", "-c", script], capture_output=True, text=True, env=path)
+
+    assert result.returncode == 1
+    assert result.stderr.count("not supported") == 1
+
+
 def test_the_probe_is_fetched_from_inside_a_pod_with_the_images_python() -> None:
     args = _log_delivery.exec_get_args("olf-system", "platform-api-x", "http://10.0.0.7:2021/spool")
 
