@@ -90,6 +90,11 @@
     # it and the spool signals cannot see it. Retrying until store_dir_limit_size makes that limit the loss point.
     retry_limit                 1000000
     retry_exhausted_action      quarantine
+    # An unreachable store that drops packets (a NetworkPolicy, a blackholed route) holds the output's flush for two
+    # connect timeouts per upload attempt. At the 10 s default the S3 output took in almost nothing while blocked, so
+    # records overflowed the re-tag emitter and were lost before the spool: 5000 lines/s of 1 KB into a blackhole
+    # spooled 20 MB at 10 s and 496 MB (the limit) at 2 s. A store in reach connects in milliseconds.
+    net.connect_timeout         2
     quarantine_dir_limit_size   ${quarantine_limit_size}
     storage.total_limit_size    ${chunk_limit_size}
 %{ endfor ~}
