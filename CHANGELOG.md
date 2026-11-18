@@ -16,6 +16,12 @@ for how a release is cut and verified.
 
 ### Added
 
+- `olf infra openmetadata quality-sync` publishes a stage's Floe and dbt quality
+  results from the ops bucket to OpenMetadata test cases, with retry, idempotent
+  replay and a sync-lag summary, without rerunning a pipeline. A stage without
+  governance makes no request. See [quality
+  publication](docs/reference/health-signals.md#quality-publication-to-openmetadata)
+  and ADR 0007.
 - Alert policy: `lakehouse_code/alerts.yml` (`AlertPolicy`) declares which
   conditions alert for which products and stages, their thresholds, and the
   routes that name the profile's receivers. A rule matches a domain and a

@@ -168,6 +168,46 @@ as `not_provided`; with it the integration is `available`. The reader's key is
 `Read` and `List` on that stage's `run-artifacts/quality/` prefix only
 (`quality_reader_credentials` in `modules/storage/seaweedfs`).
 
+## Quality publication to OpenMetadata
+
+Publishing a run's quality manifest to OpenMetadata is separate from the
+quality signal above: the signal says whether the data passed, publication says
+whether the catalog has caught up. A failed publication never changes the
+quality signal or a run's status (ADR 0007).
+
+The publisher (`openlakeforge_services/quality_publisher.py`) keeps, under the
+stage's activation prefix, one state object per run at
+`quality-sync/state/<domain>/<product>/<run>.json` and one summary at
+`quality-sync/summary.json`. The summary is the object a health reader takes:
+
+| Field | Meaning |
+| --- | --- |
+| `pending` | Results still to publish, including those waiting for a table to be registered |
+| `failed` | Results given up on after 10 attempts; they wait for `--retry-failed` |
+| `lag_seconds` | Age of the oldest unpublished result, null when nothing waits |
+| `last_success_at`, `last_failure_at` | Times of the last published and last failed result |
+| `last_error` | One line, never a response body |
+
+A stage without governance has no summary and no publisher, so a reader must
+treat a missing summary as `disabled`, not as a failed publisher. Retries back
+off from 1 minute to 1 hour. OpenMetadata statuses: PASS is `Success`, a blocking ERROR is `Failed`
+and an advisory WARN is `Aborted`, because `Failed` opens an incident in
+OpenMetadata 1.13.6 and `Success` would hide the warning. The original outcome
+and engine severity are in each result's values. `--warn-status Failed` opts
+into incidents for WARN.
+
+To publish without rerunning a pipeline, for a run that failed to publish or
+one older than the 30-day scan window:
+
+```bash
+uv run --project tools/olf olf infra openmetadata quality-sync --stage dev --limit 25
+uv run --project tools/olf olf infra openmetadata quality-sync --stage dev --run <dagster-run-id>
+uv run --project tools/olf olf infra openmetadata quality-sync --stage dev --retry-failed
+```
+
+A result already in OpenMetadata is never published twice. A table that is
+not registered keeps its results pending; the command never creates one.
+
 ## Schedule mismatch
 
 `expected_run` compares the schedule's state with what the code location
