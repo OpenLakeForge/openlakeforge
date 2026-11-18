@@ -92,3 +92,13 @@ def test_a_service_that_keeps_refusing_fails_with_its_429(limited: Any) -> None:
 
     assert raised.value.status == 429 and len(server.requests) == base.RATE_LIMIT_RETRIES + 1
     assert len(waits) == base.RATE_LIMIT_RETRIES
+
+
+def test_a_client_with_no_retries_fails_on_the_first_429_without_waiting(limited: Any) -> None:
+    server, waits = limited
+    server.refusals, server.retry_after = 1, "5"
+
+    with pytest.raises(ServiceClientError, match="HTTP 429"):
+        JsonHttpClient(f"http://127.0.0.1:{server.server_port}", rate_limit_retries=0).request("GET", "/x")
+
+    assert server.requests == ["GET"] and waits == []

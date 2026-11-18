@@ -9,6 +9,8 @@ whole range `unavailable`: never a line of zeros. Metrics never feed `HealthStat
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import UTC, datetime
 from typing import cast
 
@@ -43,6 +45,11 @@ log = logging.getLogger(__name__)
 
 # The `stage` label value of the nodes and olf-system components (ADR 0024, decision 3).
 PLATFORM_STAGE = "platform"
+# The health routes' bound on the metrics probe, as on the service probes (PROBE_TIMEOUT): the whole call, any wait
+# included. The client's own timeout bounds each socket read, not the call, so the deadline is held here.
+PROBE_DEADLINE_SECONDS = 5.0
+# A probe abandoned at the deadline keeps its thread until the client's timeout ends it; a small pool caps how many.
+_PROBES = ThreadPoolExecutor(max_workers=4, thread_name_prefix="metrics-probe")
 
 
 def _backend(settings: Settings) -> PrometheusClient | IntegrationStatus:
@@ -55,12 +62,26 @@ def _backend(settings: Settings) -> PrometheusClient | IntegrationStatus:
 
 
 def metrics_integration(request: Request) -> IntegrationStatus:
-    """The health routes' `metrics` integration: whether the backend answers a query now. Blocks for up to 5 s."""
-    backend = _backend(request.app.state.settings)
+    """The health routes' `metrics` integration: whether the backend answers a query now.
+
+    One attempt, no retry after a 429, and never longer than PROBE_DEADLINE_SECONDS: the stage health route awaits
+    it, so a slow or rate-limiting backend must read `unavailable`, not hold up the health answer.
+    """
+    settings: Settings = request.app.state.settings
+    backend = _backend(settings)
     if isinstance(backend, IntegrationStatus):
         return backend
+    probe = PrometheusClient(str(settings.metrics_url), timeout=PROBE_DEADLINE_SECONDS, rate_limit_retries=0)
+    answer = _PROBES.submit(probe.query, "vector(1)", time=datetime.now(UTC).timestamp())
     try:
-        backend.query("vector(1)", time=datetime.now(UTC).timestamp())
+        answer.result(timeout=PROBE_DEADLINE_SECONDS)
+    except FutureTimeout:
+        log.warning("the metrics backend did not answer within %s s", PROBE_DEADLINE_SECONDS)
+        return IntegrationStatus(
+            name="metrics",
+            status="unavailable",
+            reason=f"the metrics backend did not answer within {PROBE_DEADLINE_SECONDS:g} s",
+        )
     except ServiceClientError as exc:
         log.warning("the metrics backend could not be read: %s", exc)
         return IntegrationStatus(name="metrics", status="unavailable", reason="the metrics backend did not answer")

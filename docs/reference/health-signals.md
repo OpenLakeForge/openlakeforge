@@ -54,7 +54,8 @@ Polaris principal, so a `healthy` row says the service is up and nothing about t
 
 The `metrics` integration says whether the metrics backend ([ADR 0024](../adr/0024-metrics-prometheus-reference-and-read-path.md))
 answers: `disabled` when the profile turns metrics off (Slim, by default), `not_provided` when they are on but the
-provider has no backend, `unavailable` when the backend does not answer a query within 5 seconds, and `available`
+provider has no backend, `unavailable` when the backend does not answer one query within 5 seconds (a single attempt,
+so a rate-limited backend reads `unavailable` at once), and `available`
 otherwise. It never changes the stage's state and blanks nothing: the service rows do not depend on it.
 
 ## How unknown is computed
