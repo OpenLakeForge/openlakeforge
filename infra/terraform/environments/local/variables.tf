@@ -17,7 +17,7 @@ variable "bucket_names" {
 }
 
 variable "observability" {
-  description = "Deployment Profile spec.observability as resolved by olf (#332): archive retention, search, metrics, Grafana and alert receivers. The root only reports it in the provider contract; no adapter consumes it yet. The default is what a Slim profile resolves to."
+  description = "Deployment Profile spec.observability as resolved by olf (#332): archive retention, search, metrics, Grafana and alert receivers. The root reports it in the provider contract; metrics_enabled deploys Prometheus (ADR 0024) and alert_receivers the alert evaluator (ADR 0023). The default is what a Slim profile resolves to."
   type = object({
     archive_retention_days = optional(number, 30)
     search_enabled         = optional(bool, false)

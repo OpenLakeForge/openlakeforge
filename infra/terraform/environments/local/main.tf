@@ -60,7 +60,13 @@ locals {
     { platform = { namespace = var.shared_namespace, key_prefix = "platform/logs/v2/" } },
   )
   # Each stage's Superset Service; the platform API's settings name it without waiting for the release.
-  superset_service    = { name = "superset", port = 8088 }
+  superset_service = { name = "superset", port = 8088 }
+  # ADR 0024: Prometheus exists only when the resolved profile enables metrics, so Slim renders none of it.
+  metrics_enabled = var.observability.metrics_enabled
+  # Each stage's Trino coordinator, named without waiting for the release: a failing Trino must not hold back
+  # the backend that would show it.
+  trino_service       = { name = "trino", port = 8080 }
+  metrics_size        = yamldecode(file("${path.root}/../../../../release/storage-sizes.yaml")).sizes[var.storage_size].metrics
   bootstrap_job_image = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).components.images.k8s_bootstrap
   # Shared by the audit identity's grant and the API's settings, which must agree.
   platform_api_audit_prefix = "audit/platform-api/"
@@ -364,6 +370,32 @@ module "quality_reconciler" {
   ingestion_bot_jwt_key     = local.governance_enabled ? module.openmetadata[0].contract.ingestion_bot_jwt_key : ""
   s3_endpoint_url           = module.seaweedfs.contract.endpoint
   s3_region                 = module.seaweedfs.contract.region
+}
+
+# ADR 0024: the metrics reference, in olf-system. Its targets are static except
+# the nodes, so its one cluster grant is node discovery and nodes/metrics.
+module "metrics" {
+  source = "../../modules/observability/metrics"
+  count  = local.metrics_enabled ? 1 : 0
+
+  namespace        = kubernetes_namespace_v1.shared.metadata[0].name
+  retention_days   = var.observability.metrics_retention_days
+  volume_size      = local.metrics_size.volume
+  retention_size   = local.metrics_size.retention_size
+  stage_namespaces = local.stage_namespaces
+  trino_targets    = { for name, namespace in local.stage_namespaces : name => "${local.trino_service.name}.${namespace}.svc:${local.trino_service.port}" }
+  # The SeaweedFS chart (4.48.0) starts every process with -metricsPort=9327 and names that port on its Services.
+  object_store_targets = {
+    for service in ["master", "volume", "filer", "s3"] : service => "seaweedfs-${service}.${kubernetes_namespace_v1.shared.metadata[0].name}.svc:9327"
+  }
+  bucket_stages = merge(
+    { for name, binding in local.stage_storage : binding.bronze_bucket_name => name },
+    { for name, binding in local.stage_storage : binding.silver_bucket_name => name },
+    { for name, binding in local.stage_storage : binding.gold_bucket_name => name },
+    { (var.ops_bucket_name) = "platform" },
+  )
+  # kind's kubelets serve self-signed certificates (ADR 0024, open item 8).
+  kubelet_insecure_skip_verify = true
 }
 
 module "cert_manager" {
@@ -844,6 +876,7 @@ locals {
     { "platform-api" = length(module.platform_api) > 0 },
     { "alert-evaluator" = local.alerts_enabled },
     { "quality-reconciler" = local.governance_enabled },
+    { "prometheus" = local.metrics_enabled },
     { for name in ["dex", "dex-credentials"] : name => local.identity_dex },
     { for name in ["openmetadata", "opensearch"] : name => local.governance_enabled },
   )
@@ -902,12 +935,23 @@ locals {
   )
 }
 
+locals {
+  # ADR 0024 renders no flow for Prometheus without metrics, on either side: a
+  # dropped workload alone would still leave its rows' ingress into the stages
+  # (F48) and the platform API's egress to it (F45).
+  prometheus_pods = local.network_flows.workloads.prometheus
+  policy_flows = [
+    for f in concat(local.network_flows.flows, local.profile_flows) : f
+    if local.metrics_enabled || !anytrue([for end in concat(flatten([f.from]), [f.to]) : try(end.pods, {}) == local.prometheus_pods])
+  ]
+}
+
 module "network_policy" {
   source = "../../modules/security/network-policy"
 
   stage_namespaces = { for name, namespace in kubernetes_namespace_v1.stage : name => namespace.metadata[0].name }
   shared_namespace = kubernetes_namespace_v1.shared.metadata[0].name
-  flows            = concat(local.network_flows.flows, local.profile_flows)
+  flows            = local.policy_flows
   workloads        = { for name, labels in local.network_flows.workloads : name => labels if lookup(local.workload_deployed, name, true) }
   node_cidrs = [
     for node in data.kubernetes_nodes.all.nodes : "${one([for a in node.status[0].addresses : a.address if a.type == "InternalIP"])}/32"
