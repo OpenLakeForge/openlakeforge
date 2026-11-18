@@ -163,6 +163,98 @@ def deploy_openmetadata_metadata(
     typer.echo("Deployed OpenMetadata governance metadata.")
 
 
+@app.command("quality-sync")
+def openmetadata_quality_sync(
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
+    namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
+    kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    project_root: str = typer.Option(
+        "", "--project-root", help="Writable project root; defaults to the current directory."
+    ),
+    stage: str = typer.Option("", "--stage", help="Stage to publish; defaults to the project's default stage."),
+    run_id: str = typer.Option("", "--run", help="Replay this Dagster run, whatever its sync state."),
+    limit: int = typer.Option(25, "--limit", help="Most runs to work on in this invocation (1-200)."),
+    retry_failed: bool = typer.Option(
+        False, "--retry-failed", help="Give results the reconciler stopped retrying a fresh set of attempts."
+    ),
+    warn_status: str = typer.Option(
+        "Aborted",
+        "--warn-status",
+        help="OpenMetadata status of a WARN: Aborted (no incident) or Failed (opens an incident).",
+    ),
+    via: str = typer.Option("port-forward", "--via", help="Reach the ops bucket by 'port-forward' or 'direct'."),
+) -> None:
+    """Publish a stage's quality results to OpenMetadata from the ops bucket, without rerunning the pipeline.
+
+    Safe to repeat: a result already in OpenMetadata is not published again. A stage without governance is a
+    no-op that makes no OpenMetadata or bucket request.
+    """
+    from openlakeforge_core.quality_sync import OmStatus
+    from openlakeforge_services.base import ServiceClientError
+    from openlakeforge_services.openmetadata import OpenMetadataClient
+    from openlakeforge_services.quality_publisher import StoreUnavailableError
+
+    from olf.infra import k8s
+    from olf.infra.artifact_store import ArtifactStoreError, artifact_storage_client
+    from olf.infra.commands.runtime import provider_contract_environment
+    from olf.infra.openmetadata._auth import INGESTION_BOT_JWT_KEY, INGESTION_BOT_SECRET
+    from olf.infra.openmetadata._quality_sync import QualitySyncError, run_quality_sync
+
+    if warn_status not in {status.value for status in OmStatus if status is not OmStatus.SUCCESS}:
+        raise typer.Exit(code=fail("--warn-status must be Aborted or Failed: a WARN is never published as Success."))
+
+    with provider_contract_environment(
+        provider=provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
+        stage=stage,
+    ) as contract:
+        governance = _governance_service(contract)
+
+        @contextmanager
+        def open_catalog() -> Iterator[OpenMetadataClient]:
+            with governance.url(contract) as route:
+                # The ingestion bot, not the admin automation bot: the Secret every runtime consumer already reads.
+                token = k8s.secret_value(
+                    INGESTION_BOT_SECRET, INGESTION_BOT_JWT_KEY, governance.namespace, environ=contract
+                )
+                yield route.client(OpenMetadataClient, token=token)
+
+        try:
+            outcome = run_quality_sync(
+                contract,
+                open_store=lambda bucket: artifact_storage_client(via, bucket, environ=contract),
+                open_catalog=open_catalog,
+                limit=limit,
+                run_id=run_id or None,
+                retry_failed=retry_failed,
+                warn_status=OmStatus(warn_status),
+            )
+        except (QualitySyncError, ArtifactStoreError, StoreUnavailableError, k8s.KubectlError) as exc:
+            raise typer.Exit(code=fail(str(exc))) from exc
+        except ServiceClientError as exc:
+            raise typer.Exit(code=fail(f"OpenMetadata request failed: HTTP {exc.status or 'no response'}")) from exc
+    if outcome.report is None:
+        typer.echo(f"Stage {outcome.stage} has no governance layer; nothing to publish.")
+        return
+    report = outcome.report
+    summary = report.summary
+    typer.echo(
+        f"Stage {outcome.stage}: {report.runs_examined} runs, {report.published} published, "
+        f"{report.deferred} waiting for table registration, {report.failed} failed, {report.skipped} skipped."
+    )
+    if summary is not None:
+        lag = "none" if summary.lag_seconds is None else f"{summary.lag_seconds}s"
+        typer.echo(f"Pending {summary.pending}, given up {summary.failed}, sync lag {lag}.")
+    if report.interrupted:
+        raise typer.Exit(code=fail("OpenMetadata or the bucket stopped answering; the rest stays pending."))
+
+
 def _stage_values(flag: str, values: list[str] | None, stages: tuple[str, ...]) -> dict[str, str]:
     """Parse repeated STAGE=VALUE options, each stage at most once and one of `stages`."""
     parsed: dict[str, str] = {}

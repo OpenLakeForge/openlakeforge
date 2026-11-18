@@ -308,6 +308,21 @@ uv run --project tools/olf olf infra e2e run --env local
 tables through Trino, checks Superset dashboards and OpenMetadata assets, and
 confirms ops-bucket artifacts exist.
 
+To run it on GitHub instead (a cloud agent has no cluster), dispatch
+`local-full-e2e.yml`. A manual run is DEV only with the core checks; the
+nightly alone runs everything. Opt in to more with inputs, and give it your own
+Deployment Profile as text, since a dispatch cannot read files outside the
+repository:
+
+```bash
+gh workflow run local-full-e2e.yml --ref "$(git branch --show-current)" \
+  -f "profile=$(cat openlakeforge.yaml)" -f checks=core -f stage_scope=dev-only
+```
+
+Other inputs: `checks` (`none`, `core`, `all`), `stage_scope`, `restore_drill`,
+`stage_drill`, `registry_pull_check`, `profile_path` (a profile committed to the
+branch). With `profile` or `profile_path`, the profile decides the stages.
+
 ## Guardrails
 
 - Never commit to `main`. Branch, then open a pull request.

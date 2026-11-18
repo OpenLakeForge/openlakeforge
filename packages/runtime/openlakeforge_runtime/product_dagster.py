@@ -6,7 +6,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
@@ -752,7 +752,9 @@ def _without_regressions(fresh: QualityManifest, published: QualityManifest | No
     for result in fresh.results:
         earlier = merged.get(result.identity)
         if not (earlier and result.outcome is QualityOutcome.UNKNOWN and earlier.outcome is not QualityOutcome.UNKNOWN):
-            merged[result.identity] = result
+            # The first observation's time stays: a rewrite restamps every record with the clock of the later step,
+            # and the same execution would otherwise reach a consumer under a second timestamp.
+            merged[result.identity] = replace(result, observed_at=earlier.observed_at) if earlier else result
     return QualityManifest(
         stage=fresh.stage,
         domain=fresh.domain,

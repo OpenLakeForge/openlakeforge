@@ -52,9 +52,35 @@ on:
           - full
           - smoke
         default: full
+      profile:
+        description: >
+          'full' suite only. A complete Deployment Profile (YAML text) to apply
+          instead of openlakeforge.conformance.yaml, e.g.
+          gh workflow run local-full-e2e.yml --ref <branch> -f "profile=$(cat openlakeforge.yaml)".
+          A dispatch input is the only way to hand a run a file that is not in
+          the repository (inputs are strings, up to 65,535 characters). With a
+          custom profile 'stage_scope' and 'access_tls' are ignored -- the
+          profile decides -- and the provider-contract fixture comparison is
+          skipped. The run activates dev and prod only, pushes the revision to
+          its own GHCR repository and cannot run the stage drill or the
+          registry pull check, so a profile that enables another stage or
+          declares spec.project, or a run that asks for either, is rejected.
+          The job creates only the Secrets the conformance profile names:
+          github-oauth-app (client-id, client-secret) for a GitHub issuer and
+          olf-e2e-alert-receiver (webhook-url) for an alert receiver. A
+          profile that names others stops at the platform apply. Leave empty for the conformance profile.
+        type: string
+        default: ""
+      profile_path:
+        description: >
+          'full' suite only. Same as 'profile', but the path (relative to the
+          repository root, on the dispatched ref) of a profile committed to
+          the branch. Set at most one of the two.
+        type: string
+        default: ""
       stage_scope:
         description: >
-          'full' suite only. 'dev-only' (default for manual runs) still
+          'full' suite only, default profile only. 'dev-only' (default for manual runs) still
           builds and pushes the project-code image to GHCR (DEV's own
           activation needs that digest too) and runs DEV's full suite, but
           skips the PROD snapshot, the promotion and the PROD suite.
@@ -72,12 +98,24 @@ on:
           break-glass, perimeter latency, issuer outage, log collector
           short-lived pod and restart, secret rotation).
           'all' runs them, in the DEV suite only -- PROD always runs 'core'.
+          'none' deploys and activates and runs no e2e assertions in either
+          stage, to leave a running platform to test a feature against. The
+          lake stays empty, so it cannot be combined with restore_drill.
           The nightly schedule always uses 'all'.
         type: choice
         options:
+          - none
           - core
           - all
         default: core
+      registry_pull_check:
+        description: >
+          'full' suite only. After the suites, activate each stage again
+          through an image pull Secret and prove the pull (#537). It removes
+          the project image from the nodes, so it is slow, and it proves a
+          mechanism that rarely changes. The nightly always runs it.
+        type: boolean
+        default: false
       timeout_minutes:
         description: >
           Hard wall-clock budget for the whole job. Measured baseline for one
@@ -101,7 +139,7 @@ on:
         default: false
       stage_drill:
         description: >
-          'full' suite with stage_scope 'dev+prod' only. After the PROD suite, redeploy three times with a changed
+          'full' suite with PROD enabled only. After the PROD suite, redeploy three times with a changed
           profile: PROD governance off (#1049: no polaris-om-creds and no Trino crawl left in PROD), PROD disabled
           with --allow-stage-removal (#1050: its namespace and Polaris principals gone), and PROD enabled again
           (activated, the core suite passes). Then scan for Secret values (.github/actions/stage-drill).
@@ -265,37 +303,84 @@ jobs:
           # OLF_HOME (default ~/.openlakeforge), not in any checkout.
           echo "OLF_KUBECONFIG=${HOME}/.openlakeforge/state/local/kubeconfig.yaml" >> "${GITHUB_ENV}"
 
-      - name: Initialise an external project with the DEV+PROD Deployment Profile
-        # The profile is the checked-in `openlakeforge.conformance.yaml`,
-        # verbatim (#220): the profile the unit conformance suite resolves is
-        # the one this job renders and applies. 'dev-only' drops its PROD
-        # stage (a missing stage is disabled).
+      - name: Initialise an external project with the Deployment Profile
+        # Default: the checked-in `openlakeforge.conformance.yaml`, verbatim
+        # (#220): the profile the unit conformance suite resolves is the one
+        # this job renders and applies. 'dev-only' drops its PROD stage (a
+        # missing stage is disabled). A `profile` or `profile_path` input
+        # replaces it, and then the profile alone decides the stages. Inline
+        # text goes through the environment, never into the script, so a
+        # profile cannot inject shell. `prod` is what every PROD step below
+        # keys off, whichever way the profile arrived; a stage block that
+        # omits `enabled` is enabled, as the profile loader resolves it.
         if: (inputs.suite || 'full') != 'smoke'
+        id: profile
+        env:
+          PROFILE_YAML: ${{ inputs.profile }}
+          PROFILE_PATH: ${{ inputs.profile_path }}
         run: |
           set -euo pipefail
+          if [ "${{ inputs.checks }}" = "none" ] && [ "${{ inputs.restore_drill }}" = "true" ]; then
+            # The drill's baseline needs the default product's Silver and Gold tables, which only the suite's pipelines build.
+            echo "::error::restore_drill needs data in the lake: use checks core or all, not none"
+            exit 1
+          fi
           mkdir -p "${PROJECT_DIR}"
           cd "${PROJECT_DIR}"
           olf version --json
           olf init
-          cp "${GITHUB_WORKSPACE}/openlakeforge.conformance.yaml" openlakeforge.yaml
-          if [ "${{ inputs.stage_scope || 'dev+prod' }}" = "dev-only" ]; then
-            sed -i '/^    prod:$/,/^      enabled: true$/d' openlakeforge.yaml
-          fi
-          if [ "${{ inputs.access_tls || 'local-ca' }}" = "none" ]; then
-            sed -i 's/^    tls: local-ca$/    tls: none/' openlakeforge.yaml
-            grep -qx '    tls: none' openlakeforge.yaml
-          fi
-          if [ "${{ inputs.access_tls || 'local-ca' }}" = "external" ]; then
-            sed -i 's/^    tls: local-ca$/    tls: external\n    base_domain: olf.example.test\n    trusted_proxies: [10.244.0.0\/16]/' openlakeforge.yaml
-            grep -qx '    tls: external' openlakeforge.yaml
-            # The fixture edge is a pod, so Traefik sees it from kind's default pod CIDR.
-            # The fixture edge listens on this runner (hostPort 443) and the
-            # clients resolve the public name to it; it is signed by the local CA.
-            echo "OLF_E2E_TEST_EDGE=1" >> "${GITHUB_ENV}"
-            echo "OLF_EDGE_RESOLVE=olf.example.test=127.0.0.1" >> "${GITHUB_ENV}"
+          custom=false
+          if [ -n "${PROFILE_YAML}" ] && [ -n "${PROFILE_PATH}" ]; then
+            echo "::error::set profile or profile_path, not both"
+            exit 1
+          elif [ -n "${PROFILE_YAML}" ]; then
+            printf '%s\n' "${PROFILE_YAML}" > openlakeforge.yaml
+            custom=true
+          elif [ -n "${PROFILE_PATH}" ]; then
+            source="$(realpath -e "${GITHUB_WORKSPACE}/${PROFILE_PATH}")"
+            case "${source}" in
+              "${GITHUB_WORKSPACE}"/*) ;;
+              *) echo "::error::profile_path must stay inside the repository"; exit 1 ;;
+            esac
+            cp "${source}" openlakeforge.yaml
+            custom=true
+          else
+            cp "${GITHUB_WORKSPACE}/openlakeforge.conformance.yaml" openlakeforge.yaml
+            if [ "${{ inputs.stage_scope || 'dev+prod' }}" = "dev-only" ]; then
+              sed -i '/^    prod:$/,/^      enabled: true$/d' openlakeforge.yaml
+            fi
+            if [ "${{ inputs.access_tls || 'local-ca' }}" = "none" ]; then
+              sed -i 's/^    tls: local-ca$/    tls: none/' openlakeforge.yaml
+              grep -qx '    tls: none' openlakeforge.yaml
+            fi
+            if [ "${{ inputs.access_tls || 'local-ca' }}" = "external" ]; then
+              sed -i 's/^    tls: local-ca$/    tls: external\n    base_domain: olf.example.test\n    trusted_proxies: [10.244.0.0\/16]/' openlakeforge.yaml
+              grep -qx '    tls: external' openlakeforge.yaml
+              # The fixture edge is a pod, so Traefik sees it from kind's default pod CIDR.
+              # The fixture edge listens on this runner (hostPort 443) and the
+              # clients resolve the public name to it; it is signed by the local CA.
+              echo "OLF_E2E_TEST_EDGE=1" >> "${GITHUB_ENV}"
+              echo "OLF_EDGE_RESOLVE=olf.example.test=127.0.0.1" >> "${GITHUB_ENV}"
+            fi
           fi
           olf profile validate --project .
           olf project validate --project . > /dev/null
+          # The stages and the image source come from olf's own resolution of the profile, not a second reading of it here.
+          olf profile resolve --project . --json > "${RUNNER_TEMP}/resolved-profile.json"
+          prod="$(python3 -c 'import json, sys; print("true" if any(s["name"] == "prod" and s["enabled"] for s in json.load(open(sys.argv[1]))["stages"]) else "false")' "${RUNNER_TEMP}/resolved-profile.json")"
+          if [ "${custom}" = "true" ]; then
+            # The steps below activate dev and prod only, and they own the image repository (GHCR, with the job's token).
+            python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); bad = [s["name"] for s in d["stages"] if s["enabled"] and s["name"] not in ("dev", "prod")]; sys.exit("::error::this workflow activates dev and prod only; the profile also enables " + ", ".join(bad) if bad else 0)' "${RUNNER_TEMP}/resolved-profile.json"
+            python3 -c 'import json, sys; sys.exit("::error::a custom profile must not declare spec.project: the workflow pushes the revision to its own GHCR repository" if json.load(open(sys.argv[1]))["project"]["source"] == "profile" else 0)' "${RUNNER_TEMP}/resolved-profile.json"
+            # Both edit the conformance profile's text (sed, and an appended `project:` block), not parsed YAML.
+            if [ "${{ inputs.stage_drill }}" = "true" ] || [ "${{ inputs.registry_pull_check }}" = "true" ]; then
+              echo "::error::stage_drill and registry_pull_check edit the conformance profile and do not support a custom profile"
+              exit 1
+            fi
+          fi
+          echo "custom=${custom}" >> "${GITHUB_OUTPUT}"
+          echo "prod=${prod}" >> "${GITHUB_OUTPUT}"
+          echo "::notice::custom profile: ${custom}; PROD stage enabled: ${prod}"
           cat openlakeforge.yaml
 
       - name: Apply the local platform (foundation + prefetch + platform, every enabled stage)
@@ -333,7 +418,7 @@ jobs:
           contract="${GITHUB_WORKSPACE}/.tmp/rendered-contract/provider-contracts.json"
           olf infra platform contract -f openlakeforge.yaml > "${contract}"
           grep -q '"stages"' "${contract}"
-          if [ "${{ inputs.stage_scope || 'dev+prod' }}" != "dev-only" ] && [ "${{ inputs.access_tls || 'local-ca' }}" = "local-ca" ]; then
+          if [ "${{ steps.profile.outputs.custom }}" = "false" ] && [ "${{ steps.profile.outputs.prod }}" = "true" ] && [ "${{ inputs.access_tls || 'local-ca' }}" = "local-ca" ]; then
             python3 -c "import json, sys; sys.exit(json.load(open(sys.argv[1])) != json.load(open(sys.argv[2])))" \
               "${contract}" "${GITHUB_WORKSPACE}/tools/olf/tests/fixtures/conformance-provider-contracts.json" \
               || { echo "::error::the rendered contract differs from tools/olf/tests/fixtures/conformance-provider-contracts.json; refresh it from this run's rendered-provider-contract artifact"; exit 1; }
@@ -401,8 +486,8 @@ jobs:
           profile: ${{ env.PROJECT_DIR }}/openlakeforge.yaml
           stage: dev
           revision: ${{ steps.revision.outputs.revision }}
-          e2e-env: local
-          e2e-checks: ${{ inputs.checks || 'all' }}
+          e2e-env: ${{ inputs.checks != 'none' && 'local' || '' }}
+          e2e-checks: ${{ inputs.checks == 'none' && 'core' || inputs.checks || 'all' }}
 
       # v0.3 release gate: promotion copies no lakehouse data. PROD's Bronze,
       # Silver and Gold buckets are listed (key and ETag) before and after
@@ -412,14 +497,14 @@ jobs:
       # The listing is test instrumentation, so it runs from the checkout.
 
       - name: Snapshot PROD's lakehouse buckets before promotion
-        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        if: (inputs.suite || 'full') != 'smoke' && steps.profile.outputs.prod == 'true'
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: uv run --project tools/olf --locked olf e2e stage-buckets --stage prod > prod-buckets-before-promotion.json
 
       - name: Activate the same revision in PROD (promotion -- no rebuild)
-        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        if: (inputs.suite || 'full') != 'smoke' && steps.profile.outputs.prod == 'true'
         uses: ./.github/actions/deploy-stage
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
@@ -430,7 +515,7 @@ jobs:
           revision: ${{ steps.revision.outputs.revision }}
 
       - name: Assert promotion wrote nothing to PROD's lakehouse buckets
-        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        if: (inputs.suite || 'full') != 'smoke' && steps.profile.outputs.prod == 'true'
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
@@ -447,7 +532,7 @@ jobs:
         # whenever a sibling stage namespace exists, so this run and DEV's
         # above already assert the cross-stage negative-isolation criteria
         # from each stage's own vantage point.
-        if: (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        if: (inputs.suite || 'full') != 'smoke' && steps.profile.outputs.prod == 'true' && inputs.checks != 'none'
         working-directory: ${{ env.PROJECT_DIR }}
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
@@ -471,7 +556,8 @@ jobs:
         # declares no `spec.project`, so it is added here for the activation and the original is put back before the
         # restore drill: that rebuilds a cluster without this Secret and would refuse to reactivate with it named.
         # Runs after the PROD suite because it removes the image from the nodes and launches a run per stage.
-        if: (inputs.suite || 'full') != 'smoke'
+        # The nightly runs it; a dispatch opts in with `registry_pull_check`.
+        if: (inputs.suite || 'full') != 'smoke' && (github.event_name == 'schedule' || inputs.registry_pull_check)
         working-directory: ${{ env.PROJECT_DIR }}
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
@@ -480,7 +566,7 @@ jobs:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_REPOSITORY: ${{ steps.registry.outputs.repository }}
           REVISION: ${{ steps.revision.outputs.revision }}
-          STAGES: ${{ (inputs.stage_scope || 'dev+prod') == 'dev-only' && 'dev' || 'dev prod' }}
+          STAGES: ${{ steps.profile.outputs.prod != 'true' && 'dev' || 'dev prod' }}
         run: |
           set -euo pipefail
           cp openlakeforge.yaml "${RUNNER_TEMP}/openlakeforge.original.yaml"
@@ -497,15 +583,15 @@ jobs:
           done
 
       - name: Stage drill needs a PROD stage
-        if: (inputs.suite || 'full') != 'smoke' && inputs.stage_drill && (inputs.stage_scope || 'dev+prod') == 'dev-only'
+        if: (inputs.suite || 'full') != 'smoke' && inputs.stage_drill && steps.profile.outputs.prod != 'true'
         run: |
-          echo "::error::stage_drill removes and re-enables PROD, so it needs stage_scope dev+prod"
+          echo "::error::stage_drill removes and re-enables PROD, so it needs a profile with PROD enabled"
           exit 1
 
       - name: Stage drill (PROD governance off, PROD removed, PROD enabled again, scan)
         # After the registry-pull step, which puts the profile back, and before the restore drill, which would
         # rebuild the cluster this drill redeploys. It rewrites the profile and puts it back at the end.
-        if: (inputs.suite || 'full') != 'smoke' && inputs.stage_drill && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        if: (inputs.suite || 'full') != 'smoke' && inputs.stage_drill && steps.profile.outputs.prod == 'true'
         uses: ./.github/actions/stage-drill
         env:
           KUBE_CONTEXT: kind-openlakeforge-local
@@ -524,7 +610,7 @@ jobs:
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         with:
           profile: ${{ env.PROJECT_DIR }}/openlakeforge.yaml
-          stages: ${{ (inputs.stage_scope || 'dev+prod') == 'dev-only' && 'dev' || 'dev prod' }}
+          stages: ${{ steps.profile.outputs.prod != 'true' && 'dev' || 'dev prod' }}
 
       - name: Upload the restore drill report
         # Only the manifest and the verify reports: the backup directory
@@ -546,8 +632,9 @@ jobs:
             echo ""
             echo "- Ref: \`${{ github.ref }}\`"
             echo "- Commit: \`${{ github.sha }}\`"
-            echo "- Stage scope: \`${{ (inputs.suite || 'full') == 'smoke' && 'dev' || (inputs.stage_scope || 'dev+prod') }}\`"
-            echo "- Access TLS: \`${{ (inputs.suite || 'full') == 'smoke' && 'slim profile' || (inputs.access_tls || 'local-ca') }}\`"
+            echo "- Stage scope: \`${{ (inputs.suite || 'full') == 'smoke' && 'dev' || (steps.profile.outputs.prod == 'true' && 'dev+prod' || 'dev-only') }}\`"
+            echo "- Profile: \`${{ (inputs.suite || 'full') == 'smoke' && 'slim profile' || (steps.profile.outputs.custom == 'true' && 'custom' || 'conformance') }}\`"
+            echo "- Access TLS: \`${{ (inputs.suite || 'full') == 'smoke' && 'slim profile' || steps.profile.outputs.custom == 'true' && 'from the profile' || (inputs.access_tls || 'local-ca') }}\`"
             echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -616,7 +703,7 @@ jobs:
         run: uv run --project tools/olf --locked olf infra diagnostics collect .tmp/local-full-e2e-diagnostics/dev --namespace olf-dev --kube-context kind-openlakeforge-local
 
       - name: Collect kind diagnostics (PROD)
-        if: failure() && (inputs.suite || 'full') != 'smoke' && (inputs.stage_scope || 'dev+prod') != 'dev-only'
+        if: failure() && (inputs.suite || 'full') != 'smoke' && steps.profile.outputs.prod == 'true'
         env:
           KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
         run: uv run --project tools/olf --locked olf infra diagnostics collect .tmp/local-full-e2e-diagnostics/prod --namespace olf-prod --kube-context kind-openlakeforge-local

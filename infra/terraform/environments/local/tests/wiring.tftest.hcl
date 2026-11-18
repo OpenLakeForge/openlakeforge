@@ -291,3 +291,52 @@ run "service_probes_are_wired_to_each_stage_namespace" {
     error_message = "the F20 egress is static, so the root must check the probe grant accompanies the platform API"
   }
 }
+
+# ADR 0007: Slim is a strict no-op for quality publication. No CronJob, key,
+# Secret or policy exists unless a stage has governance.
+run "slim_renders_no_quality_reconciler" {
+  command = plan
+
+  assert {
+    condition     = length(module.quality_reconciler.cron_job_names) == 0 && module.quality_reconciler.service_account_name == null
+    error_message = "a deployment without governance must render no reconciler CronJob or ServiceAccount"
+  }
+
+  assert {
+    condition     = length(module.seaweedfs.quality_sync_secret_names) == 0
+    error_message = "a deployment without governance must mint no quality sync key"
+  }
+
+  assert {
+    condition     = !contains(keys(module.network_policy.workload_policy_names), "quality-reconciler")
+    error_message = "a deployment without governance must render no reconciler NetworkPolicy"
+  }
+}
+
+# Each governed stage gets its own pass, key and prefix, so the DEV reconciler
+# holds nothing that reaches PROD evidence or PROD tables.
+run "a_governed_stage_gets_a_reconciler_pinned_to_it" {
+  command = plan
+
+  variables {
+    stages = {
+      dev  = { enabled = true, analytics = true, governance = true }
+      prod = { enabled = true, analytics = true, governance = false }
+    }
+  }
+
+  assert {
+    condition     = module.quality_reconciler.cron_job_names == { dev = "quality-reconciler-dev" }
+    error_message = "only the governed stage has a reconciler"
+  }
+
+  assert {
+    condition     = module.seaweedfs.quality_sync_secret_names == { dev = "quality-reconciler-dev-s3-creds" }
+    error_message = "the reconciler's key is the stage's own"
+  }
+
+  assert {
+    condition     = contains(keys(module.network_policy.workload_policy_names), "quality-reconciler")
+    error_message = "the reconciler's pods are isolated by a NetworkPolicy of their own"
+  }
+}

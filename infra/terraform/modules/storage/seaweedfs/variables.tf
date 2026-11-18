@@ -115,6 +115,21 @@ variable "quality_reader_credentials" {
   }
 }
 
+variable "quality_sync_credentials" {
+  description = "One identity per governed stage for its quality reconciler (ADR 0007): Read and List on that stage's `activations/<stage>/run-artifacts/quality/`, Read, Write and List on its `activations/<stage>/quality-sync/`, nothing else. Empty when no stage has governance."
+  type = map(object({
+    namespace               = string
+    credentials_secret_name = string
+    ops_bucket_name         = string
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for stage in keys(var.quality_sync_credentials) : can(regex("^[a-z0-9][a-z0-9-]*$", stage))])
+    error_message = "A stage name is a plain lowercase name, so the grant's prefix cannot widen past its own stage."
+  }
+}
+
 variable "audit_writer_credentials" {
   description = "A write-only identity for the platform API's audit records (ADR 0021, decision 3): Write on one prefix of the ops bucket, nothing else. Null when the platform API is not deployed."
   type = object({

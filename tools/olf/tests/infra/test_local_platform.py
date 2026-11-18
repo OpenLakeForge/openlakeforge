@@ -138,6 +138,8 @@ def test_platform_apply_variables_cover_every_root_input(tmp_path: Path) -> None
         "superset_chart_package_path",
         "traefik_chart_package_path",
         "cert_manager_chart_package_path",
+        # The default Full topology has governance, whose quality reconciler runs this image (ADR 0007).
+        "platform_api_image",
     }
 
 
@@ -1131,8 +1133,19 @@ def test_receivers_build_the_platform_api_image_without_an_issuer(tmp_path: Path
     assert json.loads(platform.platform_apply_variables(config)["alert_receiver_secrets"]) == {
         "ops": {"secret_name": "ops-webhook", "key": "url", "platform": True}
     }
-    assert platform.platform_api_variables(_config(tmp_path)) == {}
-    assert "alert_receiver_secrets" not in platform.platform_apply_variables(_config(tmp_path))
+    slim = _config(tmp_path, topology=_topology(analytics=False))
+    assert platform.platform_api_variables(slim) == {}
+    assert "alert_receiver_secrets" not in platform.platform_apply_variables(slim)
+
+
+def test_governance_builds_the_platform_api_image_for_the_quality_reconciler_and_slim_does_not(tmp_path: Path) -> None:
+    from olf.infra.deployment.local import images
+
+    full = _config(tmp_path)
+    assert platform.platform_api_variables(full) == {"platform_api_image": images.platform_api_image(full)}
+
+    # Slim has no governance, no receiver and no issuer: no image is built and nothing runs it.
+    assert platform.platform_api_variables(_config(tmp_path, topology=_topology(analytics=False))) == {}
 
 
 def test_complete_receiver_secrets_pass_and_one_read_serves_a_shared_secret(tmp_path: Path) -> None:
