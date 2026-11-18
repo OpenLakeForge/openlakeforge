@@ -133,8 +133,6 @@ class Settings:
     # Authentication off (ADR 0021, decision 8): no issuer, and a caller with no token is served as this canonical
     # role. Only with a `public_origin` on `*.localhost`, the one place a profile may turn authentication off.
     anonymous_role: str | None = None
-    # Polaris's token endpoint, where the API mints the anonymous principal's catalog token (ADR 0021, decision 8).
-    anonymous_catalog_token_url: str | None = None
     # The metrics read path (ADR 0024, decision 4): the profile's resolved `metrics.enabled`, and the contract's
     # `query_url` and `retention_days`. Enabled with no URL is a provider with no metrics backend (`not_provided`);
     # not enabled is `disabled`. Either way no route answers with a number.
@@ -203,7 +201,6 @@ class Settings:
                 },
                 service_audience=str(data.get("service_audience") or "openlakeforge-platform-api"),
                 anonymous_role=data.get("anonymous_role") or None,
-                anonymous_catalog_token_url=data.get("anonymous_catalog_token_url") or None,
                 metrics_enabled=data.get("metrics_enabled") is True,
                 metrics_url=data.get("metrics_url") or None,
                 metrics_retention_days=int(data.get("metrics_retention_days", 7)),
@@ -220,10 +217,6 @@ class Settings:
     def _validate(self) -> None:
         if not self.precedence or len(set(self.precedence)) != len(self.precedence):
             raise SettingsError("precedence must list each canonical role once")
-        if self.anonymous_catalog_token_url is not None and (
-            self.anonymous_role is None or urlsplit(self.anonymous_catalog_token_url).scheme not in ("http", "https")
-        ):
-            raise SettingsError("anonymous_catalog_token_url needs anonymous_role and an http(s) URL")
         if self.anonymous_role is not None:
             self._validate_anonymous()
         elif not self.issuer_url:

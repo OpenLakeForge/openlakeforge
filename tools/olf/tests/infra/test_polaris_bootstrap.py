@@ -366,8 +366,6 @@ def test_a_rerun_of_the_whole_bootstrap_changes_nothing(
     assert [argv for argv in cluster.argv if argv[0] in {"create", "apply"}] == []
     assert {argv[2] for argv in cluster.argv if argv[0] == "delete"} == {
         "polaris-dbt-creds",
-        # With identity, the anonymous principal's Secret is removed on every run (ADR 0021, decision 8).
-        "polaris-platform-api-anonymous-creds",
         *(f"polaris-{s}-{kind}-creds" for s in STAGES for kind in ("trino", "floe", "trino-people")),
     }
 
@@ -670,24 +668,3 @@ def test_nothing_is_reached_without_a_polaris_catalog(monkeypatch: pytest.Monkey
     monkeypatch.setattr(k8s, "port_forward", Mock(side_effect=AssertionError("no Polaris to reach")))
 
     bootstrap_from_contract(_contracts(dev={"catalog": _GLUE}, prod={"catalog": _GLUE}), environ=_ENVIRON)
-
-
-def test_without_identity_the_anonymous_principal_holds_every_stage_catalogs_content(
-    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster
-) -> None:
-    fake, client = polaris
-    contracts = _contracts()
-    identity = {**contracts.shared.values["identity"], "implementation": "identity.none"}
-    shared = replace(contracts.shared, values={**contracts.shared.values, "identity": identity})
-    plan = bootstrap_plan(replace(contracts, shared=shared))
-    assert plan is not None and plan.anonymous is not None
-    assert bootstrap_plan(contracts).anonymous is None  # type: ignore[union-attr]
-
-    _bootstrap(client, plan)
-
-    state = fake.state()
-    assert state["principals"]["platform-api-anonymous"] == ["anonymous"]
-    catalogs = [stage.catalog_name for stage in plan.stages]
-    assert state["principal_roles"]["anonymous"] == {catalog: ["catalog-anonymous"] for catalog in catalogs}
-    assert all(state["catalog_roles"][c]["catalog-anonymous"] == ["CATALOG_MANAGE_CONTENT"] for c in catalogs)
-    assert f"secret/{plan.anonymous.namespace}/{plan.anonymous.secret}" in cluster.state(fake)

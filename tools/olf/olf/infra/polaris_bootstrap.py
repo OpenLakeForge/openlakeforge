@@ -56,11 +56,6 @@ PERSON_CATALOG_ROLES: Mapping[str, tuple[str, ...]] = {
     "olf-read": ("TABLE_READ_DATA", "NAMESPACE_READ_PROPERTIES", "VIEW_READ_PROPERTIES"),
     "olf-write": (MANAGE_CONTENT,),
 }
-# Authentication off (ADR 0021, decision 8): the principal the platform API queries as for every caller, in the
-# shared namespace. Local test stacks only, so it holds what platform-admin holds: every stage catalog's content.
-# modules/access/platform-api mounts the Secret by this name.
-ANONYMOUS_PRINCIPAL = "platform-api-anonymous"
-ANONYMOUS_SECRET = "polaris-platform-api-anonymous-creds"
 # Removed on every run: Gold writes through Trino, and pre-migration deployments had a dbt principal.
 LEGACY_DBT_PRINCIPAL = "dbt"
 LEGACY_DBT_SECRET = "polaris-dbt-creds"
@@ -138,8 +133,6 @@ class BootstrapPlan:
     openmetadata: Credential
     sts: CatalogSts | None = None
     person_access: PersonAccess | None = None
-    # Only without spec.identity; with it the principal and its Secret are removed.
-    anonymous: Credential | None = None
 
 
 def _q(segment: str) -> str:
@@ -447,18 +440,6 @@ def run_bootstrap(
                 stage.catalog_name,
             )
 
-    if plan.anonymous:
-        ensure_credential(client, plan.anonymous, environ=environ)
-        for stage in plan.stages:
-            grant_catalog_access(
-                client,
-                Grant(plan.anonymous.principal, "anonymous", "catalog-anonymous", MANAGE_CONTENT),
-                stage.catalog_name,
-            )
-    else:
-        _call(client, "DELETE", f"/principals/{ANONYMOUS_PRINCIPAL}", ok=(204,), absent=(404,))
-        k8s.delete_secret(ANONYMOUS_SECRET, plan.shared_namespace, environ=environ)
-
     if plan.person_access:
         reconcile_person_access(
             client, plan.person_access, tuple(stage.catalog_name for stage in plan.stages), environ=environ
@@ -579,11 +560,6 @@ def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
         openmetadata=_credential("openmetadata", "polaris-om-creds", "POLARIS_OM", shared),
         sts=sts,
         person_access=_person_access(contracts, catalogs),
-        anonymous=(
-            _credential(ANONYMOUS_PRINCIPAL, ANONYMOUS_SECRET, "POLARIS_ANONYMOUS", shared)
-            if (contracts.shared.values.get("identity") or {}).get("implementation") == "identity.none"
-            else None
-        ),
     )
 
 

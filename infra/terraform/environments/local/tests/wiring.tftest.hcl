@@ -203,7 +203,6 @@ run "plain_http_without_identity_serves_the_api_anonymously" {
       && jsondecode(module.platform_api[0].settings_json).public_origin == "http://olf.localhost"
       && jsondecode(module.platform_api[0].settings_json).person_query == true
       && length(jsondecode(module.platform_api[0].settings_json).query_endpoints) > 0
-      && jsondecode(module.platform_api[0].settings_json).anonymous_catalog_token_url != null
     )
     error_message = "the anonymous API has the highest role, no issuer, no OpenMetadata, the plain-HTTP origin and queries"
   }
