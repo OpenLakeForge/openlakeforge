@@ -8,7 +8,7 @@ import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.common.deployment.context import DeploymentContext, DeploymentFeatures, Profile
-from olf.common.deployment.errors import DeploymentPreconditionError
+from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.release._manifest import load_catalog
 from olf.common.tooling.process import CommandResult
@@ -121,51 +121,6 @@ def test_polaris_images_arch_mapping() -> None:
     assert fallback_admin.startswith("apache/polaris-admin-tool:1.8.0@sha256:34dde19b")
 
 
-@pytest.mark.parametrize(
-    ("server_arch", "platform"),
-    [("amd64", "linux/amd64"), ("x86_64", "linux/amd64"), ("arm64", "linux/arm64"), ("aarch64", "linux/arm64")],
-)
-def test_node_platform_uses_the_oci_arch_name(server_arch: str, platform: str) -> None:
-    assert prefetch.node_platform(server_arch) == platform
-
-
-def _platform_of(argv: list[str]) -> str | None:
-    return argv[argv.index("--platform") + 1] if "--platform" in argv else None
-
-
-def test_every_image_is_pulled_and_saved_for_the_nodes_platform_only(tmp_path: Path) -> None:
-    # kube-state-metrics is pinned by its multi-arch index; archived whole, the kind node's `ctr import`
-    # failed "content digest ...: not found" for the amd64 config the index points to (#21).
-    runner = _ScriptedRunner(server_arch="arm64")
-    config = _config(tmp_path, profile=Profile.FULL)
-    prefetch.prefetch_images(config, _toolkit(runner), env={}, work_dir=tmp_path / "scratch")
-
-    pulls = [c.argv for c in runner.calls if c.argv[:2] == ["docker", "pull"]]
-    saves = [c.argv for c in runner.calls if c.argv[:2] == ["docker", "save"]]
-    assert any(_CATALOG["kube_state_metrics"] in argv for argv in pulls)
-    assert prefetch.archive_reference(_CATALOG["kube_state_metrics"]) in [argv[-3] for argv in saves]
-    assert {_platform_of(argv) for argv in pulls + saves} == {"linux/arm64"}
-
-
-def test_a_single_image_load_is_saved_for_the_nodes_platform(tmp_path: Path) -> None:
-    runner = _ScriptedRunner(server_arch="arm64")
-    prefetch.load_image_into_nodes(_config(tmp_path, profile=Profile.SLIM), _toolkit(runner), "busybox:1.36", env={})
-
-    saves = [c.argv for c in runner.calls if c.argv[:2] == ["docker", "save"]]
-    assert [_platform_of(argv) for argv in saves] == ["linux/arm64"]
-
-
-def test_an_engine_older_than_api_1_48_saves_without_a_platform(tmp_path: Path) -> None:
-    # Docker 27 rejects `docker save --platform`; it still pulls for the node's platform.
-    runner = _ScriptedRunner(server_arch="arm64", api_version="1.47")
-    prefetch.prefetch_images(_config(tmp_path, profile=Profile.SLIM), _toolkit(runner), env={}, work_dir=tmp_path)
-
-    pulls = [c.argv for c in runner.calls if c.argv[:2] == ["docker", "pull"]]
-    saves = [c.argv for c in runner.calls if c.argv[:2] == ["docker", "save"]]
-    assert saves and all("--platform" not in argv for argv in saves)
-    assert {_platform_of(argv) for argv in pulls} == {"linux/arm64"}
-
-
 def test_archive_reference_strips_digest() -> None:
     assert prefetch.archive_reference("apache/polaris:1.4.0@sha256:abcd") == "apache/polaris:1.4.0"
     assert prefetch.archive_reference("apache/superset:dockerize") == "apache/superset:dockerize"
@@ -185,13 +140,9 @@ def test_prefetch_images_raises_when_cluster_has_no_nodes(tmp_path: Path) -> Non
 
 
 class _ScriptedRunner(RecordingRunner):
-    def __init__(
-        self, image_already_present: set[str] | None = None, *, server_arch: str = "amd64", api_version: str = "1.56"
-    ) -> None:
+    def __init__(self, image_already_present: set[str] | None = None) -> None:
         super().__init__()
         self._present = image_already_present or set()
-        self._server_arch = server_arch
-        self._api_version = api_version
 
     def run(self, command, **kwargs):  # type: ignore[override]
         argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
@@ -199,8 +150,7 @@ class _ScriptedRunner(RecordingRunner):
         if argv[1:3] == ["get", "nodes"]:
             return CommandResult(argv=(), returncode=0, stdout="node-a\n", stderr="", duration_seconds=0.0)
         if argv[1:2] == ["version"]:
-            answer = self._api_version if "APIVersion" in argv[-1] else self._server_arch
-            return CommandResult(argv=(), returncode=0, stdout=f"{answer}\n", stderr="", duration_seconds=0.0)
+            return CommandResult(argv=(), returncode=0, stdout="amd64\n", stderr="", duration_seconds=0.0)
         if "inspecti" in argv:
             image = argv[-1]
             ok = image in self._present
@@ -208,6 +158,47 @@ class _ScriptedRunner(RecordingRunner):
         if argv[1:3] == ["image", "inspect"]:
             return CommandResult(argv=(), returncode=1, stdout="", stderr="", duration_seconds=0.0)
         return CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0)
+
+
+class _IncompleteDockerStore(_ScriptedRunner):
+    """Docker before 29.9 holding an image whose blobs its pull skipped: the save, or each node's import, fails."""
+
+    def __init__(self, *, fail: str, node_pull_ok: bool = True) -> None:
+        super().__init__()
+        self._fail = fail
+        self._node_pull_ok = node_pull_ok
+
+    def run(self, command, **kwargs):  # type: ignore[override]
+        argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+        failing = (self._fail == "save" and argv[1:2] == ["save"]) or (
+            self._fail == "import" and "ctr" in argv and "import" in argv
+        )
+        if failing:
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            raise CommandExecutionError(argv, 1, stderr="content digest sha256:a635e3d8: not found")
+        if "crictl" in argv and "pull" in argv and not self._node_pull_ok:
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            return CommandResult(argv=(), returncode=1, stdout="", stderr="EOF", duration_seconds=0.0)
+        return super().run(command, **kwargs)
+
+
+@pytest.mark.parametrize("fail", ["save", "import"])
+def test_an_image_docker_cannot_archive_is_pulled_by_the_node_at_its_pin(tmp_path: Path, fail: str) -> None:
+    runner = _IncompleteDockerStore(fail=fail)
+    image = _CATALOG["kube_state_metrics"]
+
+    prefetch.load_image_into_nodes(_config(tmp_path, profile=Profile.SLIM), _toolkit(runner), image, env={})
+
+    node_pulls = [c.argv for c in runner.calls if "crictl" in c.argv and "pull" in c.argv]
+    assert node_pulls == [["docker", "exec", "node-a", "crictl", "pull", image]]
+
+
+def test_an_image_neither_docker_nor_the_node_can_provide_fails_naming_the_docker_fix(tmp_path: Path) -> None:
+    runner = _IncompleteDockerStore(fail="save", node_pull_ok=False)
+    image = _CATALOG["kube_state_metrics"]
+
+    with pytest.raises(DeploymentPreconditionError, match="Docker Engine 29.9"):
+        prefetch.load_image_into_nodes(_config(tmp_path, profile=Profile.SLIM), _toolkit(runner), image, env={})
 
 
 def test_prefetch_images_skips_images_already_present_on_every_node(tmp_path: Path) -> None:
@@ -235,7 +226,7 @@ def test_prefetch_images_pulls_saves_and_imports_digest_pinned_image(tmp_path: P
     assert tag_calls[0].argv[3] == prefetch.archive_reference(polaris_image)
 
     save_calls = [c for c in runner.calls if c.argv[:2] == ["docker", "save"]]
-    assert any(c.argv[-3] == prefetch.archive_reference(polaris_image) for c in save_calls)
+    assert any(c.argv[2] == prefetch.archive_reference(polaris_image) for c in save_calls)
 
     import_calls = [c for c in runner.calls if "import" in c.argv and "ctr" in c.argv]
     assert import_calls  # loaded onto the single node
@@ -261,7 +252,7 @@ class _OfflineNodeRunner(_ScriptedRunner):
         argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
         fail = CommandResult(argv=(), returncode=1, stdout="", stderr="EOF", duration_seconds=0.0)
         if argv[1:2] == ["save"]:
-            self._saved = argv[argv.index("-o") - 1]
+            self._saved = argv[2]
         elif "crictl" in argv and "pull" in argv:
             self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
             return fail
@@ -373,9 +364,9 @@ def test_prefetch_deletes_each_archive_once_every_node_loaded_it(tmp_path: Path)
     tools = _toolkit(_ScriptedRunner(image_already_present=set()))
     real_save = tools.docker.save
 
-    def save(image: str, *, output_path: Path, platform=None, env=None):  # noqa: ANN001, ANN202
+    def save(image: str, *, output_path: Path, env=None):  # noqa: ANN001, ANN202
         output_path.write_bytes(b"archive")
-        return real_save(image, output_path=output_path, platform=platform, env=env)
+        return real_save(image, output_path=output_path, env=env)
 
     tools.docker.save = save  # type: ignore[method-assign]
     scratch = tmp_path / "scratch"

@@ -143,16 +143,6 @@ class Docker:
             return ""
         return result.stdout.strip()
 
-    def server_api_version(self, *, env: Mapping[str, str] | None = None) -> tuple[int, int] | None:
-        try:
-            result = self.version(format_template="{{.Server.APIVersion}}", env=env)
-        except CommandExecutionError:
-            return None
-        major, _, minor = result.stdout.strip().partition(".")
-        if not (major.isdigit() and minor.isdigit()):
-            return None
-        return int(major), int(minor)
-
     def image_inspect(
         self,
         image: str,
@@ -165,18 +155,8 @@ class Docker:
     def image_exists(self, image: str, *, env: Mapping[str, str] | None = None) -> bool:
         return self.image_inspect(image, env=env, check=False).ok
 
-    def save(
-        self,
-        image: str,
-        *,
-        output_path: Path,
-        platform: str | None = None,
-        env: Mapping[str, str] | None = None,
-    ) -> CommandResult:
-        args = ["save"]
-        if platform is not None:
-            args += ["--platform", platform]
-        return self._run([*args, image, "-o", str(output_path)], env=env)
+    def save(self, image: str, *, output_path: Path, env: Mapping[str, str] | None = None) -> CommandResult:
+        return self._run(["save", image, "-o", str(output_path)], env=env)
 
     def exec_(
         self,
