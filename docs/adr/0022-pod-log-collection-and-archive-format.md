@@ -112,6 +112,12 @@ independent of the plugin's `FLB_OK`:
 | Spool size against `store_dir_limit_size` | Same sidecar (bytes under `store_dir`) | Above a fraction of the limit that leaves the stated outage budget half spent; at the limit data is already being lost. `warning` at 50% of `store_dir_limit_size`, `critical` at 90% |
 | Newest object key per stage prefix | A `ListObjectsV2` by the #798 self-health probe, with a read identity (the collector's key is write-only, Decision 3) | Older than `upload_timeout` plus slack while the stage's pods are running and logging: the only signal that also covers a collector that is down |
 
+The newest object's `LastModified` is the stage's last confirmed durable
+write. The platform API serves it as `last_success_at` on the
+`log-archive.newest-object` service row ([ADR 0021](0021-platform-api.md),
+decision 7), null when the listing found no object in the days it looked at or
+could not list, so a client never shows a write that was not seen.
+
 The probe (#1189) is a second container in the collector DaemonSet's pod. It
 runs the platform API image, which olf already loads into kind for the alert
 evaluator, as `python -m openlakeforge_platform_api.spool_probe`, and serves
@@ -422,3 +428,7 @@ TTL is whole weeks, months or years, rounded up when the days do not divide
 fill as soon as its fill Job fails, instead of after 30 minutes. A fill that
 wrote nothing (BusyBox awk rejecting `%*s`, fixed in #1264) had read as a
 collector that never spooled it; no threshold or setting changed.
+
+2026-11-18: Decision 2 states that the newest archive object's write time is
+exposed, as `last_success_at` on the `log-archive.newest-object` service row
+of the platform API (#798); no threshold or setting changed.

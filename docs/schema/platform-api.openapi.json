@@ -1507,10 +1507,14 @@
         "type": "object"
       },
       "ServiceHealth": {
-        "description": "One service probe's answer (ADR 0021, decision 7); `component` is e.g. `dagster.workloads`.",
+        "description": "One service probe's answer (ADR 0021, decision 7); `component` is e.g. `dagster.workloads`.\n\n`component` is the stable machine key. `display_name` and `service_display_name` are for people and name no host,\nnamespace or container; renaming one is a reviewed change, but a client keys on `component` and `service`.",
         "properties": {
           "component": {
             "title": "Component",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
             "type": "string"
           },
           "expires_at": {
@@ -1524,6 +1528,18 @@
               }
             ],
             "title": "Expires At"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
           },
           "max_age_seconds": {
             "anyOf": [
@@ -1552,6 +1568,23 @@
             "title": "Reason",
             "type": "string"
           },
+          "service": {
+            "enum": [
+              "dagster",
+              "trino",
+              "polaris",
+              "object-store",
+              "log-archive",
+              "quality-sync",
+              "platform-api"
+            ],
+            "title": "Service",
+            "type": "string"
+          },
+          "service_display_name": {
+            "title": "Service Display Name",
+            "type": "string"
+          },
           "source": {
             "title": "Source",
             "type": "string"
@@ -1575,7 +1608,11 @@
           "reason",
           "observed_at",
           "expires_at",
-          "max_age_seconds"
+          "max_age_seconds",
+          "display_name",
+          "service",
+          "service_display_name",
+          "last_success_at"
         ],
         "title": "ServiceHealth",
         "type": "object"

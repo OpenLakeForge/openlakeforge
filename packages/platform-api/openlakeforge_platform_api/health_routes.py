@@ -42,7 +42,12 @@ from openlakeforge_platform_api.pipeline_health import (
     read_stage_pipelines,
 )
 from openlakeforge_platform_api.reads import _dagster
-from openlakeforge_platform_api.service_probes import COMPONENT_SOURCES, StageTargets
+from openlakeforge_platform_api.service_probes import (
+    COMPONENTS,
+    PROBES_FAILED_COMPONENT,
+    SERVICE_DISPLAY_NAMES,
+    StageTargets,
+)
 
 log = logging.getLogger(__name__)
 
@@ -125,7 +130,7 @@ def _probe(request: Request, stage: str, now: datetime) -> tuple[IntegrationStat
         log.warning("service probes for stage %s failed", stage, exc_info=True)
         failed = service_signal(
             Scope(stage=stage),
-            "service-probes",
+            PROBES_FAILED_COMPONENT,
             HealthState.UNKNOWN,
             "the service probes failed",
             now=now,
@@ -137,15 +142,21 @@ def _probe(request: Request, stage: str, now: datetime) -> tuple[IntegrationStat
 
 def _service(signal: Signal) -> ServiceHealth:
     component = signal.component or "unknown"
+    # No fallback to the raw id: a component without a label is a probe added without one, which a test catches.
+    label = COMPONENTS[component]
     observed, expires = signal.observed_at, signal.expires_at
     return ServiceHealth(
         component=component,
-        source=COMPONENT_SOURCES.get(component, "platform-api"),
+        source=label.source,
         max_age_seconds=int((expires - observed).total_seconds()) if observed and expires else None,
         state=signal.state.value,
         reason=signal.reason,
         observed_at=signal.observed_at,
         expires_at=signal.expires_at,
+        display_name=label.display_name,
+        service=label.service,
+        service_display_name=SERVICE_DISPLAY_NAMES[label.service],
+        last_success_at=signal.last_success_at,
     )
 
 

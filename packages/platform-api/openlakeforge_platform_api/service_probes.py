@@ -65,6 +65,7 @@ from openlakeforge_core.quality_sync import (
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
 
+from openlakeforge_platform_api.models import ServiceName
 from openlakeforge_platform_api.spool_probe import PATH as SPOOL_PATH
 
 log = logging.getLogger(__name__)
@@ -116,6 +117,8 @@ class _Outcome(NamedTuple):
     state: HealthState
     reason: str
     evidence_uri: str | None = None
+    # The component's own evidence time; `service_signal` drops it when the state is unknown or disabled.
+    last_success_at: datetime | None = None
 
 
 class ProbeError(Exception):
@@ -319,6 +322,7 @@ class ServiceProbes:
             now=now,
             max_age=self._ttl,
             evidence_uri=outcome.evidence_uri,
+            last_success_at=outcome.last_success_at,
         )
 
     def _run(self, checks: list[tuple[str, Callable[[], _Outcome]]]) -> dict[str, _Outcome]:
@@ -467,7 +471,7 @@ class ServiceProbes:
             max_age=self._ttl,
             thresholds=self._archive_thresholds,
         )
-        return _Outcome(signal.state, signal.reason)
+        return _Outcome(signal.state, signal.reason, last_success_at=newest)
 
     def _newest_under(self, bucket: str, prefix: str) -> datetime | None:
         assert self._archive_store is not None
@@ -520,7 +524,7 @@ class ServiceProbes:
         signal = evaluate_publication(
             targets.stage, summary, now=self._clock(), max_age=self._ttl, thresholds=self._publication_thresholds
         )
-        return _Outcome(signal.state, signal.reason, uri)
+        return _Outcome(signal.state, signal.reason, uri, summary.last_success_at if summary else None)
 
     def _object_store(self, targets: StageTargets) -> _Outcome:
         assert self._store is not None and targets.bucket is not None
@@ -541,18 +545,43 @@ SPOOL_SIZE_COMPONENT = "log-archive.spool-size"
 NEWEST_OBJECT_COMPONENT = "log-archive.newest-object"
 
 
-# What each component's probe asks, shown beside its answer. A component not listed reads `platform-api`.
-COMPONENT_SOURCES = {
-    "dagster.workloads": "kubernetes",
-    "dagster.read-api": "dagster-graphql",
-    "trino.workloads": "kubernetes",
-    "trino.readiness": "trino-http",
-    "polaris.readiness": "polaris-http",
-    "object-store.list": "s3",
-    SPOOL_AGE_COMPONENT: "log-collector",
-    SPOOL_SIZE_COMPONENT: "log-collector",
-    NEWEST_OBJECT_COMPONENT: "s3",
-    PUBLICATION_COMPONENT: "quality-reconciler",
+# The signal the health routes send in place of every probe's when `ServiceProbes.probe` itself raises.
+PROBES_FAILED_COMPONENT = "service-probes"
+
+SERVICE_DISPLAY_NAMES: dict[ServiceName, str] = {
+    "dagster": "Dagster",
+    "trino": "Trino",
+    "polaris": "Polaris",
+    "object-store": "Object storage",
+    "log-archive": "Log archive",
+    "quality-sync": "Quality sync",
+    "platform-api": "Platform API",
+}
+
+
+@dataclass(frozen=True)
+class ComponentLabel:
+    """What a component's row says beside its answer. `source` is what the probe asks, never an address."""
+
+    source: str
+    display_name: str
+    service: ServiceName
+
+
+# Every component a stage's health can list. A component missing here fails the route rather than showing a raw id,
+# and a test fails first: it probes with every target disabled and looks each emitted component up.
+COMPONENTS: dict[str, ComponentLabel] = {
+    "dagster.workloads": ComponentLabel("kubernetes", "Dagster workloads", "dagster"),
+    "dagster.read-api": ComponentLabel("dagster-graphql", "Dagster API", "dagster"),
+    "trino.workloads": ComponentLabel("kubernetes", "Trino workloads", "trino"),
+    "trino.readiness": ComponentLabel("trino-http", "Trino coordinator", "trino"),
+    "polaris.readiness": ComponentLabel("polaris-http", "Polaris catalog", "polaris"),
+    "object-store.list": ComponentLabel("s3", "Object storage", "object-store"),
+    SPOOL_AGE_COMPONENT: ComponentLabel("log-collector", "Log spool age", "log-archive"),
+    SPOOL_SIZE_COMPONENT: ComponentLabel("log-collector", "Log spool size", "log-archive"),
+    NEWEST_OBJECT_COMPONENT: ComponentLabel("s3", "Newest archived log", "log-archive"),
+    PUBLICATION_COMPONENT: ComponentLabel("quality-reconciler", "Quality publication", "quality-sync"),
+    PROBES_FAILED_COMPONENT: ComponentLabel("platform-api", "Service probes", "platform-api"),
 }
 
 
