@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import gzip
+import subprocess
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -85,3 +88,28 @@ def test_the_emitter_writes_the_rate_for_the_duration() -> None:
     assert "-lt 90" in script
     assert "i+100-1" in script
     assert "-v t=tok" in script
+    # Paced against the start time, so the time a batch takes does not lower the rate.
+    assert "start=$(date +%s)" in script
+    assert "sleep $((start+k-now))" in script
+    assert "sleep 1;" not in script
+
+
+def test_the_emitter_rate_is_paced_against_the_clock() -> None:
+    script = fp.emit_script("tok", 3, 2)
+    result = subprocess.run(["sh", "-c", script], capture_output=True, text=True, check=True, timeout=30)
+    numbers = [int(line.split()[2]) for line in result.stderr.splitlines()]
+
+    assert numbers == [1, 2, 3, 4, 5, 6]
+
+
+def test_an_emitter_without_a_pod_yet_is_still_starting(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(fp, "kubectl", lambda *_a, **_k: "")
+
+    assert fp._emitter_running(cast(Any, SimpleNamespace(namespace="ns")), "job") is False  # noqa: SLF001
+
+
+def test_a_failed_emitter_pod_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(fp, "kubectl", lambda *_a, **_k: "Pending Failed")
+
+    with pytest.raises(E2EError):
+        fp._emitter_running(cast(Any, SimpleNamespace(namespace="ns")), "job")  # noqa: SLF001

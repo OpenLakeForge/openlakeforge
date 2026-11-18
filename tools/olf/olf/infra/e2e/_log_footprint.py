@@ -159,15 +159,21 @@ def summarize_phase(name: str, lines_per_second: int, samples: Sequence[Sample])
 
 
 def emit_script(token: str, lines_per_second: int, seconds: int) -> str:
-    """A shell loop writing `lines_per_second` numbered lines to stderr each second for `seconds` seconds."""
+    """A shell loop writing `lines_per_second` numbered lines to stderr each second for `seconds` seconds.
+
+    Batch `k` is paced against the start time, not followed by a fixed sleep, so the time a batch takes to write does
+    not lower the rate: the loop sleeps only while it is ahead of `start + k`. A node too slow for the rate runs the
+    batches back to back, and the phase's elapsed time shows it.
+    """
     awk = (
         'BEGIN{srand(s); for(n=s;n<=e;n++){p=""; '
         f'for(g=0;g<{PAYLOAD_GROUPS};g++) p=p sprintf("%04x",int(rand()*65536)); '
         'print t,"line",n,"ERROR",p}}'
     )
     return (
-        f'i=1; k=0; while [ "$k" -lt {seconds} ]; do end=$((i+{lines_per_second}-1)); '
-        f"awk -v s=$i -v e=$end -v t={token} '{awk}' >&2; i=$((end+1)); k=$((k+1)); sleep 1; done"
+        f'start=$(date +%s); i=1; k=0; while [ "$k" -lt {seconds} ]; do end=$((i+{lines_per_second}-1)); '
+        f"awk -v s=$i -v e=$end -v t={token} '{awk}' >&2; i=$((end+1)); k=$((k+1)); "
+        'now=$(date +%s); if [ "$now" -lt "$((start+k))" ]; then sleep $((start+k-now)); fi; done'
     )
 
 
@@ -332,14 +338,15 @@ def _start_emitter(cfg: E2EConfig, node: str, size: Size) -> tuple[str, str]:
 
 
 def _emitter_running(cfg: E2EConfig, name: str) -> bool:
-    phase = kubectl(
+    """Whether the emitter's pod runs or ran; a Job whose pod is not created yet is still starting."""
+    phases = kubectl(
         cfg,
-        ["get", "pods", "-n", cfg.namespace, "-l", f"job-name={name}", "-o", "jsonpath={.items[0].status.phase}"],
+        ["get", "pods", "-n", cfg.namespace, "-l", f"job-name={name}", "-o", "jsonpath={.items[*].status.phase}"],
         capture=True,
-    ).strip()
-    if phase == "Failed":
+    ).split()
+    if "Failed" in phases:
         raise E2EError(f"the emitter {name} failed before it ran")
-    return phase in ("Running", "Succeeded")
+    return any(phase in ("Running", "Succeeded") for phase in phases)
 
 
 def _job_done(cfg: E2EConfig, name: str) -> bool:
@@ -394,7 +401,11 @@ def _scan_archive(
 
 
 def _await_archive(cfg: E2EConfig, target: Target, since: datetime, expected: Mapping[str, int]) -> ArchiveStats:
-    """Poll until every token is whole or the archive has stopped growing with the spool empty."""
+    """Poll until every token is whole or the archive has stopped growing with the spool empty.
+
+    Without a probe the spool is unknown, never empty: a partly filled buffer may wait `upload_timeout` before it is
+    sent, so only the deadline ends the wait.
+    """
     cache: dict[str, tuple[int, bytes]] = {}
     deadline = time.monotonic() + ARCHIVE_TIMEOUT_SECONDS
     last: tuple[int, ...] | None = None
@@ -404,7 +415,7 @@ def _await_archive(cfg: E2EConfig, target: Target, since: datetime, expected: Ma
         counts = tuple(len(stats.seen[t]) for t in expected)
         if all(len(stats.seen[t]) >= want for t, want in expected.items()):
             return stats
-        unchanged = unchanged + 1 if counts == last and _spool_bytes(cfg, target) in (0, None) else 0
+        unchanged = unchanged + 1 if counts == last and _spool_bytes(cfg, target) == 0 else 0
         last = counts
         if unchanged >= STABLE_POLLS or time.monotonic() >= deadline:
             return stats
