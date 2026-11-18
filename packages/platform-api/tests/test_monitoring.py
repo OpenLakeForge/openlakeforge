@@ -206,15 +206,7 @@ def test_alerts_are_not_provided_without_a_state_uri_or_a_key(
     configured = _configured(settings)
     if not extra:
         configured = _settings(settings, dagster_graphql_urls={"dev": "http://dagster-dev:80/graphql"})
-    api = TestClient(
-        create_app(
-            configured,
-            service_probes=RefusingProbes(),
-            object_store=RefusingStore(),
-            quality_readers={"dev": RefusingStore()},
-            alert_state_store=None if extra else RefusingStore(),
-        )
-    )
+    api = _api(configured, alert_state_store=None if extra else RefusingStore())
 
     body = api.get(PATH, headers=_as(mint, "platform-admin")).json()
 
