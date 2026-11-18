@@ -52,8 +52,10 @@ when it does not answer, answers something else or the probe times out. It reads
 catalog. Polaris is one service for every stage, so each stage's health shows the same answer. The probe holds no
 Polaris principal, so a `healthy` row says the service is up and nothing about the data plane.
 
-The `metrics` integration reads `not_provided` while no metrics source is connected to the API (#21). That is an
-absent source, not a failure, and it blanks nothing: the service rows do not depend on it.
+The `metrics` integration says whether the metrics backend ([ADR 0024](../adr/0024-metrics-prometheus-reference-and-read-path.md))
+answers: `disabled` when the profile turns metrics off (Slim, by default), `not_provided` when they are on but the
+provider has no backend, `unavailable` when the backend does not answer a query within 5 seconds, and `available`
+otherwise. It never changes the stage's state and blanks nothing: the service rows do not depend on it.
 
 ## How unknown is computed
 

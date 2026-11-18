@@ -488,6 +488,12 @@ module "platform_api" {
   log_collector_probe_url = module.log_collector.probe_url
   # Polaris's management port, read over F43 (readiness only, no credential).
   polaris_health_url = module.polaris.health_url
+  # The metrics read path (ADR 0024), over F45; Slim renders it disabled.
+  metrics = {
+    enabled        = local.metrics_enabled
+    query_url      = local.metrics_enabled ? module.metrics[0].query_url : null
+    retention_days = var.observability.metrics_retention_days
+  }
   # Audit records (ADR 0021, decision 3): stored with the write-only key the
   # same Job mints, over the same flow.
   audit_base_uri           = "${local.artifact_base_uri}/${local.platform_api_audit_prefix}"
