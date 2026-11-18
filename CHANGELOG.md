@@ -16,6 +16,12 @@ for how a release is cut and verified.
 
 ### Added
 
+- `local-full-e2e.yml` manual runs are opt-in. New dispatch inputs: `profile`
+  (a Deployment Profile as YAML text, so an agent can run the platform with
+  `-f "profile=$(cat openlakeforge.yaml)"` without committing it), `profile_path`
+  (a profile committed to the dispatched ref) and `registry_pull_check`. `checks`
+  accepts `none` to deploy and activate without e2e assertions. With a custom
+  profile the PROD steps run only when it enables PROD.
 - `olf infra openmetadata quality-sync` publishes a stage's Floe and dbt quality
   results from the ops bucket to OpenMetadata test cases, with retry, idempotent
   replay and a sync-lag summary, without rerunning a pipeline. A stage without
