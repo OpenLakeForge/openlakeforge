@@ -2,8 +2,10 @@
 
 ## Status
 
-Proposed, awaiting the owner's approval (#21). Slices M-a and M-b under "Build
-order" are built; the rest is not. This record decides the backend, the scrape
+Proposed, awaiting the owner's approval (#21). Slices M-a, M-b and M-e under
+"Build order" are built, and of M-d the series catalog
+(`openlakeforge_core.metrics`) and the Prometheus client
+(`openlakeforge_services.prometheus`); the rest is not. This record decides the backend, the scrape
 baseline, the label policy, the read path through the platform API, the network
 and RBAC additions and the contract shape for `spec.observability.metrics`; the
 slices under "Build order" implement it once it is approved.
@@ -219,6 +221,11 @@ volume makes that common. Open item 5.
 | `service` | the object-store process (`master`, `volume`, `filer`, `s3`) or `trino` | Five |
 | `domain` | `openlakeforge.io/domain` | Reserved: no workload sets it yet (Context), so no series carries it until the pipeline slices of ADR 0022 add the label |
 
+The two Dagster-derived series of Decision 2 are not recording rules and take
+their labels from the run storage instead: `job` and, on `pipeline_runs`, the
+run's `status`. Both are bounded by the stage's jobs and four statuses; neither
+is a run ID.
+
 Run IDs do reach raw series, and the record says so rather than hiding it: the
 pinned `dagster-k8s` 0.29.7 names a run's Job `dagster-run-<run_id>`
 (`dagster_k8s/job.py` **[V]**), so the kubelet's and kube-state-metrics' `pod`
@@ -283,7 +290,8 @@ The first catalog, mapped to #333's chart list:
 | `trino_heap_used_bytes` | stage | `stage` | Trino `java.lang:type=Memory` **[T]** | Trino memory |
 | `object_store_bucket_bytes` | stage, platform | `stage` | SeaweedFS S3, summed by stage | storage trend |
 | `object_store_disk_used_bytes`, `object_store_disk_free_bytes` | platform | `service` | SeaweedFS volume server | storage trend |
-| `pipeline_runs`, `pipeline_run_duration_seconds` | stage | `stage` and the job, as pipeline health is | Dagster reads, not Prometheus (Decision 2) | jobs duration and failures |
+| `pipeline_runs` | stage | `stage`, `job` (as pipeline health is) and `status` (`succeeded`, `failed`, `canceled`, `running`) | Dagster reads, not Prometheus (Decision 2) | jobs failures |
+| `pipeline_run_duration_seconds` | stage | `stage`, `job` | Dagster reads, not Prometheus (Decision 2) | jobs duration |
 
 Response envelope, for both sources:
 
@@ -507,3 +515,8 @@ built.
 
 2026-11-18: M-a and M-b built. Retention moved from the `--storage.tsdb.retention.*`
 flags, deprecated at 3.13.5, to the same two fields in the configuration file.
+
+2026-11-18: M-d's series catalog and Prometheus client built. The owner decided
+that `pipeline_runs` keeps the `status` label M-e gives it, so a chart can tell
+failed runs from successful ones; the series table lists it and Decision 3
+bounds it.
