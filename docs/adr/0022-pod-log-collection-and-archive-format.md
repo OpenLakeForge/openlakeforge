@@ -10,7 +10,7 @@ and d land. The three delivery signals of Decision 2 are built (#1189): the prob
 the platform API's stage health route that reads it and lists the newest object,
 and the thresholds. Their failure-injection e2e (`_log_delivery.py`) is written
 but has not been run on a cluster (see Decision 2), so every [T] item it covers
-stays [T]. Not built yet: the lifecycle rule of Decision 6 (`logs_archive_retention` stays reported as unsupported).
+stays [T]. The retention of Decision 6 is built for local (#22): see the History entry for how it differs from a lifecycle rule.
 Every claim marked [T] is still untested: the kind smoke does not run here, and
 slice d (#1123) verifies them on a cluster. Tags used below: **[V]** checked in this
 repository or in the upstream page cited; **[T]** a claim the implementing slice
@@ -136,9 +136,11 @@ over the pods (`critical` and `warning` outrank `unknown`, so a silent pod never
 | Pods the API cannot see | The headless Service publishes not-ready pods, so a collector that is up but unready is asked, and one that does not answer makes the signals `unknown`. A pod with no IP yet (Pending) is in no DNS answer, and the API cannot list `olf-system` pods to notice it; that gap is out of scope here, and the newest-object signal still sees a stage whose archive stops |
 | Without the image | no sidecar and no Service; the signals read as `unknown`, never `healthy` |
 
-The thresholds are proposed defaults and are the maintainers' to review: ADR
-0022 set none. They live in `openlakeforge_core.archive_health` as
-`ArchiveThresholds`. Open [T] items the failure-injection e2e settles: whether
+The maintainer accepted the thresholds as proposed on 2026-11-18: spool age
+`warning` at 10 minutes and `critical` at 30, spool size `warning` at 50% and
+`critical` at 90% of `store_dir_limit_size`, newest object `warning` at 15
+minutes and `critical` at 60. They live in `openlakeforge_core.archive_health`
+as `ArchiveThresholds`. Open [T] items the failure-injection e2e settles: whether
 the plugin keeps appending to one file during an outage, which would hide a
 stuck spool from an mtime-based age until it grows (the size signal covers it);
 whether the spool counts compressed or uncompressed bytes; whether `store_dir`
@@ -158,8 +160,8 @@ Limits: the `platform/logs/v2/` prefix is outside that grant, so the platform
 namespace has the spool signals only; at most 5000 objects of a day are looked
 at, so a runaway prefix errs towards a stale reading; and a stage whose pods log
 nothing reads like a stalled collector (`unknown` when no object exists in the
-two days, `warning` at 15 minutes, `critical` at 60). The thresholds are
-maintainer-reviewable, as the spool's are.
+two days, `warning` at 15 minutes, `critical` at 60). These thresholds were
+accepted with the spool's.
 
 The failure-injection e2e (#1189, `tools/olf/olf/infra/e2e/_log_delivery.py`,
 two `drill` assertions of the local run) reads the signals as the health route
@@ -217,6 +219,15 @@ filter runs after routing and can only add fields. A DEV pod labelled
 slice that builds it ships the test #22 asks for: a pod with a wrong label, a
 pod with none, and a workload printing `{"stage":"prod"}` all land under their
 own stage.
+
+The `spool-probe` sidecar (Decision 2) runs as uid 0, because the spool files
+the collector writes are root-owned; the maintainer accepted that on
+2026-11-18. The probe has no Linux capability, no privilege escalation, a
+read-only root filesystem, `RuntimeDefault` seccomp and no S3 key. Its one host
+path is the collector's state directory, mounted read-only. Root in that
+container can read the spooled lines of every stage on the node, which the
+collector already holds, so the probe stays inside the collector's trust
+boundary and does not widen it.
 
 The platform namespaces (`olf-system`) are collected into
 `<ops>/platform/logs/v2/`, a prefix that is not under any stage. Who may read it
@@ -364,6 +375,19 @@ reader key (no new identity). The failure-injection e2e follows.
 cluster); `parse_spool_report` moves to `openlakeforge_core` so the e2e and the
 API read the probe's answer with one parser.
 
+2026-11-17: #22 close-out. The polling CronJob is no longer rendered where the
+collector runs (local); AWS and Azure have no collector, so they keep it as
+their only capture, and the reader reads both layouts. Retention is applied on
+local as a SeaweedFS filer path TTL (`fs.configure -ttl`) on each v2 prefix:
+in a SeaweedFS 4.48 container, `PutBucketLifecycleConfiguration` was accepted and
+read back, but `fs.configure` then listed no path rule, so nothing the rule names
+is given a TTL; a `1m` path rule expired an object within a minute and left an
+object outside its prefix alone. What is built is therefore a path TTL, not the
+lifecycle rule Decision 6 names, and it is reported through the same contract
+fields (`retention_days`, `retention_supported`). Whether the S3 rule would
+expire anything after its first day was not waited out. The path TTL reaches
+only objects written after it is set.
+
 2026-11-18: #1123 runs the failure-injection e2e on a cluster. Decision 2 is
 corrected, no threshold changed: the engine's S3 failure counters rise during an
 outage without loss, so the drill records them; the drain waits for the files
@@ -371,3 +395,8 @@ spooled at the restore, not an empty spool; and the `rewrite_tag` emitter is
 named as a second, silent loss point, which an outage that drops packets reaches
 before the spool limit. `Flush 1`, `Emitter_Mem_Buf_Limit 20M` and
 `net.connect_timeout 2` bound it; the residual loss is accepted.
+
+2026-11-18: the maintainer accepts the delivery-signal thresholds of Decision 2
+as proposed (spool age 10 and 30 minutes, spool size 50% and 90% of the limit,
+newest object 15 and 60 minutes) and the spool probe's uid 0 (Decision 3); no
+value or setting changed.
