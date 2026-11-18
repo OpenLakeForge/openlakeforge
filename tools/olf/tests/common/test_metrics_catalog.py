@@ -5,7 +5,15 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from openlakeforge_core.metrics import CATALOG, RANGES, MetricScope, MetricSource, catalog_for, find_series
+from openlakeforge_core.metrics import (
+    CATALOG,
+    RANGES,
+    MetricScope,
+    MetricSource,
+    StepAggregation,
+    catalog_for,
+    find_series,
+)
 
 # Decision 3's label bound; `job` and `status` are the Dagster-derived series' own (decision 2), never Prometheus's.
 PROMETHEUS_LABELS = {"stage", "component", "service", "domain"}
@@ -69,3 +77,15 @@ def test_a_range_past_retention_is_refused_for_prometheus_and_never_for_dagster(
 
     assert {name for name, r in RANGES.items() if cpu.allows(r, retention_days)} == allowed
     assert all(runs.allows(r, retention_days) for r in RANGES.values())
+
+
+def test_only_the_two_count_series_are_aggregated_per_step_each_as_its_rule_records_it() -> None:
+    aggregated = {
+        series.name: series.aggregation for series in CATALOG if series.aggregation is not StepAggregation.NONE
+    }
+
+    # M-c records restarts as per-minute increments, not a counter, so increase() over them would be wrong.
+    assert aggregated == {
+        "container_restarts": StepAggregation.SUM_OVER_TIME,
+        "trino_failed_queries": StepAggregation.INCREASE,
+    }
