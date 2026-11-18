@@ -176,6 +176,58 @@ def test_a_restart_just_before_the_pod_is_deleted_is_counted_once(tmp_path: Path
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_a_pod_created_and_deleted_between_two_evaluations_keeps_its_restart(tmp_path: Path) -> None:
+    # Created at 0:10, first scraped at 0:30 with one restart, gone by 1:00: no evaluation saw it.
+    case: dict[str, object] = {
+        "interval": "30s",
+        "input_series": [
+            pod("trino-2", "olf-dev", "dev", "trino", "_ 1 stale"),
+            restarts("trino-2", "olf-dev", "dev", "_ 1 stale"),
+            created("trino-2", "olf-dev", "_ 10 stale"),
+        ],
+        "promql_expr_test": [expect("olf:container_restarts", "1m", {("dev", "trino"): 1})],
+    }
+
+    result = promtool_test(tmp_path, [case])
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_failed_queries_are_counted_per_minute_per_stage(tmp_path: Path) -> None:
+    failed = "trino_execution_name_QueryManager_FailedQueries"
+    # Scraped every 30 s from 0:00 to 3:00; the coordinator restarts between 2:00 and 2:30.
+    case: dict[str, object] = {
+        "interval": "30s",
+        "input_series": [
+            {
+                "series": f'{failed}{{stage="dev",service="trino",instance="trino.olf-dev.svc:8080"}}',
+                "values": "0 2 5 5 7 1 3",
+            },
+            {"series": f'{failed}{{stage="prod",service="trino",instance="trino.olf-prod.svc:8080"}}', "values": "4x6"},
+        ],
+        "promql_expr_test": [
+            {
+                "expr": "olf:trino_failed_queries",
+                "eval_time": at,
+                "exp_samples": [
+                    {"labels": f'olf:trino_failed_queries{{stage="{stage}"}}', "value": value}
+                    for stage, value in values.items()
+                ],
+            }
+            for at, values in (
+                ("1m", {"dev": 5, "prod": 0}),
+                ("2m", {"dev": 2, "prod": 0}),
+                # The minute of the restart counts 0, never the counter's drop.
+                ("3m", {"dev": 0, "prod": 0}),
+            )
+        ],
+    }
+
+    result = promtool_test(tmp_path, [case])
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_a_container_seen_again_after_a_scrape_gap_replays_nothing(tmp_path: Path) -> None:
     # kube-state-metrics was unreachable at 1m and 2m: Prometheus marked its series stale,
     # and the old pod's container came back with the 20 restarts it had before.

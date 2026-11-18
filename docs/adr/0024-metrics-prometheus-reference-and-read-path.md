@@ -247,7 +247,7 @@ Limits, so a misbehaving target fails visibly instead of growing the database:
 | `label_limit` | 16 | Same failure mode **[V]** |
 | `label_value_length_limit` | 256 bytes | Same failure mode **[V]** |
 | `target_limit` per job | kubelet 20; Trino 3; SeaweedFS 4; kube-state-metrics 1 | Experimental upstream **[V]**; a target explosion fails the job |
-| Recording rule groups | each group sets `limit`, the series a rule may produce, at 500 | A rule over the limit fails its evaluation and records nothing (`docs/configuration/recording_rules.md` at `v3.13.5` **[V]**). The limit is per rule, so it also bounds the `kube_pod_labels` join at 500 pods |
+| Recording rule groups | each group sets `limit`, the series a rule may produce, at 500 | A rule over the limit fails its evaluation and records nothing (`docs/configuration/recording_rules.md` at `v3.13.5` **[V]**). The limit is per rule. The `kube_pod_labels` join is computed inside each per-component rule from the raw samples of the last two minutes, not recorded, so a pod created and deleted between two evaluations keeps its component |
 | Series budget | `prometheus_tsdb_head_series` under 10,000 on the reference deployment | An operating target, not an enforced bound: the e2e asserts it on one deployment, and a deployment that exceeds it loses history to `retention.size` rather than disk. Head series above the budget for 30 minutes is a `warning` on the metrics integration, so the overrun is visible **[T: the slice wires the signal]** |
 
 ## Decision 4: the read path
@@ -290,7 +290,7 @@ The first catalog, mapped to #333's chart list:
 | `container_restarts` | stage, platform | `stage`, `component` | kube-state-metrics: the rule records each minute's restarts per container before summing, from range selectors so a pod deleted within the minute still counts. A container first seen that minute counts its whole value only if `kube_pod_created` puts its pod in the last two minutes; otherwise, after a scrape gap or lost history, it counts 0, so a gap undercounts and never replays a lifetime. The API sums it per step (`sum_over_time`) | (health context) |
 | `node_cpu_usage_cores`, `node_memory_working_set_bytes` | platform | none | kubelet | cluster CPU and memory |
 | `trino_running_queries`, `trino_queued_queries` | stage | `stage` | Trino | Trino load |
-| `trino_failed_queries` | stage | `stage` | Trino, increase per step | Trino query errors |
+| `trino_failed_queries` | stage | `stage` | Trino: the rule records each minute's failed queries per coordinator, which the API sums per step; a coordinator first seen or restarted within the minute counts 0 for it | Trino query errors |
 | `trino_heap_used_bytes` | stage | `stage` | Trino `java.lang:type=Memory` **[T]** | Trino memory |
 | `object_store_bucket_bytes` | stage, platform | `stage` | SeaweedFS S3, summed by stage | storage trend |
 | `object_store_disk_used_bytes`, `object_store_disk_free_bytes` | platform | `service` | SeaweedFS volume server | storage trend |
@@ -545,3 +545,7 @@ and Prometheus loads the `olf:` recording rules, one group per source, each with
 `JMX_java_lang_TYPE_Memory_ATTRIBUTE_HeapMemoryUsage_used`, and the property adds to
 the default series. `container_restarts` records restarts per minute, because a
 counter summed across pods reads as a reset when a pod goes.
+
+2026-11-18: `trino_failed_queries` is also recorded as per-minute increments and
+read as their sum over each step. A rule recorded once a minute holds one sample
+in a 60 s step, too few for `increase()`, so the 1h and 6h charts were empty.
