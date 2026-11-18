@@ -37,6 +37,9 @@ CRON_RULE = "e2e_cron_rule"
 RESULTS = "/api/v1/dataQuality/testCases/testCaseResults/"
 RECONCILER = "quality-reconciler"  # the CronJob's name prefix (modules/governance/quality-reconciler)
 JOB_TIMEOUT_SECONDS = 240
+# A pass takes at most the CronJob's limit of runs, oldest first, so a stage with a backlog needs several Job passes
+# before the synthetic run's turn comes; past this many the backlog is itself the failure.
+MAX_RECONCILER_PASSES = 8
 
 
 def check_quality_publication(cfg: E2EConfig) -> None:
@@ -185,10 +188,7 @@ def _check_publication(cfg: E2EConfig, stage: str, cronjob: Mapping[str, Any] | 
             if cronjob is not None:
                 scheduled = result(CRON_RULE, "floe", silver_table, QualityOutcome.PASSED, runs[3], later)
                 keys.append(put(runs[3], later, [scheduled]))
-                _run_reconciler_job(cfg, cronjob)
-                history = _results(client, case_fqn(silver, f"olf.floe.{CRON_RULE}"))
-                if [r["testCaseStatus"] for r in history] != ["Success"]:
-                    raise E2EError(f"the reconciler's Job did not publish the run's result: {history}")
+                _drain_with_reconciler_jobs(cfg, cronjob, client, case_fqn(silver, f"olf.floe.{CRON_RULE}"))
         finally:
             for key in keys:
                 for stored in (key, f"{base}/quality-sync/state/{domain.name}/{product.id}/{key.split('/')[-2]}.json"):
@@ -243,6 +243,22 @@ def _reconciler_paused(cfg: E2EConfig, cronjob: Mapping[str, Any] | None) -> Ite
         yield
     finally:
         suspend(was)
+
+
+def _drain_with_reconciler_jobs(
+    cfg: E2EConfig, cronjob: Mapping[str, Any], client: OpenMetadataClient, fqn: str
+) -> None:
+    """Job passes of the CronJob until the synthetic run's result is published. Each pass is bounded and takes the
+    oldest work first, so older pending runs may fill the first ones; the pass count bounds the wait."""
+    history: list[dict[str, Any]] = []
+    for _ in range(MAX_RECONCILER_PASSES):
+        _run_reconciler_job(cfg, cronjob)
+        if history := _results(client, fqn):
+            break
+    if [r["testCaseStatus"] for r in history] != ["Success"]:
+        raise E2EError(
+            f"{MAX_RECONCILER_PASSES} passes of the reconciler's Job did not publish the run's result: {history}"
+        )
 
 
 def _run_reconciler_job(cfg: E2EConfig, cronjob: Mapping[str, Any]) -> None:

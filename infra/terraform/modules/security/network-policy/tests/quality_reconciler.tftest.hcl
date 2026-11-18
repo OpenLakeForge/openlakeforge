@@ -17,14 +17,14 @@ variables {
   }
   flows = [
     {
-      id    = "F13"
+      id    = "F52"
       from  = { scope = "shared", pods = { "openlakeforge.io/job" = "quality-reconciler" } }
       to    = { scope = "shared", pods = { "app.kubernetes.io/name" = "openmetadata", "app.kubernetes.io/instance" = "openmetadata" } }
       ports = [8585]
       tag   = "T"
     },
     {
-      id    = "F39"
+      id    = "F53"
       from  = { scope = "shared", pods = { "openlakeforge.io/job" = "quality-reconciler" } }
       to    = { scope = "shared", pods = { "app.kubernetes.io/name" = "seaweedfs", "app.kubernetes.io/instance" = "seaweedfs", "app.kubernetes.io/component" = "s3" } }
       ports = [8333]

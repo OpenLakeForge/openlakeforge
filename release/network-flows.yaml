@@ -307,15 +307,13 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
     ports: [8080] # each stage's health route (ADR 0023, decision 11), with a projected ServiceAccount token the API checks with a TokenReview over its F20 egress
     tag: T # needs an evaluation reading stage health on a running cluster
-  # The quality reconciler (ADR 0007). ADR 0017's flow table has no row for it yet, so its two flows ride the nearest
-  # existing ids (F13: an OLF CronJob reaching OpenMetadata; F39: a CronJob in olf-system using the ops bucket with its
-  # own key) until the table gains rows of its own. Its egress is exactly these two and DNS.
-  - id: F13
+  # The quality reconciler (ADR 0007, ADR 0017 F52 and F53). Its egress is exactly these two and DNS.
+  - id: F52
     from: {scope: shared, pods: {openlakeforge.io/job: quality-reconciler}}
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
     ports: [8585] # test case definitions, cases and results, with the ingestion bot's token
     tag: T # needs a reconciler pass on a running cluster
-  - id: F39
+  - id: F53
     from: {scope: shared, pods: {openlakeforge.io/job: quality-reconciler}}
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs, app.kubernetes.io/component: s3}}
     ports: [8333] # the stage's manifests and its `quality-sync/` state, with the stage's own key openlakeforge-quality-sync-<stage>

@@ -115,3 +115,27 @@ def test_a_failed_job_reports_its_log_and_is_still_removed(cluster: Cluster) -> 
         quality._run_reconciler_job(_cfg(), CRONJOB)
 
     assert cluster.calls[-1][:2] == ["delete", "job"]
+
+
+def test_a_backlog_is_drained_with_further_passes_until_the_result_is_published(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    passes: list[int] = []
+    answers = iter([[], [], [{"testCaseStatus": "Success"}]])
+    monkeypatch.setattr(quality, "_run_reconciler_job", lambda cfg, cronjob: passes.append(1))
+    monkeypatch.setattr(quality, "_results", lambda client, fqn: next(answers))
+
+    quality._drain_with_reconciler_jobs(_cfg(), CRONJOB, object(), 't."olf.floe.e2e_cron_rule"')
+
+    assert len(passes) == 3
+
+
+def test_a_result_still_missing_after_the_pass_budget_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    passes: list[int] = []
+    monkeypatch.setattr(quality, "_run_reconciler_job", lambda cfg, cronjob: passes.append(1))
+    monkeypatch.setattr(quality, "_results", lambda client, fqn: [])
+
+    with pytest.raises(E2EError, match="passes of the reconciler's Job did not publish"):
+        quality._drain_with_reconciler_jobs(_cfg(), CRONJOB, object(), "fqn")
+
+    assert len(passes) == quality.MAX_RECONCILER_PASSES
