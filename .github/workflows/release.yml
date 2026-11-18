@@ -190,6 +190,8 @@ jobs:
       contents: read
       security-events: write
     uses: ./.github/workflows/security.yml
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   python-packages:
     name: Build and validate PyPI distributions
