@@ -311,9 +311,20 @@ AGENTS.md rule 6 applies. The implementing slice adds
 `release/component-catalog.yaml`, beside the SeaweedFS line, and
 `olf check components` enforces it; this record names the version, the PR
 records the digest, as ADR 0017 does for Calico. The collector image is loaded
-into kind with the existing prefetch path. Retention (`retention_days`) becomes a
-lifecycle rule on the `v2/` prefixes through the ops bucket contract; whether
-SeaweedFS 4.48 honours bucket lifecycle rules is [T].
+into kind with the existing prefetch path. Retention (`retention_days`) is
+applied to the `v2/` prefixes by the object store and reported through the ops
+bucket contract (`retention_supported`). On local it is a SeaweedFS filer path
+TTL (`fs.configure -ttl`) on each prefix, set by a Job of
+`modules/storage/seaweedfs`, because SeaweedFS 4.48 stores an S3 lifecycle rule
+without creating a TTL from it (History, 2026-11-17). A path TTL counts 1 to 255
+of a unit (`m`, `h`, `d`, `w`, `M` of 30 days, `y` of 365 days) [V:
+`weed/shell/command_fs_configure.go`, `weed/storage/needle/volume_ttl.go` at
+4.48], so up to 255 days the rule is in days and above that it is the shortest
+whole number of weeks, months or years that is at least `retention_days`, the
+larger unit on a tie: exact where the days divide (365 is `1y`, 3650 is `10y`),
+otherwise up to 6 days longer (weeks, to 1785 days) or 29 days longer (months),
+never shorter. AWS and Azure apply none yet (`retention_supported` is `false`).
+The rule reaches only objects written after it is set.
 
 ## Build order
 
@@ -400,3 +411,8 @@ before the spool limit. `Flush 1`, `Emitter_Mem_Buf_Limit 20M` and
 as proposed (spool age 10 and 30 minutes, spool size 50% and 90% of the limit,
 newest object 15 and 60 minutes) and the spool probe's uid 0 (Decision 3); no
 value or setting changed.
+
+2026-11-18: Decision 6 now names the path TTL that binds on local instead of a
+lifecycle rule, with `fs.configure`'s limit of 255 per unit: above 255 days the
+TTL is whole weeks, months or years, rounded up when the days do not divide
+(#1248 review).
