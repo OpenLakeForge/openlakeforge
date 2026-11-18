@@ -72,7 +72,7 @@ Configuration shape, so slice b does not reopen the choice:
 | --- | --- | --- |
 | Input | one `tail` per routed namespace, `Path /var/log/containers/*_<namespace>_*.log`, `multiline.parser cri`, its own `DB` file, `Read_from_Head On`, `Refresh_Interval` 5, `Skip_Long_Lines On` | No `kubernetes` filter decision picks the route (Decision 3); a pod started while the collector was down is read from its first line |
 | Buffering | `storage.type filesystem` on every input, `storage.path` on a `hostPath` or `emptyDir` sized by the profile | A collector restart or an S3 outage keeps the chunks |
-| Output | `out_s3` per stage, `use_put_object On`, `compression gzip`, `total_file_size` 8M, `upload_timeout` 5m, **`store_dir_limit_size` set explicitly** (never the default `0`), `store_dir` on the collector volume | `PutObject` leaves no unfinished multipart uploads to clean. The S3 plugin buffers every chunk into `store_dir` and returns `FLB_OK`, so the engine's `Retry_Limit` and `storage.total_limit_size` never see an upload failure: the spool and its limit are the plugin's own ([S3 output](https://docs.fluentbit.io/manual/data-pipeline/outputs/s3), "Differences between S3 and other Fluent Bit outputs") |
+| Output | `out_s3` per stage, `use_put_object On`, `compression gzip`, `total_file_size` 8M, `upload_timeout` 5m, **`store_dir_limit_size` set explicitly** (never the default `0`), `store_dir` on the collector volume | `PutObject` leaves no unfinished multipart uploads to clean. The S3 plugin buffers chunks into `store_dir`, so the spool and its limit are the plugin's own ([S3 output](https://docs.fluentbit.io/manual/data-pipeline/outputs/s3), "Differences between S3 and other Fluent Bit outputs"). That holds while the store answers fast (refused or unroutable). When the store drops packets, each upload attempt holds the output's flush for two `net.connect_timeout` periods; intake to `store_dir` then falls below the ingest rate and records overflow the re-tag emitter before the spool (Decision 2). `net.connect_timeout` is 2 s to keep that window short [V: #1123 reproduction against the pinned image] |
 | Spool bound | `store_dir_limit_size` = the stated outage budget (hours) times the stage's measured peak ingest rate (slice b measures it); the volume holds `store_dir_limit_size` plus the `storage.path` chunk budget plus headroom slice b sets | An unbounded spool fills the node disk; a bound makes the loss point a number an operator can size and alert on. Whether the spool counts uncompressed bytes, and which data is discarded at the limit (the page says only that data is discarded), is [T] |
 | Upload retries | The plugin's own `retry_limit` (default 5), `file_delivery_attempt_limit` and `retry_exhausted_action` (default `quarantine`, alternative `delete`) | The page documents the defaults; a quarantined file is released from the `store_dir_limit_size` budget [V: `s3_store.c`, `s3.c` in v5.2.0], and `quarantine_dir_limit_size` defaults to `0` (unlimited), so slice a sets `retry_exhausted_action quarantine` and an explicit `quarantine_dir_limit_size` (128M) per stage: failed objects stay inspectable on the node, and once the quarantine is full a further exhausted file is deleted [V: `s3.c`]. Whether a quarantined file is retried after the outage is [T] |
 | Metadata | `kubernetes` filter with `Merge_Log Off`, `Annotations Off`, `Use_Kubelet Off` | App JSON stays a string in `message`; annotations can carry customer text; `nodes/proxy` is not requested |
@@ -82,8 +82,10 @@ Configuration shape, so slice b does not reopen the choice:
 
 | Failure | Effect | Detected by | Bound |
 | --- | --- | --- | --- |
-| Object store unreachable or refusing credentials | The S3 flush buffers to `store_dir` and returns OK, so the engine sees success while files pile up and the plugin retries | **Not** the engine's output retry, error or health metrics: the page calls them "meaningless for S3". The delivery signals below | `store_dir_limit_size` |
+| Object store unreachable or refusing credentials | The S3 flush buffers to `store_dir` while files pile up and the plugin retries. The engine's `errors` and `dropped_records` counters for the output still rise during the outage, because a failed upload attempt returns an error after its chunk is already in the spool: they count failed attempts, not lost records [V: #1123 e2e and reproduction] | **Not** the engine's output retry, error or health metrics: the page calls them "meaningless for S3", and they rise without loss. The delivery signals below | `store_dir_limit_size` |
 | Outage longer than the spool limit | Data discarded at `store_dir_limit_size` (which data is [T]) | The delivery signals below; the collector's stderr carries the plugin's messages [T]; upstream documents the discard but no metric for it | `store_dir_limit_size`, sized per profile for a stated outage in hours |
+| Store drops packets while ingest is fast | Each upload attempt holds the S3 output for two connect timeouts, so the output takes in less than the stage ingests and the excess is lost at the re-tag emitter (next row) before `store_dir_limit_size` is reached. Measured at 5000 lines/s of 1 KB: about 95% lost at the 10 s default connect timeout, 20% at 2 s | None from upstream; the spool signals show the spool filling slower than ingest | `net.connect_timeout 2`; accepted as residual loss for bursts during such an outage |
+| Re-tag emitter over `Emitter_Mem_Buf_Limit` | The record keeps its input tag, which no output matches, and is discarded with no error and no counter | Line counts in the e2e (footprint and spool-limit drills) only | One `Flush` interval of ingest stays under the emitter limit: `Flush 1`, `Emitter_Mem_Buf_Limit 20M`, measured lossless at about 6 MB/s with the store reachable. An output stalled by the previous row still reaches it |
 | Collector restart or node reboot | Offsets in `DB`, chunks on disk and `store_dir` leftovers resume | `fluentbit_input_ingestion_paused`, restart count | A replay may repeat lines: the dedup key (Decision 4) drops them on read |
 | Node replaced or collector volume lost | Unsent chunks and offsets lost | Pod restart on a new node with an empty `DB` | The node's volume; no claim stronger than that |
 | Pod deleted while the collector was down | Unread lines gone with the kubelet's files | Gap between a pod's last archived line and its exit [T] | The collector's downtime |
@@ -91,9 +93,15 @@ Configuration shape, so slice b does not reopen the choice:
 | Line longer than `Buffer_Max_Size` | Skipped (`Skip_Long_Lines On`) | None from upstream [T] | Set `Buffer_Max_Size` to 1M |
 | Pod gone before metadata lookup | Labels absent | `missing` lists them in the record | Fields are best effort, never routing |
 
-The loss point is the spool limit, not a retry count: a retry count discards
-data on the first long outage, while a size limit is a number an operator can
-size and alert on before it is reached.
+The loss point of a long outage is the spool limit, not a retry count: a retry
+count discards data on the first long outage, while a size limit is a number an
+operator can size and alert on before it is reached. It is not the only loss
+point: under an outage that drops packets, ingest above the S3 output's reduced
+intake is lost at the `rewrite_tag` emitter before the spool limit is reached,
+silently (rows above). This is accepted and named as residual loss. Letting the
+tail input pause instead (no emitter limit), which would move the loss to the
+kubelet's log rotation, needs the collector's memory limit re-measured first:
+it reached about 250 MiB of its 256Mi limit in the reproduction.
 
 Delivery signals for the S3 output. None is an engine metric; each is
 independent of the plugin's `FLB_OK`:
@@ -163,22 +171,25 @@ lacks the S3 egress rule, and puts the original back in a `finally`: policies
 are additive, so an extra policy could not take an allowed flow away. Run 1:
 baseline healthy, then known lines under the cut, then it waits for the spool
 age and the newest object to pass `warning` (up to 40 minutes), asserts bytes
-are spooled and the engine's `s3` failure counters are zero, restores the route
-and waits for every signal to be `healthy` and every spool empty, then for the
-lines to be in the archive exactly once. Run 2: fills the spool past `store_dir_limit_size` with
+are spooled and records the engine's `s3` failure counters (they rise during the
+outage, see the first row of the table above), restores the route and waits for
+every signal to be `healthy` and every file that was in a spool when the route
+came back to have left it (a stage whose pods keep logging always holds the
+buffer of the current `upload_timeout` window, so an empty spool is not the
+drained state), then for the lines to be in the archive exactly once. Run 2: fills the spool past `store_dir_limit_size` with
 numbered lines, asserts the size signal turns `critical`, that the spool peak
 stays within one 8M file plus 8M of the limit and that the collector does not
 restart, then waits for the emitter Job to finish (a failed or overdue one is an error, so
-the loss is measured against every planned line), for every spool to empty and the archive to stop changing, and
+the loss is measured against every planned line), for the files spooled at the restore to leave the spool and the archive to stop changing, and
 records the plugin's messages and which line numbers the archive lacks. Run 2 records and does not assert which data is
 discarded, because the plugin page does not say. The size signal reaches
 `warning` only in run 2 (a few kilobytes never reach half of 512M).
 
 Slice d (#1123) verifies them by failure injection: block the ops-bucket
 endpoint with a NetworkPolicy, write known lines, and assert that the oldest-file
-age and the spool size rise, that the engine's output error counters stay at zero
-(which documents why they are not used), and that the newest-key age passes its
-threshold; then restore the endpoint and assert the spool drains and the lines
+age and the spool size rise and that the newest-key age passes its threshold,
+recording the engine's output error counters (they rise without loss, which
+documents why they are not used); then restore the endpoint and assert the spool drains and the lines
 appear in the archive. Another run fills the spool to `store_dir_limit_size` and
 records which data is discarded and what the plugin logs.
 
@@ -306,7 +317,10 @@ chunks and S3 spool sit on a `hostPath` under `/var/lib/openlakeforge/log-collec
 bounded per stage by `store_dir_limit_size` (512M) plus `quarantine_dir_limit_size`
 (128M), which are separate budgets because a quarantined file leaves the spool
 budget, and `storage.total_limit_size` (256M) for engine chunks, so a replaced pod
-keeps its offsets. Whether the `cri` multiline parser sets
+keeps its offsets. The `rewrite_tag` emitter is a loss point of its own
+(Decision 2): the service `Flush` is 1 s and `Emitter_Mem_Buf_Limit` 20M so one
+flush interval of ingest fits it, and each S3 output sets `net.connect_timeout 2`
+so a store that drops packets stalls the output for seconds, not tens of seconds. Whether the `cri` multiline parser sets
 the event time from the CRI timestamp, whether `Offset_Key` is the offset of the
 line, and whether the S3 plugin creates `store_dir` itself are [T]. `olf-system`
 admits the `hostPath` mounts: no namespace carries a Pod Security label [V].
@@ -349,3 +363,11 @@ reader key (no new identity). The failure-injection e2e follows.
 2026-11-16: #1189 (part): the failure-injection e2e is written (not yet run on a
 cluster); `parse_spool_report` moves to `openlakeforge_core` so the e2e and the
 API read the probe's answer with one parser.
+
+2026-11-18: #1123 runs the failure-injection e2e on a cluster. Decision 2 is
+corrected, no threshold changed: the engine's S3 failure counters rise during an
+outage without loss, so the drill records them; the drain waits for the files
+spooled at the restore, not an empty spool; and the `rewrite_tag` emitter is
+named as a second, silent loss point, which an outage that drops packets reaches
+before the spool limit. `Flush 1`, `Emitter_Mem_Buf_Limit 20M` and
+`net.connect_timeout 2` bound it; the residual loss is accepted.

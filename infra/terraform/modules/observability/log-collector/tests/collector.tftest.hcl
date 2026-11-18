@@ -36,6 +36,7 @@ run "memory_and_disk_are_bounded" {
       && !strcontains(kubernetes_config_map_v1.collector.data["fluent-bit.conf"], "store_dir_limit_size 0")
       && length(regexall("quarantine_dir_limit_size +128M", kubernetes_config_map_v1.collector.data["fluent-bit.conf"])) == 3
       && length(regexall("retry_exhausted_action +quarantine", kubernetes_config_map_v1.collector.data["fluent-bit.conf"])) == 3
+      && length(regexall("retry_limit +1000000", kubernetes_config_map_v1.collector.data["fluent-bit.conf"])) == 3
     )
     error_message = "every S3 output needs an explicit spool limit and chunk limit, never the unlimited default"
   }
