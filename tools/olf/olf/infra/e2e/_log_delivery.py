@@ -528,12 +528,15 @@ def fill_timeout_seconds(lines: int) -> float:
     return 2 * lines / FILL_LINES_PER_SECOND + 180
 
 
+def _fill_state(cfg: E2EConfig, name: str) -> str:
+    return job_state(json.loads(kubectl(cfg, ["get", "job", name, "-n", cfg.namespace, "-o", "json"], capture=True)))
+
+
 def _wait_job_complete(cfg: E2EConfig, name: str, timeout_seconds: float) -> None:
     """Wait for the emitter to finish, so the loss is measured against lines that were all written."""
     deadline = time.monotonic() + timeout_seconds
     while True:
-        job = json.loads(kubectl(cfg, ["get", "job", name, "-n", cfg.namespace, "-o", "json"], capture=True))
-        state = job_state(job)
+        state = _fill_state(cfg, name)
         if state == "complete":
             return
         if state == "failed":
@@ -541,6 +544,29 @@ def _wait_job_complete(cfg: E2EConfig, name: str, timeout_seconds: float) -> Non
         if time.monotonic() >= deadline:
             raise E2EError(f"the fill emitter {name} had not finished after {timeout_seconds:.0f}s")
         time.sleep(POLL_SECONDS)
+
+
+def _wait_spool_full(cfg: E2EConfig, fill: str, stage: str) -> int:
+    """Wait for the size signal to turn critical; returns the spool's peak bytes so far.
+
+    A fill Job that fails has stopped writing, so the spool cannot fill any more: that ends the wait at once rather
+    than at `FILL_TIMEOUT_SECONDS`, where it would read as a collector that lost the fill before spooling it.
+    """
+    peak = 0
+
+    def full(signals: Mapping[str, Signal]) -> bool:
+        nonlocal peak
+        peak = max([peak, *(o.size_bytes for o in _read_spool(cfg) if o.stage == stage)])
+        if signals["spool-size"].state is HealthState.CRITICAL:
+            return True
+        if _fill_state(cfg, fill) == "failed":
+            raise E2EError(
+                f"the fill emitter {fill} failed before the spool filled ({peak} bytes spooled): {_describe(signals)}"
+            )
+        return False
+
+    _wait_signals(cfg, full, "the spool to fill past its critical threshold", FILL_TIMEOUT_SECONDS)
+    return peak
 
 
 def check_spool_limit_is_the_loss_point(cfg: E2EConfig) -> None:
@@ -558,15 +584,8 @@ def check_spool_limit_is_the_loss_point(cfg: E2EConfig) -> None:
     with _s3_unreachable(cfg):
         started = datetime.now(UTC)
         name, token = _start_fill(cfg, lines)
-        peak = 0
         try:
-
-            def full(signals: Mapping[str, Signal]) -> bool:
-                nonlocal peak
-                peak = max([peak, *(o.size_bytes for o in _read_spool(cfg) if o.stage == stage)])
-                return signals["spool-size"].state is HealthState.CRITICAL
-
-            _wait_signals(cfg, full, "the spool to fill past its critical threshold", FILL_TIMEOUT_SECONDS)
+            peak = _wait_spool_full(cfg, name, stage)
             _wait_job_complete(cfg, name, fill_timeout_seconds(lines))
             peak = max([peak, *(o.size_bytes for o in _read_spool(cfg) if o.stage == stage)])
             # One 8M file is in flight when the plugin checks the limit.
