@@ -56,9 +56,12 @@ on AWS and Azure it is `false` and the value is a request only.
 
 ## When delivery stops
 
-The collector writes into a spool on the node and uploads from it, so an object store that cannot be reached does not
-show in the engine's own error counters. `olf health <stage>` reports three signals instead, read from the collector pods
-and the bucket:
+The collector writes into a spool on the node and uploads from it. The engine's S3 `errors` and `dropped_records`
+counters count failed upload attempts, not lost records: they rise during an object-store outage while the records are
+still safely spooled, and no engine metric reports the data discarded at the spool limit. Archive health is read
+from three delivery signals instead, which `olf health <stage>` reports from the collector pods and the bucket
+([ADR 0022](../../adr/0022-pod-log-collection-and-archive-format.md#decision-2-failure-modes-and-how-each-is-detected),
+decision 2):
 
 | Signal | Reads as late when |
 | --- | --- |
