@@ -113,3 +113,36 @@ def test_a_failed_emitter_pod_is_an_error(monkeypatch: pytest.MonkeyPatch) -> No
 
     with pytest.raises(E2EError):
         fp._emitter_running(cast(Any, SimpleNamespace(namespace="ns")), "job")  # noqa: SLF001
+
+
+def _observation(stage: str, size: int, *, unreadable: bool = False) -> Any:
+    return SimpleNamespace(stage=stage, size_bytes=size, unreadable=unreadable)
+
+
+def test_an_unreadable_spool_is_unknown_not_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    target = fp.Target(pod={"status": {"podIP": "10.0.0.1"}, "spec": {"nodeName": "n"}}, stage="dev", api_pod="api")
+    cfg = cast(Any, SimpleNamespace(platform_namespace="olf-system"))
+    monkeypatch.setattr(fp, "kubectl", lambda *_a, **_k: "{}")
+
+    monkeypatch.setattr(fp, "parse_spool_report", lambda _b: [_observation("dev", 0, unreadable=True)])
+    assert fp._spool_bytes(cfg, target) is None  # noqa: SLF001
+
+    monkeypatch.setattr(fp, "parse_spool_report", lambda _b: [_observation("dev", 5), _observation("prod", 7)])
+    assert fp._spool_bytes(cfg, target) == 5  # noqa: SLF001
+
+
+def test_an_emitter_that_never_starts_is_deleted(monkeypatch: pytest.MonkeyPatch) -> None:
+    deleted: list[list[str]] = []
+    monkeypatch.setattr(fp, "_start_emitter", lambda *_a: ("olf-e2e-log-x", "tok"))
+
+    def never_runs(*_a: Any, **_k: Any) -> None:
+        raise E2EError("timed out waiting for olf-e2e-log-x to run")
+
+    monkeypatch.setattr(fp.collector, "_wait_until", never_runs)
+    monkeypatch.setattr(fp, "kubectl", lambda _cfg, args, **_k: deleted.append(args) or "")
+    target = fp.Target(pod={"spec": {"nodeName": "n"}}, stage="dev", api_pod=None)
+
+    with pytest.raises(E2EError):
+        fp._measure(cast(Any, SimpleNamespace(namespace="olf-dev")), target, fp.SIZES[0])  # noqa: SLF001
+
+    assert ["delete", "job", "olf-e2e-log-x", "-n", "olf-dev", "--ignore-not-found", "--wait=false"] in deleted
