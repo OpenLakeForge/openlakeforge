@@ -12,13 +12,15 @@ from dataclasses import dataclass, field
 
 from fastapi import HTTPException, Request
 
+from openlakeforge_platform_api.permissions import ANONYMOUS
 from openlakeforge_platform_api.tokens import Principal
 
 
 @dataclass(frozen=True)
 class TrinoIdentity:
     user: str
-    # Excluded from repr so a log line or traceback of the identity cannot carry it.
+    # Excluded from repr so a log line or traceback of the identity cannot carry it. Empty for the anonymous
+    # principal, which sends no bearer and no extra credential.
     token: str = field(repr=False)
 
     @property
@@ -32,6 +34,9 @@ def trino_identity(request: Request) -> TrinoIdentity:
     if not request.app.state.settings.person_query:
         raise HTTPException(status_code=404, detail="per-person query is not available on this deployment")
     principal: Principal | None = getattr(request.state, "principal", None)
+    if principal is not None and principal.subject == ANONYMOUS and request.app.state.settings.anonymous_role:
+        # Authentication off (ADR 0021, decision 8): no token; the catalog's own credential serves the request.
+        return TrinoIdentity(user=ANONYMOUS, token="")
     token: str | None = getattr(request.state, "token", None)
     if principal is None or token is None or principal.role is None:
         raise HTTPException(status_code=403, detail="no OpenLakeForge role assigned; ask a platform-admin")
@@ -42,3 +47,8 @@ def trino_identity(request: Request) -> TrinoIdentity:
     if principal.federated_claims is None:
         raise HTTPException(status_code=403, detail="the token lacks the federated claims Polaris reads; sign in again")
     return TrinoIdentity(user=principal.email, token=token)
+
+
+def polaris_credentials(token: str) -> dict[str, str]:
+    """The extra credentials a submission carries: the person's token, read by Polaris; none without one."""
+    return {"token": token} if token else {}

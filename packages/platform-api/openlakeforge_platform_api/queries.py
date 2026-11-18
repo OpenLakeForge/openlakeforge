@@ -49,7 +49,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from openlakeforge_platform_api.discovery import SOURCE
 from openlakeforge_platform_api.models import QueryColumn, QueryResult
-from openlakeforge_platform_api.query_identity import TrinoIdentity, trino_identity
+from openlakeforge_platform_api.query_identity import TrinoIdentity, polaris_credentials, trino_identity
 from openlakeforge_platform_api.settings import Settings
 
 log = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ class _Ctx:
     identity: TrinoIdentity
 
     def credentials(self, token: str) -> dict[str, str]:
-        return {"token": token}
+        return polaris_credentials(token)
 
     def url(self, path: str) -> str:
         return self.base + path

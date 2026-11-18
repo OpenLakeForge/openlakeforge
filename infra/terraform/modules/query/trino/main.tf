@@ -65,7 +65,9 @@ locals {
   # credentials Polaris vends for that table. The catalog's credential serves
   # only the configuration call, and a request without a token falls through
   # to a token exchange Polaris refuses (#964). Keyed by stage; served under
-  # the contract's catalog_name only.
+  # the contract's catalog_name only. Without keyless (authentication off,
+  # ADR 0021 decision 8) every request uses the catalog's own credential,
+  # which then holds the catalog's content.
   rest_catalog_properties = {
     for stage, contract in local.stage_catalog_contracts : stage => <<-CATALOG
       # openlakeforge.catalog-provider=${coalesce(try(contract.catalog_provider, null), "polaris")}
@@ -77,7 +79,7 @@ locals {
       iceberg.rest-catalog.oauth2.credential=$${ENV:OPENLAKEFORGE_CATALOG_${upper(stage)}_CLIENT_ID}:$${ENV:OPENLAKEFORGE_CATALOG_${upper(stage)}_CLIENT_SECRET}
       iceberg.rest-catalog.oauth2.server-uri=${try(contract.token_uri, "")}
       iceberg.rest-catalog.oauth2.scope=${try(contract.oauth_scope, "")}
-      iceberg.rest-catalog.session=USER
+      iceberg.rest-catalog.session=${var.keyless ? "USER" : "NONE"}
       # Zero rebuilds the session from the token each query carries; the
       # default hour would keep presenting the first one.
       iceberg.rest-catalog.session-timeout=0s

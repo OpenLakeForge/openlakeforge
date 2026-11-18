@@ -82,3 +82,26 @@ run "every_rest_catalog_is_keyless" {
     error_message = "Polaris decides every access to a keyless catalog: Trino carries no rules"
   }
 }
+
+# ADR 0021, decision 8: with authentication off no caller has a token, so the catalog's credential serves every
+# request. Vended credentials stay, and no static key enters.
+run "authentication_off_uses_the_catalogs_own_credential" {
+  command = plan
+
+  variables {
+    keyless = false
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for doc in helm_release.trino.values : [
+        for properties in values(try(yamldecode(doc).catalogs, {})) : [
+          strcontains(properties, "iceberg.rest-catalog.session=NONE"),
+          strcontains(properties, "iceberg.rest-catalog.vended-credentials-enabled=true"),
+          !strcontains(properties, "s3.aws-access-key"),
+        ]
+      ]
+    ]))
+    error_message = "without keyless, the catalog uses its own credential and still reads only vended credentials"
+  }
+}
