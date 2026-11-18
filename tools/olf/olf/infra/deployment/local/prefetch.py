@@ -78,6 +78,7 @@ def selected_images(
     perimeter: bool = True,
     portal: bool = False,
     dex: bool = False,
+    metrics: bool = False,
     build_superset: bool = False,
     project_code: bool = False,
 ) -> tuple[str, ...]:
@@ -95,6 +96,9 @@ def selected_images(
         names.append("oauth2_proxy")
     if dex:
         names.append("dex")
+    # ADR 0024: Prometheus is deployed only when the profile enables metrics.
+    if metrics:
+        names.append("prometheus")
     images = [catalog_images[name] for name in names]
     images += polaris_images(server_arch, catalog_images)
     if features.governance_enabled:
@@ -141,6 +145,7 @@ def prefetch_images(
         perimeter=identity is not None,
         portal=config.context.topology.access is not None,
         dex=identity is not None and identity.issuer == "github",
+        metrics=config.context.topology.observability.metrics_enabled,
         build_superset=config.images.builds_superset(server_arch),
         project_code=config.images.project_code_published,
     )

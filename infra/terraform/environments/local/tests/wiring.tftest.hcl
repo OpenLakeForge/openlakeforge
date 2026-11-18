@@ -340,3 +340,55 @@ run "a_governed_stage_gets_a_reconciler_pinned_to_it" {
     error_message = "the reconciler's pods are isolated by a NetworkPolicy of their own"
   }
 }
+
+# ADR 0024: without metrics there is no Prometheus, no endpoint in the
+# contract and no flow row for it on either side.
+run "a_profile_without_metrics_renders_no_prometheus" {
+  command = plan
+
+  assert {
+    condition     = length(module.metrics) == 0 && !contains(keys(module.network_policy.workload_policy_names), "prometheus")
+    error_message = "metrics off must render no Prometheus resource or policy"
+  }
+
+  assert {
+    condition     = length([for f in local.policy_flows : f.id if contains(["F45", "F46", "F47", "F48", "F49"], f.id)]) == 0
+    error_message = "metrics off must leave no Prometheus row, including the stage ingress (F48) and the API's egress (F45)"
+  }
+
+  assert {
+    condition = (
+      output.provider_contracts.shared.observability.metrics.supported
+      && output.provider_contracts.shared.observability.metrics.query_api == null
+      && output.provider_contracts.shared.observability.metrics.query_url == null
+    )
+    error_message = "the local provider supports metrics, but publishes no endpoint for a backend it did not deploy"
+  }
+}
+
+run "a_profile_with_metrics_deploys_prometheus_and_publishes_it" {
+  command = plan
+
+  variables {
+    observability = { metrics_enabled = true, metrics_retention_days = 14 }
+  }
+
+  assert {
+    condition     = length(module.metrics) == 1 && contains(keys(module.network_policy.workload_policy_names), "prometheus")
+    error_message = "metrics on deploys Prometheus with a NetworkPolicy of its own"
+  }
+
+  assert {
+    condition     = toset([for f in local.policy_flows : f.id if contains(["F45", "F46", "F47", "F48", "F49"], f.id)]) == toset(["F45", "F46", "F47", "F48", "F49"])
+    error_message = "metrics on renders F45 to F49"
+  }
+
+  assert {
+    condition = (
+      output.provider_contracts.shared.observability.metrics.query_api == "prometheus-http-v1"
+      && output.provider_contracts.shared.observability.metrics.query_url == "http://prometheus.olf-system.svc:9090"
+      && output.provider_contracts.shared.observability.metrics.retention_supported
+    )
+    error_message = "the contract names the Prometheus Service, and retention is enforced"
+  }
+}

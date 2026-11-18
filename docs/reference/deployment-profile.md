@@ -367,10 +367,13 @@ resolve` check and print it, and `olf profile resolve --json` reports the
 resolved values as `observability`, including when the block is omitted.
 Terraform reports the resolved values in the provider contract's
 [`shared.observability`](../architecture/provider-contracts.md#sharedobservability),
-but only the alerts act on them today: on the local provider, with at least one
-receiver, an evaluator CronJob posts notifications to it ([send alerts to a
-webhook](../guides/operations/alerts.md)). The other fields change no running
-component yet.
+but only metrics and the alerts act on them today, on the local provider:
+`metrics.enabled` deploys a Prometheus server in `olf-system` that keeps
+`metrics.retention_days` of history on a volume sized by `spec.storage.size`
+([ADR 0024](../adr/0024-metrics-prometheus-reference-and-read-path.md)), and with
+at least one receiver an evaluator CronJob posts notifications to it ([send
+alerts to a webhook](../guides/operations/alerts.md)). The other fields change
+no running component yet.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |

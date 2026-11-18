@@ -358,6 +358,13 @@ _IMAGE_DEPLOYMENT_SOURCES: dict[str, _ImageDeploymentSource | tuple[_ImageDeploy
             re.DOTALL,
         ),
     ),
+    "prometheus": _ImageDeploymentSource(
+        paths=("infra/terraform/modules/observability/metrics/variables.tf",),
+        full_ref_pattern=re.compile(
+            r'variable\s+"image"\s*\{.*?default\s*=\s*"([^"\n]+@sha256:[0-9a-f]{64})"',
+            re.DOTALL,
+        ),
+    ),
     "oauth2_proxy": _ImageDeploymentSource(
         paths=("infra/terraform/modules/access/perimeter/variables.tf",),
         full_ref_pattern=re.compile(

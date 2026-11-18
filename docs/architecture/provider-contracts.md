@@ -128,8 +128,9 @@ once #22 slice b lands.
 ```
 
 `enabled` is what the profile asks for; `supported` is whether the provider has
-an adapter that can honour it, so a Full profile on any provider reads as
-`metrics.enabled: true, supported: false` until a metrics adapter exists. The
+an adapter that can honour it. The local provider deploys Prometheus when
+metrics are enabled ([ADR 0024](../adr/0024-metrics-prometheus-reference-and-read-path.md));
+on AWS and Azure a Full profile reads as `metrics.enabled: true, supported: false`. The
 archive is always enabled. `alerts.supported` is `true` on the local provider,
 whose alert evaluator CronJob notifies webhook receivers ([ADR 0023](../adr/0023-alert-evaluation-and-webhook-delivery.md)),
 and `false` on AWS and Azure; the example above is one without receivers. `retention_days` is the retention the profile asks
@@ -137,14 +138,15 @@ for; `retention_supported` is whether anything applies it to the stored data.
 `logs.archive.retention_supported` is `true` on the local provider, where the
 object store expires collector archives after `retention_days` ([ADR 0022](../adr/0022-pod-log-collection-and-archive-format.md)),
 and `false` on AWS and Azure, which have no collector and no lifecycle rule yet.
-`metrics.retention_supported` is `false` everywhere until #21 enforces it, so a
-90-day metrics setting is a request and not a guarantee. Only the archive and
+`metrics.retention_supported` is `true` on the local provider, whose Prometheus
+deletes blocks past the retention itself. Only the archive and
 metrics carry the two retention fields. `metrics` also carries the optional `query_api` and `query_url`, the endpoint the
 platform API reads metrics from (ADR 0024, decision 6). `query_api` names the protocol, never the product; the only value
 is `prometheus-http-v1` (the Prometheus HTTP API's `/api/v1/query` and
 `/api/v1/query_range` with PromQL). The two are set together or both `null`, and
-only when `supported` is `true`. Every provider renders `null` today; the local
-adapter fills them when it lands (#21 slice M-b). Alert receivers carry a name and a type, never
+only when `supported` is `true`. The local provider fills them with the
+Prometheus Service, `http://prometheus.olf-system.svc:9090`, when metrics are
+enabled, and renders `null` when they are not; AWS and Azure render `null`. Alert receivers carry a name and a type, never
 their Secret reference. The four capability fields appear together or not at all, so
 contracts already in state stay readable.
 

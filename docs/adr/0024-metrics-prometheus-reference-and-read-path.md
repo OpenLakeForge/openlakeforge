@@ -2,11 +2,11 @@
 
 ## Status
 
-Proposed, awaiting the owner's approval (#21). Nothing here is built. This
-record decides the backend, the scrape baseline, the label policy, the read
-path through the platform API, the network and RBAC additions and the contract
-shape for `spec.observability.metrics`; the slices under "Build order"
-implement it once it is approved.
+Proposed, awaiting the owner's approval (#21). Slices M-a and M-b under "Build
+order" are built; the rest is not. This record decides the backend, the scrape
+baseline, the label policy, the read path through the platform API, the network
+and RBAC additions and the contract shape for `spec.observability.metrics`; the
+slices under "Build order" implement it once it is approved.
 
 Tags used below: **[V]** checked in this repository at `acba95b`, or in the
 pinned upstream artifact or page named beside it, on 2026-11-17; **[T]** a claim
@@ -104,7 +104,7 @@ existing modules already write directly. Open item 9.
 | --- | --- | --- |
 | Workload | Deployment, one replica, `strategy: Recreate`, and a separate PersistentVolumeClaim | A standalone claim can be expanded in place; a StatefulSet's claim template cannot change, which is why `olf` deletes the SeaweedFS StatefulSets to grow them ([deployment profile](../reference/deployment-profile.md#changing-the-storage-size)). Two replicas would write one TSDB twice |
 | Scrape interval | 30 s, timeout 10 s | The Portal's finest step is 60 s (Decision 4) |
-| Retention | `--storage.tsdb.retention.time=<retention_days>d` and `--storage.tsdb.retention.size` from the size row below; whichever is reached first deletes the oldest block | Without either flag the default is 15 d ([storage](https://prometheus.io/docs/prometheus/latest/storage/) **[V]**); the size cap is the loss point an operator can reason about |
+| Retention | `storage.tsdb.retention.time` (`<retention_days>d`) and `storage.tsdb.retention.size` from the size row below, in the configuration file; whichever is reached first deletes the oldest block. The `--storage.tsdb.retention.*` flags are deprecated at 3.13.5 in favour of these fields (`docs/command-line/prometheus.md` at `v3.13.5` **[V]**) | Without either setting the default is 15 d ([storage](https://prometheus.io/docs/prometheus/latest/storage/) **[V]**); the size cap is the loss point an operator can reason about |
 | Query limits | `--query.timeout=10s`, `--query.max-samples=5000000`, `--query.max-concurrency=4` | The API sends a few small range queries per chart; these stop a bad template from exhausting the pod **[T: flag names at 3.13]** |
 | Admin | No `--web.enable-admin-api`, no `--web.enable-lifecycle`, no remote write, no OTLP receiver | Nothing deletes series or reloads over HTTP; a configuration change is a rollout |
 | Pod | uid 65534, read-only root filesystem except the data volume, no capability, `RuntimeDefault` seccomp | As the platform API **[T: the image's default user]** |
@@ -504,3 +504,6 @@ footprint figure.
 
 2026-11-17: created for #21, as a draft awaiting the owner's approval. Nothing
 built.
+
+2026-11-18: M-a and M-b built. Retention moved from the `--storage.tsdb.retention.*`
+flags, deprecated at 3.13.5, to the same two fields in the configuration file.

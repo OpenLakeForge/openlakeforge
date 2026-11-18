@@ -582,22 +582,22 @@ module "provider_contract" {
   foundation_kube_context = local.foundation_contract.kube_context
 
   observability = var.observability
-  # No metrics backend exists until #21 slice M-b fills this with the
-  # Prometheus Service URL; null keeps the contract honest meanwhile.
-  metrics_query = { api = null, url = null }
-  # Archive and webhook alerting (ADR 0023) only: no adapter implements search, metrics or Grafana yet.
-  # #22 slice b flips these as each one lands, so a Full profile that asks for
-  # metrics reads as requested-but-unsupported rather than as working.
+  # The Prometheus Service when metrics are enabled (ADR 0024, decision 6); a
+  # profile that turns them off has no endpoint to publish.
+  metrics_query = local.metrics_enabled ? { api = "prometheus-http-v1", url = module.metrics[0].query_url } : { api = null, url = null }
+  # Archive, metrics (ADR 0024) and webhook alerting (ADR 0023): no adapter implements search or Grafana yet.
+  # #22 slice b flips those as each one lands, so a profile that asks for one
+  # reads as requested-but-unsupported rather than as working.
   observability_support = {
     logs_archive = true
     # Applied as a SeaweedFS filer path TTL on each v2 prefix (module seaweedfs, object_retention; ADR 0022, decision 6).
-    # #21 flips metrics_retention once the adapter enforces it.
     logs_archive_retention = true
     logs_search            = false
-    metrics                = false
-    metrics_retention      = false
-    grafana                = false
-    alerts                 = true
+    metrics                = true
+    # Prometheus deletes blocks past retention_days itself.
+    metrics_retention = true
+    grafana           = false
+    alerts            = true
   }
 
   implementations = {
