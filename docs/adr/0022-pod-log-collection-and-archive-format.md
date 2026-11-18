@@ -10,7 +10,7 @@ and d land. The three delivery signals of Decision 2 are built (#1189): the prob
 the platform API's stage health route that reads it and lists the newest object,
 and the thresholds. Their failure-injection e2e (`_log_delivery.py`) is written
 but has not been run on a cluster (see Decision 2), so every [T] item it covers
-stays [T]. The retention of Decision 6 is built for local (#22): see the History entry for how it differs from a lifecycle rule.
+stays [T]. Not built yet: the lifecycle rule of Decision 6 (`logs_archive_retention` stays reported as unsupported).
 Every claim marked [T] is still untested: the kind smoke does not run here, and
 slice d (#1123) verifies them on a cluster. Tags used below: **[V]** checked in this
 repository or in the upstream page cited; **[T]** a claim the implementing slice
@@ -363,19 +363,6 @@ reader key (no new identity). The failure-injection e2e follows.
 2026-11-16: #1189 (part): the failure-injection e2e is written (not yet run on a
 cluster); `parse_spool_report` moves to `openlakeforge_core` so the e2e and the
 API read the probe's answer with one parser.
-
-2026-11-17: #22 close-out. The polling CronJob is no longer rendered where the
-collector runs (local); AWS and Azure have no collector, so they keep it as
-their only capture, and the reader reads both layouts. Retention is applied on
-local as a SeaweedFS filer path TTL (`fs.configure -ttl`) on each v2 prefix:
-in a SeaweedFS 4.48 container, `PutBucketLifecycleConfiguration` was accepted and
-read back, but `fs.configure` then listed no path rule, so nothing the rule names
-is given a TTL; a `1m` path rule expired an object within a minute and left an
-object outside its prefix alone. What is built is therefore a path TTL, not the
-lifecycle rule Decision 6 names, and it is reported through the same contract
-fields (`retention_days`, `retention_supported`). Whether the S3 rule would
-expire anything after its first day was not waited out. The path TTL reaches
-only objects written after it is set.
 
 2026-11-18: #1123 runs the failure-injection e2e on a cluster. Decision 2 is
 corrected, no threshold changed: the engine's S3 failure counters rise during an
