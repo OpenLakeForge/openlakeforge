@@ -44,7 +44,7 @@ _POLARIS_IMAGES: dict[str, tuple[str, str]] = {
     ),
 }
 # ponytail: the OpenMetadata server is not in the component catalog; pin it here until it is.
-_OPENMETADATA_SERVER_IMAGE = "docker.getcollate.io/openmetadata/server:1.13.6"
+_OPENMETADATA_SERVER_IMAGE = "docker.io/openmetadata/server:1.13.6"
 
 _ALWAYS = (
     "seaweedfs",
