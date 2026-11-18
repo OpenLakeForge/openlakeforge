@@ -13,11 +13,16 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Mapping
+from contextlib import AbstractContextManager
 
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
 from olf.infra import access, k8s
+from olf.infra.access import Route
 from olf.infra.openmetadata._auth import automation_token
+from olf.infra.openmetadata._bootstrap import ensure_admin_password, reconcile_admin_password, wait_healthy
+
+DEFAULT_ADMIN_EMAIL = "admin@open-metadata.org"
 
 # Written by modules/governance/openmetadata: config.json, secret_name, secret_key.
 CONFIGMAP = "openmetadata-sso-config"
@@ -80,9 +85,15 @@ def _release_value(secret: str, key: str, namespace: str, environ: Mapping[str, 
 
 
 def _restore_basic(
-    namespace: str, *, service: str, remote_port: int, log_path: str, environ: Mapping[str, str] | None
+    namespace: str,
+    *,
+    service: str,
+    remote_port: int,
+    log_path: str,
+    admin_email: str,
+    environ: Mapping[str, str] | None,
 ) -> None:
-    """Put back the release's basic login after spec.identity was removed.
+    """Put back the release's basic login after spec.identity was removed, with the Secret's admin password.
 
     The stored copy wins over the environment (see the module docstring), so a server that once had SSO keeps
     redirecting to an issuer that no longer exists until the configuration is written back.
@@ -90,17 +101,25 @@ def _restore_basic(
     token = automation_token(namespace, environ=environ)
     if token is None:  # no bot yet: a fresh install, which reads basic login from the environment
         return
-    with access.service_route(
-        "shared/governance_service",
-        service=service,
-        remote_port=remote_port,
-        namespace=namespace,
-        log_path=log_path,
-        shared_namespace=namespace,
-        environ=environ,
-    ) as route:
-        client = route.client(OpenMetadataClient, token=token)
+
+    def route() -> AbstractContextManager[Route]:
+        return access.service_route(
+            "shared/governance_service",
+            service=service,
+            remote_port=remote_port,
+            namespace=namespace,
+            log_path=log_path,
+            shared_namespace=namespace,
+            environ=environ,
+        )
+
+    # A stack first deployed with identity still has the default password (#1281): the platform
+    # bootstrap reconciles it only while basic login is on, and this deploy's ran under SSO.
+    password = ensure_admin_password(namespace, environ)
+    with route() as current:
+        client = current.client(OpenMetadataClient, token=token)
         if client.request("GET", "/api/v1/system/config/auth").get("provider") == "basic":
+            reconcile_admin_password(client, current, admin_email, password)
             return
         config = dict(client.request("GET", "/api/v1/system/security/config"))
         secret = f"{service}-authentication-secret"
@@ -114,15 +133,31 @@ def _restore_basic(
         client.request("PUT", "/api/v1/system/security/config", json_body=config, ok_statuses=(200, 201))
     # The handler is built from the stored configuration at startup.
     k8s.restart_deployment(service, namespace, environ=environ)
+    with route() as restarted:
+        wait_healthy(restarted)
+        reconcile_admin_password(restarted.client(OpenMetadataClient, token=token), restarted, admin_email, password)
 
 
 def apply_sso(
-    namespace: str, *, service: str, remote_port: int, log_path: str, environ: Mapping[str, str] | None = None
+    namespace: str,
+    *,
+    service: str,
+    remote_port: int,
+    log_path: str,
+    admin_email: str = DEFAULT_ADMIN_EMAIL,
+    environ: Mapping[str, str] | None = None,
 ) -> None:
     """Apply the published security configuration, restarting the server on its first application."""
     data = k8s.configmap_data(CONFIGMAP, namespace, environ=environ)
     if data is None:  # no spec.identity: basic login, which an earlier deploy with identity may have replaced
-        _restore_basic(namespace, service=service, remote_port=remote_port, log_path=log_path, environ=environ)
+        _restore_basic(
+            namespace,
+            service=service,
+            remote_port=remote_port,
+            log_path=log_path,
+            admin_email=admin_email,
+            environ=environ,
+        )
         return
     config = json.loads(data["config.json"])
     token = automation_token(namespace, environ=environ)

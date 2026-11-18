@@ -284,6 +284,7 @@ def test_bootstrap_logs_in_with_the_contract_admin_email_and_the_password_kubect
 
     monkeypatch.setattr(_bootstrap, "wait_healthy", lambda _base_url: None)
     monkeypatch.setattr(_bootstrap, "admin_client", admin_client)
+    monkeypatch.setattr(_bootstrap, "reconcile_admin_password", lambda *_a, **_k: None)  # the network edge
     monkeypatch.setattr(_bootstrap, "_token_works", lambda *_a, **_k: True)  # the network edge
     monkeypatch.setattr(_stale_services, "remove_legacy_services", lambda _client: None)
 
