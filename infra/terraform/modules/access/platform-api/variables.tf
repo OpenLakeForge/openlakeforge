@@ -245,6 +245,21 @@ variable "polaris_health_url" {
   default     = null
 }
 
+variable "metrics" {
+  description = "The metrics read path (ADR 0024, decision 4): the profile's resolved metrics.enabled, and the provider contract's metrics query_url (the prometheus-http-v1 base URL, read over F45) and retention_days. Disabled renders the metrics routes and integration as disabled; enabled with a null query_url as not_provided."
+  type = object({
+    enabled        = bool
+    query_url      = optional(string)
+    retention_days = optional(number, 7)
+  })
+  default = { enabled = false }
+
+  validation {
+    condition     = var.metrics.query_url == null || var.metrics.enabled
+    error_message = "metrics.query_url needs metrics.enabled: a disabled profile has no backend to read."
+  }
+}
+
 variable "service_callers" {
   description = "Service principal name to the one ServiceAccount that may authenticate as it with a projected token, checked by a TokenReview (ADR 0021, decision 3). Today only alert-evaluator, the alerts module's ServiceAccount. Empty by default: no token but an issuer's is accepted and no ClusterRole is created."
   type        = map(object({ namespace = string, service_account = string }))

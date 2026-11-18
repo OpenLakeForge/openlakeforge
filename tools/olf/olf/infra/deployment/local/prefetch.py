@@ -96,9 +96,9 @@ def selected_images(
         names.append("oauth2_proxy")
     if dex:
         names.append("dex")
-    # ADR 0024: Prometheus is deployed only when the profile enables metrics.
+    # ADR 0024: Prometheus and kube-state-metrics are deployed only when the profile enables metrics.
     if metrics:
-        names.append("prometheus")
+        names += ["prometheus", "kube_state_metrics"]
     images = [catalog_images[name] for name in names]
     images += polaris_images(server_arch, catalog_images)
     if features.governance_enabled:

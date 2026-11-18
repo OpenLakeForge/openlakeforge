@@ -181,3 +181,41 @@ run "the_polaris_health_url_reaches_the_settings" {
     error_message = "the Polaris readiness URL must reach settings.json"
   }
 }
+
+run "metrics_default_to_disabled" {
+  command = plan
+
+  assert {
+    condition = (
+      jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).metrics_enabled == false
+      && jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).metrics_url == null
+    )
+    error_message = "a deployment that passes no metrics must render them disabled, with no URL"
+  }
+}
+
+run "the_metrics_backend_reaches_the_settings" {
+  command = plan
+
+  variables {
+    metrics = { enabled = true, query_url = "http://prometheus.olf-system.svc:9090", retention_days = 3 }
+  }
+
+  assert {
+    condition = (
+      jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).metrics_url == "http://prometheus.olf-system.svc:9090"
+      && jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).metrics_retention_days == 3
+    )
+    error_message = "the metrics query URL and retention must reach settings.json"
+  }
+}
+
+run "a_metrics_url_without_metrics_enabled_is_refused" {
+  command = plan
+
+  variables {
+    metrics = { enabled = false, query_url = "http://prometheus.olf-system.svc:9090" }
+  }
+
+  expect_failures = [var.metrics]
+}

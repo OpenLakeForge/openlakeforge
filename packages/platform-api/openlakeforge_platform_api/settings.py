@@ -133,6 +133,12 @@ class Settings:
     # Authentication off (ADR 0021, decision 8): no issuer, and a caller with no token is served as this canonical
     # role. Only with a `public_origin` on `*.localhost`, the one place a profile may turn authentication off.
     anonymous_role: str | None = None
+    # The metrics read path (ADR 0024, decision 4): the profile's resolved `metrics.enabled`, and the contract's
+    # `query_url` and `retention_days`. Enabled with no URL is a provider with no metrics backend (`not_provided`);
+    # not enabled is `disabled`. Either way no route answers with a number.
+    metrics_enabled: bool = False
+    metrics_url: str | None = None
+    metrics_retention_days: int = 7
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -195,6 +201,9 @@ class Settings:
                 },
                 service_audience=str(data.get("service_audience") or "openlakeforge-platform-api"),
                 anonymous_role=data.get("anonymous_role") or None,
+                metrics_enabled=data.get("metrics_enabled") is True,
+                metrics_url=data.get("metrics_url") or None,
+                metrics_retention_days=int(data.get("metrics_retention_days", 7)),
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -295,6 +304,14 @@ class Settings:
             parts = urlsplit(uri)
             if parts.scheme != "s3" or not parts.netloc or not parts.path.strip("/") or uri.endswith("/"):
                 raise SettingsError(f"quality_sync_summaries[{stage!r}] must be s3://<bucket>/<key> of one object")
+        if self.metrics_url is not None:
+            metrics = urlsplit(self.metrics_url)
+            if metrics.scheme not in ("http", "https") or not metrics.netloc:
+                raise SettingsError("metrics_url must be an http(s) base URL")
+            if not self.metrics_enabled:
+                raise SettingsError("metrics_url is set but metrics_enabled is not")
+        if self.metrics_retention_days < 1:
+            raise SettingsError("metrics_retention_days must be positive")
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")

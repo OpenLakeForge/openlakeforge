@@ -23,6 +23,9 @@ locals {
     # The heap bean needs openmetrics.jmx-object-names on the coordinator, which slice M-c adds.
     trino        = ["trino_execution_name_QueryManager_RunningQueries", "trino_execution_name_QueryManager_QueuedQueries", "trino_execution_name_QueryManager_FailedQueries_TotalCount", "trino_execution_name_QueryManager_CompletedQueries_TotalCount"]
     object_store = ["SeaweedFS_volumeServer_resource", "SeaweedFS_volumeServer_total_disk_size", "SeaweedFS_s3_bucket_size_bytes", "SeaweedFS_s3_request_total"]
+    # kube-state-metrics already exposes only these (--metric-allowlist); the
+    # scrape keeps the same list, so a widened flag still stores nothing more.
+    kube_state_metrics = local.ksm_metrics
     # `up` is written for every target by the scraper itself, so no allowlist can drop it.
     self = ["prometheus_tsdb_head_series", "prometheus_tsdb_storage_blocks_bytes", "prometheus_target_scrapes_exceeded_sample_limit_total"]
   }
@@ -82,6 +85,13 @@ locals {
         sample_limit           = 500
         target_limit           = 4
         metric_relabel_configs = concat([local.keep_rule.object_store], local.stage_from.bucket)
+      },
+      {
+        job_name               = "kube-state-metrics"
+        static_configs         = [{ targets = ["${local.ksm_name}.${var.namespace}.svc:${local.ksm_port}"] }]
+        sample_limit           = 3000
+        target_limit           = 1
+        metric_relabel_configs = concat([local.keep_rule.kube_state_metrics], local.stage_from.namespace)
       },
       {
         job_name               = "prometheus"

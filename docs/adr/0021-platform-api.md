@@ -760,3 +760,10 @@ and no longer on `get_stage_health`, whose Dagster reads are unbounded across ca
 2026-11-18: decision 8 (#1270). Without `spec.identity` the local provider deploys the API as well, with no issuer,
 and serves every caller as the anonymous principal holding the highest role. Until then it deployed the API only with
 `spec.identity`, so `olf`'s anonymous path reached nothing, and called it over `https` under `access.tls: none`.
+
+2026-11-18: #21 slice M-d ([ADR 0024](0024-metrics-prometheus-reference-and-read-path.md), decision 4). The settings
+gain `metrics_enabled`, `metrics_url` and `metrics_retention_days`, rendered by `modules/access/platform-api` from the
+profile and the metrics module's `query_url`; the API reads Prometheus over F45 with no credential, through
+`openlakeforge_services.prometheus`. The health routes' `metrics` integration is no longer fixed at `not_provided`: it
+is `disabled`, `not_provided`, `unavailable` or `available` by whether the backend answers a query, and is never
+folded into the stage's state.
