@@ -25,11 +25,21 @@ HOUR = 3600
 NOW = datetime.now(UTC)
 
 
-def _signal(component: str, state: HealthState) -> Signal:
+def _signal(component: str, state: HealthState, last_success_at: datetime | None = None) -> Signal:
     scope = Scope(stage="dev")
     return service_signal(
-        scope, component, state, f"{component} is {state.value}", now=NOW, max_age=timedelta(minutes=1)
+        scope,
+        component,
+        state,
+        f"{component} is {state.value}",
+        now=NOW,
+        max_age=timedelta(minutes=1),
+        last_success_at=last_success_at,
     )
+
+
+# Real component names: the route labels each one, and a name it has no label for is a bug, not a row.
+COMPONENT_NAMES = ["dagster.workloads", "trino.readiness", "object-store.list"]
 
 
 class FakeProbes:
@@ -91,14 +101,14 @@ def _app(settings: Settings, dagster: ScheduledDagster, probes: FakeProbes) -> F
 def test_service_signals_roll_into_the_stage_state(
     settings: Settings, dagster: ScheduledDagster, mint: Mint, states: list[HealthState], expected: str
 ) -> None:
-    probes = FakeProbes([_signal(f"component-{i}", state) for i, state in enumerate(states)])
+    probes = FakeProbes([_signal(COMPONENT_NAMES[i], state) for i, state in enumerate(states)])
     api = TestClient(_app(settings, dagster, probes))
 
     body = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
 
     assert body["state"] == expected
     assert [(item["component"], item["state"]) for item in body["services"]] == [
-        (f"component-{i}", state.value) for i, state in enumerate(states)
+        (COMPONENT_NAMES[i], state.value) for i, state in enumerate(states)
     ]
     assert {item["name"]: item["status"] for item in body["integrations"]}["services"] == "available"
 
@@ -106,15 +116,55 @@ def test_service_signals_roll_into_the_stage_state(
 def test_each_service_row_names_its_source_and_how_long_its_answer_is_usable(
     settings: Settings, dagster: ScheduledDagster, mint: Mint
 ) -> None:
-    probes = FakeProbes([_signal("trino.readiness", HealthState.HEALTHY), _signal("component-x", HealthState.HEALTHY)])
+    probes = FakeProbes(
+        [_signal("trino.readiness", HealthState.HEALTHY), _signal("log-archive.spool-age", HealthState.HEALTHY)]
+    )
     api = TestClient(_app(settings, dagster, probes))
 
     body = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
 
     rows = {item["component"]: item for item in body["services"]}
     assert rows["trino.readiness"]["source"] == "trino-http"
-    assert rows["component-x"]["source"] == "platform-api"
+    assert rows["log-archive.spool-age"]["source"] == "log-collector"
     assert rows["trino.readiness"]["max_age_seconds"] == 60
+
+
+def test_each_service_row_carries_its_display_name_and_the_service_it_groups_under(
+    settings: Settings, dagster: ScheduledDagster, mint: Mint
+) -> None:
+    probes = FakeProbes(
+        [_signal("dagster.read-api", HealthState.HEALTHY), _signal("dagster.workloads", HealthState.WARNING)]
+    )
+    api = TestClient(_app(settings, dagster, probes))
+
+    for path in (STAGE, f"{STAGE}/services"):
+        body = api.get(path, headers=_as(mint, "data-engineer")).json()
+
+        assert [(s["display_name"], s["service"], s["service_display_name"]) for s in body["services"]] == [
+            ("Dagster API", "dagster", "Dagster"),
+            ("Dagster workloads", "dagster", "Dagster"),
+        ]
+
+
+def test_the_archive_write_time_is_served_and_a_probe_without_evidence_serves_null(
+    settings: Settings, dagster: ScheduledDagster, mint: Mint
+) -> None:
+    written = NOW - timedelta(minutes=4)
+    probes = FakeProbes(
+        [
+            _signal("log-archive.newest-object", HealthState.HEALTHY, last_success_at=written),
+            _signal("quality-sync.publication", HealthState.UNKNOWN, last_success_at=written),
+            _signal("trino.readiness", HealthState.HEALTHY),
+        ]
+    )
+    api = TestClient(_app(settings, dagster, probes))
+
+    for path in (STAGE, f"{STAGE}/services"):
+        rows = {s["component"]: s for s in api.get(path, headers=_as(mint, "data-engineer")).json()["services"]}
+
+        assert datetime.fromisoformat(rows["log-archive.newest-object"]["last_success_at"]) == written
+        assert rows["quality-sync.publication"]["last_success_at"] is None
+        assert rows["trino.readiness"]["last_success_at"] is None
 
 
 def test_the_probes_are_aimed_at_the_stages_own_namespace_and_endpoints(
@@ -169,6 +219,8 @@ def test_a_probe_that_raises_is_unknown_and_leaks_nothing(
     assert response.status_code == 200
     assert response.json()["state"] == "unknown"
     assert [item["state"] for item in response.json()["services"]] == ["unknown"]
+    assert response.json()["services"][0]["display_name"] == "Service probes"
+    assert response.json()["services"][0]["last_success_at"] is None
     assert "secret-detail" not in response.text
 
 

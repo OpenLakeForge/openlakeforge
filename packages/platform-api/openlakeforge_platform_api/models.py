@@ -189,8 +189,17 @@ class StagePipelineState(BaseModel):
     state: HealthStateName
 
 
+# The services the probes belong to, so a client can group rows (worst state per `service`) without parsing ids.
+# An enum in the committed OpenAPI document: adding one is a reviewed change (ADR 0021, decision 7).
+ServiceName = Literal["dagster", "trino", "polaris", "object-store", "log-archive", "quality-sync", "platform-api"]
+
+
 class ServiceHealth(BaseModel):
-    """One service probe's answer (ADR 0021, decision 7); `component` is e.g. `dagster.workloads`."""
+    """One service probe's answer (ADR 0021, decision 7); `component` is e.g. `dagster.workloads`.
+
+    `component` is the stable machine key. `display_name` and `service_display_name` are for people and name no host,
+    namespace or container; renaming one is a reviewed change, but a client keys on `component` and `service`.
+    """
 
     component: str
     # What was asked, such as `kubernetes`, `dagster-graphql` or `s3`; never an address or a credential.
@@ -202,6 +211,13 @@ class ServiceHealth(BaseModel):
     # How long the answer stays usable, `expires_at` minus `observed_at`. Probes run on request and are reused for a
     # few seconds, so this is a validity bound and not a polling interval.
     max_age_seconds: int | None
+    display_name: str
+    service: ServiceName
+    service_display_name: str
+    # When the component last did its job by its own evidence: the newest archive object's write time for
+    # `log-archive.newest-object`, the last published result for `quality-sync.publication`. Null for every other
+    # probe, and whenever the state is `unknown` or `disabled`; never the probe time and never a default.
+    last_success_at: datetime | None
 
 
 class StageHealth(BaseModel):
