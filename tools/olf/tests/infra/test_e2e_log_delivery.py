@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -138,16 +140,64 @@ def test_a_collector_pod_without_an_address_is_an_error() -> None:
     assert _log_delivery.collector_addresses({"items": pods["items"][:1]}) == [("a", "10.0.0.1")]
 
 
-def test_the_spool_is_drained_only_when_every_collector_reports_it_empty_and_readable() -> None:
-    empty = _spool("dev", None)
-    held = _spool("dev", timedelta(minutes=2), size=1_000)
-    unreadable = SpoolObservation("dev", NOW, None, 0, LIMIT, unreadable=True)
+def test_files_created_after_the_restore_do_not_hold_the_drain() -> None:
+    at_restore = {"worker": {"a": 10, "b": 20}, "worker2": {"c": 30}}
+    now = {"worker": {"d": 5}, "worker2": {"e": 7}}
 
-    assert _log_delivery.spool_drained([empty, empty], "dev")
-    assert not _log_delivery.spool_drained([empty, held], "dev")
-    assert not _log_delivery.spool_drained([empty, unreadable], "dev")
-    assert not _log_delivery.spool_drained([_spool("prod", None)], "dev")
-    assert not _log_delivery.spool_drained([], "dev")
+    assert _log_delivery.undelivered(at_restore, now) == {}
+
+
+def test_outage_files_still_spooled_are_pending_per_node() -> None:
+    at_restore = {"worker": {"a": 10, "b": 20}, "worker2": {"c": 30}}
+    now = {"worker": {"b": 25, "d": 5}, "worker2": {}}
+
+    assert _log_delivery.undelivered(at_restore, now) == {"worker": ["b"]}
+
+
+def test_a_node_that_no_longer_reports_keeps_its_outage_files_pending() -> None:
+    assert _log_delivery.undelivered({"worker": {"a": 1}}, {}) == {"worker": ["a"]}
+
+
+def test_the_spool_listing_skips_the_quarantine_and_reads_a_missing_spool_as_empty(tmp_path: Path) -> None:
+    spool = tmp_path / "spool-dev"
+    (spool / "bucket" / "stream").mkdir(parents=True)
+    (spool / "bucket" / "stream" / "file1").write_bytes(b"x" * 12)
+    (spool / "quarantine").mkdir()
+    (spool / "quarantine" / "old").write_bytes(b"y" * 99)
+
+    def listing(directory: str) -> dict[str, int]:
+        result = subprocess.run(
+            [sys.executable, "-c", _log_delivery._LIST_SPOOL, directory], capture_output=True, text=True, check=True
+        )
+        return json.loads(result.stdout)
+
+    assert listing(str(spool)) == {"bucket/stream/file1": 12}
+    assert listing(str(tmp_path / "absent")) == {}
+
+
+def _drain(monkeypatch: pytest.MonkeyPatch, *spools: dict[str, dict[str, int]]) -> None:
+    healthy = SimpleNamespace(state=HealthState.HEALTHY, reason="ok")
+    answers = iter(spools)
+    monkeypatch.setattr(_log_delivery, "spool_files", lambda cfg: next(answers))
+    monkeypatch.setattr(_log_delivery, "_signals", lambda cfg: {"spool-age": healthy, "newest-object": healthy})
+    monkeypatch.setattr(_log_delivery.time, "sleep", lambda _s: None)
+
+
+def test_the_drain_ends_when_the_outage_files_are_gone_though_new_ones_are_spooled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _drain(monkeypatch, {"worker": {"a": 1, "new": 2}}, {"worker": {"new": 3, "newer": 1}})
+
+    _log_delivery._wait_drained(SimpleNamespace(), {"worker": {"a": 1}}, 600)  # type: ignore[arg-type]
+
+
+def test_a_drain_that_never_sends_the_outage_files_names_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    _drain(monkeypatch, *[{"worker": {"a": 1}}] * 10)
+    ticks = iter(range(0, 1000, 100))
+    monkeypatch.setattr(_log_delivery.time, "monotonic", lambda: float(next(ticks)))
+
+    with pytest.raises(E2EError, match=r"outage files still spooled: \{'worker': \['a'\]\}"):
+        _log_delivery._wait_drained(SimpleNamespace(), {"worker": {"a": 1}}, 250)  # type: ignore[arg-type]
 
 
 def test_the_archive_is_read_until_two_reads_agree(monkeypatch: pytest.MonkeyPatch) -> None:
