@@ -9,6 +9,10 @@ on:
     branches:
       - main
   workflow_call:
+    # Optional: without it the catalog-image job scans anonymously (see its login step).
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -118,6 +122,21 @@ jobs:
         uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567
         with:
           version: v0.76.1
+
+      # Anonymous pulls share Docker Hub's per-address limit with every job on the runner's
+      # address (#1250); logged in, they count against the org account instead. Trivy reads
+      # this login from ~/.docker/config.json, keyed by registry, so the token reaches Docker
+      # Hub only (TRIVY_USERNAME/TRIVY_PASSWORD would go to every registry). Fork pull
+      # requests and callers that do not pass the token skip it and scan anonymously.
+      # docker.getcollate.io fronts Docker Hub under its own host, so it still pulls anonymously.
+      - name: Log in to Docker Hub
+        if: env.DOCKERHUB_TOKEN != ''
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # Pulling ~20 third-party images on every pull request would burn registry
       # rate limits and fail unrelated changes on new CVEs; main and releases scan them all.

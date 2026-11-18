@@ -1,4 +1,5 @@
-"""The catalog-image scan retries registry errors only, and still fails on findings and unscannable images.
+"""The catalog-image scan logs in to Docker Hub when it can, retries registry errors only, and still fails on findings
+and unscannable images.
 
 The step's own script runs against stand-ins for `uv`, `trivy` and `sleep` on PATH, because the job only runs
 when the component catalog changes, so a pull request's CI rarely exercises it (#1250).
@@ -7,15 +8,19 @@ when the component catalog changes, so a pull request's CI rarely exercises it (
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 
 _REPO = Path(__file__).resolve().parents[4]
 _WORKFLOW = _REPO / ".github/workflows/security.yml"
+_SCAN = "Scan the images pinned in the component catalog"
+_LOGIN = "Log in to Docker Hub"
 
 _RATE_LIMITED = (
     'FATAL\tFatal error\trun error: image scan error: unable to find the specified image in ["remote"]:\n'
@@ -68,10 +73,23 @@ class _Run:
     sleeps: list[int]
 
 
+def _workflow() -> dict[Any, Any]:
+    workflow: dict[Any, Any] = yaml.safe_load(_WORKFLOW.read_text())
+    return workflow
+
+
+def _catalog_steps() -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = _workflow()["jobs"]["catalog-images"]["steps"]
+    return steps
+
+
+def _step_index(name: str) -> int:
+    (index,) = [index for index, step in enumerate(_catalog_steps()) if step.get("name") == name]
+    return index
+
+
 def _scan_script() -> str:
-    steps = yaml.safe_load(_WORKFLOW.read_text())["jobs"]["catalog-images"]["steps"]
-    (step,) = [step for step in steps if step.get("name") == "Scan the images pinned in the component catalog"]
-    return str(step["run"])
+    return str(_catalog_steps()[_step_index(_SCAN)]["run"])
 
 
 def _run(tmp_path: Path, outcomes: dict[str, list[str]], waived: tuple[str, ...] = ()) -> _Run:
@@ -150,3 +168,40 @@ def test_a_non_registry_error_is_not_retried(tmp_path: Path) -> None:
     assert run.returncode == 1
     assert run.calls == ["ingestion", "trino"]
     assert run.sleeps == []
+
+
+def test_docker_hub_login_runs_before_the_scan_with_the_org_credentials_and_only_when_the_token_is_set() -> None:
+    login = _catalog_steps()[_step_index(_LOGIN)]
+
+    assert _step_index(_LOGIN) < _step_index(_SCAN)
+    assert re.fullmatch(r"docker/login-action@[0-9a-f]{40}", login["uses"])
+    # No registry: Docker Hub, the only registry these credentials belong to.
+    assert login["with"] == {
+        "username": "${{ vars.DOCKERHUB_USERNAME }}",
+        "password": "${{ secrets.DOCKERHUB_TOKEN }}",
+    }
+    # Secrets cannot appear in `if`, so the token is tested through the step's env; fork pull requests
+    # and callers that do not pass it skip the login and scan anonymously.
+    assert login["env"] == {"DOCKERHUB_TOKEN": "${{ secrets.DOCKERHUB_TOKEN }}"}
+    assert login["if"] == "env.DOCKERHUB_TOKEN != ''"
+
+
+def test_the_docker_hub_token_never_reaches_trivy_as_a_registry_agnostic_credential() -> None:
+    # Trivy sends TRIVY_USERNAME/TRIVY_PASSWORD to every registry it pulls from (ghcr.io,
+    # docker.getcollate.io, ...); the docker config the login writes is keyed by registry instead.
+    job = _workflow()["jobs"]["catalog-images"]
+    scan = _catalog_steps()[_step_index(_SCAN)]
+    trivy_env = {name for step in job["steps"] for name in step.get("env", {}) if name.startswith("TRIVY_")}
+
+    assert "DOCKERHUB_TOKEN" not in yaml.safe_dump(scan)
+    assert "env" not in job
+    assert trivy_env == set()
+
+
+def test_the_release_workflow_passes_the_token_to_the_scans_it_calls() -> None:
+    # YAML 1.1 reads the bare `on:` key as boolean true.
+    declared = _workflow()[True]["workflow_call"]["secrets"]["DOCKERHUB_TOKEN"]
+    release = yaml.safe_load((_REPO / ".github/workflows/release.yml").read_text())
+
+    assert declared == {"required": False}
+    assert release["jobs"]["security"]["secrets"] == {"DOCKERHUB_TOKEN": "${{ secrets.DOCKERHUB_TOKEN }}"}
