@@ -19,6 +19,7 @@ from openlakeforge_core.metrics import (
     MetricScope,
     MetricSeries,
     MetricSource,
+    catalog_for,
     find_series,
 )
 from openlakeforge_services.base import ServiceClientError
@@ -27,9 +28,11 @@ from openlakeforge_services.prometheus import PrometheusClient, PrometheusSeries
 
 from openlakeforge_platform_api.models import (
     IntegrationStatus,
+    MetricCatalog,
     MetricLine,
     MetricRangeName,
     MetricSeriesData,
+    MetricSeriesInfo,
     MetricState,
 )
 from openlakeforge_platform_api.pipeline_series import read_pipeline_series
@@ -222,3 +225,72 @@ def get_platform_metric(request: Request, series: str, range_name: MetricRangeNa
     settings: Settings = request.app.state.settings
     entry, metric_range = _resolve(series, range_name, MetricScope.PLATFORM, settings)
     return _read_prometheus(settings, entry, PLATFORM_STAGE, metric_range, datetime.now(UTC), None)
+
+
+def _prometheus_states(settings: Settings, stage: str, now: datetime) -> dict[str, tuple[MetricState, str]]:
+    """Each stage series' state from one `up` query: available while one of its targets is up now."""
+    series = [entry for entry in catalog_for(MetricScope.STAGE) if entry.source is MetricSource.PROMETHEUS]
+    client = _backend(settings)
+    if isinstance(client, IntegrationStatus):
+        return {entry.name: (client.status, client.reason) for entry in series}
+    try:
+        targets = client.query("up", time=now.timestamp())
+    except ServiceClientError as exc:
+        log.warning("the metrics backend could not be read for the catalog: %s", exc)
+        return {entry.name: ("unavailable", "the metrics backend did not answer") for entry in series}
+    states: dict[str, tuple[MetricState, str]] = {}
+    for entry in series:
+        matched = [
+            target.samples[0][1]
+            for target in targets
+            if target.labels.get("job") in entry.jobs
+            and (not entry.per_stage_targets or target.labels.get("stage") == stage)
+        ]
+        if any(matched):
+            states[entry.name] = ("available", "a target behind the series is up")
+        elif matched:
+            states[entry.name] = ("unavailable", "every target behind the series is down")
+        else:
+            states[entry.name] = ("unavailable", "no target is scraped")
+    return states
+
+
+def _dagster_state(request: Request, stage: str) -> tuple[MetricState, str]:
+    url = request.app.state.settings.dagster_graphql_urls.get(stage)
+    if not url:
+        return "disabled", "no Dagster is configured for this stage"
+    try:
+        DagsterClient(url).list_jobs()
+    except ServiceClientError as exc:
+        log.warning("Dagster for stage %s could not be read for the metrics catalog: %s", stage, exc)
+        return "unavailable", "Dagster could not be read"
+    return "available", "read from Dagster"
+
+
+def list_stage_metrics(request: Request, stage: str) -> MetricCatalog:
+    """The stage's catalog: each series, the ranges it serves here, and whether its source answers now."""
+    settings: Settings = request.app.state.settings
+    now = datetime.now(UTC)
+    states = _prometheus_states(settings, stage, now)
+    dagster = _dagster_state(request, stage)
+    return MetricCatalog(
+        stage=stage,
+        observed_at=now,
+        series=[
+            MetricSeriesInfo(
+                name=entry.name,
+                unit=entry.unit,
+                source=entry.source.value,
+                labels=list(entry.labels),
+                ranges=[
+                    cast(MetricRangeName, name)
+                    for name, r in RANGES.items()
+                    if entry.allows(r, settings.metrics_retention_days)
+                ],
+                state=state,
+                reason=reason,
+            )
+            for entry in catalog_for(MetricScope.STAGE)
+            for state, reason in [dagster if entry.source is MetricSource.DAGSTER else states[entry.name]]
+        ],
+    )
