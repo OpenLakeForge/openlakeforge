@@ -55,12 +55,74 @@ def _demote_local_admin(client: OpenMetadataClient) -> None:
         )
 
 
+# The release's own basic-login settings (the chart renders them into these Secrets), by security-config field.
+_BASIC_AUTHENTICATION = {
+    "provider": "AUTHENTICATION_PROVIDER",
+    "providerName": "AUTHENTICATION_PROVIDER_NAME",
+    "publicKeyUrls": "AUTHENTICATION_PUBLIC_KEYS",
+    "authority": "AUTHENTICATION_AUTHORITY",
+    "clientId": "AUTHENTICATION_CLIENT_ID",
+    "callbackUrl": "AUTHENTICATION_CALLBACK_URL",
+    "jwtPrincipalClaims": "AUTHENTICATION_JWT_PRINCIPAL_CLAIMS",
+    "enableSelfSignup": "AUTHENTICATION_ENABLE_SELF_SIGNUP",
+    "clientType": "AUTHENTICATION_CLIENT_TYPE",
+    "responseType": "AUTHENTICATION_RESPONSE_TYPE",
+}
+
+
+def _release_value(secret: str, key: str, namespace: str, environ: Mapping[str, str] | None) -> object:
+    """A chart setting, which the chart quotes as JSON; a key the chart did not render is empty."""
+    try:
+        raw = k8s.secret_value(secret, key, namespace, environ=environ)
+    except k8s.KubectlError:
+        return ""
+    return json.loads(raw) if raw else ""
+
+
+def _restore_basic(
+    namespace: str, *, service: str, remote_port: int, log_path: str, environ: Mapping[str, str] | None
+) -> None:
+    """Put back the release's basic login after spec.identity was removed.
+
+    The stored copy wins over the environment (see the module docstring), so a server that once had SSO keeps
+    redirecting to an issuer that no longer exists until the configuration is written back.
+    """
+    token = automation_token(namespace, environ=environ)
+    if token is None:  # no bot yet: a fresh install, which reads basic login from the environment
+        return
+    with access.service_route(
+        "shared/governance_service",
+        service=service,
+        remote_port=remote_port,
+        namespace=namespace,
+        log_path=log_path,
+        shared_namespace=namespace,
+        environ=environ,
+    ) as route:
+        client = route.client(OpenMetadataClient, token=token)
+        if client.request("GET", "/api/v1/system/config/auth").get("provider") == "basic":
+            return
+        config = dict(client.request("GET", "/api/v1/system/security/config"))
+        secret = f"{service}-authentication-secret"
+        config["authenticationConfiguration"] = {
+            field: _release_value(secret, key, namespace, environ) for field, key in _BASIC_AUTHENTICATION.items()
+        }
+        # The SSO path demoted the local admin; startup re-promotes the release's admin principals.
+        config["authorizerConfiguration"]["adminPrincipals"] = _release_value(
+            f"{service}-authorizer-secret", "AUTHORIZER_ADMIN_PRINCIPALS", namespace, environ
+        )
+        client.request("PUT", "/api/v1/system/security/config", json_body=config, ok_statuses=(200, 201))
+    # The handler is built from the stored configuration at startup.
+    k8s.restart_deployment(service, namespace, environ=environ)
+
+
 def apply_sso(
     namespace: str, *, service: str, remote_port: int, log_path: str, environ: Mapping[str, str] | None = None
 ) -> None:
     """Apply the published security configuration, restarting the server on its first application."""
     data = k8s.configmap_data(CONFIGMAP, namespace, environ=environ)
-    if data is None:  # no spec.identity: basic login stays
+    if data is None:  # no spec.identity: basic login, which an earlier deploy with identity may have replaced
+        _restore_basic(namespace, service=service, remote_port=remote_port, log_path=log_path, environ=environ)
         return
     config = json.loads(data["config.json"])
     token = automation_token(namespace, environ=environ)
