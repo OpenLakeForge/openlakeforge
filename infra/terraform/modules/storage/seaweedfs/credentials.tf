@@ -24,6 +24,7 @@ locals {
       namespace = var.audit_writer_credentials.namespace
     }],
     [for reader in values(var.quality_reader_credentials) : { secret = reader.credentials_secret_name, namespace = reader.namespace }],
+    [for writer in values(var.quality_sync_credentials) : { secret = writer.credentials_secret_name, namespace = writer.namespace }],
     var.files_credentials == null ? [] : [{
       secret    = var.files_credentials.credentials_secret_name
       namespace = var.files_credentials.namespace
@@ -95,6 +96,20 @@ locals {
       secret    = reader.credentials_secret_name
       namespace = reader.namespace
       actions   = [for action in ["Read", "List"] : "${action}:${reader.ops_bucket_name}/activations/${stage}/run-artifacts/quality/*"]
+    }],
+    # The quality reconciler (ADR 0007), one identity per governed stage: Read and List on that stage's quality
+    # manifests, which it replays and never writes, and Read, Write and List on its own `quality-sync/` state and
+    # summary. The key cannot reach another stage's manifests or state, nor the stage's other evidence. Prefixes end
+    # in `/` so `*` stays under them. SeaweedFS gates overwrite and delete on Write, so the state is tamper-evident
+    # against everyone but this key, not immutable.
+    [for stage, writer in var.quality_sync_credentials : {
+      name      = "openlakeforge-quality-sync-${stage}"
+      secret    = writer.credentials_secret_name
+      namespace = writer.namespace
+      actions = concat(
+        [for action in ["Read", "List"] : "${action}:${writer.ops_bucket_name}/activations/${stage}/run-artifacts/quality/*"],
+        [for action in ["Read", "Write", "List"] : "${action}:${writer.ops_bucket_name}/activations/${stage}/quality-sync/*"],
+      )
     }],
     # Write only, under one prefix: the platform API stores audit records and
     # can neither read nor list them back. SeaweedFS 4.48 also gates overwrite

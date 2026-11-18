@@ -48,6 +48,7 @@ workloads:
   publish-local-ca: {openlakeforge.io/job: publish-local-ca}
   log-collector: {app.kubernetes.io/name: log-collector}
   alert-evaluator: {openlakeforge.io/job: alert-evaluator}
+  quality-reconciler: {openlakeforge.io/job: quality-reconciler} # ADR 0007: one CronJob per governed stage; dropped with the governance layer
   postgresql-credentials: {openlakeforge.io/job: postgresql-credentials}
   openmetadata-role-sync: {openlakeforge.io/job: openmetadata-role-sync}
 flows:
@@ -306,3 +307,14 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
     ports: [8080] # each stage's health route (ADR 0023, decision 11), with a projected ServiceAccount token the API checks with a TokenReview over its F20 egress
     tag: T # needs an evaluation reading stage health on a running cluster
+  # The quality reconciler (ADR 0007, ADR 0017 F52 and F53). Its egress is exactly these two and DNS.
+  - id: F52
+    from: {scope: shared, pods: {openlakeforge.io/job: quality-reconciler}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
+    ports: [8585] # test case definitions, cases and results, with the ingestion bot's token
+    tag: T # needs a reconciler pass on a running cluster
+  - id: F53
+    from: {scope: shared, pods: {openlakeforge.io/job: quality-reconciler}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs, app.kubernetes.io/component: s3}}
+    ports: [8333] # the stage's manifests and its `quality-sync/` state, with the stage's own key openlakeforge-quality-sync-<stage>
+    tag: T # needs a reconciler pass on a running cluster

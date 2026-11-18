@@ -22,6 +22,15 @@ for how a release is cut and verified.
   governance makes no request. See [quality
   publication](docs/reference/health-signals.md#quality-publication-to-openmetadata)
   and ADR 0007.
+- Scheduled quality publication: on the local provider, each stage with
+  governance gets a `quality-reconciler-<stage>` CronJob that runs the same
+  publisher every 5 minutes with a bounded batch, so results reach OpenMetadata
+  without an operator. It has its own ops-bucket key limited to that stage's
+  quality manifests and `quality-sync/` state, egress to OpenMetadata and the
+  object store only, and reads the ingestion bot's token from its Secret. Slim
+  renders none of it. No health route reads the sync summary yet. See
+  [scheduled
+  publication](docs/reference/health-signals.md#scheduled-publication).
 - Alert policy: `lakehouse_code/alerts.yml` (`AlertPolicy`) declares which
   conditions alert for which products and stages, their thresholds, and the
   routes that name the profile's receivers. A rule matches a domain and a
