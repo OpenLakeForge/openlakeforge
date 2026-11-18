@@ -380,16 +380,18 @@ module "quality_reconciler" {
 }
 
 # ADR 0024: the metrics reference, in olf-system. Its targets are static except
-# the nodes, so its one cluster grant is node discovery and nodes/metrics.
+# the nodes, so its one cluster grant is node discovery and nodes/metrics;
+# kube-state-metrics' grants are Roles in the namespaces below.
 module "metrics" {
   source = "../../modules/observability/metrics"
   count  = local.metrics_enabled ? 1 : 0
 
-  namespace        = kubernetes_namespace_v1.shared.metadata[0].name
-  retention_days   = var.observability.metrics_retention_days
-  volume_size      = local.metrics_size.volume
-  retention_size   = local.metrics_size.retention_size
-  stage_namespaces = local.stage_namespaces
+  namespace      = kubernetes_namespace_v1.shared.metadata[0].name
+  retention_days = var.observability.metrics_retention_days
+  volume_size    = local.metrics_size.volume
+  retention_size = local.metrics_size.retention_size
+  # From the namespace resources, so kube-state-metrics' Roles are created after their namespaces.
+  stage_namespaces = { for name, namespace in kubernetes_namespace_v1.stage : name => namespace.metadata[0].name }
   trino_targets    = { for name, namespace in local.stage_namespaces : name => "${local.trino_service.name}.${namespace}.svc:${local.trino_service.port}" }
   # The SeaweedFS chart (4.48.0) starts every process with -metricsPort=9327 and names that port on its Services.
   object_store_targets = {
@@ -892,7 +894,7 @@ locals {
     { "platform-api" = length(module.platform_api) > 0 },
     { "alert-evaluator" = local.alerts_enabled },
     { "quality-reconciler" = local.governance_enabled },
-    { "prometheus" = local.metrics_enabled },
+    { for name in ["prometheus", "kube-state-metrics"] : name => local.metrics_enabled },
     { for name in ["dex", "dex-credentials"] : name => local.identity_dex },
     { for name in ["openmetadata", "opensearch"] : name => local.governance_enabled },
   )
@@ -952,13 +954,13 @@ locals {
 }
 
 locals {
-  # ADR 0024 renders no flow for Prometheus without metrics, on either side: a
-  # dropped workload alone would still leave its rows' ingress into the stages
-  # (F48) and the platform API's egress to it (F45).
-  prometheus_pods = local.network_flows.workloads.prometheus
+  # ADR 0024 renders no flow for Prometheus or kube-state-metrics without
+  # metrics, on either side: a dropped workload alone would still leave its
+  # rows' ingress into the stages (F48) and the platform API's egress to it (F45).
+  metrics_pods = [for name in ["prometheus", "kube-state-metrics"] : local.network_flows.workloads[name]]
   policy_flows = [
     for f in concat(local.network_flows.flows, local.profile_flows) : f
-    if local.metrics_enabled || !anytrue([for end in concat(flatten([f.from]), [f.to]) : try(end.pods, {}) == local.prometheus_pods])
+    if local.metrics_enabled || !anytrue(flatten([for end in concat(flatten([f.from]), [f.to]) : [for pods in local.metrics_pods : try(end.pods, {}) == pods]]))
   ]
 }
 

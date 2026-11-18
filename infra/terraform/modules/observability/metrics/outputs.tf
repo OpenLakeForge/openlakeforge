@@ -7,3 +7,8 @@ output "cluster_role_name" {
   description = "The ClusterRole bound to Prometheus's ServiceAccount (ADR 0017, RBAC inventory)."
   value       = kubernetes_cluster_role_v1.prometheus.metadata[0].name
 }
+
+output "kube_state_metrics_role_namespaces" {
+  description = "The namespaces holding kube-state-metrics' Role and RoleBinding (ADR 0017, RBAC inventory): olf-system and each stage namespace."
+  value       = sort([for role in kubernetes_role_v1.kube_state_metrics : role.metadata[0].namespace])
+}

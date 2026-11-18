@@ -1,5 +1,6 @@
 # ADR 0024 decisions 1 to 5: one bounded Prometheus, its scrape limits, the
-# stage label from namespaces and buckets, and a grant of nodes/metrics only.
+# stage label from namespaces and buckets, a grant of nodes/metrics only, and
+# kube-state-metrics on namespaced Roles.
 # Whether a disabled profile renders it at all is the local root's test.
 
 mock_provider "kubernetes" {}
@@ -37,11 +38,12 @@ run "every_scrape_is_bounded_and_history_is_capped" {
       for job in yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).scrape_configs :
       job.job_name => [job.sample_limit, try(job.target_limit, null)]
       } == {
-      kubelet-resource = [2000, 20]
-      kubelet          = [2000, 20]
-      trino            = [500, 3]
-      object-store     = [500, 4]
-      prometheus       = [200, null]
+      kubelet-resource   = [2000, 20]
+      kubelet            = [2000, 20]
+      trino              = [500, 3]
+      object-store       = [500, 4]
+      kube-state-metrics = [3000, 1]
+      prometheus         = [200, null]
     }
     error_message = "each job carries Decision 3's sample_limit and target_limit"
   }
@@ -169,4 +171,67 @@ run "an_unknown_object_store_process_is_refused" {
   }
 
   expect_failures = [var.object_store_targets]
+}
+
+run "kube_state_metrics_reads_four_resources_in_the_olf_namespaces_only" {
+  command = plan
+
+  assert {
+    condition     = toset(keys(kubernetes_role_v1.kube_state_metrics)) == toset(["olf-system", "olf-dev", "olf-prod"]) && toset(keys(kubernetes_role_binding_v1.kube_state_metrics)) == toset(keys(kubernetes_role_v1.kube_state_metrics))
+    error_message = "a Role and RoleBinding in olf-system and each stage namespace, and nowhere else"
+  }
+
+  assert {
+    condition = alltrue([
+      for role in kubernetes_role_v1.kube_state_metrics : (
+        length(role.rule) == 2
+        && toset(role.rule[0].api_groups) == toset([""]) && toset(role.rule[0].resources) == toset(["pods"])
+        && toset(role.rule[1].api_groups) == toset(["apps"]) && toset(role.rule[1].resources) == toset(["deployments", "statefulsets", "daemonsets"])
+        && alltrue([for rule in role.rule : toset(rule.verbs) == toset(["list", "watch"])])
+      )
+    ])
+    error_message = "list and watch on pods, deployments, statefulsets and daemonsets; no get, Secret or other resource"
+  }
+
+  assert {
+    condition = alltrue([
+      for arg in [
+        "--namespaces=olf-dev,olf-prod,olf-system",
+        "--resources=pods,deployments,statefulsets,daemonsets",
+        "--metric-labels-allowlist=pods=[app.kubernetes.io/name,app.kubernetes.io/component]",
+      ] : contains(kubernetes_deployment_v1.kube_state_metrics.spec[0].template[0].spec[0].container[0].args, arg)
+    ])
+    error_message = "the namespaces, resources and pod labels are bounded on the command line, without which a ClusterRole would be needed"
+  }
+
+  assert {
+    condition     = endswith(kubernetes_deployment_v1.kube_state_metrics.spec[0].template[0].spec[0].container[0].image, "@sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b")
+    error_message = "the image is pinned by digest"
+  }
+
+  assert {
+    condition = [
+      for job in yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).scrape_configs : job.static_configs[0].targets
+      if job.job_name == "kube-state-metrics"
+    ] == [["kube-state-metrics.olf-system.svc:8080"]]
+    error_message = "Prometheus scrapes the one kube-state-metrics Service on 8080 (F50)"
+  }
+
+  assert {
+    condition = toset([
+      for rule in yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).scrape_configs[4].metric_relabel_configs :
+      "${rule.regex}=${rule.replacement}" if try(rule.target_label, "") == "stage"
+    ]) == toset(["olf-dev=dev", "olf-prod=prod", "olf-system=platform"])
+    error_message = "a kube-state-metrics series takes its stage from its namespace, olf-system as platform"
+  }
+}
+
+run "kube_state_metrics_never_watches_kube_system" {
+  command = plan
+
+  variables {
+    stage_namespaces = { dev = "kube-system" }
+  }
+
+  expect_failures = [kubernetes_role_v1.kube_state_metrics]
 }
