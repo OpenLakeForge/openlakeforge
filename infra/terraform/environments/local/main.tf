@@ -461,8 +461,7 @@ module "platform_api" {
   # The portal route's origin (host and scheme of the "platform-api" route,
   # contracts.tf): the one origin the CSRF guard lets write. Per-person
   # queries need the keyless stage catalogs and Dex; without an issuer the
-  # anonymous principal queries with the catalog's own credential, as the
-  # stage's open Trino UI does (ADR 0021, decision 8).
+  # anonymous principal is offered queries too (ADR 0021, decision 8).
   public_origin = "${local.route_scheme}://${local.base_domain}"
   person_query  = local.api_query_enabled
   # Trino's plain HTTP port: it has no authentication of its own, and the

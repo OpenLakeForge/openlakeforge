@@ -35,7 +35,7 @@ def trino_identity(request: Request) -> TrinoIdentity:
         raise HTTPException(status_code=404, detail="per-person query is not available on this deployment")
     principal: Principal | None = getattr(request.state, "principal", None)
     if principal is not None and principal.subject == ANONYMOUS and request.app.state.settings.anonymous_role:
-        # Authentication off (ADR 0021, decision 8): the catalog's own credential, as the stage's open Trino UI.
+        # Authentication off (ADR 0021, decision 8): no person, so no bearer and no Polaris token of one.
         return TrinoIdentity(user=ANONYMOUS, token="")
     token: str | None = getattr(request.state, "token", None)
     if principal is None or token is None or principal.role is None:

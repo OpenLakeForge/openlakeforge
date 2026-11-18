@@ -197,8 +197,8 @@ class TrinoStatementClient:
             "X-Trino-Catalog": self.catalog,
             "X-Trino-Source": self.source,
         }
-        # Empty for the platform API's anonymous principal (ADR 0021, decision 8):
-        # Trino then uses the catalog's own credential, as its Web UI does.
+        # Empty for the platform API's anonymous principal (ADR 0021, decision 8),
+        # which has no person's token to send.
         if bearer:
             headers["Authorization"] = f"Bearer {bearer}"
         if self.schema:
