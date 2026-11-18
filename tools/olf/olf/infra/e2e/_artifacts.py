@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import boto3
@@ -28,6 +28,11 @@ from olf.infra.e2e._shell import (
 # derives the compute-log-manager prefix from the stage-scoped
 # log_base_uri, matching the SeaweedFS grant scoped to that same prefix).
 ARTIFACT_PREFIXES = ("logs/dagster/compute/",)
+# The collector holds a stage's records for its `upload_timeout` (5m, modules/observability/log-collector) before the
+# first object exists, and nothing triggers an upload on local the way the CronJob Job did elsewhere; 7 minutes
+# covers that window, the 1 s Flush and the upload itself.
+FIRST_V2_OBJECT_TIMEOUT_SECONDS = 420.0
+FIRST_V2_OBJECT_POLL_SECONDS = 15.0
 
 
 def check_ops_artifacts(cfg: E2EConfig) -> None:
@@ -36,7 +41,32 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
     if cfg.env != "local":
         trigger_log_archive_job(cfg)
     with ops_bucket_client(cfg) as (client, bucket):
+        if cfg.env == "local":
+            wait_for_first_object(client, bucket, pod_log_prefix(cfg.namespace, "v2"))
         assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory, pod_log_layout=_pod_log_layout(cfg))
+
+
+def pod_log_prefix(namespace: str, layout: str) -> str:
+    """Where a stage's pod logs are archived, in the v1 (`k8s`) or the collector's v2 layout."""
+    return f"activations/{namespace.removeprefix('olf-')}/logs/{layout}/namespace={namespace}/"
+
+
+def wait_for_first_object(
+    client: Any,
+    bucket: str,
+    prefix: str,
+    *,
+    timeout: float = FIRST_V2_OBJECT_TIMEOUT_SECONDS,
+    poll: float = FIRST_V2_OBJECT_POLL_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Return once an object exists under `prefix`; an empty prefix past `timeout` is an error, never a pass."""
+    deadline = clock() + timeout
+    while not client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1).get("Contents"):
+        if clock() >= deadline:
+            raise E2EError(f"no object under s3://{bucket}/{prefix} after {timeout:.0f}s")
+        sleep(poll)
 
 
 def _pod_log_layout(cfg: E2EConfig) -> str:
@@ -145,7 +175,7 @@ def assert_ops_artifacts(
     for prefix in (
         *dbt_prefixes,
         *scoped_artifact_prefixes,
-        f"{activation_prefix}/logs/{pod_log_layout}/namespace={namespace}/",
+        pod_log_prefix(namespace, pod_log_layout),
     ):
         require_s3_prefix(client, bucket, prefix)
 
