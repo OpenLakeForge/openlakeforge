@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed, awaiting the owner's approval (#21). Slices M-a, M-b, M-d and M-e
-under "Build order" are built, and of M-c, kube-state-metrics; the rest is not.
+Proposed, awaiting the owner's approval (#21). Slices M-a, M-b, M-c, M-d and M-e
+under "Build order" are built; the rest is not.
 This record decides the backend, the scrape
 baseline, the label policy, the read path through the platform API, the network
 and RBAC additions and the contract shape for `spec.observability.metrics`; the
@@ -150,8 +150,8 @@ Compaction can briefly exceed `retention.size` ([storage](https://prometheus.io/
 | --- | --- | --- | --- |
 | kubelet resource metrics | The kubelet serves `/metrics/resource` and `/metrics/cadvisor` besides `/metrics` ([system metrics](https://kubernetes.io/docs/concepts/cluster-administration/system-metrics/) **[V]**). `/metrics/*` is authorized as `nodes/metrics`; **`nodes/proxy` is not read-only** ("authorizes executing commands in any container") ([kubelet authn/authz](https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/) **[V]**) | HTTPS to each node's port 10250, discovered with `kubernetes_sd_configs` role `node`, the ServiceAccount token as bearer. `/metrics/resource`, not `/metrics/cadvisor`: the resource endpoint carries the CPU and working-set series the charts need and far fewer series **[T: series count measured]** | `container_cpu_usage_seconds_total`, `container_memory_working_set_bytes`, `node_cpu_usage_seconds_total`, `node_memory_working_set_bytes` **[T: names at 1.36]** |
 | kubelet volume stats | The kubelet's own `/metrics` | Same target, path `/metrics` | `kubelet_volume_stats_capacity_bytes`, `kubelet_volume_stats_used_bytes`. Whether kind's local-path volumes report them is **[T]**; if they do not, PVC usage is unsupported on local |
-| kube-state-metrics | Not in the cluster today. Chart `9.0.1`, app `2.20.0` (prometheus-community index **[V]**); image `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0` | A Deployment in `olf-system` limited by `--namespaces` to the OLF namespaces and by `--resources` to `pods`, `deployments`, `statefulsets` and `daemonsets`, with `--metric-allowlist` and `--metric-labels-allowlist=pods=[app.kubernetes.io/name,app.kubernetes.io/component]`. The chart notes that without a ClusterRole it runs "ONLY ... if namespace is also set" (`values.yaml` of 9.0.1 **[V]**), so its grants are Roles | `kube_pod_container_status_restarts_total`, `kube_pod_status_ready`, `kube_pod_labels`, `kube_deployment_status_replicas_available`, `kube_statefulset_status_replicas_ready`, `kube_daemonset_status_number_ready` |
-| Trino | Trino 480 serves OpenMetrics at `/metrics` on the coordinator, "automatically enabled", "protected with the configured authentication"; a client names a user with `X-Trino-User` or a basic-auth user and no password; `openmetrics.jmx-object-names` selects further JMX beans ([Trino 480 OpenMetrics](https://trino.io/docs/480/admin/openmetrics.html) **[V]**) | Each stage's coordinator Service, port 8080, as static targets Terraform renders from the stage map (`service_name`, `http_port` in `modules/query/trino/outputs.tf` **[V]**; that the release name is the coordinator's Service name is **[T]**), with basic-auth user `olf-metrics` and no password. The slice adds `openmetrics.jmx-object-names` through `additionalConfigProperties` (`modules/query/trino/config.tf` **[V]**) for the memory bean. Workers are not scraped: `small` has none | `trino_execution_name_QueryManager_RunningQueries` (named by the page's example **[V]**), `..._QueuedQueries`, `..._FailedQueries_TotalCount`, `..._CompletedQueries_TotalCount`, heap used from `java.lang:type=Memory` **[T: every name but the first, and whether setting the property replaces the default set]** |
+| kube-state-metrics | Chart `9.0.1`, app `2.20.0` (prometheus-community index **[V]**); image `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0`, pinned in the catalog by its index digest. The seven names below are in `docs/metrics/workload/*.md` at `v2.20.0` **[V]** | A Deployment in `olf-system` limited by `--namespaces` to the OLF namespaces and by `--resources` to `pods`, `deployments`, `statefulsets` and `daemonsets`, with `--metric-allowlist` and `--metric-labels-allowlist=pods=[app.kubernetes.io/name,app.kubernetes.io/component]`. The chart notes that without a ClusterRole it runs "ONLY ... if namespace is also set" (`values.yaml` of 9.0.1 **[V]**), so its grants are Roles; the module deploys it without the chart | `kube_pod_container_status_restarts_total`, `kube_pod_status_ready`, `kube_pod_labels`, `kube_pod_created`, `kube_deployment_status_replicas_available`, `kube_statefulset_status_replicas_ready`, `kube_daemonset_status_number_ready` |
+| Trino | Trino 480 serves OpenMetrics at `/metrics` on the coordinator, "automatically enabled", "protected with the configured authentication"; a client names a user with `X-Trino-User` or a basic-auth user and no password; `openmetrics.jmx-object-names` selects further JMX beans ([Trino 480 OpenMetrics](https://trino.io/docs/480/admin/openmetrics.html) **[V]**) | Each stage's coordinator Service, port 8080, as static targets Terraform renders from the stage map (`service_name`, `http_port` in `modules/query/trino/outputs.tf` **[V]**; that the release name is the coordinator's Service name is **[T]**), with basic-auth user `olf-metrics` and no password. The slice adds `openmetrics.jmx-object-names` through `additionalConfigProperties` (`modules/query/trino/config.tf` **[V]**) for the memory bean. Workers are not scraped: `small` has none | `trino_execution_name_QueryManager_RunningQueries` (named by the page's example **[V]**), `..._QueuedQueries`, `..._FailedQueries`, `..._CompletedQueries`, and `JMX_java_lang_TYPE_Memory_ATTRIBUTE_HeapMemoryUsage_used`. A `CounterStat` is one counter named after its attribute, with no `_TotalCount`, and the property adds beans to the default series rather than replacing them (`MetricsResource`, `Counter` and `CompositeMetric` of airlift 419, the version Trino 480 builds with; `DispatchManager` and `QueryManagerStats` at Trino `480` **[V]**) |
 | SeaweedFS | Chart 4.48.0 sets `metricsPort: 9327` on master, volume, filer and S3 and renders `-metricsPort` whenever it is set; `global.seaweedfs.monitoring.enabled` (default `false`) only adds the container port declaration, ServiceMonitors and a Grafana dashboard ConfigMap (`values.yaml`, `templates/*/*-statefulset.yaml`, `*-servicemonitor.yaml` of the pinned chart, whose sha256 matches the catalog **[V]**). The process serves `/metrics` on that port (`StartMetricsServer`, `weed/stats/metrics.go` at tag 4.48 **[V]**); that it listens without the declaration is **[T]** | The four Services' `metrics` port 9327, static targets. `monitoring.enabled` stays `false`: its ServiceMonitors need the operator's CRDs | `SeaweedFS_volumeServer_resource{name,type}` (disk use), `SeaweedFS_volumeServer_total_disk_size`, `SeaweedFS_s3_bucket_size_bytes{bucket}`, `SeaweedFS_s3_request_total{type,code,bucket}` (`metrics.go` at 4.48 **[V]**) |
 | Prometheus itself | Its own `/metrics` | `localhost:9090` | `up` of every job, `prometheus_tsdb_head_series`, `prometheus_tsdb_storage_blocks_bytes`, `prometheus_target_scrapes_exceeded_sample_limit_total` |
 
@@ -244,7 +244,7 @@ Limits, so a misbehaving target fails visibly instead of growing the database:
 | `label_limit` | 16 | Same failure mode **[V]** |
 | `label_value_length_limit` | 256 bytes | Same failure mode **[V]** |
 | `target_limit` per job | kubelet 20; Trino 3; SeaweedFS 4; kube-state-metrics 1 | Experimental upstream **[V]**; a target explosion fails the job |
-| Recording rule groups | each group sets `limit`, the series a rule may produce, at 500 | A rule over the limit fails its evaluation **[T: field name at 3.13]** |
+| Recording rule groups | each group sets `limit`, the series a rule may produce, at 500 | A rule over the limit fails its evaluation and records nothing (`docs/configuration/recording_rules.md` at `v3.13.5` **[V]**). The limit is per rule. The `kube_pod_labels` join is computed inside each per-component rule from the raw samples of the last two minutes, not recorded, so a pod created and deleted between two evaluations keeps its component |
 | Series budget | `prometheus_tsdb_head_series` under 10,000 on the reference deployment | An operating target, not an enforced bound: the e2e asserts it on one deployment, and a deployment that exceeds it loses history to `retention.size` rather than disk. Head series above the budget for 30 minutes is a `warning` on the metrics integration, so the overrun is visible **[T: the slice wires the signal]** |
 
 ## Decision 4: the read path
@@ -284,10 +284,10 @@ The first catalog, mapped to #333's chart list:
 | --- | --- | --- | --- | --- |
 | `cpu_usage_cores` | stage, platform | `stage`, `component` | kubelet, joined to `kube_pod_labels` | service CPU |
 | `memory_working_set_bytes` | stage, platform | `stage`, `component` | kubelet, joined | service memory |
-| `container_restarts` | stage, platform | `stage`, `component` | kube-state-metrics; the rule records restarts per minute, not a counter (a counter summed across pods drops when a pod goes, which `increase()` would count as restarts), so the API sums them per step (`sum_over_time`) | (health context) |
+| `container_restarts` | stage, platform | `stage`, `component` | kube-state-metrics: the rule records each minute's restarts per container before summing, from range selectors so a pod deleted within the minute still counts. A container first seen that minute counts its whole value only if `kube_pod_created` puts its pod in the last two minutes; otherwise, after a scrape gap or lost history, it counts 0, so a gap undercounts and never replays a lifetime. The API sums it per step (`sum_over_time`) | (health context) |
 | `node_cpu_usage_cores`, `node_memory_working_set_bytes` | platform | none | kubelet | cluster CPU and memory |
 | `trino_running_queries`, `trino_queued_queries` | stage | `stage` | Trino | Trino load |
-| `trino_failed_queries` | stage | `stage` | Trino, increase per step | Trino query errors |
+| `trino_failed_queries` | stage | `stage` | Trino: the rule records each minute's failed queries per coordinator, which the API sums per step; a coordinator first seen or restarted within the minute counts 0 for it | Trino query errors |
 | `trino_heap_used_bytes` | stage | `stage` | Trino `java.lang:type=Memory` **[T]** | Trino memory |
 | `object_store_bucket_bytes` | stage, platform | `stage` | SeaweedFS S3, summed by stage | storage trend |
 | `object_store_disk_used_bytes`, `object_store_disk_free_bytes` | platform | `service` | SeaweedFS volume server | storage trend |
@@ -361,7 +361,7 @@ each rendered only when the module is deployed:
 | F47 | Prometheus | `node` | 10250 | kubelet `/metrics/resource` and `/metrics`, with its ServiceAccount token. Whether the enforcing CNI applies an egress `ipBlock` to a node address as written is **[T]**, as F21 is for the reverse direction |
 | F48 | Prometheus | stage namespaces (each stage's Trino coordinator) | 8080 | `/metrics`; the stage rule is namespace-wide, as F11 and F36 |
 | F49 | Prometheus | SeaweedFS (master, volume, filer, S3) | 9327 | `/metrics`; F17 does not list 9327 today **[V]** |
-| F50 | Prometheus | kube-state-metrics | 8080 | `/metrics` **[T: the port at 2.20]** |
+| F50 | Prometheus | kube-state-metrics | 8080 | `/metrics`; the image's entrypoint sets `--port=8080` (image config of `v2.20.0` **[V]**) |
 | F51 | kube-state-metrics | kube-apiserver | 443, 6443 | list and watch in the OLF namespaces |
 
 Denied by construction: every other ingress to Prometheus (no Portal, browser,
@@ -372,7 +372,7 @@ RBAC inventory additions for ADR 0017:
 | Subject | Grant | Used for | Verdict |
 | --- | --- | --- | --- |
 | `prometheus` (`olf-system`; ClusterRole `olf-system-prometheus` and its binding) | `nodes` `get`, `list`, `watch`; `nodes/metrics` `get`. Nothing else: no `nodes/proxy`, no pods, Services, endpoints or ConfigMaps (its other targets are static) | node discovery and the kubelet scrape | **Done if built as written**: `nodes/metrics` is the only kubelet subresource; `nodes/proxy`, which the kubelet treats as exec ([kubelet authn/authz](https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/) **[V]**), is never granted. It exposes node objects and per-container usage, no Secret, log or spec. Matches no E1 to E6 rule |
-| `kube-state-metrics` (`olf-system`; a Role and RoleBinding in each OLF namespace) | `pods`, `deployments`, `statefulsets`, `daemonsets` `list`, `watch` | the four collectors of Decision 2 | **Done if built as written**: read-only and namespaced. It reads full pod specs, including environment values, in those namespaces, which is wider than the platform API's `list` but the same data. The chart's note that kube-state-metrics needs `customresourcedefinitions` `list`/`watch` for custom-resource state is **[T]** for a deployment that configures none |
+| `kube-state-metrics` (`olf-system`; a Role and RoleBinding in each OLF namespace) | `pods`, `deployments`, `statefulsets`, `daemonsets` `list`, `watch` | the four collectors of Decision 2 | **Done if built as written**: read-only and namespaced. It reads full pod specs, including environment values, in those namespaces, which is wider than the platform API's `list` but the same data. It needs no `customresourcedefinitions` grant: the chart adds that rule only with `customResourceState.enabled` (`templates/role.yaml` of 9.0.1 **[V]**), and the module configures no custom-resource state |
 
 Server identity on the kubelet scrape. The bearer token authenticates
 Prometheus, and the kubelet's `SubjectAccessReview` authorizes it
@@ -506,7 +506,7 @@ decisions above assume it.
 | 10 | Version line | **Prometheus 3.13 LTS** (3.13.5), moving to the next LTS (due 2027-06) rather than following every minor |
 
 Not verified for this record, each **[T]** above: the exact metric names at the
-pinned Kubernetes, Trino and kube-state-metrics versions beyond those quoted;
+pinned Kubernetes version beyond those quoted;
 whether SeaweedFS listens on 9327 without the container port declaration; kind's
 kubelet authorization mode and certificates; volume stats on kind's local-path
 volumes; the Prometheus 3.13 flag names for query limits and the OTLP receiver;
@@ -539,3 +539,14 @@ increments because a counter summed across pods drops when a pod goes.
 2026-11-18: M-d complete with the catalog route. Each entry also names its
 source and the ranges the retention allows, so a client offers no range the
 series route would refuse.
+
+2026-11-18: M-c built. kube-state-metrics v2.20.0 runs on a Role per OLF namespace,
+and Prometheus loads the `olf:` recording rules, one group per source, each with
+`limit: 500`. Trino's counters are named without `_TotalCount`. Its heap series is
+`JMX_java_lang_TYPE_Memory_ATTRIBUTE_HeapMemoryUsage_used`, and the property adds to
+the default series. `container_restarts` records restarts per minute, because a
+counter summed across pods reads as a reset when a pod goes.
+
+2026-11-18: `trino_failed_queries` is also recorded as per-minute increments and
+read as their sum over each step. A rule recorded once a minute holds one sample
+in a 60 s step, too few for `increase()`, so the 1h and 6h charts were empty.

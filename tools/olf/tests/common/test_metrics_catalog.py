@@ -84,8 +84,8 @@ def test_only_the_two_count_series_are_aggregated_per_step_each_as_its_rule_reco
         series.name: series.aggregation for series in CATALOG if series.aggregation is not StepAggregation.NONE
     }
 
-    # M-c records restarts as per-minute increments, not a counter, so increase() over them would be wrong.
+    # M-c records both as per-minute increments, not counters, so increase() over them would be wrong.
     assert aggregated == {
         "container_restarts": StepAggregation.SUM_OVER_TIME,
-        "trino_failed_queries": StepAggregation.INCREASE,
+        "trino_failed_queries": StepAggregation.SUM_OVER_TIME,
     }

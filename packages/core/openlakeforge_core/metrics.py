@@ -32,9 +32,9 @@ class StepAggregation(StrEnum):
     NONE = "none"
     # A counter: its increase over each step rather than its running total.
     INCREASE = "increase"
-    # Per-interval increments the rule already computed (M-c's `olf:container_restarts`, a per-minute count, because a
-    # counter summed across pods drops when a pod goes and increase() would read the drop as restarts): their sum
-    # over each step.
+    # Per-interval increments the rule already computed: their sum over each step. M-c records `olf:container_restarts`
+    # and `olf:trino_failed_queries` as per-minute counts, because a counter summed across pods drops when a pod goes,
+    # and a rule recorded once a minute holds too few samples for increase() over a 60 s step.
     SUM_OVER_TIME = "sum_over_time"
 
 
@@ -128,7 +128,7 @@ CATALOG: tuple[MetricSeries, ...] = (
         _PROMETHEUS,
         ("trino",),
         per_stage_targets=True,
-        aggregation=StepAggregation.INCREASE,
+        aggregation=StepAggregation.SUM_OVER_TIME,
     ),
     MetricSeries("trino_heap_used_bytes", "bytes", _STAGE, ("stage",), _PROMETHEUS, ("trino",), per_stage_targets=True),
     MetricSeries("object_store_bucket_bytes", "bytes", _BOTH, ("stage",), _PROMETHEUS, ("object-store",)),

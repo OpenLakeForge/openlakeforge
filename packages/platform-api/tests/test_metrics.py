@@ -142,7 +142,7 @@ def test_the_query_names_only_the_series_rule_the_stage_and_the_catalogs_step(
 
     targets, points = prometheus.queries
     assert targets["query"] == 'max_over_time(up{job=~"trino",stage="dev"}[86400s])'
-    assert points["query"] == 'increase(olf:trino_failed_queries{stage="dev"}[300s])'
+    assert points["query"] == 'sum_over_time(olf:trino_failed_queries{stage="dev"}[300s])'
     assert points["step"] == "300.0"
     assert float(points["end"]) - float(points["start"]) == 86400 - 300
 

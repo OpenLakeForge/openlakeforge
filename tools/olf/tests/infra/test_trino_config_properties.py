@@ -33,6 +33,8 @@ output "properties" { value = local.config_properties }
 """
 
 STAGES = "query.max-stage-count=300"
+# The base line and ADR 0024's heap bean, rendered whatever the sizing and UI.
+BASE = ["http-server.process-forwarded=true", "openmetrics.jmx-object-names=java.lang:type=Memory"]
 
 
 def render(tmp_path: Path, *, sizing: bool = True, ui: list[str] | None = None) -> list[str]:
@@ -48,17 +50,17 @@ def render(tmp_path: Path, *, sizing: bool = True, ui: list[str] | None = None) 
 
 
 def test_the_stage_count_reaches_the_top_level_list(tmp_path: Path) -> None:
-    assert render(tmp_path) == ["http-server.process-forwarded=true", STAGES]
+    assert render(tmp_path) == [*BASE, STAGES]
 
 
 def test_the_stage_count_follows_a_fixed_web_ui_user(tmp_path: Path) -> None:
     ui = ["web-ui.authentication.type=fixed", "web-ui.user=olf-web"]
 
-    assert render(tmp_path, ui=ui) == ["http-server.process-forwarded=true", *ui, STAGES]
+    assert render(tmp_path, ui=ui) == [*BASE, *ui, STAGES]
 
 
-def test_without_a_query_size_only_the_base_line_is_rendered(tmp_path: Path) -> None:
-    assert render(tmp_path, sizing=False) == ["http-server.process-forwarded=true"]
+def test_without_a_query_size_only_the_base_lines_are_rendered(tmp_path: Path) -> None:
+    assert render(tmp_path, sizing=False) == BASE
 
 
 def test_main_renders_the_list_last_and_no_role_level_list() -> None:
