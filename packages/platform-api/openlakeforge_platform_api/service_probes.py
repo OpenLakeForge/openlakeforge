@@ -714,6 +714,7 @@ def observe_workloads(
         unschedulable=sum(_unschedulable(pod) for pod in owned),
         crash_looping=sum(_crash_looping(pod) for pod in owned),
         recent_restarts=max((_recent_restarts(pod, observed_at, restart_window) for pod in owned), default=0),
+        scaled_to_zero=sum(1 for c in controllers if c.get("spec", {}).get("replicas", 1) == 0),
         evidence_uri=f"kubernetes://{namespace}",
     )
 

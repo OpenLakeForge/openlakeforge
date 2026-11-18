@@ -15,7 +15,7 @@ The headings are the component names `olf health` prints, so a runbook link can 
 
 ### dagster.workloads
 
-The Dagster Deployments are not ready, cannot be scheduled, crash loop or restart repeatedly. In the stage namespace:
+The Dagster Deployments are not ready, one is scaled to zero (the daemon, for example), cannot be scheduled, crash loop or restart repeatedly. In the stage namespace:
 
 ```bash
 kubectl -n <stage-namespace> get pods -l app.kubernetes.io/name=dagster
