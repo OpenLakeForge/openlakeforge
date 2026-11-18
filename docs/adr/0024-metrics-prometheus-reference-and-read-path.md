@@ -5,7 +5,8 @@
 Proposed, awaiting the owner's approval (#21). Slices M-a, M-b and M-e under
 "Build order" are built, and of M-d the series catalog
 (`openlakeforge_core.metrics`) and the Prometheus client
-(`openlakeforge_services.prometheus`); the rest is not. This record decides the backend, the scrape
+(`openlakeforge_services.prometheus`), the settings and the health routes'
+`metrics` integration, and the two series routes; the rest is not. This record decides the backend, the scrape
 baseline, the label policy, the read path through the platform API, the network
 and RBAC additions and the contract shape for `spec.observability.metrics`; the
 slices under "Build order" implement it once it is approved.
@@ -297,20 +298,24 @@ Response envelope, for both sources:
 
 ```json
 {"series": "trino_failed_queries", "stage": "dev", "source": "prometheus",
- "state": "available", "range": "6h", "step_seconds": 60, "unit": "queries",
- "observed_at": "2026-11-17T10:00:00Z",
+ "state": "available", "reason": "read from the metrics backend",
+ "range": "6h", "step_seconds": 60, "unit": "queries",
+ "observed_at": "2026-11-17T10:00:00Z", "complete": true, "covered_from": null,
  "lines": [{"labels": {"stage": "dev"},
             "points": [["2026-11-17T04:01:00Z", 0], ["2026-11-17T04:02:00Z", null]]}]}
 ```
 
-A step without a sample is `null`, never `0`. A Dagster-sourced series adds
-`complete` and, when `false`, `covered_from` (Decision 2); a Prometheus series
-is always `complete: true` within retention. `state` is `unavailable` with no
-`lines` when Prometheus does not answer or a target behind the series has
-`up == 0` for the whole range; `disabled` when the profile turns metrics off;
-`not_provided` when the provider reports `metrics.supported = false`. The stage
-health route's `metrics` integration takes the same value instead of today's
-fixed `not_provided`.
+A step without a sample is `null`, never `0`. `complete` is `false` only for a
+Dagster-sourced series whose read reached its cap, with `covered_from` set
+(Decision 2); a Prometheus series is always `complete: true` within retention.
+`state` is `unavailable` with no `lines` when Prometheus does not answer, when
+it holds no sample of the series in the range, or when every target behind the
+series has `up == 0` for the whole range (checked with `max_over_time(up{job=~…}[<range>])`
+over the scrape jobs the catalog names, and the stage's own target where each
+stage has one); `disabled` when the profile turns metrics off; `not_provided`
+when the provider reports `metrics.supported = false`. `reason` says which. The
+stage health route's `metrics` integration takes the same vocabulary, from
+whether the backend answers a query, and never changes the stage's state.
 
 ### Authorization rows
 
@@ -520,3 +525,8 @@ flags, deprecated at 3.13.5, to the same two fields in the configuration file.
 that `pipeline_runs` keeps the `status` label M-e gives it, so a chart can tell
 failed runs from successful ones; the series table lists it and Decision 3
 bounds it.
+
+2026-11-18: M-d's series routes built. The envelope gains `reason`, and
+carries `complete` and `covered_from` on every series, so a client reads one
+shape whatever the source; `unavailable` also covers a series with no samples
+in the range.

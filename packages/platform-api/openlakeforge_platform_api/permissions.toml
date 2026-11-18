@@ -58,6 +58,18 @@ services = ["alert-evaluator"]
 role = "data-engineer"
 stages = ["*"]
 
+# Resource history from the metrics backend and run series from Dagster (ADR 0024, decision 4). The API sends only
+# the catalog's named series over its fixed ranges; no route takes a query. A series carries no log text or data, so
+# the floor is the health routes'. Read-only and not audited.
+[operations.get_stage_metric]
+role = "data-engineer"
+stages = ["*"]
+
+# Nodes and olf-system components serve every stage, so the row names none.
+[operations.get_platform_metric]
+role = "data-engineer"
+stages = []
+
 # OpenMetadata decides these by the person's own roles on the forwarded token;
 # the floor is the OpenMetadata route's (`viewer`: every recognised role reads
 # it), so the API refuses no one OpenMetadata would answer.

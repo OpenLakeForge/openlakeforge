@@ -742,3 +742,7 @@ profile and the metrics module's `query_url`; the API reads Prometheus over F45 
 `openlakeforge_services.prometheus`. The health routes' `metrics` integration is no longer fixed at `not_provided`: it
 is `disabled`, `not_provided`, `unavailable` or `available` by whether the backend answers a query, and is never
 folded into the stage's state.
+
+2026-11-18: #21 slice M-d. `GET /api/v1/stages/{stage}/metrics/{series}?range=` (`get_stage_metric`) and `GET
+/api/v1/platform/metrics/{series}?range=` (`get_platform_metric`) serve the named series of ADR 0024's catalog over its
+four ranges, at the health routes' floor, read-only and not audited. No route takes a query, start, end or step.
