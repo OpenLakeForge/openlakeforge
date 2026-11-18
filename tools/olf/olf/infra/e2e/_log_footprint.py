@@ -284,12 +284,16 @@ def _take(cfg: E2EConfig, target: Target) -> Sample:
 
 
 def _spool_bytes(cfg: E2EConfig, target: Target) -> int | None:
-    """The stage's spool bytes on the measured pod's node, or None when the collector has no probe sidecar."""
+    """The stage's spool bytes on the measured pod's node; None when there is no probe sidecar or it cannot read
+    the spool, since an unreadable spool reports 0 bytes and is unknown, not empty."""
     if target.api_pod is None:
         return None
     url = f"http://{target.pod['status']['podIP']}:{delivery.PROBE_PORT}{delivery.SPOOL_PATH}"
     body = kubectl(cfg, delivery.exec_get_args(cfg.platform_namespace, target.api_pod, url), capture=True)
-    return sum(o.size_bytes for o in parse_spool_report(json.loads(body)) if o.stage == target.stage)
+    mine = [o for o in parse_spool_report(json.loads(body)) if o.stage == target.stage]
+    if any(o.unreadable for o in mine):
+        return None
+    return sum(o.size_bytes for o in mine)
 
 
 def _restarts_and_oom(cfg: E2EConfig) -> tuple[int, int]:
@@ -361,9 +365,12 @@ def _measure(cfg: E2EConfig, target: Target, size: Size | None) -> tuple[PhaseSt
     name = token = None
     if size is not None:
         name, token = _start_emitter(cfg, target.node, size)
-        collector._wait_until(lambda: _emitter_running(cfg, str(name)), f"{name} to run", 180, poll_seconds=2.0)  # noqa: SLF001
-    samples = [_take(cfg, target)]
+    samples: list[Sample] = []
+    # Everything after the Job exists is in the cleanup scope: a pending Job has no TTL and could start emitting later.
     try:
+        if size is not None:
+            collector._wait_until(lambda: _emitter_running(cfg, str(name)), f"{name} to run", 180, poll_seconds=2.0)  # noqa: SLF001
+        samples.append(_take(cfg, target))
         if size is None:
             deadline = time.monotonic() + IDLE_SECONDS
             while time.monotonic() < deadline:
