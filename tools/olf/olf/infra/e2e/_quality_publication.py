@@ -7,7 +7,12 @@ them, and everything they create is removed afterwards.
 
 from __future__ import annotations
 
+import contextlib
+import json
+import time
 import urllib.parse
+import uuid
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -17,9 +22,10 @@ from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadata
 from openlakeforge_services.quality_publisher import QualityCatalog, QualityPublisher
 
 from olf.common import config, log
+from olf.infra.e2e._alerts import job_outcome
 from olf.infra.e2e._artifacts import ops_bucket_client
 from olf.infra.e2e._assertions import _openmetadata_e2e_login, openmetadata_client
-from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, load_provider_contracts_or_raise
+from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import product_gold_tables, stage_catalog_name
 from olf.infra.openmetadata._auth import admin_password
 from olf.infra.openmetadata._quality_sync import schema_map
@@ -27,14 +33,24 @@ from olf.infra.openmetadata._quality_sync import schema_map
 WARN_RULE = "e2e_warn_rule"
 ERROR_RULE = "e2e_error_rule"
 DBT_RULE = "e2e_dbt_rule"
+CRON_RULE = "e2e_cron_rule"
 RESULTS = "/api/v1/dataQuality/testCases/testCaseResults/"
+RECONCILER = "quality-reconciler"  # the CronJob's name prefix (modules/governance/quality-reconciler)
+JOB_TIMEOUT_SECONDS = 240
 
 
 def check_quality_publication(cfg: E2EConfig) -> None:
     """Published results land on existing tables of this stage only, keep WARN and ERROR apart, add history on a
-    second run, and are idempotent on replay; an unregistered table stays pending and visible."""
+    second run, and are idempotent on replay; an unregistered table stays pending and visible. On a stack that
+    deploys the reconciler, a Job made from its CronJob publishes a result too."""
     log.step("Checking quality publication to OpenMetadata...")
     stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
+    cronjob = _reconciler_cronjob(cfg, stage)
+    with _reconciler_paused(cfg, cronjob):
+        _check_publication(cfg, stage, cronjob)
+
+
+def _check_publication(cfg: E2EConfig, stage: str, cronjob: Mapping[str, Any] | None) -> None:
     database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", "", environ=cfg_environ(cfg))
     if not database_fqn:
         raise E2EError("OPENLAKEFORGE_CATALOG_DATABASE_FQN is unset; cannot locate this stage's database root.")
@@ -57,7 +73,7 @@ def check_quality_publication(cfg: E2EConfig) -> None:
     gold = f"{gold_schema}.{gold_table.rsplit('.', 1)[1]}"
 
     stamp = int(datetime.now(UTC).timestamp())
-    runs = [f"olf-e2e-quality-{stamp}-{i}" for i in (1, 2, 3)]
+    runs = [f"olf-e2e-quality-{stamp}-{i}" for i in (1, 2, 3, 4)]
     start = datetime.now(UTC).replace(microsecond=0)
     cases = {
         case_fqn(silver, f"olf.floe.{WARN_RULE}"): "Aborted",
@@ -165,14 +181,92 @@ def check_quality_publication(cfg: E2EConfig) -> None:
             _expect_absent(client, f"{silver_schema}.zz_e2e_unregistered")
 
             _expect_no_other_stage_writes(cfg, client, stage, silver)
+
+            if cronjob is not None:
+                scheduled = result(CRON_RULE, "floe", silver_table, QualityOutcome.PASSED, runs[3], later)
+                keys.append(put(runs[3], later, [scheduled]))
+                _run_reconciler_job(cfg, cronjob)
+                history = _results(client, case_fqn(silver, f"olf.floe.{CRON_RULE}"))
+                if [r["testCaseStatus"] for r in history] != ["Success"]:
+                    raise E2EError(f"the reconciler's Job did not publish the run's result: {history}")
         finally:
             for key in keys:
                 for stored in (key, f"{base}/quality-sync/state/{domain.name}/{product.id}/{key.split('/')[-2]}.json"):
                     s3.delete_object(Bucket=bucket, Key=stored)
-            for fqn in cases:
+            for fqn in (*cases, case_fqn(silver, f"olf.floe.{CRON_RULE}")):
                 _delete_case(client, fqn)
             publisher.reconcile(limit=1)
     _expect_clean_summary(cfg)
+
+
+def _reconciler_cronjob(cfg: E2EConfig, stage: str) -> dict[str, Any] | None:
+    """The stage's reconciler CronJob. The local root deploys one for every governed stage, so its absence there is
+    a failure; the cloud roots do not deploy it yet, and are checked through the publisher alone."""
+    listing = kubectl(
+        cfg,
+        ["get", "cronjob", f"{RECONCILER}-{stage}", "-n", cfg.platform_namespace, "--ignore-not-found", "-o", "json"],
+        capture=True,
+    )
+    if listing.strip():
+        found: dict[str, Any] = json.loads(listing)
+        return found
+    if cfg.env == "local":
+        raise E2EError(f"stage {stage} has governance but no {RECONCILER}-{stage} CronJob in {cfg.platform_namespace}")
+    log.info(f"No {RECONCILER}-{stage} CronJob on this stack; the scheduled pass is not checked.")
+    return None
+
+
+@contextlib.contextmanager
+def _reconciler_paused(cfg: E2EConfig, cronjob: Mapping[str, Any] | None) -> Iterator[None]:
+    """The CronJob suspended, with no scheduled pass still going, so it cannot publish the synthetic manifests
+    before the checks read them; its own setting is put back."""
+    if cronjob is None:
+        yield
+        return
+    name, namespace = cronjob["metadata"]["name"], cronjob["metadata"]["namespace"]
+
+    def suspend(value: bool) -> None:
+        kubectl(cfg, ["patch", "cronjob", name, "-n", namespace, "-p", json.dumps({"spec": {"suspend": value}})])
+
+    def active() -> bool:
+        live = json.loads(kubectl(cfg, ["get", "cronjob", name, "-n", namespace, "-o", "json"], capture=True))
+        return bool(live.get("status", {}).get("active"))
+
+    was = bool(cronjob["spec"].get("suspend"))
+    suspend(True)
+    try:
+        deadline = time.monotonic() + JOB_TIMEOUT_SECONDS
+        while active():
+            if time.monotonic() >= deadline:
+                raise E2EError(f"a scheduled {name} pass is still active")
+            time.sleep(3)
+        yield
+    finally:
+        suspend(was)
+
+
+def _run_reconciler_job(cfg: E2EConfig, cronjob: Mapping[str, Any]) -> None:
+    """One pass of the CronJob's own pod template to completion: the image, key, Secrets and NetworkPolicy of the
+    scheduled run, without waiting for its schedule."""
+    cronjob_name, namespace = cronjob["metadata"]["name"], cronjob["metadata"]["namespace"]
+    name = f"{cronjob_name}-e2e-{uuid.uuid4().hex[:6]}"
+    kubectl(cfg, ["create", "job", name, f"--from=cronjob/{cronjob_name}", "-n", namespace])
+    try:
+        deadline = time.monotonic() + JOB_TIMEOUT_SECONDS
+        while (outcome := job_outcome(_job(cfg, name, namespace))) is None:
+            if time.monotonic() >= deadline:
+                raise E2EError(f"{name} did not finish in {JOB_TIMEOUT_SECONDS}s")
+            time.sleep(3)
+        if outcome == "failed":
+            tail = kubectl(cfg, ["logs", f"job/{name}", "-n", namespace, "--tail=30"], capture=True)
+            raise E2EError(f"{name} failed:\n{tail}")
+    finally:
+        kubectl(cfg, ["delete", "job", name, "-n", namespace, "--ignore-not-found", "--wait=false"])
+
+
+def _job(cfg: E2EConfig, name: str, namespace: str) -> dict[str, Any]:
+    job: dict[str, Any] = json.loads(kubectl(cfg, ["get", "job", name, "-n", namespace, "-o", "json"], capture=True))
+    return job
 
 
 def case_fqn(table_fqn: str, name: str) -> str:

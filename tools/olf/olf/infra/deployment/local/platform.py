@@ -111,9 +111,14 @@ def source_egress_variables(config: LocalDeploymentConfig) -> dict[str, str]:
 def platform_api_variables(config: LocalDeploymentConfig) -> dict[str, str]:
     """The platform API validates tokens against the issuer, so it is deployed only with spec.identity; the alert
     evaluator runs the same image and needs no issuer, so alert receivers build it too (the root still deploys the API
-    only with identity). The reference is computed, not built, so a plan and the apply after it name the same image."""
+    only with identity). The quality reconciler (ADR 0007) runs it too, for each governed stage. The reference is
+    computed, not built, so a plan and the apply after it name the same image."""
     topology = config.context.topology
-    if topology.identity is None and not topology.observability.alert_receivers:
+    if (
+        topology.identity is None
+        and not topology.observability.alert_receivers
+        and not config.platform_features.governance_enabled
+    ):
         return {}
     from olf.infra.deployment.local import images
 

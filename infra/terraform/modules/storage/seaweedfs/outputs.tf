@@ -54,6 +54,12 @@ output "quality_reader_secret_names" {
   depends_on  = [kubernetes_job_v1.credentials]
 }
 
+output "quality_sync_secret_names" {
+  description = "Each governed stage's quality reconciler key Secret, keyed by stage; empty when quality_sync_credentials is."
+  value       = { for stage, writer in var.quality_sync_credentials : stage => writer.credentials_secret_name }
+  depends_on  = [kubernetes_job_v1.credentials]
+}
+
 output "audit_writer_secret_name" {
   description = "Secret holding the platform API's write-only key for its audit prefix, or null when audit_writer_credentials is."
   value       = var.audit_writer_credentials == null ? null : var.audit_writer_credentials.credentials_secret_name
