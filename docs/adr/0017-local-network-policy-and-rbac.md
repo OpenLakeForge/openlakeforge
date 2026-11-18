@@ -191,7 +191,7 @@ port [D]).
 | F14 | OpenMetadata | Superset (stage) | 8088 | `superset_url` registered by `olf`'s bootstrap | V; whether ingestion runs today **T** |
 | F15 | OpenMetadata | OpenSearch | 9200 | `elasticsearch.host` in `openmetadata.yaml` | V |
 | F16 | Superset web, worker, init Job | Redis (stage) | 6379 | intra-namespace | V |
-| F17 | SeaweedFS pods among themselves; bucket Job | master 9333, 19333; filer 8888, 18888; volume 8080, 18080; S3 8333 | those | chart Services; `bucket` Job waits on 9333 and 8888 | V |
+| F17 | SeaweedFS pods among themselves; bucket and retention Jobs | master 9333, 19333; filer 8888, 18888; volume 8080, 18080; S3 8333 | those | chart Services; the `bucket` and `object_retention` Jobs (both `openlakeforge.io/job=bucket-bootstrap`) wait on 9333 and 8888 and run `weed shell` | V |
 | F19 | Polaris metastore bootstrap Job | Polaris | 8181 | `metastore-bootstrap.sh.tftpl`: its first step probes the token endpoint | V |
 | F20 | Jobs: `dex-credentials`, `postgresql-credentials`, `perimeter-cookie-secret`, `publish-local-ca`; Dagster daemon and run pods (Floe's runner creates Jobs); OpenMetadata server (creates ingestion Jobs); Traefik; cert-manager (three, and the `startupapicheck` post-install Job, label `component=startupapicheck`); the stage log archiver (`openlakeforge-k8s-log-archive`, `dagster` token, lists pods and reads logs [V: `log_archive.tf`, `openlakeforge_runtime/k8s_log_archive.py`]); the platform API, for its service probes ([ADR 0021](0021-platform-api.md), decision 7; T until run on a cluster) and its TokenReviews (decision 3) | kube-apiserver | 443 (Service) and 6443 (the endpoint) | RBAC section | V |
 | F21 | API server (control-plane node) | cert-manager webhook | 10250 | admission webhook | node-sourced traffic **T** |
@@ -688,6 +688,11 @@ ingestion bot's token, mounted from its Secret, and reads the stage's manifests 
 `openlakeforge-quality-sync-<stage>`. The SeaweedFS credentials Job mints `quality-reconciler-<stage>-s3-creds`, and its
 E1 pin gains that name. The reconciler holds no Role and mounts no Kubernetes token. A stage without governance renders
 no CronJob, Secret or row, so Slim is unchanged. The ids follow F45 to F51, which ADR 0024 reserves.
+
+F17 (#22): the log archive retention Job of `modules/storage/seaweedfs`, which sets filer path TTLs with
+`weed shell` (ADR 0022, decision 6), carries the bucket Job's `openlakeforge.io/job=bucket-bootstrap` label and
+reaches the master and filer through the same row. No flow is added; the module's `object_retention` tftest checks
+that a row of `release/network-flows.yaml` admits the Job's labels.
 
 2026-11-18: F45 to F49 added (#21, ADR 0024): Prometheus (`app.kubernetes.io/name=prometheus`, a Deployment in
 `olf-system`) is reached by the platform API on 9090 (F45), discovers nodes through the API server (F46), scrapes the

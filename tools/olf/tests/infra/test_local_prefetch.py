@@ -54,7 +54,7 @@ def test_selected_images_full_profile_includes_governance_and_analytics() -> Non
     assert _CATALOG["opensearch"] in images
     assert any(i.startswith("apache/polaris:1.8.0@sha256:532cb22f") for i in images)
     assert any(i.startswith("apache/polaris-admin-tool:1.8.0@sha256:5b0a4f3a") for i in images)
-    assert "docker.getcollate.io/openmetadata/server:1.13.6" in images
+    assert "docker.io/openmetadata/server:1.13.6" in images
     assert _CATALOG["openmetadata_ingestion"] in images
     # Floe runs in-process in the project-code image; there is no runner image to load.
     assert not any("floe" in image for image in images)

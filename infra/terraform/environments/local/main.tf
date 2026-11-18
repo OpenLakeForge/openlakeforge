@@ -247,6 +247,13 @@ module "seaweedfs" {
       ops_bucket_name         = var.ops_bucket_name
     }
   }
+  # The profile's archive retention (spec.observability.logs.archive.retention_days) on every v2 prefix the collector writes.
+  # v1 (`k8s/`) is not given one: nothing writes it on this provider any more, and a rule never shortens existing objects.
+  object_retention = {
+    bucket   = var.ops_bucket_name
+    days     = var.observability.archive_retention_days
+    prefixes = [for route in values(local.log_collector_routes) : route.key_prefix]
+  }
   log_reader_credentials = local.platform_api_enabled ? {
     namespace               = kubernetes_namespace_v1.shared.metadata[0].name
     credentials_secret_name = "platform-api-log-reader-s3-creds"

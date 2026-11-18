@@ -19,6 +19,23 @@ locals {
   bucket_job_annotations = {
     "openlakeforge.io/seaweedfs-release-revision" = tostring(helm_release.seaweedfs.metadata.revision)
   }
+
+  # `fs.configure -ttl` in 4.48 takes a count of 1 to 255 and a unit of m, h, d, w, M (30 days) or y (365 days)
+  # (weed/shell/command_fs_configure.go, weed/storage/needle/volume_ttl.go). Up to 255 days stays in days. Above
+  # that, the TTL is the shortest one of whole weeks, months or years that is at least the asked days, the larger
+  # unit on a tie: exact when the days divide (365 is 1y), otherwise rounded up, never down (256 days is 37w, 259).
+  retention_days = var.object_retention == null ? 0 : var.object_retention.days
+  retention_ttl_candidates = [
+    for unit in [{ suffix = "y", days = 365 }, { suffix = "M", days = 30 }, { suffix = "w", days = 7 }] : {
+      ttl  = "${ceil(local.retention_days / unit.days)}${unit.suffix}"
+      days = ceil(local.retention_days / unit.days) * unit.days
+    } if ceil(local.retention_days / unit.days) <= 255
+  ]
+  retention_ttl = (
+    var.object_retention == null ? null :
+    local.retention_days <= 255 ? "${local.retention_days}d" :
+    [for c in local.retention_ttl_candidates : c.ttl if c.days == min([for o in local.retention_ttl_candidates : o.days]...)][0]
+  )
 }
 
 resource "helm_release" "seaweedfs" {
@@ -182,5 +199,105 @@ resource "kubernetes_job_v1" "bucket" {
 
   depends_on = [
     helm_release.seaweedfs,
+  ]
+}
+
+# A filer path rule gives every object written under the prefix a TTL, and the
+# filer stops serving it when that passes. SeaweedFS 4.48 does this for
+# `fs.configure -ttl` and not for a lifecycle rule put through the S3 API
+# (checked: the rule round-trips, but no path rule exists and nothing expires).
+resource "kubernetes_job_v1" "object_retention" {
+  count = var.object_retention == null ? 0 : 1
+
+  metadata {
+    name      = "seaweedfs-retention-${substr(sha1(jsonencode(var.object_retention)), 0, 8)}-${helm_release.seaweedfs.metadata.revision}"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+
+  spec {
+    backoff_limit = 3
+
+    template {
+      metadata {
+        # The bucket Job's identity: both are one-shot `weed shell` Jobs of this module that configure the ops
+        # bucket through the master and filer, so the F17 flow that admits one admits the other, and no new reach.
+        labels = merge(local.labels, {
+          "openlakeforge.io/job"       = "bucket-bootstrap"
+          "openlakeforge.io/readiness" = "required"
+        })
+        annotations = local.bucket_job_annotations
+      }
+
+      spec {
+        restart_policy = "Never"
+
+        container {
+          name  = "set-retention"
+          image = "chrislusf/seaweedfs:${var.image_tag}"
+
+          command = ["/bin/sh", "-ec"]
+          args = [<<-SCRIPT
+            set -eu
+
+            wait_for_service() {
+              url="$1"
+              attempt=1
+              while [ "$attempt" -le 60 ]; do
+                if wget -q --spider "$url" >/dev/null 2>&1; then
+                  return 0
+                fi
+                sleep 5
+                attempt=$((attempt + 1))
+              done
+              echo "Service at $url did not become ready" >&2
+              exit 1
+            }
+
+            wait_for_service "http://${local.master_service_name}:9333/cluster/status"
+            wait_for_service "http://${local.filer_service_name}:8888/"
+
+            export WEED_CLUSTER_DEFAULT=sw
+            export WEED_CLUSTER_SW_MASTER="${local.master_service_name}:9333"
+            export WEED_CLUSTER_SW_FILER="${local.filer_service_name}:8888"
+
+            %{for prefix in var.object_retention.prefixes~}
+            echo 'fs.configure -locationPrefix=/buckets/${var.object_retention.bucket}/${prefix} -ttl=${local.retention_ttl} -apply' | /usr/bin/weed shell
+            %{endfor~}
+
+            # A rule that was only accepted is not enough: it must be in the filer's configuration.
+            rules="$(echo 'fs.configure' | /usr/bin/weed shell | tr -d ' \n')"
+            %{for prefix in var.object_retention.prefixes~}
+            case "$rules" in
+              *'"locationPrefix":"/buckets/${var.object_retention.bucket}/${prefix}","collection":"","replication":"","ttl":"${local.retention_ttl}"'*) ;;
+              *) echo "No ${local.retention_ttl} retention rule for ${prefix}" >&2; exit 1 ;;
+            esac
+            %{endfor~}
+          SCRIPT
+          ]
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "64Mi"
+            }
+            limits = {
+              memory = "128Mi"
+            }
+          }
+        }
+      }
+    }
+  }
+
+  wait_for_completion = true
+
+  timeouts {
+    create = "5m"
+    update = "5m"
+  }
+
+  depends_on = [
+    kubernetes_job_v1.bucket,
   ]
 }

@@ -9,7 +9,12 @@ resources:
   limits:
     memory: 2Gi
 
+# The chart defaults to docker.getcollate.io, a proxy that pulls from Docker Hub anonymously
+# from shared addresses and so returns Docker Hub's exhausted rate limit (#1250). Docker Hub
+# serves the same index digest. Keep in step with the init container (releases.tf) and the
+# kind prefetch, which preload this exact reference.
 image:
+  repository: docker.io/openmetadata/server
   pullPolicy: IfNotPresent
 
 openmetadata:

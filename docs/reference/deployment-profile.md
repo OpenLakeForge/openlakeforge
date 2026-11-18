@@ -354,9 +354,9 @@ lists the image's registry. A failed check leaves the running revision and
 revoked token shows up as `ImagePullBackOff` on the pod.
 
 The activation then names the Secret in `imagePullSecrets` on the code-location
-Deployments (and, through them, Dagster run pods) and on the
-`openlakeforge-k8s-log-archive` CronJob, and adds it to the stage's `dagster`
-ServiceAccount, which Floe Jobs run as. A rollback restores the Secret the
+Deployments (and, through them, Dagster run pods) and, on a provider with no node
+log collector (AWS and Azure), on the `openlakeforge-k8s-log-archive` CronJob, and
+adds it to the stage's `dagster` ServiceAccount, which Floe Jobs run as. A rollback restores the Secret the
 previous release used.
 
 ### `spec.observability`
@@ -377,7 +377,7 @@ no running component yet.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `logs.archive.retention_days` | integer, 1 to 3650 | `30` | How long the durable log archive keeps logs. The archive is always on, so there is no `enabled` switch and a profile that sets `logs.archive.enabled` is rejected. |
+| `logs.archive.retention_days` | integer, 1 to 3650 | `30` | How long the durable log archive keeps logs. On the local provider the object store expires collector archives (format v2) after this many days; see [the log archive guide](../guides/operations/log-archive.md#retention). The archive is always on, so there is no `enabled` switch and a profile that sets `logs.archive.enabled` is rejected. |
 | `logs.search.enabled` | boolean | `false` | Indexed log search. Browsing archived logs does not need it. |
 | `metrics.enabled` | boolean | `false` with `preset: slim`, `true` with `preset: full` | Metrics collection and history. An explicit value wins over the preset. |
 | `metrics.retention_days` | integer, 1 to 3650 | `7` | How long metrics history is kept. |

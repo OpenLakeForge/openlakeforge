@@ -47,15 +47,22 @@ def test_check_ops_artifacts_uses_configured_bucket_for_local(monkeypatch: pytes
         "wait_for_bucket",
         lambda _client, bucket, endpoint: bucket_waits.append((bucket, endpoint)),
     )
+    first_object_waits: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        _artifacts,
+        "wait_for_first_object",
+        lambda _client, bucket, prefix: first_object_waits.append((bucket, prefix)),
+    )
     monkeypatch.setattr(
         _artifacts,
         "assert_ops_artifacts",
-        lambda _client, bucket, namespace, _inventory: artifact_checks.append((bucket, namespace)),
+        lambda _client, bucket, namespace, _inventory, **_kw: artifact_checks.append((bucket, namespace)),
     )
 
     _artifacts.check_ops_artifacts(local_cfg)
 
     assert bucket_waits == [("custom-ops-bucket", "http://127.0.0.1:19000")]
+    assert first_object_waits == [("custom-ops-bucket", "activations/lakehouse/logs/v2/namespace=lakehouse/")]
     assert artifact_checks == [("custom-ops-bucket", "lakehouse")]
 
 
@@ -97,3 +104,70 @@ def test_assert_ops_artifacts_accepts_floe_reports_under_the_stage_activation_pr
 
     with pytest.raises(E2EError, match=r"s3://ops/floe/reports/.* or s3://ops/activations/prod/floe/reports/"):
         _artifacts.assert_ops_artifacts(ActivatedStageBucket(), "ops", "olf-prod", E2E_INVENTORY)
+
+
+def test_the_local_stack_is_checked_for_collector_archives_and_others_for_polling_ones() -> None:
+    seen: list[str] = []
+
+    class Bucket:
+        def list_objects_v2(self, *, Bucket: str, Prefix: str, MaxKeys: int) -> dict[str, Any]:  # noqa: N803
+            seen.append(Prefix)
+            return {"Contents": [{"Key": Prefix + "x"}]}
+
+    for layout in ("v2", "k8s"):
+        _artifacts.assert_ops_artifacts(Bucket(), "ops", "olf-dev", E2E_INVENTORY, pod_log_layout=layout)
+
+    assert "activations/dev/logs/v2/namespace=olf-dev/" in seen
+    assert "activations/dev/logs/k8s/namespace=olf-dev/" in seen
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class _ArchiveAfter:
+    """An S3 client whose prefix is empty until the fake clock reaches `at` seconds."""
+
+    def __init__(self, clock: _FakeClock, at: float) -> None:
+        self.clock, self.at, self.listed = clock, at, 0
+
+    def list_objects_v2(self, **_kwargs: Any) -> dict[str, Any]:
+        self.listed += 1
+        return {"Contents": [{"Key": "x.ndjson.gz"}]} if self.clock.now >= self.at else {}
+
+
+def test_the_first_v2_object_is_waited_for_through_the_collector_upload_window() -> None:
+    clock = _FakeClock()
+    client = _ArchiveAfter(clock, at=330.0)
+
+    _artifacts.wait_for_first_object(client, "ops", "activations/dev/logs/v2/", clock=clock, sleep=clock.sleep)
+
+    assert 330.0 <= clock.now < 330.0 + _artifacts.FIRST_V2_OBJECT_POLL_SECONDS
+    assert clock.now <= _artifacts.FIRST_V2_OBJECT_TIMEOUT_SECONDS
+
+
+def test_no_v2_object_within_the_bound_fails_the_check() -> None:
+    clock = _FakeClock()
+    client = _ArchiveAfter(clock, at=float("inf"))
+
+    with pytest.raises(E2EError, match="no object under s3://ops/activations/dev/logs/v2/ after 420s"):
+        _artifacts.wait_for_first_object(client, "ops", "activations/dev/logs/v2/", clock=clock, sleep=clock.sleep)
+
+    assert clock.now >= _artifacts.FIRST_V2_OBJECT_TIMEOUT_SECONDS
+    assert clock.now < _artifacts.FIRST_V2_OBJECT_TIMEOUT_SECONDS + _artifacts.FIRST_V2_OBJECT_POLL_SECONDS
+
+
+def test_an_archive_already_there_is_not_waited_for() -> None:
+    clock = _FakeClock()
+    client = _ArchiveAfter(clock, at=0.0)
+
+    _artifacts.wait_for_first_object(client, "ops", "activations/dev/logs/v2/", clock=clock, sleep=clock.sleep)
+
+    assert (clock.now, client.listed) == (0.0, 1)

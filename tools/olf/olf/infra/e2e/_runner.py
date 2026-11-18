@@ -33,6 +33,7 @@ from olf.infra.e2e._layers import Layer, configured_layers
 from olf.infra.e2e._log_collector import check_collector_restart, check_short_lived_pod_output
 from olf.infra.e2e._log_delivery import check_delivery_signals_follow_an_outage, check_spool_limit_is_the_loss_point
 from olf.infra.e2e._log_footprint import check_collection_footprint
+from olf.infra.e2e._log_retention import check_archive_retention
 from olf.infra.e2e._maintenance import check_iceberg_maintenance
 from olf.infra.e2e._network import check_network_and_rbac
 from olf.infra.e2e._perimeter import check_perimeter
@@ -401,6 +402,9 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
             FullAssertion("short-lived pod output in the log archive", check_short_lived_pod_output, tier="drill")
         )
         assertions.append(FullAssertion("log collector restart mid-stream", check_collector_restart, tier="drill"))
+        assertions.append(
+            FullAssertion("log archive retention in the object store", check_archive_retention, tier="drill")
+        )
         assertions.append(
             FullAssertion("log collector footprint at three log rates", check_collection_footprint, tier="drill")
         )

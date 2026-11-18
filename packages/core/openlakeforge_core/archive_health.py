@@ -23,7 +23,7 @@ NEWEST_OBJECT = "log-archive.newest-object"
 class ArchiveThresholds:
     """When a delivery signal turns `warning` and `critical`.
 
-    Proposed defaults, for the maintainers to review (ADR 0022, decision 2). A healthy spool holds a file for at most
+    Accepted by the maintainer on 2026-11-18 (ADR 0022, decision 2). A healthy spool holds a file for at most
     `upload_timeout` (5 minutes) plus the upload itself, so the age thresholds are two and six times that. The size
     thresholds follow the ADR: half the limit means half the stated outage budget is spent, and at nine tenths the
     plugin is about to discard data.
