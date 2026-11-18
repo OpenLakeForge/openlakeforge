@@ -23,6 +23,7 @@ from openlakeforge_platform_api import (
     file_writes,
     files,
     health_routes,
+    metrics_routes,
     queries,
     reads,
     report_routes,
@@ -400,6 +401,18 @@ def create_app(
         name="list_pipeline_health",
     )
     app.add_api_route("/api/v1/stages/{stage}/logs", reads.list_logs, methods=["GET"], name="list_logs")
+    app.add_api_route(
+        "/api/v1/stages/{stage}/metrics/{series}",
+        metrics_routes.get_stage_metric,
+        methods=["GET"],
+        name="get_stage_metric",
+    )
+    app.add_api_route(
+        "/api/v1/platform/metrics/{series}",
+        metrics_routes.get_platform_metric,
+        methods=["GET"],
+        name="get_platform_metric",
+    )
     app.add_api_route(
         "/api/v1/stages/{stage}/reports",
         report_routes.import_report,

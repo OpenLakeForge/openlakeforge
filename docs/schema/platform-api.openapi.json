@@ -728,6 +728,151 @@
         "title": "Logs",
         "type": "object"
       },
+      "MetricLine": {
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "object"
+          },
+          "points": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "labels",
+          "points"
+        ],
+        "title": "MetricLine",
+        "type": "object"
+      },
+      "MetricSeriesData": {
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "covered_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Covered From"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/MetricLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "range": {
+            "enum": [
+              "1h",
+              "6h",
+              "24h",
+              "7d"
+            ],
+            "title": "Range",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "series": {
+            "title": "Series",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "prometheus",
+              "dagster"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "state": {
+            "enum": [
+              "available",
+              "disabled",
+              "unavailable",
+              "not_provided"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "step_seconds": {
+            "title": "Step Seconds",
+            "type": "integer"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "series",
+          "stage",
+          "source",
+          "state",
+          "reason",
+          "range",
+          "step_seconds",
+          "unit",
+          "observed_at",
+          "complete",
+          "covered_from",
+          "lines"
+        ],
+        "title": "MetricSeriesData",
+        "type": "object"
+      },
       "Objects": {
         "properties": {
           "files": {
@@ -1686,6 +1831,63 @@
         "summary": "File Capabilities"
       }
     },
+    "/api/v1/platform/metrics/{series}": {
+      "get": {
+        "description": "A platform series: the nodes and the olf-system components, which serve every stage.",
+        "operationId": "get_platform_metric_api_v1_platform_metrics__series__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "series",
+            "required": true,
+            "schema": {
+              "title": "Series",
+              "type": "string"
+            }
+          },
+          {
+            "description": "One of the catalog's ranges; there is no start, end or step parameter.",
+            "in": "query",
+            "name": "range",
+            "required": true,
+            "schema": {
+              "description": "One of the catalog's ranges; there is no start, end or step parameter.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "title": "Range",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricSeriesData"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Platform Metric"
+      }
+    },
     "/api/v1/query-capabilities": {
       "get": {
         "operationId": "query_capabilities_api_v1_query_capabilities_get",
@@ -2146,7 +2348,7 @@
     },
     "/api/v1/stages/{stage}/health": {
       "get": {
-        "description": "A rollup of the stage's pipeline and service signals. Integrations that give none are never healthy.\n\nBoth reads block (Dagster's HTTP, and the probes for up to their timeout), so each runs on a worker thread,\ntogether: the event loop keeps serving other requests, and the stage answers in the slower read's time.",
+        "description": "A rollup of the stage's pipeline and service signals. Integrations that give none are never healthy.\n\nEvery read blocks (Dagster's HTTP, the probes and the metrics backend for up to their timeout), so each runs on a\nworker thread, together: the event loop keeps serving other requests, and the stage answers in the slowest read's\ntime. The metrics integration is reported, never folded into the state.",
         "operationId": "get_stage_health_api_v1_stages__stage__health_get",
         "parameters": [
           {
@@ -2488,6 +2690,72 @@
           }
         },
         "summary": "List Logs"
+      }
+    },
+    "/api/v1/stages/{stage}/metrics/{series}": {
+      "get": {
+        "description": "One series' points for the stage. Blocks on Prometheus or Dagster, so FastAPI runs it on a worker thread.",
+        "operationId": "get_stage_metric_api_v1_stages__stage__metrics__series__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "series",
+            "required": true,
+            "schema": {
+              "title": "Series",
+              "type": "string"
+            }
+          },
+          {
+            "description": "One of the catalog's ranges; there is no start, end or step parameter.",
+            "in": "query",
+            "name": "range",
+            "required": true,
+            "schema": {
+              "description": "One of the catalog's ranges; there is no start, end or step parameter.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "title": "Range",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricSeriesData"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Stage Metric"
       }
     },
     "/api/v1/stages/{stage}/queries": {

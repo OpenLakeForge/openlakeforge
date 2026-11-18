@@ -270,3 +270,33 @@ def test_an_emitter_that_never_finishes_times_out(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(E2EError, match="had not finished"):
         _log_delivery._wait_job_complete(SimpleNamespace(namespace="olf-dev"), "fill", 250)  # type: ignore[arg-type]
+
+
+def _filling(monkeypatch: pytest.MonkeyPatch, sizes: list[int], statuses: list[dict[str, int]]) -> None:
+    """A spool read once per poll at each of `sizes` bytes, beside a fill Job read at each of `statuses`."""
+    spools = iter(sizes)
+    _jobs(monkeypatch, *statuses)
+
+    def read_spool(cfg: object) -> list[SpoolObservation]:
+        return [SpoolObservation("dev", datetime.now(UTC), timedelta(minutes=1), next(spools), LIMIT)]
+
+    monkeypatch.setattr(_log_delivery, "_read_spool", read_spool)
+    monkeypatch.setattr(_log_delivery, "_newest_age", lambda cfg, now: timedelta(minutes=1))
+
+
+def test_the_fill_wait_ends_when_the_size_signal_turns_critical(monkeypatch: pytest.MonkeyPatch) -> None:
+    full = int(LIMIT * 0.95)
+    # Each poll reads the spool twice: once for the signals, once for the peak.
+    _filling(monkeypatch, [0, 0, LIMIT // 2, LIMIT // 2, full, full], [{"active": 1}] * 2)
+    cfg = SimpleNamespace(namespace="olf-dev")
+
+    assert _log_delivery._wait_spool_full(cfg, "fill", "dev") == full  # type: ignore[arg-type]
+
+
+def test_a_fill_that_fails_ends_the_wait_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    _filling(monkeypatch, [0] * 4, [{"active": 1}, {"failed": 1}])
+    monkeypatch.setattr(_log_delivery.time, "monotonic", lambda: 0.0)
+    cfg = SimpleNamespace(namespace="olf-dev")
+
+    with pytest.raises(E2EError, match=r"fill emitter fill failed before the spool filled \(0 bytes spooled\)"):
+        _log_delivery._wait_spool_full(cfg, "fill", "dev")  # type: ignore[arg-type]

@@ -2,8 +2,12 @@
 
 ## Status
 
-Proposed, awaiting the owner's approval (#21). Slices M-a, M-b and M-c under
-"Build order" are built; the rest is not. This record decides the backend, the scrape
+Proposed, awaiting the owner's approval (#21). Slices M-a, M-b, M-c and M-e under
+"Build order" are built; of M-d, the series catalog
+(`openlakeforge_core.metrics`), the Prometheus client
+(`openlakeforge_services.prometheus`), the platform API's metrics settings and
+the health routes' `metrics` integration, and the two series routes. The rest
+is not. This record decides the backend, the scrape
 baseline, the label policy, the read path through the platform API, the network
 and RBAC additions and the contract shape for `spec.observability.metrics`; the
 slices under "Build order" implement it once it is approved.
@@ -219,6 +223,11 @@ volume makes that common. Open item 5.
 | `service` | the object-store process (`master`, `volume`, `filer`, `s3`) or `trino` | Five |
 | `domain` | `openlakeforge.io/domain` | Reserved: no workload sets it yet (Context), so no series carries it until the pipeline slices of ADR 0022 add the label |
 
+The two Dagster-derived series of Decision 2 are not recording rules and take
+their labels from the run storage instead: `job` and, on `pipeline_runs`, the
+run's `status`. Both are bounded by the stage's jobs and four statuses; neither
+is a run ID.
+
 Run IDs do reach raw series, and the record says so rather than hiding it: the
 pinned `dagster-k8s` 0.29.7 names a run's Job `dagster-run-<run_id>`
 (`dagster_k8s/job.py` **[V]**), so the kubelet's and kube-state-metrics' `pod`
@@ -266,9 +275,11 @@ Routes, all read-only and not audited, like the health routes:
 | `range=7d` | 7 days, refused when `retention_days` is shorter | 30 min | 336 |
 
 No `start`, `end`, `step` or query parameter exists. A range longer than the
-retention is a 400, not a short answer that looks complete. The API's client
-times out after 5 s, as the service probes do (`PROBE_TIMEOUT` in
-`service_probes.py` **[V]**).
+retention is a 400, not a short answer that looks complete. Every read the API
+sends Prometheus, the health probe included, is one attempt with a 5 s deadline
+across the whole read, as the service probes have
+(`PROBE_TIMEOUT` in `service_probes.py` **[V]**): no retry after a 429, and past
+the deadline the answer is `unavailable` with that reason.
 
 The first catalog, mapped to #333's chart list:
 
@@ -276,33 +287,38 @@ The first catalog, mapped to #333's chart list:
 | --- | --- | --- | --- | --- |
 | `cpu_usage_cores` | stage, platform | `stage`, `component` | kubelet, joined to `kube_pod_labels` | service CPU |
 | `memory_working_set_bytes` | stage, platform | `stage`, `component` | kubelet, joined | service memory |
-| `container_restarts` | stage, platform | `stage`, `component` | kube-state-metrics: the rule records each minute's restarts per container before summing, from range selectors so a pod deleted within the minute still counts. A container first seen that minute counts its whole value only if `kube_pod_created` puts its pod in the last two minutes; otherwise, after a scrape gap or lost history, it counts 0, so a gap undercounts and never replays a lifetime. The API sums it per step | (health context) |
+| `container_restarts` | stage, platform | `stage`, `component` | kube-state-metrics: the rule records each minute's restarts per container before summing, from range selectors so a pod deleted within the minute still counts. A container first seen that minute counts its whole value only if `kube_pod_created` puts its pod in the last two minutes; otherwise, after a scrape gap or lost history, it counts 0, so a gap undercounts and never replays a lifetime. The API sums it per step (`sum_over_time`) | (health context) |
 | `node_cpu_usage_cores`, `node_memory_working_set_bytes` | platform | none | kubelet | cluster CPU and memory |
 | `trino_running_queries`, `trino_queued_queries` | stage | `stage` | Trino | Trino load |
 | `trino_failed_queries` | stage | `stage` | Trino, increase per step | Trino query errors |
 | `trino_heap_used_bytes` | stage | `stage` | Trino `java.lang:type=Memory` **[T]** | Trino memory |
 | `object_store_bucket_bytes` | stage, platform | `stage` | SeaweedFS S3, summed by stage | storage trend |
 | `object_store_disk_used_bytes`, `object_store_disk_free_bytes` | platform | `service` | SeaweedFS volume server | storage trend |
-| `pipeline_runs`, `pipeline_run_duration_seconds` | stage | `stage` and the job, as pipeline health is | Dagster reads, not Prometheus (Decision 2) | jobs duration and failures |
+| `pipeline_runs` | stage | `stage`, `job` (as pipeline health is) and `status` (`succeeded`, `failed`, `canceled`, `running`) | Dagster reads, not Prometheus (Decision 2) | jobs failures |
+| `pipeline_run_duration_seconds` | stage | `stage`, `job` | Dagster reads, not Prometheus (Decision 2) | jobs duration |
 
 Response envelope, for both sources:
 
 ```json
 {"series": "trino_failed_queries", "stage": "dev", "source": "prometheus",
- "state": "available", "range": "6h", "step_seconds": 60, "unit": "queries",
- "observed_at": "2026-11-17T10:00:00Z",
+ "state": "available", "reason": "read from the metrics backend",
+ "range": "6h", "step_seconds": 60, "unit": "queries",
+ "observed_at": "2026-11-17T10:00:00Z", "complete": true, "covered_from": null,
  "lines": [{"labels": {"stage": "dev"},
             "points": [["2026-11-17T04:01:00Z", 0], ["2026-11-17T04:02:00Z", null]]}]}
 ```
 
-A step without a sample is `null`, never `0`. A Dagster-sourced series adds
-`complete` and, when `false`, `covered_from` (Decision 2); a Prometheus series
-is always `complete: true` within retention. `state` is `unavailable` with no
-`lines` when Prometheus does not answer or a target behind the series has
-`up == 0` for the whole range; `disabled` when the profile turns metrics off;
-`not_provided` when the provider reports `metrics.supported = false`. The stage
-health route's `metrics` integration takes the same value instead of today's
-fixed `not_provided`.
+A step without a sample is `null`, never `0`. `complete` is `false` only for a
+Dagster-sourced series whose read reached its cap, with `covered_from` set
+(Decision 2); a Prometheus series is always `complete: true` within retention.
+`state` is `unavailable` with no `lines` when Prometheus does not answer, when
+it holds no sample of the series in the range, or when every target behind the
+series has `up == 0` for the whole range (checked with `max_over_time(up{job=~…}[<range>])`
+over the scrape jobs the catalog names, and the stage's own target where each
+stage has one); `disabled` when the profile turns metrics off; `not_provided`
+when the provider reports `metrics.supported = false`. `reason` says which. The
+stage health route's `metrics` integration takes the same vocabulary, from
+whether the backend answers a query, and never changes the stage's state.
 
 ### Authorization rows
 
@@ -507,6 +523,21 @@ built.
 
 2026-11-18: M-a and M-b built. Retention moved from the `--storage.tsdb.retention.*`
 flags, deprecated at 3.13.5, to the same two fields in the configuration file.
+
+2026-11-18: M-d's series catalog and Prometheus client built. The owner decided
+that `pipeline_runs` keeps the `status` label M-e gives it, so a chart can tell
+failed runs from successful ones; the series table lists it and Decision 3
+bounds it.
+
+2026-11-18: M-d's series routes built. The envelope gains `reason`, and
+carries `complete` and `covered_from` on every series, so a client reads one
+shape whatever the source; `unavailable` also covers a series with no samples
+in the range.
+
+2026-11-18: `container_restarts` is read as the sum of M-c's per-minute
+increments over each step, not as the increase of a counter: the rule records
+increments because a counter summed across pods drops when a pod goes.
+`trino_failed_queries` stays an increase per step.
 
 2026-11-18: M-c built. kube-state-metrics v2.20.0 runs on a Role per OLF namespace,
 and Prometheus loads the `olf:` recording rules, one group per source, each with

@@ -251,6 +251,34 @@ class PipelinesHealth(BaseModel):
     pipelines: list[PipelineHealth]
 
 
+# The IntegrationStatus vocabulary: a metric's state is never a health state, and an absent series is not a zero one.
+MetricState = Literal["available", "disabled", "unavailable", "not_provided"]
+MetricRangeName = Literal["1h", "6h", "24h", "7d"]
+
+
+class MetricLine(BaseModel):
+    labels: dict[str, str]
+    # One [time, value] pair per step, oldest first; a step without a sample is null, never 0.
+    points: list[tuple[datetime, float | None]]
+
+
+class MetricSeriesData(BaseModel):
+    series: str
+    # None for a platform series: nodes and olf-system components serve every stage.
+    stage: str | None
+    source: Literal["prometheus", "dagster"]
+    state: MetricState
+    reason: str
+    range: MetricRangeName
+    step_seconds: int
+    unit: str
+    observed_at: datetime
+    # False only for a Dagster series whose read reached its run cap: every step before `covered_from` is null.
+    complete: bool
+    covered_from: datetime | None
+    lines: list[MetricLine]
+
+
 class FileStageCapability(BaseModel):
     stage: str
     operations: list[str]

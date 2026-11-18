@@ -17,6 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from openlakeforge_core.health import HealthState, Scope, Signal, rollup, service_signal
 from openlakeforge_services.dagster import DagsterRun
 
+from openlakeforge_platform_api.metrics_routes import metrics_integration
 from openlakeforge_platform_api.models import (
     HealthSignal,
     HealthThresholds,
@@ -49,9 +50,6 @@ log = logging.getLogger(__name__)
 SERVICE_MAX_AGE = timedelta(seconds=60)
 _SERVICES_ELSEWHERE = IntegrationStatus(
     name="services", status="unavailable", reason="service signals are served by the stage health route"
-)
-_METRICS_NOT_PROVIDED = IntegrationStatus(
-    name="metrics", status="not_provided", reason="no metrics source is connected to the API"
 )
 
 
@@ -154,12 +152,15 @@ def _service(signal: Signal) -> ServiceHealth:
 async def get_stage_health(request: Request, stage: str) -> StageHealth:
     """A rollup of the stage's pipeline and service signals. Integrations that give none are never healthy.
 
-    Both reads block (Dagster's HTTP, and the probes for up to their timeout), so each runs on a worker thread,
-    together: the event loop keeps serving other requests, and the stage answers in the slower read's time.
+    Every read blocks (Dagster's HTTP, the probes and the metrics backend for up to their timeout), so each runs on a
+    worker thread, together: the event loop keeps serving other requests, and the stage answers in the slowest read's
+    time. The metrics integration is reported, never folded into the state.
     """
     now = datetime.now(UTC)
-    (dagster, pipelines), (services, service_signals) = await asyncio.gather(
-        run_in_threadpool(_read, request, stage, now), run_in_threadpool(_probe, request, stage, now)
+    (dagster, pipelines), (services, service_signals), metrics = await asyncio.gather(
+        run_in_threadpool(_read, request, stage, now),
+        run_in_threadpool(_probe, request, stage, now),
+        run_in_threadpool(metrics_integration, request),
     )
     signals = [signal for pipeline in pipelines for signal in pipeline.signals] + service_signals
     if dagster.status == "unavailable":
@@ -186,7 +187,7 @@ async def get_stage_health(request: Request, stage: str) -> StageHealth:
             services,
             _quality(request, stage),
             _quality_sync(request, stage),
-            _METRICS_NOT_PROVIDED,
+            metrics,
         ],
     )
 
@@ -217,7 +218,7 @@ def list_pipeline_health(request: Request, stage: str) -> PipelinesHealth:
             schedule_grace_seconds=int(SCHEDULE_GRACE.total_seconds()),
             run_window=RUN_WINDOW,
         ),
-        integrations=[dagster, _SERVICES_ELSEWHERE, _quality(request, stage), _METRICS_NOT_PROVIDED],
+        integrations=[dagster, _SERVICES_ELSEWHERE, _quality(request, stage), metrics_integration(request)],
         pipelines=[_pipeline(pipeline, now) for pipeline in pipelines],
     )
 

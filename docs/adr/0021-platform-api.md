@@ -735,3 +735,14 @@ needs the API's first ClusterRole, `tokenreviews` `create` (decision 7), and F44
 2026-11-17: `GET /api/v1/stages/{stage}/health/services` (`get_stage_service_health`) added, returning the stage and the
 `services` list of `get_stage_health` without a Dagster read. The alert evaluator's service principal is admitted there
 and no longer on `get_stage_health`, whose Dagster reads are unbounded across calls (decision 3).
+
+2026-11-18: #21 slice M-d ([ADR 0024](0024-metrics-prometheus-reference-and-read-path.md), decision 4). The settings
+gain `metrics_enabled`, `metrics_url` and `metrics_retention_days`, rendered by `modules/access/platform-api` from the
+profile and the metrics module's `query_url`; the API reads Prometheus over F45 with no credential, through
+`openlakeforge_services.prometheus`. The health routes' `metrics` integration is no longer fixed at `not_provided`: it
+is `disabled`, `not_provided`, `unavailable` or `available` by whether the backend answers a query, and is never
+folded into the stage's state.
+
+2026-11-18: #21 slice M-d. `GET /api/v1/stages/{stage}/metrics/{series}?range=` (`get_stage_metric`) and `GET
+/api/v1/platform/metrics/{series}?range=` (`get_platform_metric`) serve the named series of ADR 0024's catalog over its
+four ranges, at the health routes' floor, read-only and not audited. No route takes a query, start, end or step.

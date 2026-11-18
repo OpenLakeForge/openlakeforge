@@ -54,6 +54,10 @@ locals {
     # Who may call as a service principal, and with which token audience (service_tokens.py).
     service_callers  = var.service_callers
     service_audience = var.service_audience
+    # The metrics routes and the health routes' metrics integration (ADR 0024, decision 4).
+    metrics_enabled        = var.metrics.enabled
+    metrics_url            = var.metrics.query_url
+    metrics_retention_days = var.metrics.retention_days
   }
 }
 
