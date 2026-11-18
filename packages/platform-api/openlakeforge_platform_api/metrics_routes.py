@@ -61,15 +61,24 @@ class ReadDeadlineError(ServiceClientError):
     """The metrics backend did not answer within READ_DEADLINE_SECONDS."""
 
 
+def metrics_configuration(settings: Settings) -> IntegrationStatus | None:
+    """Why the settings give no metrics backend to ask, or None when they give one."""
+    if not settings.metrics_enabled:
+        return IntegrationStatus(name="metrics", status="disabled", reason="the deployment profile turns metrics off")
+    if settings.metrics_url is None:
+        return IntegrationStatus(name="metrics", status="not_provided", reason="the provider offers no metrics backend")
+    return None
+
+
 def _backend(settings: Settings) -> PrometheusClient | IntegrationStatus:
     """The client for the configured backend, or why none is asked at all.
 
     One attempt per read: a 429 fails at once rather than waiting out a Retry-After the deadline cannot afford.
     """
-    if not settings.metrics_enabled:
-        return IntegrationStatus(name="metrics", status="disabled", reason="the deployment profile turns metrics off")
-    if settings.metrics_url is None:
-        return IntegrationStatus(name="metrics", status="not_provided", reason="the provider offers no metrics backend")
+    absent = metrics_configuration(settings)
+    if absent is not None:
+        return absent
+    assert settings.metrics_url is not None  # metrics_configuration answers for a missing URL
     return PrometheusClient(settings.metrics_url, timeout=_CLIENT_TIMEOUT_SECONDS, rate_limit_retries=0)
 
 

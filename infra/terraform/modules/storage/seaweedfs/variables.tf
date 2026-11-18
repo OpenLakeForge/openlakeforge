@@ -183,6 +183,22 @@ variable "alerts_credentials" {
   }
 }
 
+variable "alert_state_reader_credentials" {
+  description = "A read-only identity for the platform API's alert incidents route (#1258): Read and List on the alert evaluator's state prefix of the ops bucket, `<alerts prefix>state/`, nothing else. Null when the platform API or the evaluator is not deployed."
+  type = object({
+    namespace               = string
+    credentials_secret_name = string
+    ops_bucket_name         = string
+    prefix                  = string
+  })
+  default = null
+
+  validation {
+    condition     = var.alert_state_reader_credentials == null || (endswith(try(var.alert_state_reader_credentials.prefix, ""), "/") && !startswith(try(var.alert_state_reader_credentials.prefix, "/"), "/"))
+    error_message = "The alert state prefix is a key prefix ending in '/', so the grant cannot reach a sibling whose name starts the same."
+  }
+}
+
 variable "files_credentials" {
   description = "An identity for the platform API's files explorer (ADR 0021): Read, Write and List on each named bucket, the enabled stages' layer buckets and the ops bucket. Null when the platform API is not deployed."
   type = object({

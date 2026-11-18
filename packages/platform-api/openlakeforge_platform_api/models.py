@@ -155,12 +155,34 @@ class DataProducts(BaseModel):
 HealthStateName = Literal["healthy", "warning", "critical", "unknown", "disabled"]
 
 
+IntegrationState = Literal["available", "disabled", "unavailable", "not_provided"]
+
+
 class IntegrationStatus(BaseModel):
     """Whether one source of health is present. `status` is never a health state: an absent source is not green."""
 
     name: Literal["dagster", "services", "quality", "quality-sync", "metrics"]
-    status: Literal["available", "disabled", "unavailable", "not_provided"]
+    status: IntegrationState
     reason: str
+
+
+class MonitoringCapability(BaseModel):
+    """Whether a stage is configured with one observability source. Configuration only: `available` says the source is
+    there, not that it answers; liveness is the health routes'."""
+
+    name: Literal["dagster", "services", "quality", "quality-sync", "logs", "metrics", "alerts"]
+    status: IntegrationState
+    reason: str
+
+
+class MonitoringStage(BaseModel):
+    stage: str
+    operations: list[str]
+    capabilities: list[MonitoringCapability]
+
+
+class MonitoringCapabilities(BaseModel):
+    stages: list[MonitoringStage]
 
 
 class HealthSignal(BaseModel):
