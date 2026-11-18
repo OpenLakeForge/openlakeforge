@@ -50,6 +50,7 @@ workloads:
   alert-evaluator: {openlakeforge.io/job: alert-evaluator}
   quality-reconciler: {openlakeforge.io/job: quality-reconciler} # ADR 0007: one CronJob per governed stage; dropped with the governance layer
   prometheus: {app.kubernetes.io/name: prometheus} # ADR 0024: only with metrics enabled; its rows are dropped with it
+  kube-state-metrics: {app.kubernetes.io/name: kube-state-metrics} # ADR 0024: only with metrics enabled; its rows are dropped with it
   postgresql-credentials: {openlakeforge.io/job: postgresql-credentials}
   openmetadata-role-sync: {openlakeforge.io/job: openmetadata-role-sync}
 flows:
@@ -308,7 +309,7 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
     ports: [8080] # each stage's health route (ADR 0023, decision 11), with a projected ServiceAccount token the API checks with a TokenReview over its F20 egress
     tag: T # needs an evaluation reading stage health on a running cluster
-  # Prometheus (ADR 0024, ADR 0017 F45 to F49). Its egress is exactly these four and DNS; its ingress is F45.
+  # Prometheus (ADR 0024, ADR 0017 F45 to F50). Its egress is exactly F46 to F50 and DNS; its ingress is F45.
   - id: F45
     from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
     to: {scope: shared, pods: {app.kubernetes.io/name: prometheus}}
@@ -334,6 +335,17 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs}}
     ports: [9327] # /metrics of master, volume, filer and S3; F17 does not open 9327
     tag: T # needs a scrape on a running cluster
+  # kube-state-metrics (ADR 0024, ADR 0017 F50 and F51). Its egress is exactly F51 and DNS; its ingress is F50.
+  - id: F50
+    from: {scope: shared, pods: {app.kubernetes.io/name: prometheus}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: kube-state-metrics}}
+    ports: [8080] # /metrics; the telemetry port 8081 has no row
+    tag: T # needs a scrape on a running cluster
+  - id: F51
+    from: {scope: shared, pods: {app.kubernetes.io/name: kube-state-metrics}}
+    to: {scope: apiserver}
+    ports: [443, 6443] # list and watch of pods, deployments, statefulsets and daemonsets in the OLF namespaces
+    tag: T # Service port and endpoint port; DNAT order is unconfirmed
   # The quality reconciler (ADR 0007, ADR 0017 F52 and F53). Its egress is exactly these two and DNS.
   - id: F52
     from: {scope: shared, pods: {openlakeforge.io/job: quality-reconciler}}
