@@ -251,6 +251,46 @@ class PipelinesHealth(BaseModel):
     pipelines: list[PipelineHealth]
 
 
+class QualityCounts(BaseModel):
+    """Results of one quality manifest, or a sum of them, by `QualityOutcome`."""
+
+    passed: int
+    warn: int
+    error: int
+    not_run: int
+    unknown: int
+    # The `error` results that blocked the pipeline; already counted in `error`, never added to it.
+    blocking: int
+
+
+class PipelineQuality(BaseModel):
+    """The manifest behind one product pipeline's quality signal: counts and a run id, no check, table or row."""
+
+    job: str
+    domain: str | None
+    product: str
+    # The run whose manifest decided `state`; None while no run has answered.
+    run_id: str | None
+    # When the manifest's newest result was observed.
+    observed_at: datetime | None
+    # Whether the run finished writing its manifest; None without a usable manifest.
+    complete: bool | None
+    # The pipeline's `quality` signal on /health/pipelines; `unknown` where that route carries none.
+    state: HealthStateName
+    # None when the manifest is absent, unreadable or describes another run: never zeros.
+    counts: QualityCounts | None
+    reason: str
+
+
+class StageQualityHealth(BaseModel):
+    stage: str
+    evaluated_at: datetime
+    integrations: list[IntegrationStatus]
+    # The sum over pipelines whose counts are known; None when none is, Dagster is unreadable or no reader is set.
+    totals: QualityCounts | None
+    pipelines: list[PipelineQuality]
+
+
 # The IntegrationStatus vocabulary: a metric's state is never a health state, and an absent series is not a zero one.
 MetricState = Literal["available", "disabled", "unavailable", "not_provided"]
 MetricRangeName = Literal["1h", "6h", "24h", "7d"]

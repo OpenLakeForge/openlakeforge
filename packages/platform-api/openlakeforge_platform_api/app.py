@@ -24,6 +24,7 @@ from openlakeforge_platform_api import (
     files,
     health_routes,
     metrics_routes,
+    quality_routes,
     queries,
     reads,
     report_routes,
@@ -408,6 +409,12 @@ def create_app(
         health_routes.list_pipeline_health,
         methods=["GET"],
         name="list_pipeline_health",
+    )
+    app.add_api_route(
+        "/api/v1/stages/{stage}/health/quality",
+        quality_routes.get_stage_quality_health,
+        methods=["GET"],
+        name="get_stage_quality_health",
     )
     app.add_api_route("/api/v1/stages/{stage}/logs", reads.list_logs, methods=["GET"], name="list_logs")
     app.add_api_route(

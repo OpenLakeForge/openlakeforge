@@ -787,3 +787,9 @@ four ranges, at the health routes' floor, read-only and not audited. No route ta
 endpoints, so the portal's query page offers the stages, and the anonymous principal's queries reach Trino as the
 user `anonymous` with no bearer. The stage catalogs are not keyless without an issuer: Trino's catalog credential
 serves every request and holds the catalog's content, so the Web UI and Superset read too.
+
+2026-11-18: #1257. `GET /api/v1/stages/{stage}/health/quality` (`get_stage_quality_health`) added at the health routes'
+floor, read-only and not audited: per product pipeline, the outcome counts of the quality manifest behind its `quality`
+signal, read in the same `read_stage_pipelines` pass as `list_pipeline_health`, and their sum. Counts and run ids only;
+an absent or unusable manifest has no counts rather than zeros. The whole read is held to a 20-second deadline. ADR
+0023's quality manifest and signal are unchanged.

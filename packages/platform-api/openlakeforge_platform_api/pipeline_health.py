@@ -34,11 +34,12 @@ from openlakeforge_core.health import (
     evaluate_quality,
     rollup,
 )
+from openlakeforge_core.quality import QualityManifest
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient, DagsterRun, DagsterSchedule
 
 from openlakeforge_platform_api.models import IntegrationStatus
-from openlakeforge_platform_api.quality_health import QualityReader, quality_signal
+from openlakeforge_platform_api.quality_health import DOMAIN_TAG, QualityReader, quality_signal
 from openlakeforge_platform_api.schedules import latest_due, next_due
 
 log = logging.getLogger(__name__)
@@ -62,6 +63,21 @@ RUN_STATUS = {
 
 
 @dataclass(frozen=True)
+class QualityEvidence:
+    """The run a product pipeline's quality signal was read from, and that run's manifest.
+
+    The quality counts route reads the manifest from here rather than again, so its counts and the signal always
+    describe the same run. `signal` is None while no run has answered (`_quality`); `manifest` is None when the
+    run's manifest is absent or unusable.
+    """
+
+    signal: Signal | None
+    run_id: str | None
+    domain: str | None
+    manifest: QualityManifest | None
+
+
+@dataclass(frozen=True)
 class PipelineEvaluation:
     job: str
     runs: list[DagsterRun]
@@ -69,6 +85,8 @@ class PipelineEvaluation:
     # When the schedule's cron last came due; None without a schedule or when its cron cannot be read.
     due: datetime | None
     signals: list[Signal]
+    # Set for a product pipeline with a run when the stage has a quality reader; None otherwise.
+    quality: QualityEvidence | None = None
 
     @property
     def state(self) -> HealthState:
@@ -165,8 +183,9 @@ def _quality(
     now: datetime,
     max_age: timedelta,
     level: str = "warn",
-) -> Signal | None:
-    """The quality signal of the latest run's manifest, where a failed run's blocking errors are.
+) -> QualityEvidence | None:
+    """The quality signal of the latest run's manifest, where a failed run's blocking errors are, or None for a job
+    that is not a product pipeline.
 
     The manifest is published after every step and omits dbt's results until dbt's evidence is read, so one from a
     run that did not succeed (in progress, canceled, or failed before dbt reported) may lack the checks still to
@@ -176,22 +195,29 @@ def _quality(
     failure between an old success and a Silver-only retry still speaks. The first success answers with its own
     manifest (`unknown` while that is incomplete) and ends the walk; with none reached there is no signal, which
     leaves an open incident open. A newer run whose manifest exists but cannot be read may be hiding a failure,
-    so a success after it cannot answer `healthy`: it answers `unknown`. A run with no manifest hides nothing.
+    so a success after it cannot answer `healthy`: it answers `unknown`, and that run is the evidence named. A run
+    with no manifest hides nothing.
     """
-    unreadable_seen = False
+    unreadable: DagsterRun | None = None
     for run in runs:
         read = quality_signal(quality, scope, job, run.run_id, run.tags, now=now, max_age=max_age, level=level)
         if read is None:
             return None
         found = read.signal
         if run.status == "SUCCESS":
-            if unreadable_seen and found.state is HealthState.HEALTHY:
-                return evaluate_quality(scope, None, now=now, max_age=max_age)
-            return found
+            if unreadable is not None and found.state is HealthState.HEALTHY:
+                return QualityEvidence(
+                    evaluate_quality(scope, None, now=now, max_age=max_age),
+                    unreadable.run_id,
+                    unreadable.tags.get(DOMAIN_TAG),
+                    None,
+                )
+            return QualityEvidence(found, run.run_id, run.tags.get(DOMAIN_TAG), read.manifest)
         if found.state in (HealthState.WARNING, HealthState.CRITICAL):
-            return found
-        unreadable_seen = unreadable_seen or read.unreadable
-    return None
+            return QualityEvidence(found, run.run_id, run.tags.get(DOMAIN_TAG), read.manifest)
+        if read.unreadable and unreadable is None:
+            unreadable = run
+    return QualityEvidence(None, None, runs[0].tags.get(DOMAIN_TAG), None)
 
 
 def _freshness(
@@ -254,11 +280,10 @@ def _evaluate(
         evaluate_expected_run(scope, expected, now=now, max_age=SCHEDULE_MAX_AGE, grace=grace),
         _freshness(scope, schedule, runs, success, state, now, freshness, fresh_grace),
     ]
-    if quality is not None and runs:
-        found = _quality(quality, scope, job, runs, now, max_age, level)
-        if found is not None:
-            signals.append(found)
-    return PipelineEvaluation(job, runs, schedule, due, signals)
+    evidence = _quality(quality, scope, job, runs, now, max_age, level) if quality is not None and runs else None
+    if evidence is not None and evidence.signal is not None:
+        signals.append(evidence.signal)
+    return PipelineEvaluation(job, runs, schedule, due, signals, evidence)
 
 
 def read_stage_pipelines(
