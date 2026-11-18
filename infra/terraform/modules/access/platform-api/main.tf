@@ -36,6 +36,8 @@ locals {
     # Read per stage with the key in quality_reader_secret_names.
     quality_manifests = var.quality_manifests
     s3_region         = var.s3_region
+    # Each governed stage's reconciler summary, read with the files key (ADR 0007).
+    quality_sync_summaries = var.quality_sync_summaries
     # Written with the key in audit_writer_secret_name; without it, every
     # operation that changes state answers 503.
     audit_base_uri = var.audit_base_uri

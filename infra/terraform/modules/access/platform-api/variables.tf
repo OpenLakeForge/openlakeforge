@@ -147,6 +147,12 @@ variable "quality_reader_secret_names" {
   default     = {}
 }
 
+variable "quality_sync_summaries" {
+  description = "Each governed stage's quality reconciler summary, s3://<ops bucket>/activations/<stage>/quality-sync/summary.json (ADR 0007), which the publication health signal reads with the files key (files_secret_name). A stage left out has no publisher: its signal is disabled and the quality-sync integration not provided. The API refuses to start on a stage outside `stages`."
+  type        = map(string)
+  default     = {}
+}
+
 variable "audit_base_uri" {
   description = "Where the API stores audit records, s3://<bucket>/<prefix>/ (ADR 0021, decision 3). Null leaves every operation that changes state answering 503."
   type        = string

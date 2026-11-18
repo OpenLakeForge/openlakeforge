@@ -63,6 +63,20 @@ def _quality(request: Request, stage: str) -> IntegrationStatus:
     return IntegrationStatus(name="quality", status="available", reason="read from the stage's quality manifests")
 
 
+def _quality_sync(request: Request, stage: str) -> IntegrationStatus:
+    """Publication to OpenMetadata, apart from the data's quality. A stage without a reconciler has no publisher at
+    all, which is not a failed one."""
+    if stage not in request.app.state.settings.quality_sync_summaries:
+        return IntegrationStatus(
+            name="quality-sync", status="not_provided", reason="no quality results are published from this stage"
+        )
+    if request.app.state.service_probes is None:
+        return IntegrationStatus(name="quality-sync", status="unavailable", reason="no service probes are configured")
+    return IntegrationStatus(
+        name="quality-sync", status="available", reason="read from the reconciler's quality-sync summary"
+    )
+
+
 def _read(request: Request, stage: str, now: datetime) -> tuple[IntegrationStatus, list[PipelineEvaluation]]:
     configured = request.app.state.settings.dagster_graphql_urls.get(stage)
     return read_stage_pipelines(
@@ -105,6 +119,7 @@ def _probe(request: Request, stage: str, now: datetime) -> tuple[IntegrationStat
         log_archive_base_uri=archive.base_uri if archive else None,
         log_archive_namespace=archive.namespace if archive else None,
         spool_probe_url=settings.log_collector_probe_url,
+        quality_sync_summary_uri=settings.quality_sync_summaries.get(stage),
     )
     try:
         signals: list[Signal] = prober.probe(targets)
@@ -166,7 +181,13 @@ async def get_stage_health(request: Request, stage: str) -> StageHealth:
         evaluated_at=now,
         pipelines=[StagePipelineState(job=pipeline.job, state=pipeline.state.value) for pipeline in pipelines],
         services=[_service(signal) for signal in service_signals],
-        integrations=[dagster, services, _quality(request, stage), _METRICS_NOT_PROVIDED],
+        integrations=[
+            dagster,
+            services,
+            _quality(request, stage),
+            _quality_sync(request, stage),
+            _METRICS_NOT_PROVIDED,
+        ],
     )
 
 
