@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .base import JsonHttpClient, ServiceClientError
+from .base import RATE_LIMIT_RETRIES, JsonHttpClient, ServiceClientError
 
 # The platform API's bound on every Prometheus call, as on its service probes: a chart that waits longer than this is
 # worse than one that says `unavailable`.
@@ -65,9 +65,17 @@ def _series(data: Any, result_type: str) -> list[PrometheusSeries]:
 
 class PrometheusClient:
     def __init__(
-        self, base_url: str, *, timeout: float = PROMETHEUS_TIMEOUT_SECONDS, http: JsonHttpClient | None = None
+        self,
+        base_url: str,
+        *,
+        timeout: float = PROMETHEUS_TIMEOUT_SECONDS,
+        rate_limit_retries: int = RATE_LIMIT_RETRIES,
+        http: JsonHttpClient | None = None,
     ) -> None:
-        self._http = http or JsonHttpClient(base_url.rstrip("/"), timeout=timeout)
+        # 0 makes one attempt, for a caller that holds a deadline of its own.
+        self._http = http or JsonHttpClient(
+            base_url.rstrip("/"), timeout=timeout, rate_limit_retries=rate_limit_retries
+        )
 
     def _get(self, path: str, params: Mapping[str, Any]) -> Any:
         # A refused query is a 400 or 422 whose body still carries the API's error; the base client raises on it with
