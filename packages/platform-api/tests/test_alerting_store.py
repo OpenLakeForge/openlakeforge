@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -33,6 +34,39 @@ def test_a_state_round_trips_through_the_bucket() -> None:
     stored = json.loads(bucket.objects["alerts/state/v1/state.json"])
     assert stored.pop("evaluated_at") == NOW.isoformat()
     assert stored == json.loads(state_to_json(state))
+
+
+# A state as the evaluator wrote it before incidents kept their delivery outcome (#1258): no `delivery` on the
+# incident and no `rejected` on the outbox entry. Written out literally so the current serializer cannot shape it.
+LEGACY_STATE = (
+    '{"incidents":[{"component":null,"fingerprint":"2b329680eea01263","id":"2b329680eea01263-1794830400-1",'
+    '"kind":"run_failed","last_seen_at":"2026-11-16T12:00:00+00:00","notified_severity":"critical",'
+    '"opened_at":"2026-11-16T12:00:00+00:00","reason":"latest run failed","run_ids":["run-1"],'
+    '"scope":{"domain":"sales","product":"orders","stage":"dev","table":"silver.orders"},"severity":"critical"}],'
+    '"outbox":[{"attempts":{"ops":1},"delivered":[],"notification":{"event":"opened",'
+    '"event_at":"2026-11-16T12:00:00+00:00","id":"2b329680eea01263-1794830400-1:opened",'
+    '"incident_id":"2b329680eea01263-1794830400-1","kind":"run_failed","links":[],'
+    '"opened_at":"2026-11-16T12:00:00+00:00","reason":"latest run failed","run_id":"run-1",'
+    '"scope":{"domain":"sales","product":"orders","stage":"dev","table":"silver.orders"},"severity":"critical"},'
+    '"runs":0}],"schema_version":1,"sequences":{"2b329680eea01263":1},"unknown_counts":{}}'
+)
+
+
+def test_pending_history_written_by_the_previous_evaluator_still_replays() -> None:
+    bucket = FakeBucket()
+    stored = json.loads(LEGACY_STATE)
+    stored["evaluated_at"] = NOW.isoformat()
+    bucket.objects["alerts/state/v1/state.json"] = json.dumps(stored).encode()
+    records = [["2026-11-16", "2b329680eea01263-1794830400-1-opened", {"record": "event", "event": "opened"}]]
+    bucket.objects["alerts/state/v1/pending-history.json"] = json.dumps(
+        {"state": hashlib.sha256(LEGACY_STATE.encode()).hexdigest(), "records": records}
+    ).encode()
+    store = AlertStore(bucket, BASE)
+
+    state = store.read_state(NOW)
+
+    assert state_to_json(state) == LEGACY_STATE
+    assert store.read_pending_history(state) == [tuple(record) for record in records]
 
 
 @pytest.mark.parametrize("body", [b"{not json", b'{"schema_version": 2}', b"\xff\xfe"])

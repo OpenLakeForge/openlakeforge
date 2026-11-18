@@ -118,7 +118,8 @@ class DeliveryOutcome(StrEnum):
     DELIVERED = "delivered"
     # It expired, or a receiver refused it for good (a 4xx that a retry will not change).
     UNDELIVERABLE = "undeliverable"
-    # No receiver was routed to it, so nobody was told.
+    # No receiver was routed to it, or none still is (it was being retried to receivers since removed from the routes),
+    # so nobody was told.
     UNROUTED = "unrouted"
 
 

@@ -136,9 +136,9 @@ its latest notification's `delivery`:
 | `status` | Meaning |
 | --- | --- |
 | `pending` | Queued: not every receiver routed to it has it yet |
-| `delivered` | Every receiver routed to it accepted it |
+| `delivered` | A receiver routed to it accepted it, and none rejected it |
 | `undeliverable` | It was given up after 12 evaluations, or a receiver rejected it |
-| `unrouted` | No receiver was routed to it, so nobody was told |
+| `unrouted` | No receiver was, or still is, routed to it, so nobody was told: its receivers may have been removed from the routes while it was retried |
 | `unknown` | It left the queue before the evaluator kept outcomes |
 
 The answer's `state` is `not_provided` without an evaluator or the API's key

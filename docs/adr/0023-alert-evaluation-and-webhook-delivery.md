@@ -293,9 +293,12 @@ Event status and delivery status are separate: an incident can be `firing` with
 its notification `pending`, `delivered` or `undeliverable`. The outbox forgets
 a notification once it settles, so the evaluator keeps the outcome on the open
 incident: `undeliverable` when the entry expired or a receiver rejected it,
-`unrouted` when no receiver was routed to it, `delivered` otherwise. A state
-written before outcomes were kept reads with none, which the API answers as
-`unknown`.
+`delivered` when a receiver accepted it, and `unrouted` when it left with no
+receiver accepting it because none was, or still is, routed to it. The outcome
+is that of the incident's latest notification, `escalated` after `opened`,
+whichever of the two settles last. A state written before outcomes were kept
+reads with none, which the API answers as `unknown`, and serializes without the
+new keys, so its digest is unchanged.
 
 A run of the evaluator writes in this order, which is what makes delivery
 asynchronous from evaluation:
@@ -1089,4 +1092,5 @@ the global rules cover it. No deviation from the decisions above.
 platform API, read-only, with a key that can only read and list `alerts/state/*`; the **[T]** is gone. To tell a
 delivered notification from an expired or rejected one after it leaves the outbox, `state.json` now keeps, per open
 incident, its latest notification's outcome and counts, and per outbox entry the receivers that rejected it. Both keys
-are optional on read, so a state written before this change still parses, with no outcome. `schema_version` stays 1.
+are optional on read and written only when set, so a state written before this change still parses, with no outcome,
+and keeps its digest, which tags its pending history. `schema_version` stays 1.

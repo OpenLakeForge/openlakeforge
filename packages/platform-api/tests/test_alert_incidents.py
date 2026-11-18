@@ -212,6 +212,26 @@ def test_an_escalated_incident_reads_its_queued_escalation(api: TestClient, mint
     }
 
 
+def test_an_opening_still_queued_behind_a_delivered_escalation_reads_the_escalation(
+    api: TestClient, mint: Mint, bucket: FakeBucket
+) -> None:
+    incident = _incident()
+    opening, escalation = _queued(incident), _queued(incident, AlertEvent.ESCALATED)
+    state = AlertState(incidents=(incident,), outbox=(opening, escalation))
+    escalation_id = escalation.notification.id
+    state = record_delivery(record_attempt(state, escalation_id, "ops"), escalation_id, "ops", routed={"ops"})
+    assert [entry.notification.event for entry in state.outbox] == [AlertEvent.OPENED]
+    _write(bucket, state)
+
+    assert _only(api, mint)["delivery"] == {
+        "status": "delivered",
+        "event": "escalated",
+        "attempts": 1,
+        "receivers": 1,
+        "delivered": 1,
+    }
+
+
 def test_a_delivered_notification_reads_delivered(api: TestClient, mint: Mint, bucket: FakeBucket) -> None:
     incident = _incident()
     state = AlertState(incidents=(incident,), outbox=(_queued(incident),))
@@ -251,9 +271,7 @@ def test_a_notification_settled_before_outcomes_were_kept_is_unknown(
     api: TestClient, mint: Mint, bucket: FakeBucket
 ) -> None:
     _write(bucket, AlertState(incidents=(_incident(),)))
-    document = json.loads(bucket.objects[STATE_KEY])
-    del document["incidents"][0]["delivery"]
-    bucket.objects[STATE_KEY] = json.dumps(document).encode()
+    assert "delivery" not in json.loads(bucket.objects[STATE_KEY])["incidents"][0]
 
     delivery = _only(api, mint)["delivery"]
 

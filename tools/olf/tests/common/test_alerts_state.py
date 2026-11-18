@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -14,6 +15,7 @@ from openlakeforge_core import (
     Delivery,
     DeliveryOutcome,
     HealthState,
+    OutboxEntry,
     Scope,
     Signal,
     SignalKind,
@@ -161,15 +163,76 @@ def test_an_expired_notification_is_undeliverable_and_a_dropped_one_unrouted() -
     )
 
 
-def test_a_state_written_before_outcomes_were_kept_still_reads() -> None:
+def test_a_state_written_before_outcomes_were_kept_reads_and_writes_back_unchanged() -> None:
+    # The evaluator before #1258 wrote neither key. Writing such a state back must give the same text, since the
+    # platform API tags pending history with a digest of it.
     document = _document()
-    del document["incidents"][0]["delivery"]
-    del document["outbox"][0]["rejected"]
+    assert "delivery" not in document["incidents"][0] and "rejected" not in document["outbox"][0]
+    text = json.dumps(document, sort_keys=True, separators=(",", ":"))
 
-    restored = state_from_json(json.dumps(document))
+    restored = state_from_json(text)
 
     assert restored.incidents[0].delivery is None
     assert restored.outbox[0].rejected == frozenset()
+    assert state_to_json(restored) == text
+
+
+def test_a_failed_receiver_removed_from_the_routes_leaves_the_notification_unrouted_not_delivered() -> None:
+    state, notification_id = _queued()
+    state = drop_notification(record_attempt(state, notification_id, "ops"), notification_id)
+
+    assert state.incidents[0].delivery == Delivery(
+        event=AlertEvent.OPENED, outcome=DeliveryOutcome.UNROUTED, receivers=1, delivered=0, attempts=1
+    )
+
+
+def _escalation_queued_behind_the_opening() -> tuple[AlertState, str, str]:
+    state, opened = _queued()
+    first = state.outbox[0].notification
+    escalation = replace(first, id=f"{first.incident_id}:escalated", event=AlertEvent.ESCALATED, event_at=_at(5))
+    return replace(state, outbox=(*state.outbox, OutboxEntry(escalation))), opened, escalation.id
+
+
+def test_an_older_notification_settling_last_does_not_replace_the_newer_outcome() -> None:
+    state, opened, escalated = _escalation_queued_behind_the_opening()
+    state = record_attempt(record_attempt(state, opened, "ops"), escalated, "ops")
+    state = record_delivery(state, escalated, "ops", routed={"ops"})
+    state = replace(state, outbox=tuple(replace(entry, runs=MAX_OUTBOX_RUNS) for entry in state.outbox))
+
+    state, expired = expire_outbox(state)
+
+    assert [entry.notification.id for entry in expired] == [opened]
+    assert state.incidents[0].delivery == Delivery(
+        event=AlertEvent.ESCALATED, outcome=DeliveryOutcome.DELIVERED, receivers=1, delivered=1, attempts=1
+    )
+
+
+def test_a_newer_notification_settling_later_replaces_the_older_outcome() -> None:
+    state, opened, _ = _escalation_queued_behind_the_opening()
+    state = record_delivery(record_attempt(state, opened, "ops"), opened, "ops", routed={"ops"})
+    assert _settled(state) == (AlertEvent.OPENED, DeliveryOutcome.DELIVERED)
+
+    state = replace(state, outbox=tuple(replace(entry, runs=MAX_OUTBOX_RUNS) for entry in state.outbox))
+    state, _ = expire_outbox(state)
+
+    assert _settled(state) == (AlertEvent.ESCALATED, DeliveryOutcome.UNDELIVERABLE)
+
+
+def test_notifications_settling_together_keep_the_newer_outcome() -> None:
+    state, opened, _ = _escalation_queued_behind_the_opening()
+    state = record_attempt(state, opened, "ops")
+    # Whatever order the outbox holds them in.
+    state = replace(state, outbox=tuple(replace(entry, runs=MAX_OUTBOX_RUNS) for entry in reversed(state.outbox)))
+
+    state, expired = expire_outbox(state)
+
+    assert len(expired) == 2
+    assert _settled(state) == (AlertEvent.ESCALATED, DeliveryOutcome.UNDELIVERABLE)
+
+
+def _settled(state: AlertState) -> tuple[AlertEvent, DeliveryOutcome] | None:
+    delivery = state.incidents[0].delivery
+    return None if delivery is None else (delivery.event, delivery.outcome)
 
 
 def _document() -> dict:

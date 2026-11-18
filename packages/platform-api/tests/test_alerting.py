@@ -519,6 +519,26 @@ def test_a_notification_nobody_is_routed_to_leaves_the_outbox() -> None:
     assert [incident["delivery"]["outcome"] for incident in state["incidents"]] == ["unrouted"]
 
 
+def test_a_notification_whose_failing_receiver_is_removed_from_the_routes_is_unrouted_not_delivered() -> None:
+    bucket, notifier = FakeBucket(), FakeNotifier(up=False)
+    dagster = {"dev": FakeDagster([_failed()]), "prod": FakeDagster()}
+
+    _evaluate(_settings(A, stages=("dev", "prod")), bucket, dagster, {"ops": notifier})
+    rerouted = _settings(ReceiverSetting("ops", "OPS_URL", ("prod",)), stages=("dev", "prod"))
+    _evaluate(rerouted, bucket, dagster, {"ops": notifier}, NOW + timedelta(minutes=5))
+
+    assert len(notifier.sent) == 1
+    state = bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]
+    assert state["outbox"] == []
+    assert state["incidents"][0]["delivery"] == {
+        "event": "opened",
+        "outcome": "unrouted",
+        "receivers": 1,
+        "delivered": 0,
+        "attempts": 1,
+    }
+
+
 def test_a_notification_that_cannot_be_delivered_expires_into_an_undeliverable_record() -> None:
     bucket, notifier, dagster = FakeBucket(), FakeNotifier(up=False), {"dev": FakeDagster([_failed()])}
     settings = _settings(A)

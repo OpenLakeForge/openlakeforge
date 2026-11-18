@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Request
 from openlakeforge_core.alerts import AlertState, Incident, OutboxEntry
-from openlakeforge_core.alerts_state import AlertStateError, state_from_json
+from openlakeforge_core.alerts_state import AlertStateError, notification_order, state_from_json
 
 from openlakeforge_platform_api.alerting.store import STATE_OBJECT
 from openlakeforge_platform_api.models import AlertIncident, AlertStateStatus, StageAlertIncidents
@@ -104,13 +104,17 @@ def _evaluated_at(body: bytes) -> datetime | None:
 
 def _latest_queued(state: AlertState) -> dict[str, OutboxEntry]:
     queued: dict[str, OutboxEntry] = {}
-    for entry in sorted(state.outbox, key=lambda e: e.notification.event_at):
+    for entry in sorted(state.outbox, key=lambda e: notification_order(e.notification.event)):
         queued[entry.notification.incident_id] = entry
     return queued
 
 
 def _delivery(incident: Incident, queued: OutboxEntry | None) -> dict[str, Any]:
-    if queued is not None:
+    settled = incident.delivery
+    # An older notification still queued behind a newer one that already settled is not the latest: the settled is.
+    if queued is not None and (
+        settled is None or notification_order(queued.notification.event) >= notification_order(settled.event)
+    ):
         return {
             "status": "pending",
             "event": queued.notification.event.value,
@@ -118,7 +122,6 @@ def _delivery(incident: Incident, queued: OutboxEntry | None) -> dict[str, Any]:
             "receivers": len(set(queued.attempts) | queued.delivered),
             "delivered": len(queued.delivered - queued.rejected),
         }
-    settled = incident.delivery
     if settled is None:
         return {"status": "unknown", "event": None, "attempts": None, "receivers": None, "delivered": None}
     return {
