@@ -286,7 +286,13 @@ def check_negative_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
         for namespace, name, allowed in cases:
             with _probe_pod(cfg, namespace, {}, f"olf-e2e-deny-{name}") as pod:
                 for workload, (ip, ports) in targets.items():
-                    rcs = {port: _connect(cfg, namespace, pod, ip, port) for port in ports}
+                    # Only an allowed port (a control) is retried: a drop is what every other port should give.
+                    rcs = {
+                        port: (_connect_after_policy_lag if (workload, port) in allowed else _connect)(
+                            cfg, namespace, pod, ip, port
+                        )
+                        for port in ports
+                    }
                     problems += judge_probes(namespace, workload, ip, rcs, allowed)
     finally:
         kubectl(cfg, ["delete", "namespace", UNTRUSTED_NAMESPACE, "--ignore-not-found", "--wait=false"])
