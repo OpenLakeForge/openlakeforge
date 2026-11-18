@@ -155,6 +155,17 @@ def test_a_single_image_load_is_saved_for_the_nodes_platform(tmp_path: Path) -> 
     assert [_platform_of(argv) for argv in saves] == ["linux/arm64"]
 
 
+def test_an_engine_older_than_api_1_48_saves_without_a_platform(tmp_path: Path) -> None:
+    # Docker 27 rejects `docker save --platform`; it still pulls for the node's platform.
+    runner = _ScriptedRunner(server_arch="arm64", api_version="1.47")
+    prefetch.prefetch_images(_config(tmp_path, profile=Profile.SLIM), _toolkit(runner), env={}, work_dir=tmp_path)
+
+    pulls = [c.argv for c in runner.calls if c.argv[:2] == ["docker", "pull"]]
+    saves = [c.argv for c in runner.calls if c.argv[:2] == ["docker", "save"]]
+    assert saves and all("--platform" not in argv for argv in saves)
+    assert {_platform_of(argv) for argv in pulls} == {"linux/arm64"}
+
+
 def test_archive_reference_strips_digest() -> None:
     assert prefetch.archive_reference("apache/polaris:1.4.0@sha256:abcd") == "apache/polaris:1.4.0"
     assert prefetch.archive_reference("apache/superset:dockerize") == "apache/superset:dockerize"
@@ -174,10 +185,13 @@ def test_prefetch_images_raises_when_cluster_has_no_nodes(tmp_path: Path) -> Non
 
 
 class _ScriptedRunner(RecordingRunner):
-    def __init__(self, image_already_present: set[str] | None = None, *, server_arch: str = "amd64") -> None:
+    def __init__(
+        self, image_already_present: set[str] | None = None, *, server_arch: str = "amd64", api_version: str = "1.56"
+    ) -> None:
         super().__init__()
         self._present = image_already_present or set()
         self._server_arch = server_arch
+        self._api_version = api_version
 
     def run(self, command, **kwargs):  # type: ignore[override]
         argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
@@ -185,9 +199,8 @@ class _ScriptedRunner(RecordingRunner):
         if argv[1:3] == ["get", "nodes"]:
             return CommandResult(argv=(), returncode=0, stdout="node-a\n", stderr="", duration_seconds=0.0)
         if argv[1:2] == ["version"]:
-            return CommandResult(
-                argv=(), returncode=0, stdout=f"{self._server_arch}\n", stderr="", duration_seconds=0.0
-            )
+            answer = self._api_version if "APIVersion" in argv[-1] else self._server_arch
+            return CommandResult(argv=(), returncode=0, stdout=f"{answer}\n", stderr="", duration_seconds=0.0)
         if "inspecti" in argv:
             image = argv[-1]
             ok = image in self._present

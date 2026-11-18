@@ -143,6 +143,16 @@ class Docker:
             return ""
         return result.stdout.strip()
 
+    def server_api_version(self, *, env: Mapping[str, str] | None = None) -> tuple[int, int] | None:
+        try:
+            result = self.version(format_template="{{.Server.APIVersion}}", env=env)
+        except CommandExecutionError:
+            return None
+        major, _, minor = result.stdout.strip().partition(".")
+        if not (major.isdigit() and minor.isdigit()):
+            return None
+        return int(major), int(minor)
+
     def image_inspect(
         self,
         image: str,

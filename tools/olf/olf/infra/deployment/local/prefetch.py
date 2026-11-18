@@ -47,6 +47,8 @@ _POLARIS_IMAGES: dict[str, tuple[str, str]] = {
 # ponytail: the OpenMetadata server is not in the component catalog; pin it here until it is.
 _OPENMETADATA_SERVER_IMAGE = "docker.io/openmetadata/server:1.13.6"
 
+# `docker save --platform` arrived with Docker Engine 28 (API 1.48); older engines save without it.
+_SAVE_PLATFORM_API = (1, 48)
 # `uname -m` spellings, for when the Docker server does not report its arch.
 _OCI_ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
 
@@ -71,6 +73,11 @@ def polaris_images(server_arch: str, catalog_images: Mapping[str, str]) -> tuple
 
 def node_platform(server_arch: str) -> str:
     return f"linux/{_OCI_ARCH.get(server_arch, server_arch)}"
+
+
+def save_platform(tools: Toolkit, platform: str, *, env: Mapping[str, str]) -> str | None:
+    api = tools.docker.server_api_version(env=env)
+    return platform if api is not None and api >= _SAVE_PLATFORM_API else None
 
 
 def load_catalog_images(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -168,11 +175,19 @@ def prefetch_images(
     targets = {image: nodes if image == catalog_images["traefik"] else workers for image in images}
 
     platform = node_platform(server_arch)
+    archive_platform = save_platform(tools, platform, env=env)
     if work_dir is not None:
         work_dir.mkdir(parents=True, exist_ok=True)
         for image in images:
             _prefetch_one_image(
-                image, tools, nodes=targets[image], platform=platform, env=env, scratch_dir=work_dir, config=config
+                image,
+                tools,
+                nodes=targets[image],
+                platform=platform,
+                archive_platform=archive_platform,
+                env=env,
+                scratch_dir=work_dir,
+                config=config,
             )
     else:
         with tempfile.TemporaryDirectory(prefix="olf-prefetch-") as scratch:
@@ -182,6 +197,7 @@ def prefetch_images(
                     tools,
                     nodes=targets[image],
                     platform=platform,
+                    archive_platform=archive_platform,
                     env=env,
                     scratch_dir=Path(scratch),
                     config=config,
@@ -198,7 +214,14 @@ def load_image_into_nodes(config: LocalDeploymentConfig, tools: Toolkit, image: 
     platform = node_platform(tools.docker.server_arch(env=env) or _platform.machine())
     with tempfile.TemporaryDirectory(prefix="olf-prefetch-") as scratch:
         _prefetch_one_image(
-            image, tools, nodes=nodes, platform=platform, env=env, scratch_dir=Path(scratch), config=config
+            image,
+            tools,
+            nodes=nodes,
+            platform=platform,
+            archive_platform=save_platform(tools, platform, env=env),
+            env=env,
+            scratch_dir=Path(scratch),
+            config=config,
         )
 
 
@@ -208,6 +231,7 @@ def _prefetch_one_image(
     *,
     nodes: list[str],
     platform: str,
+    archive_platform: str | None,
     env: Mapping[str, str],
     scratch_dir: Path,
     config: LocalDeploymentConfig,
@@ -227,12 +251,12 @@ def _prefetch_one_image(
         tools.docker.tag(image, archive_image, env=env)
 
     archive = scratch_dir / archive_filename(image)
-    log.step(f"Saving {archive_image} ({platform})...")
+    log.step(f"Saving {archive_image} ({archive_platform or 'every platform held'})...")
     # Saved without a platform, a multi-arch pin is archived as its whole index, and what Docker puts under it
     # depends on its image store: on the CI runner's the kube-state-metrics archive lacked the amd64 config the
     # index points to, and `ctr import` failed "content digest ...: not found" (#21). Saved for one platform,
     # the archive is that platform's manifest and every blob it names, or `docker save` fails saying which.
-    tools.docker.save(archive_image, output_path=archive, platform=platform, env=env)
+    tools.docker.save(archive_image, output_path=archive, platform=archive_platform, env=env)
 
     errors: list[BaseException] = []
     if archive_image != image:
