@@ -23,8 +23,20 @@ variable "image_pull_policy" {
 }
 
 variable "issuer_url" {
-  description = "identity.oidc issuer_url: the issuer whose tokens the API validates."
+  description = "identity.oidc issuer_url: the issuer whose tokens the API validates. Null exactly when anonymous_role is set."
   type        = string
+  default     = null
+}
+
+variable "anonymous_role" {
+  description = "Authentication off (ADR 0021, decision 8): the canonical role a caller with no token is served as, on a deployment with no issuer. Set only on a local *.localhost profile without spec.identity; the API refuses to start otherwise."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = (var.anonymous_role == null) != (var.issuer_url == null)
+    error_message = "set exactly one of issuer_url and anonymous_role: authentication is on with an issuer, off without one."
+  }
 }
 
 variable "internal_issuer_url" {
@@ -34,12 +46,13 @@ variable "internal_issuer_url" {
 }
 
 variable "audiences" {
-  description = "Client ids whose tokens the API accepts (ADR 0021, decision 3). At least one."
+  description = "Client ids whose tokens the API accepts (ADR 0021, decision 3). At least one, and none with anonymous_role."
   type        = list(string)
+  default     = []
 
   validation {
-    condition     = length(var.audiences) > 0 && alltrue([for audience in var.audiences : audience != ""])
-    error_message = "audiences must list at least one non-empty client id; an empty list would accept any audience."
+    condition     = var.anonymous_role != null ? length(var.audiences) == 0 : length(var.audiences) > 0 && alltrue([for audience in var.audiences : audience != ""])
+    error_message = "audiences must list at least one non-empty client id; an empty list would accept any audience. With anonymous_role, list none."
   }
 }
 
@@ -65,13 +78,15 @@ variable "query_endpoints" {
 }
 
 variable "role_claim" {
-  description = "identity.oidc role_claim: the token claim holding the role values."
+  description = "identity.oidc role_claim: the token claim holding the role values. Null without an issuer."
   type        = string
+  default     = null
 }
 
 variable "role_mapping" {
-  description = "identity.oidc role_mapping: canonical role to the claim values that carry it."
+  description = "identity.oidc role_mapping: canonical role to the claim values that carry it. Empty without an issuer."
   type        = map(list(string))
+  default     = {}
 }
 
 variable "precedence" {

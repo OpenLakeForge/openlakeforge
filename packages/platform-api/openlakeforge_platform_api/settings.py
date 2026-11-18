@@ -130,6 +130,9 @@ class Settings:
     # is accepted.
     service_callers: Mapping[str, ServiceCallerSetting] = field(default_factory=dict)
     service_audience: str = "openlakeforge-platform-api"
+    # Authentication off (ADR 0021, decision 8): no issuer, and a caller with no token is served as this canonical
+    # role. Only with a `public_origin` on `*.localhost`, the one place a profile may turn authentication off.
+    anonymous_role: str | None = None
     # The metrics read path (ADR 0024, decision 4): the profile's resolved `metrics.enabled`, and the contract's
     # `query_url` and `retention_days`. Enabled with no URL is a provider with no metrics backend (`not_provided`);
     # not enabled is `disabled`. Either way no route answers with a number.
@@ -141,11 +144,12 @@ class Settings:
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
         try:
             settings = cls(
-                issuer_url=str(data["issuer_url"]),
-                audiences=tuple(str(audience) for audience in data["audiences"]),
-                role_claim=str(data["role_claim"]),
+                issuer_url=str(data.get("issuer_url") or ""),
+                audiences=tuple(str(audience) for audience in data.get("audiences") or ()),
+                role_claim=str(data.get("role_claim") or ""),
                 role_mapping={
-                    str(role): tuple(str(value) for value in values) for role, values in data["role_mapping"].items()
+                    str(role): tuple(str(value) for value in values)
+                    for role, values in (data.get("role_mapping") or {}).items()
                 },
                 precedence=tuple(str(role) for role in data["precedence"]),
                 stages=tuple(str(stage) for stage in data.get("stages", ())),
@@ -196,6 +200,7 @@ class Settings:
                     for name, caller in (data.get("service_callers") or {}).items()
                 },
                 service_audience=str(data.get("service_audience") or "openlakeforge-platform-api"),
+                anonymous_role=data.get("anonymous_role") or None,
                 metrics_enabled=data.get("metrics_enabled") is True,
                 metrics_url=data.get("metrics_url") or None,
                 metrics_retention_days=int(data.get("metrics_retention_days", 7)),
@@ -210,13 +215,15 @@ class Settings:
         return cls.from_mapping(json.loads(Path(path).read_text(encoding="utf-8")))
 
     def _validate(self) -> None:
-        if not self.issuer_url:
-            raise SettingsError("issuer_url is empty")
-        # PyJWT treats an empty audience list as "accept any audience".
-        if not self.audiences or not all(self.audiences):
-            raise SettingsError("audiences must list at least one non-empty client id")
         if not self.precedence or len(set(self.precedence)) != len(self.precedence):
             raise SettingsError("precedence must list each canonical role once")
+        if self.anonymous_role is not None:
+            self._validate_anonymous()
+        elif not self.issuer_url:
+            raise SettingsError("issuer_url is empty")
+        # PyJWT treats an empty audience list as "accept any audience".
+        elif not self.audiences or not all(self.audiences):
+            raise SettingsError("audiences must list at least one non-empty client id")
         unknown = sorted(set(self.role_mapping) - set(self.precedence))
         if unknown:
             raise SettingsError(f"role_mapping names roles outside precedence: {', '.join(unknown)}")
@@ -308,6 +315,17 @@ class Settings:
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")
+
+    def _validate_anonymous(self) -> None:
+        if self.issuer_url or self.audiences:
+            raise SettingsError(
+                "anonymous_role turns authentication off; it cannot be set beside issuer_url or audiences"
+            )
+        if self.anonymous_role not in self.precedence:
+            raise SettingsError(f"anonymous_role {self.anonymous_role!r} is not in precedence")
+        host = urlsplit(self.public_origin or "").hostname or ""
+        if host != "localhost" and not host.endswith(".localhost"):
+            raise SettingsError("anonymous_role needs a public_origin on *.localhost: authentication is off only there")
 
 
 # The key that signs query ids and cursors, mounted from a Secret like the audit key and never read from the settings

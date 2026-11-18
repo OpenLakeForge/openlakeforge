@@ -15,8 +15,9 @@ from olf.platform import session as sessions
 
 
 def base_url(instance: sessions.Instance) -> str:
-    """The API answers under /api on the portal's host, the deployment's base domain, with the issuer's scheme."""
-    scheme = urlsplit(instance.issuer).scheme or "https"
+    """The API answers under /api on the portal's host, the deployment's base domain, with the issuer's scheme, or
+    the routes' own when authentication is off."""
+    scheme = urlsplit(instance.issuer).scheme or instance.scheme
     return f"{scheme}://{instance.base_domain}/api"
 
 

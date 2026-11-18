@@ -287,7 +287,7 @@ reminders.
 | `health_unreadable` | `critical` | The platform API's services route for a stage could not be read in 3 consecutive evaluations. |
 
 `service_degraded` and `health_unreadable` need the platform API, which the
-local provider deploys when the profile declares `spec.identity`. Without it
+local provider deploys when the profile declares `spec.access`. Without it
 the evaluator reads no service signal and raises neither.
 
 ## A notification

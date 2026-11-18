@@ -319,6 +319,15 @@ def test_plain_http_access_with_identity_still_signs_in(tmp_path: Path) -> None:
     assert sessions.resolve_instance(str(profile)).issuer == "http://auth.olf.localhost"
 
 
+def test_without_identity_the_api_is_reached_with_the_routes_scheme(tmp_path: Path) -> None:
+    from olf.platform import api
+
+    plain = sessions.resolve_instance(_profile_with(tmp_path, "  access: {tls: none}\n"))
+    assert plain.anonymous and api.base_url(plain) == "http://olf.localhost/api"
+    tls = sessions.resolve_instance(_profile_with(tmp_path, "  access: {tls: local-ca}\n"))
+    assert api.base_url(tls) == "https://olf.localhost/api"
+
+
 @pytest.mark.parametrize("command", ["whoami", "logout"])
 def test_without_identity_whoami_and_logout_say_sign_in_is_off(tmp_path: Path, command: str) -> None:
     profile = _profile_with(tmp_path, "  access: {tls: none}\n")

@@ -109,13 +109,14 @@ def source_egress_variables(config: LocalDeploymentConfig) -> dict[str, str]:
 
 
 def platform_api_variables(config: LocalDeploymentConfig) -> dict[str, str]:
-    """The platform API validates tokens against the issuer, so it is deployed only with spec.identity; the alert
-    evaluator runs the same image and needs no issuer, so alert receivers build it too (the root still deploys the API
-    only with identity). The quality reconciler (ADR 0007) runs it too, for each governed stage. The reference is
-    computed, not built, so a plan and the apply after it name the same image."""
+    """The platform API is served on the portal's host, so it is deployed with spec.access: it validates tokens
+    against the issuer under spec.identity, and serves every caller anonymously without one (ADR 0021, decision 8).
+    The alert evaluator runs the same image, so alert receivers build it too, as does the quality reconciler (ADR
+    0007) for each governed stage. The reference is computed, not built, so a plan and the apply after it name the
+    same image."""
     topology = config.context.topology
     if (
-        topology.identity is None
+        topology.access is None
         and not topology.observability.alert_receivers
         and not config.platform_features.governance_enabled
     ):
@@ -284,9 +285,7 @@ def require_alert_receiver_secrets(
             )
             present[ref.name] = set(result.stdout.split()) if result.ok else None
         found = present[ref.name]
-        command = (
-            f"kubectl -n {namespace} create secret generic {ref.name} --from-literal={ref.key}=<the webhook URL>"
-        )
+        command = f"kubectl -n {namespace} create secret generic {ref.name} --from-literal={ref.key}=<the webhook URL>"
         if found is None:
             problems.append(
                 f"receiver '{receiver.name}': Secret '{ref.name}' is not readable in namespace '{namespace}'. "
