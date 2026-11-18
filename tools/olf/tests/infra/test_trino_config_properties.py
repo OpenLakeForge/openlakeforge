@@ -33,8 +33,12 @@ output "properties" { value = local.config_properties }
 """
 
 STAGES = "query.max-stage-count=300"
-# The base line and ADR 0024's heap bean, rendered whatever the sizing and UI.
-BASE = ["http-server.process-forwarded=true", "openmetrics.jmx-object-names=java.lang:type=Memory"]
+# The base line, uncompressed responses (#1088) and ADR 0024's heap bean, rendered whatever the sizing and UI.
+BASE = [
+    "http-server.process-forwarded=true",
+    "http-server.compression.enabled=false",
+    "openmetrics.jmx-object-names=java.lang:type=Memory",
+]
 
 
 def render(tmp_path: Path, *, sizing: bool = True, ui: list[str] | None = None) -> list[str]:
