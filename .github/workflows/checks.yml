@@ -60,6 +60,17 @@ jobs:
       - name: Check Terraform and Helm
         run: uv run --project tools/olf --locked olf check infra
 
+      # promtool from the pinned Prometheus image evaluates the metrics module's
+      # recording rules (ADR 0024). The managed Terraform renders them, and the
+      # variable turns a missing Terraform or Docker into a failure, not a skip.
+      - name: Test the metrics recording rules
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/bin"
+          ln -sf "$(uv run --project tools/olf --locked olf toolchain path terraform)" "${RUNNER_TEMP}/bin/terraform"
+          PATH="${RUNNER_TEMP}/bin:${PATH}" OLF_REQUIRE_RULE_TESTS=1 \
+            uv run --project tools/olf --locked pytest tools/olf/tests/infra/test_metrics_recording_rules.py -p no:cacheprovider
+
   contracts:
     name: Validate provider contracts
     runs-on: ubuntu-latest

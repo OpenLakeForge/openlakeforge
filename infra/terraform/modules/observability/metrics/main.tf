@@ -32,8 +32,6 @@ locals {
     self = ["prometheus_tsdb_head_series", "prometheus_tsdb_storage_blocks_bytes", "prometheus_target_scrapes_exceeded_sample_limit_total"]
   }
   keep_rule = { for job, names in local.keep : job => { source_labels = ["__name__"], action = "keep", regex = join("|", names) } }
-  # A JMX composite attribute is exposed as JMX_<domain>_TYPE_<type>_ATTRIBUTE_<attribute>_<item>.
-  trino_heap_used = "JMX_java_lang_TYPE_Memory_ATTRIBUTE_HeapMemoryUsage_used"
 
   # The kubelet takes the ServiceAccount token as a bearer and authorizes it
   # with a SubjectAccessReview for nodes/metrics.

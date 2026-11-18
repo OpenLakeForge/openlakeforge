@@ -21,6 +21,10 @@ locals {
   restarts            = "kube_pod_container_status_restarts_total"
   restarts_per_minute = "(clamp_min(${local.restarts} - ${local.restarts} offset 1m, 0) or (${local.restarts} unless ${local.restarts} offset 1m))"
 
+  # A JMX composite attribute is exposed as JMX_<domain>_TYPE_<type>_ATTRIBUTE_<attribute>_<item>;
+  # main.tf's Trino job keeps it. Here so the rules render from this file alone, as the promtool test does.
+  trino_heap_used = "JMX_java_lang_TYPE_Memory_ATTRIBUTE_HeapMemoryUsage_used"
+
   rule_groups = {
     kubernetes = [
       { record = local.pod_component_rule, expr = local.pod_component },
