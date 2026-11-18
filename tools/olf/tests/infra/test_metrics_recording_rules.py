@@ -150,6 +150,26 @@ def test_restarts_count_each_minute_per_container(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_a_restart_just_before_the_pod_is_deleted_is_counted_once(tmp_path: Path) -> None:
+    # Scraped every 30 s: 0 at 0:00, 1 at 0:30, and the pod is gone by the 1:00 scrape,
+    # so an instant selector at the 1:00 evaluation sees neither the series nor its labels.
+    case: dict[str, object] = {
+        "interval": "30s",
+        "input_series": [
+            pod("trino-1", "olf-dev", "dev", "trino", "1 1 stale"),
+            restarts("trino-1", "olf-dev", "dev", "0 1 stale"),
+        ],
+        "promql_expr_test": [
+            expect("olf:container_restarts", "1m", {("dev", "trino"): 1}),
+            expect("olf:container_restarts", "2m", {}),
+        ],
+    }
+
+    result = promtool_test(tmp_path, [case])
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_memory_is_summed_per_component_through_the_pod_label_join(tmp_path: Path) -> None:
     memory = "container_memory_working_set_bytes"
     case: dict[str, object] = {

@@ -13,13 +13,20 @@ locals {
     "label_replace(label_replace(kube_pod_labels, \"component\", \"$1\", \"label_app_kubernetes_io_name\", \"(.+)\"),",
     " \"component\", \"unlabelled\", \"label_app_kubernetes_io_name\", \"\")))",
   ])
-  by_component = "on (namespace, pod) group_left (component) ${local.pod_component_rule}"
-  # A container first seen this minute has no sample a minute ago, so it counts
-  # its whole value: kube-state-metrics' counter starts at 0 with the container,
-  # and a crash on start is the case worth charting. clamp_min drops a negative
-  # difference, should the counter ever go back.
+  # The component a pod had at any evaluation in the last two minutes, so a pod
+  # deleted since the last one still has it for its final restarts.
+  by_component = "on (namespace, pod) group_left (component) topk by (namespace, pod) (1, last_over_time(${local.pod_component_rule}[2m]))"
+  # Per container, the highest count of the minute ending now less the last
+  # count of the minute before. Range selectors keep the samples of a pod
+  # deleted before this evaluation, which an instant selector reads as stale;
+  # the windows are left-open, so a sample counts in exactly one minute. A
+  # container with no sample the minute before counts its whole value:
+  # kube-state-metrics' counter starts at 0 with the container, and a crash on
+  # start is the case worth charting. clamp_min drops a counter that goes back.
   restarts            = "kube_pod_container_status_restarts_total"
-  restarts_per_minute = "(clamp_min(${local.restarts} - ${local.restarts} offset 1m, 0) or (${local.restarts} unless ${local.restarts} offset 1m))"
+  restarts_now        = "max_over_time(${local.restarts}[1m])"
+  restarts_before     = "last_over_time(${local.restarts}[1m] offset 1m)"
+  restarts_per_minute = "(clamp_min(${local.restarts_now} - ${local.restarts_before}, 0) or (${local.restarts_now} unless ${local.restarts_before}))"
 
   # A JMX composite attribute is exposed as JMX_<domain>_TYPE_<type>_ATTRIBUTE_<attribute>_<item>;
   # main.tf's Trino job keeps it. Here so the rules render from this file alone, as the promtool test does.

@@ -276,7 +276,7 @@ The first catalog, mapped to #333's chart list:
 | --- | --- | --- | --- | --- |
 | `cpu_usage_cores` | stage, platform | `stage`, `component` | kubelet, joined to `kube_pod_labels` | service CPU |
 | `memory_working_set_bytes` | stage, platform | `stage`, `component` | kubelet, joined | service memory |
-| `container_restarts` | stage, platform | `stage`, `component` | kube-state-metrics: the rule records each minute's restarts per container before summing, a container first seen that minute counting its whole value, and the API sums it per step | (health context) |
+| `container_restarts` | stage, platform | `stage`, `component` | kube-state-metrics: the rule records each minute's restarts per container before summing, from range selectors so a pod deleted within the minute still counts, a container first seen that minute counting its whole value; the API sums it per step | (health context) |
 | `node_cpu_usage_cores`, `node_memory_working_set_bytes` | platform | none | kubelet | cluster CPU and memory |
 | `trino_running_queries`, `trino_queued_queries` | stage | `stage` | Trino | Trino load |
 | `trino_failed_queries` | stage | `stage` | Trino, increase per step | Trino query errors |
