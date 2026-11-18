@@ -1,6 +1,13 @@
 # ADR 0022, decision 6: archive retention is a SeaweedFS filer path TTL per key prefix, set by a Job after the
 # bucket exists and verified against the filer's own configuration.
 
+# The flow table the admission check reads. The default is its place in the tree, relative to this module, where a
+# plain `terraform test` runs; `olf check infra` tests a copy of the module elsewhere and passes the absolute path.
+variable "network_flows_file" {
+  type    = string
+  default = "../../../../../release/network-flows.yaml"
+}
+
 mock_provider "helm" {}
 mock_provider "kubernetes" {}
 
@@ -206,7 +213,7 @@ run "the_job_is_admitted_to_the_master_and_filer" {
 
   assert {
     condition = anytrue([
-      for flow in yamldecode(file("${path.module}/../../../../../release/network-flows.yaml")).flows :
+      for flow in yamldecode(file(var.network_flows_file)).flows :
       length(try(flow.from.pods, {})) > 0
       && alltrue([for k, v in try(flow.from.pods, {}) : lookup(kubernetes_job_v1.object_retention[0].spec[0].template[0].metadata[0].labels, k, null) == v])
       && try(flow.to.pods["app.kubernetes.io/name"], "") == "seaweedfs"
