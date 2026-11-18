@@ -16,6 +16,13 @@ variable "image" {
   default     = "prom/prometheus:v3.13.5@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9"
 }
 
+variable "kube_state_metrics_image" {
+  description = "kube-state-metrics image, pinned by digest (release/component-catalog.yaml, kube_state_metrics)."
+  type        = string
+  nullable    = false
+  default     = "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0@sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b"
+}
+
 variable "retention_days" {
   description = "spec.observability.metrics.retention_days: blocks older than this are deleted."
   type        = number
@@ -42,7 +49,7 @@ variable "retention_size" {
 }
 
 variable "stage_namespaces" {
-  description = "Stage name to namespace. A series from one of these namespaces is labelled with its stage."
+  description = "Stage name to namespace. A series from one of these namespaces is labelled with its stage, and kube-state-metrics watches each of them through a Role there."
   type        = map(string)
 }
 

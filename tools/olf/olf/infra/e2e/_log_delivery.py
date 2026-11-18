@@ -158,13 +158,15 @@ def describe_loss(seen: set[int], expected: int) -> str:
 
 
 def fill_script(token: str, lines: int) -> str:
+    # A literal width: the emitter image's BusyBox awk rejects `%*s`, and the fill then wrote no line at all while its
+    # Job still completed. `|| exit 1` turns such a failure into a failed Job, which the drill reports.
     awk = (
-        'BEGIN{p=sprintf("%*s",' + str(FILL_LINE_PADDING) + ',""); gsub(/ /,"x",p); '
+        'BEGIN{p=sprintf("%' + str(FILL_LINE_PADDING) + 's",""); gsub(/ /,"x",p); '
         'for(n=s;n<=e;n++) print t,"line",n,p}'
     )
     return (
         f'i=1; while [ "$i" -le {lines} ]; do end=$((i+{FILL_LINES_PER_SECOND}-1)); '
-        f"awk -v s=$i -v e=$end -v t={token} '{awk}' >&2; i=$((end+1)); sleep 1; done"
+        f"awk -v s=$i -v e=$end -v t={token} '{awk}' >&2 || exit 1; i=$((end+1)); sleep 1; done"
     )
 
 

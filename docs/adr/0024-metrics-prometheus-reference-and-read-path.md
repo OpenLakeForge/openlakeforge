@@ -3,10 +3,11 @@
 ## Status
 
 Proposed, awaiting the owner's approval (#21). Slices M-a, M-b and M-e under
-"Build order" are built, and of M-d the series catalog
-(`openlakeforge_core.metrics`) and the Prometheus client
-(`openlakeforge_services.prometheus`), the settings and the health routes'
-`metrics` integration, and the two series routes; the rest is not. This record decides the backend, the scrape
+"Build order" are built; of M-c, kube-state-metrics; of M-d, the series catalog
+(`openlakeforge_core.metrics`), the Prometheus client
+(`openlakeforge_services.prometheus`), the platform API's metrics settings and
+the health routes' `metrics` integration, and the two series routes. The rest
+is not. This record decides the backend, the scrape
 baseline, the label policy, the read path through the platform API, the network
 and RBAC additions and the contract shape for `spec.observability.metrics`; the
 slices under "Build order" implement it once it is approved.
@@ -274,9 +275,11 @@ Routes, all read-only and not audited, like the health routes:
 | `range=7d` | 7 days, refused when `retention_days` is shorter | 30 min | 336 |
 
 No `start`, `end`, `step` or query parameter exists. A range longer than the
-retention is a 400, not a short answer that looks complete. The API's client
-times out after 5 s, as the service probes do (`PROBE_TIMEOUT` in
-`service_probes.py` **[V]**).
+retention is a 400, not a short answer that looks complete. Every read the API
+sends Prometheus, the health probe included, is one attempt with a 5 s deadline
+across the whole read, as the service probes have
+(`PROBE_TIMEOUT` in `service_probes.py` **[V]**): no retry after a 429, and past
+the deadline the answer is `unavailable` with that reason.
 
 The first catalog, mapped to #333's chart list:
 
