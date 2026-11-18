@@ -45,6 +45,20 @@ variable "internal_issuer_url" {
   default     = null
 }
 
+variable "anonymous_catalog" {
+  description = "With anonymous_role: the Secret `olf infra deploy` writes with the Polaris principal platform-api-anonymous's credentials (keys POLARIS_ANONYMOUS_CLIENT_ID and POLARIS_ANONYMOUS_CLIENT_SECRET), and Polaris's token endpoint. The API mints that principal's token for the anonymous principal's queries (ADR 0021, decision 8)."
+  type = object({
+    secret_name = string
+    token_url   = string
+  })
+  default = null
+
+  validation {
+    condition     = var.anonymous_catalog == null || var.anonymous_role != null
+    error_message = "anonymous_catalog serves the anonymous principal only; set it with anonymous_role."
+  }
+}
+
 variable "audiences" {
   description = "Client ids whose tokens the API accepts (ADR 0021, decision 3). At least one, and none with anonymous_role."
   type        = list(string)

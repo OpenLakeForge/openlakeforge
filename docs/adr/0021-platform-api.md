@@ -420,11 +420,15 @@ to anyone who reaches loopback, and the platform API follows them:
   the provider's rule, enforced again where it matters.
 - Changes are audited as `anonymous`. OpenMetadata authorizes the caller's own
   token (decision 2), so its routes are not configured.
-- Queries are offered, run as the Trino user `anonymous` with no bearer. The
-  stage catalog is keyless (ADR 0019, section 9): a table request needs a
-  Polaris token in the `token` extra credential, and the catalog's own
-  credential holds no grant. Until the API sends a token of its own for the
-  anonymous principal, a query that reads a table is refused by the catalog.
+- Queries run as the Trino user `anonymous`. The stage catalogs are keyless
+  (ADR 0019, section 9), so the API mints a `client_credentials` token for the
+  Polaris principal `platform-api-anonymous` and sends it as the `token` extra
+  credential (F54, ADR 0017). `olf`'s Polaris bootstrap creates the principal
+  only without `spec.identity`, and removes it with identity. It holds
+  `CATALOG_MANAGE_CONTENT` on every stage catalog, what `platform-admin` holds:
+  this is a local test stack, and restricting a caller who cannot sign in
+  protects nothing. Its Secret is mounted as an optional volume and read per
+  token, because the bootstrap writes it after the API starts.
 - `olf` reaches the API with the routes' own scheme: plain HTTP under
   `access.tls: none`.
 
@@ -781,4 +785,5 @@ four ranges, at the health routes' floor, read-only and not audited. No route ta
 
 2026-11-18: decision 8 extended. Without an issuer the local provider renders `person_query` and the query
 endpoints, so the portal's query page offers the stages, and the anonymous principal's queries reach Trino as the
-user `anonymous` with no bearer. Reading a table still needs a Polaris token, which the keyless catalog requires.
+user `anonymous` with no bearer. The API mints that token for the Polaris principal `platform-api-anonymous`, which holds
+every stage catalog's content (F54).

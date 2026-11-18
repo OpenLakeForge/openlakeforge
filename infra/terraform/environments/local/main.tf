@@ -457,7 +457,13 @@ module "platform_api" {
   precedence   = local.identity_roles.precedence
   # Authentication off, as Superset's public admin is: anyone who reaches *.localhost holds the highest role.
   anonymous_role = local.identity_enabled ? null : local.identity_roles.precedence[0]
-  stages         = sort(keys(local.enabled_stages))
+  # The Polaris principal the anonymous principal queries as. olf's Polaris bootstrap writes this Secret
+  # (olf/infra/polaris_bootstrap.py, ANONYMOUS_SECRET); the names must agree.
+  anonymous_catalog = local.identity_enabled ? null : {
+    secret_name = "polaris-platform-api-anonymous-creds"
+    token_url   = values(local.stage_catalog_contracts)[0].token_uri
+  }
+  stages = sort(keys(local.enabled_stages))
   # The portal route's origin (host and scheme of the "platform-api" route,
   # contracts.tf): the one origin the CSRF guard lets write. Per-person
   # queries need the keyless stage catalogs and Dex; without an issuer the

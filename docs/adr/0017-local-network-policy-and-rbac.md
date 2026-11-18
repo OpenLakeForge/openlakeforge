@@ -224,6 +224,7 @@ port [D]).
 | F51 | kube-state-metrics | kube-apiserver | 443 (Service) and 6443 (the endpoint) | `list` and `watch` of pods, Deployments, StatefulSets and DaemonSets in `olf-system` and the stage namespaces (`--namespaces`), with its ServiceAccount token | T |
 | F52 | the quality reconciler (`openlakeforge.io/job=quality-reconciler`, one CronJob per governed stage) | OpenMetadata 8585 | 8585 | test definitions, cases and results ([ADR 0007](0007-governance-and-lineage.md)), with the ingestion bot's token from its Secret; the reconciler never reruns a check | T |
 | F53 | the quality reconciler | SeaweedFS S3 8333 | 8333 | its stage's manifests and its own state, with one key per stage, `openlakeforge-quality-sync-<stage>`: `Read` and `List` on `activations/<stage>/run-artifacts/quality/*`, `Read`, `Write` and `List` on `activations/<stage>/quality-sync/*`, and nothing else | T |
+| F54 | the platform API | Polaris REST 8181 | 8181 | the `client_credentials` token of `platform-api-anonymous`, which the API mints for the anonymous principal's queries ([ADR 0021](0021-platform-api.md), decision 8). The principal and its Secret exist only without `spec.identity`; the row renders with the API | T |
 
 Not derivable from source, to settle in the slice that touches each:
 the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
@@ -709,3 +710,6 @@ Deployment in `olf-system`) is scraped by Prometheus on 8080 (F50) and lists and
 grants are a Role and RoleBinding in `olf-system` and each stage namespace, `list` and `watch` on pods, Deployments,
 StatefulSets and DaemonSets, never a ClusterRole. As F45 to F49, the workload, its Roles and both rows render only
 when the profile enables metrics.
+
+2026-11-18: F54 added (ADR 0021, decision 8): with authentication off, the platform API mints a Polaris token for the
+principal `platform-api-anonymous` on Polaris's REST port 8181, and sends it with the anonymous principal's queries.

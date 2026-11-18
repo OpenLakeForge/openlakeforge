@@ -29,6 +29,7 @@ from openlakeforge_platform_api import (
     report_routes,
     writes,
 )
+from openlakeforge_platform_api.anonymous_catalog import AnonymousCatalogToken
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
 from openlakeforge_platform_api.audit import record as audit_record
 from openlakeforge_platform_api.models import Health, WhoAmI
@@ -340,6 +341,7 @@ def create_app(
     trino_send: Callable[..., requests.Response] | None = None,
     service_probes: StageProber | None = None,
     quality_readers: dict[str, QualityReader] | None = None,
+    anonymous_catalog_token: Callable[[], str] | None = None,
 ) -> FastAPI:
     # No interactive docs or OpenAPI route: each would be a route outside the
     # matrix. ADR 0021 decision 5 commits the OpenAPI document under docs/schema.
@@ -375,6 +377,9 @@ def create_app(
     app.state.settings = settings
     app.state.service_probes = service_probes or owned_probes
     app.state.permissions = permissions or PermissionMatrix.packaged(settings.precedence)
+    if anonymous_catalog_token is None and settings.anonymous_catalog_token_url:
+        anonymous_catalog_token = AnonymousCatalogToken(settings.anonymous_catalog_token_url)
+    app.state.anonymous_catalog_token = anonymous_catalog_token
     app.state.validator = validator or TokenValidator(settings)
     app.state.service_validator = service_validator or ServiceTokenValidator(settings)
     app.state.object_store = object_store or _object_store(settings)

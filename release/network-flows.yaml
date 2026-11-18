@@ -357,3 +357,8 @@ flows:
     to: {scope: shared, pods: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/instance: seaweedfs, app.kubernetes.io/component: s3}}
     ports: [8333] # the stage's manifests and its `quality-sync/` state, with the stage's own key openlakeforge-quality-sync-<stage>
     tag: T # needs a reconciler pass on a running cluster
+  - id: F54
+    from: {scope: shared, pods: {app.kubernetes.io/name: platform-api}}
+    to: {scope: shared, pods: {app.kubernetes.io/name: polaris, app.kubernetes.io/instance: polaris}}
+    ports: [8181] # the anonymous principal's client_credentials token (ADR 0021, decision 8); used only without spec.identity
+    tag: T # needs an anonymous query on a running cluster

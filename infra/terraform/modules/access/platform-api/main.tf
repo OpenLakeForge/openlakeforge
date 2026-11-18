@@ -12,7 +12,9 @@ locals {
     precedence   = var.precedence
     # ADR 0021, decision 8: set only where the deployment has no issuer.
     anonymous_role = var.anonymous_role
-    stages         = var.stages
+    # The anonymous principal's Polaris token endpoint; its credentials are the files under /anonymous-catalog.
+    anonymous_catalog_token_url = try(var.anonymous_catalog.token_url, null)
+    stages                      = var.stages
     # The CSRF guard's one allowed Origin, and whether per-person queries are on.
     public_origin = var.public_origin
     person_query  = var.person_query
@@ -226,6 +228,17 @@ resource "kubernetes_deployment_v1" "platform_api" {
             }
           }
 
+          # The anonymous principal's Polaris credentials (ADR 0021, decision 8). Read per token, not at start: the
+          # Polaris bootstrap writes the Secret after this pod starts, and the kubelet fills the volume then.
+          dynamic "volume_mount" {
+            for_each = var.anonymous_catalog == null ? [] : [1]
+            content {
+              name       = "anonymous-catalog"
+              mount_path = "/anonymous-catalog"
+              read_only  = true
+            }
+          }
+
           # /api/healthz never calls the issuer, so an issuer outage does not
           # restart or unready the pod.
           readiness_probe {
@@ -283,6 +296,17 @@ resource "kubernetes_deployment_v1" "platform_api" {
             name = "ca"
             config_map {
               name = var.ca_configmap_name
+            }
+          }
+        }
+
+        dynamic "volume" {
+          for_each = var.anonymous_catalog == null ? [] : [1]
+          content {
+            name = "anonymous-catalog"
+            secret {
+              secret_name = var.anonymous_catalog.secret_name
+              optional    = true
             }
           }
         }
