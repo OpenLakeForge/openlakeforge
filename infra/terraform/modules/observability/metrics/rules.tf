@@ -19,14 +19,23 @@ locals {
   # Per container, the highest count of the minute ending now less the last
   # count of the minute before. Range selectors keep the samples of a pod
   # deleted before this evaluation, which an instant selector reads as stale;
-  # the windows are left-open, so a sample counts in exactly one minute. A
-  # container with no sample the minute before counts its whole value:
-  # kube-state-metrics' counter starts at 0 with the container, and a crash on
-  # start is the case worth charting. clamp_min drops a counter that goes back.
-  restarts            = "kube_pod_container_status_restarts_total"
-  restarts_now        = "max_over_time(${local.restarts}[1m])"
-  restarts_before     = "last_over_time(${local.restarts}[1m] offset 1m)"
-  restarts_per_minute = "(clamp_min(${local.restarts_now} - ${local.restarts_before}, 0) or (${local.restarts_now} unless ${local.restarts_before}))"
+  # the windows are left-open, so a sample counts in exactly one minute.
+  # clamp_min drops a counter that goes back.
+  #
+  # A container with no sample the minute before counts its whole value only
+  # if its pod was created in the last two minutes: kube-state-metrics' counter
+  # starts at 0 with the container, and a crash on start is the case worth
+  # charting. One seen again after a scrape gap or lost history counts 0, so a
+  # gap undercounts the restarts within it and never replays a lifetime.
+  restarts        = "kube_pod_container_status_restarts_total"
+  restarts_now    = "max_over_time(${local.restarts}[1m])"
+  restarts_before = "last_over_time(${local.restarts}[1m] offset 1m)"
+  pod_is_new      = "on (namespace, pod) (time() - max_over_time(kube_pod_created[1m]) < 120)"
+  restarts_per_minute = join(" or ", [
+    "(clamp_min(${local.restarts_now} - ${local.restarts_before}, 0)",
+    "(${local.restarts_now} and ${local.pod_is_new})",
+    "${local.restarts_now} * 0)",
+  ])
 
   # A JMX composite attribute is exposed as JMX_<domain>_TYPE_<type>_ATTRIBUTE_<attribute>_<item>;
   # main.tf's Trino job keeps it. Here so the rules render from this file alone, as the promtool test does.

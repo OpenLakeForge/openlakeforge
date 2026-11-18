@@ -87,6 +87,11 @@ def restarts(pod_name: str, namespace: str, stage: str, values: str) -> dict[str
     return {"series": series, "values": values}
 
 
+def created(pod_name: str, namespace: str, values: str) -> dict[str, str]:
+    """kube_pod_created, in seconds from the test's start; promtool's clock starts at 0."""
+    return {"series": f'kube_pod_created{{namespace="{namespace}",pod="{pod_name}",uid="u"}}', "values": values}
+
+
 def expect(series: str, at: str, samples: dict[tuple[str, str], float]) -> dict[str, object]:
     """The recorded series at `at`: exactly one sample per (stage, component), with no other label."""
     return {
@@ -105,6 +110,7 @@ RESTART_INPUT = [
     restarts("trino-0", "olf-dev", "dev", "0 0 1 1 3"),  # an existing container restarts
     pod("trino-crash", "olf-dev", "dev", "trino", "_ _ 1 1 1"),
     restarts("trino-crash", "olf-dev", "dev", "_ _ 3 4 4"),  # first seen at 2m, already restarted 3 times
+    created("trino-crash", "olf-dev", "_ _ 110 110 110"),  # created 10 s before it was first seen
     pod("superset-0", "olf-dev", "dev", "superset", "1x4"),
     restarts("superset-0", "olf-dev", "dev", "4 4 0 0 1"),  # the counter goes back at 2m
     pod("polaris-0", "olf-system", "platform", "polaris", "1x4"),
@@ -162,6 +168,27 @@ def test_a_restart_just_before_the_pod_is_deleted_is_counted_once(tmp_path: Path
         "promql_expr_test": [
             expect("olf:container_restarts", "1m", {("dev", "trino"): 1}),
             expect("olf:container_restarts", "2m", {}),
+        ],
+    }
+
+    result = promtool_test(tmp_path, [case])
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_a_container_seen_again_after_a_scrape_gap_replays_nothing(tmp_path: Path) -> None:
+    # kube-state-metrics was unreachable at 1m and 2m: Prometheus marked its series stale,
+    # and the old pod's container came back with the 20 restarts it had before.
+    case: dict[str, object] = {
+        "interval": "1m",
+        "input_series": [
+            pod("seaweedfs-0", "olf-system", "platform", "seaweedfs", "1 stale _ 1 1"),
+            restarts("seaweedfs-0", "olf-system", "platform", "20 stale _ 20 20"),
+            created("seaweedfs-0", "olf-system", "-86400 stale _ -86400 -86400"),
+        ],
+        "promql_expr_test": [
+            expect("olf:container_restarts", "3m", {("platform", "seaweedfs"): 0}),
+            expect("olf:container_restarts", "4m", {("platform", "seaweedfs"): 0}),
         ],
     }
 

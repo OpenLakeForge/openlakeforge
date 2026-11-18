@@ -14,6 +14,8 @@ locals {
     "kube_pod_container_status_restarts_total",
     "kube_pod_status_ready",
     "kube_pod_labels",
+    # Tells a new container from one seen again after a scrape gap (rules.tf).
+    "kube_pod_created",
     "kube_deployment_status_replicas_available",
     "kube_statefulset_status_replicas_ready",
     "kube_daemonset_status_number_ready",
