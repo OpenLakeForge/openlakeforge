@@ -139,6 +139,7 @@ def test_the_seaweedfs_job_may_read_the_platform_api_keys_and_no_other_name() ->
         "platform-api-audit-writer-s3-creds",
         "platform-api-quality-reader-dev-s3-creds",
         "platform-api-files-s3-creds",
+        "platform-api-alert-state-s3-creds",
         "log-collector-s3-creds",
         "alert-evaluator-s3-creds",
     ]

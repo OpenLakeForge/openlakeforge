@@ -306,6 +306,13 @@ module "seaweedfs" {
     quality_prefixes        = [for name in sort(keys(local.enabled_stages)) : "activations/${name}/run-artifacts/quality/"]
     policy_stages           = sort(keys(local.enabled_stages))
   } : null
+  # The platform API's read-only view of the evaluator's state (#1258), only where both run.
+  alert_state_reader_credentials = local.platform_api_enabled && local.alerts_enabled ? {
+    namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+    credentials_secret_name = "platform-api-alert-state-s3-creds"
+    ops_bucket_name         = var.ops_bucket_name
+    prefix                  = "${local.alerts_prefix}state/"
+  } : null
 
   depends_on = [
     kubernetes_namespace_v1.stage,
@@ -493,6 +500,9 @@ module "platform_api" {
   # Quality summaries (#1186): each stage's manifests, read with its own key.
   quality_manifests           = { for name in keys(local.enabled_stages) : name => "${local.artifact_base_uri}/activations/${name}/" }
   quality_reader_secret_names = module.seaweedfs.quality_reader_secret_names
+  # Open alert incidents (#1258): the evaluator's state, read with its own read-only key.
+  alerts_state_base_uri          = local.alerts_enabled ? "${local.artifact_base_uri}/${local.alerts_prefix}" : null
+  alert_state_reader_secret_name = module.seaweedfs.alert_state_reader_secret_name
   # Publication lag (#798): the summary each governed stage's reconciler writes, read with the files key below,
   # which already holds Read on the ops bucket. Slim has no reconciler and no entry.
   quality_sync_summaries = { for name in keys(local.governed_stages) : name => "${local.artifact_base_uri}/activations/${name}/quality-sync/summary.json" }

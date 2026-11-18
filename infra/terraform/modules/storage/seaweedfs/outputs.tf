@@ -78,6 +78,12 @@ output "files_secret_name" {
   depends_on  = [kubernetes_job_v1.credentials]
 }
 
+output "alert_state_reader_secret_name" {
+  description = "Secret holding the platform API's read-only key for the alert evaluator's state, or null when alert_state_reader_credentials is."
+  value       = var.alert_state_reader_credentials == null ? null : var.alert_state_reader_credentials.credentials_secret_name
+  depends_on  = [kubernetes_job_v1.credentials]
+}
+
 output "alerts_secret_name" {
   description = "Secret holding the alert evaluator's key for its state prefix and the quality manifests, or null when alerts_credentials is."
   value       = var.alerts_credentials == null ? null : var.alerts_credentials.credentials_secret_name
