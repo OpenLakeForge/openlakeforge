@@ -402,10 +402,16 @@ class _PlatformScriptedRunner(RecordingRunner):
 
 
 @pytest.mark.parametrize("with_access", [True, False])
-def test_platform_up_happy_path_applies_terraform(tmp_path: Path, with_access: bool) -> None:
+def test_platform_up_happy_path_applies_terraform(
+    tmp_path: Path, with_access: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from dataclasses import replace
 
     from olf.common.profile import AccessSpec
+    from olf.infra.deployment.local import images
+
+    # spec.access deploys the platform API (ADR 0021, decision 8); its build is test_local_images.py's.
+    monkeypatch.setattr(images, "prepare_platform_api_image", lambda *_, **__: None)
 
     topology = replace(_topology(analytics=False), access=AccessSpec(tls="local-ca")) if with_access else None
     config = _config(tmp_path, profile=Profile.SLIM, topology=topology)
@@ -1048,13 +1054,13 @@ def test_platform_up_uninstalls_failed_and_pending_releases_before_each_apply(tm
     assert sorted(uninstalled) == sorted(expected)
 
 
-@pytest.mark.parametrize("with_identity", [True, False])
-def test_platform_up_deploys_the_platform_api_only_with_an_issuer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_identity: bool
+@pytest.mark.parametrize("with_access", [True, False])
+def test_platform_up_deploys_the_platform_api_with_access_issuer_or_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_access: bool
 ) -> None:
     from dataclasses import replace
 
-    from olf.common.profile import AccessSpec, IdentitySpec
+    from olf.common.profile import AccessSpec
     from olf.infra.deployment.local import images
 
     built: list[LocalDeploymentConfig] = []
@@ -1064,15 +1070,8 @@ def test_platform_up_deploys_the_platform_api_only_with_an_issuer(
         return images.platform_api_image(config)
 
     monkeypatch.setattr(images, "prepare_platform_api_image", prepare)
-    topology = replace(_topology(analytics=False), access=AccessSpec())
-    if with_identity:
-        external = IdentitySpec(
-            issuer="external",
-            issuer_url="https://idp.example.com",
-            role_claim="groups",
-            role_mapping={"viewer": ("olf-viewers",)},
-        )
-        topology = replace(topology, identity=external)
+    # No spec.identity either way: with access the API serves callers anonymously (ADR 0021, decision 8).
+    topology = replace(_topology(analytics=False), access=AccessSpec() if with_access else None)
     config = _config(tmp_path, profile=Profile.SLIM, topology=topology)
     config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
     config.paths.foundation_state_path.write_text("{}")
@@ -1082,11 +1081,11 @@ def test_platform_up_deploys_the_platform_api_only_with_an_issuer(
 
     apply = next(c for c in runner.calls if c.argv[0] == "terraform" and "apply" in c.argv)
     reference = images.platform_api_image(config)
-    assert (f"-var=platform_api_image={reference}" in apply.argv) is with_identity
-    assert bool(built) is with_identity
+    assert (f"-var=platform_api_image={reference}" in apply.argv) is with_access
+    assert bool(built) is with_access
     # `olf infra plan` passes platform_apply_variables alone; it must name the image the apply loads, or a plan
     # after a deploy would show the API being destroyed.
-    assert (platform.platform_apply_variables(config).get("platform_api_image") == reference) is with_identity
+    assert (platform.platform_apply_variables(config).get("platform_api_image") == reference) is with_access
 
 
 def test_source_egress_reaches_the_root_only_for_enabled_stages_that_declare_ports(tmp_path: Path) -> None:

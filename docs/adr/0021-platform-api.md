@@ -403,6 +403,27 @@ The controllers of Dagster and Trino are found by label
 (`app.kubernetes.io/name=dagster` and `=trino`, overridable per stage); a
 selector that matches nothing is `unknown`, not healthy.
 
+### 8. Authentication off: one anonymous principal
+
+A profile with `spec.access` and no `spec.identity` turns authentication off,
+which profile validation allows only on `local` with a `*.localhost` base
+domain. The portal, Superset (public admin) and the other routes are then open
+to anyone who reaches loopback, and the platform API follows them:
+
+- It is deployed with no issuer and the setting `anonymous_role`, the highest
+  canonical role. A call with no token is the principal `anonymous` holding
+  that role, and the permission matrix applies to it unchanged. A call with an
+  issuer token is refused with 401; the service principal's token
+  (decision 3) is still checked.
+- The API refuses to start with `anonymous_role` beside an issuer or
+  audiences, or with a `public_origin` that is not on `*.localhost`. That is
+  the provider's rule, enforced again where it matters.
+- Changes are audited as `anonymous`. OpenMetadata authorizes the caller's own
+  token (decision 2), so its routes are not configured. Per-person queries
+  need Dex, so they stay off.
+- `olf` reaches the API with the routes' own scheme: plain HTTP under
+  `access.tls: none`.
+
 ## Consequences
 
 - Platform logic is written once, in Python, and the portal, `olf` and agents
@@ -415,7 +436,7 @@ selector that matches nothing is `unknown`, not healthy.
   the platform API holds one credential fewer. The price is that the
   perimeter's audience check is the only one in front of OpenMetadata, and
   every caller on that path handles a first-time user's registration.
-- One more pod in `olf-system`, with `spec.identity` only, recorded in
+- One more pod in `olf-system`, with `spec.access`, recorded in
   ADR 0013's table. Its memory was measured in Docker, not yet on kind.
 - The extraction of `packages/lakehouse-services` is a refactor with no
   behaviour change and can land before any of the API.
@@ -735,3 +756,7 @@ needs the API's first ClusterRole, `tokenreviews` `create` (decision 7), and F44
 2026-11-17: `GET /api/v1/stages/{stage}/health/services` (`get_stage_service_health`) added, returning the stage and the
 `services` list of `get_stage_health` without a Dagster read. The alert evaluator's service principal is admitted there
 and no longer on `get_stage_health`, whose Dagster reads are unbounded across calls (decision 3).
+
+2026-11-18: decision 8 (#1270). Without `spec.identity` the local provider deploys the API as well, with no issuer,
+and serves every caller as the anonymous principal holding the highest role. Until then it deployed the API only with
+`spec.identity`, so `olf`'s anonymous path reached nothing, and called it over `https` under `access.tls: none`.

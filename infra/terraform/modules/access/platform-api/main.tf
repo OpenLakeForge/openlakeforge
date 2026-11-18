@@ -10,7 +10,9 @@ locals {
     role_claim   = var.role_claim
     role_mapping = var.role_mapping
     precedence   = var.precedence
-    stages       = var.stages
+    # ADR 0021, decision 8: set only where the deployment has no issuer.
+    anonymous_role = var.anonymous_role
+    stages         = var.stages
     # The CSRF guard's one allowed Origin, and whether per-person queries are on.
     public_origin = var.public_origin
     person_query  = var.person_query

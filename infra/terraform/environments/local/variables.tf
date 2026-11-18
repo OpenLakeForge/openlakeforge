@@ -172,7 +172,7 @@ variable "superset_image_pull_policy" {
 }
 
 variable "platform_api_image" {
-  description = "The platform API image olf built and loaded into kind (images/platform-api). null deploys no platform API; it is deployed only with spec.identity, since it validates every token against the issuer."
+  description = "The platform API image olf built and loaded into kind (images/platform-api). null deploys no platform API; it is deployed only with spec.access, validating tokens against the issuer under spec.identity and serving callers anonymously without it (ADR 0021, decision 8)."
   type        = string
   default     = null
 }
