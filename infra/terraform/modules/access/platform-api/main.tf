@@ -40,6 +40,8 @@ locals {
     s3_region         = var.s3_region
     # Each governed stage's reconciler summary, read with the files key (ADR 0007).
     quality_sync_summaries = var.quality_sync_summaries
+    # Read with the key in alert_state_reader_secret_name (#1258).
+    alerts_state_base_uri = var.alerts_state_base_uri
     # Written with the key in audit_writer_secret_name; without it, every
     # operation that changes state answers 503.
     audit_base_uri = var.audit_base_uri
@@ -155,6 +157,24 @@ resource "kubernetes_deployment_v1" "platform_api" {
                 secret_key_ref {
                   name = env.value[0]
                   key  = env.value[1]
+                }
+              }
+            }
+          }
+
+          # The alert state key, Read and List on the evaluator's state only,
+          # under names boto3 does not read on its own, as the audit key below.
+          dynamic "env" {
+            for_each = var.alert_state_reader_secret_name == null ? {} : {
+              OPENLAKEFORGE_ALERTS_ACCESS_KEY_ID     = "AWS_ACCESS_KEY_ID"
+              OPENLAKEFORGE_ALERTS_SECRET_ACCESS_KEY = "AWS_SECRET_ACCESS_KEY"
+            }
+            content {
+              name = env.key
+              value_from {
+                secret_key_ref {
+                  name = var.alert_state_reader_secret_name
+                  key  = env.value
                 }
               }
             }

@@ -37,6 +37,10 @@ locals {
       secret    = var.alerts_credentials.credentials_secret_name
       namespace = var.alerts_credentials.namespace
     }],
+    var.alert_state_reader_credentials == null ? [] : [{
+      secret    = var.alert_state_reader_credentials.credentials_secret_name
+      namespace = var.alert_state_reader_credentials.namespace
+    }],
   )
 
   # Every namespace that receives a Secret, with the names it may read.
@@ -110,6 +114,16 @@ locals {
         [for action in ["Read", "List"] : "${action}:${writer.ops_bucket_name}/activations/${stage}/run-artifacts/quality/*"],
         [for action in ["Read", "Write", "List"] : "${action}:${writer.ops_bucket_name}/activations/${stage}/quality-sync/*"],
       )
+    }],
+    # Read and List only, on the alert evaluator's state prefix: the platform
+    # API answers open incidents from it and can neither change the state nor
+    # read the history, so the evaluator stays the only writer (ADR 0023,
+    # decision 3). The prefix ends in `/` so `*` stays under it.
+    var.alert_state_reader_credentials == null ? [] : [{
+      name      = "openlakeforge-platform-api-alerts"
+      secret    = var.alert_state_reader_credentials.credentials_secret_name
+      namespace = var.alert_state_reader_credentials.namespace
+      actions   = [for action in ["Read", "List"] : "${action}:${var.alert_state_reader_credentials.ops_bucket_name}/${var.alert_state_reader_credentials.prefix}*"]
     }],
     # Write only, under one prefix: the platform API stores audit records and
     # can neither read nor list them back. SeaweedFS 4.48 also gates overwrite

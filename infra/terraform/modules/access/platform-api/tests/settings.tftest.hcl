@@ -156,6 +156,40 @@ run "quality_keys_are_mounted_per_stage" {
   }
 }
 
+run "the_alert_state_and_its_key_reach_the_api" {
+  command = plan
+
+  variables {
+    alerts_state_base_uri          = "s3://ops/alerts/"
+    alert_state_reader_secret_name = "platform-api-alert-state-s3-creds"
+  }
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).alerts_state_base_uri == "s3://ops/alerts/"
+    error_message = "the evaluator's base must reach settings.json"
+  }
+
+  assert {
+    condition = (
+      { for env in kubernetes_deployment_v1.platform_api.spec[0].template[0].spec[0].container[0].env : env.name => env.value_from[0].secret_key_ref[0].name }
+      == {
+        OPENLAKEFORGE_ALERTS_ACCESS_KEY_ID     = "platform-api-alert-state-s3-creds"
+        OPENLAKEFORGE_ALERTS_SECRET_ACCESS_KEY = "platform-api-alert-state-s3-creds"
+      }
+    )
+    error_message = "the alert state key must be mounted under its own variable names, never boto3's"
+  }
+}
+
+run "no_alert_state_by_default" {
+  command = plan
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).alerts_state_base_uri == null
+    error_message = "without an evaluator the route has no state to read"
+  }
+}
+
 run "the_collector_probe_url_reaches_the_settings" {
   command = plan
 

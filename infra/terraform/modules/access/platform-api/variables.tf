@@ -162,6 +162,23 @@ variable "quality_reader_secret_names" {
   default     = {}
 }
 
+variable "alerts_state_base_uri" {
+  description = "The alert evaluator's base, s3://<ops bucket>/<alerts prefix>, whose state/v1/state.json the alert incidents route reads (ADR 0023, decision 3). Null, or without alert_state_reader_secret_name, the route answers not_provided."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.alerts_state_base_uri == null || (startswith(coalesce(var.alerts_state_base_uri, "x"), "s3://") && endswith(coalesce(var.alerts_state_base_uri, "x"), "/"))
+    error_message = "alerts_state_base_uri is s3://<bucket>/<prefix>/, ending in /."
+  }
+}
+
+variable "alert_state_reader_secret_name" {
+  description = "Secret in `namespace` holding the read-only key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) for the alert evaluator's state prefix. Null leaves the alert incidents route without a key."
+  type        = string
+  default     = null
+}
+
 variable "quality_sync_summaries" {
   description = "Each governed stage's quality reconciler summary, s3://<ops bucket>/activations/<stage>/quality-sync/summary.json (ADR 0007), which the publication health signal reads with the files key (files_secret_name). A stage left out has no publisher: its signal is disabled and the quality-sync integration not provided. The API refuses to start on a stage outside `stages`."
   type        = map(string)
