@@ -688,3 +688,10 @@ ingestion bot's token, mounted from its Secret, and reads the stage's manifests 
 `openlakeforge-quality-sync-<stage>`. The SeaweedFS credentials Job mints `quality-reconciler-<stage>-s3-creds`, and its
 E1 pin gains that name. The reconciler holds no Role and mounts no Kubernetes token. A stage without governance renders
 no CronJob, Secret or row, so Slim is unchanged. The ids follow F45 to F51, which ADR 0024 reserves.
+
+2026-11-18: F45 to F49 added (#21, ADR 0024): Prometheus (`app.kubernetes.io/name=prometheus`, a Deployment in
+`olf-system`) is reached by the platform API on 9090 (F45), discovers nodes through the API server (F46), scrapes the
+kubelet on 10250 (F47), each stage's Trino coordinator on 8080 (F48) and SeaweedFS on 9327 (F49). Its ClusterRole
+`olf-system-prometheus` grants `nodes` `get`, `list`, `watch` and `nodes/metrics` `get`, never `nodes/proxy`. The workload,
+its Role and its rows render only when the profile enables metrics: `environments/local` drops every row naming
+Prometheus otherwise, on both sides, so Slim gains no ingress into the stages and no egress from the platform API.
