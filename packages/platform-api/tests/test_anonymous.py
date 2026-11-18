@@ -57,3 +57,23 @@ def test_authentication_is_off_only_on_localhost_and_never_beside_an_issuer(
 def test_without_anonymous_role_an_issuer_is_still_required() -> None:
     with pytest.raises(SettingsError, match="issuer_url is empty"):
         _settings(anonymous_role=None)
+
+
+def test_the_anonymous_principal_queries_with_the_catalogs_own_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    from test_queries import KEY, TRINO, FakeTrino
+
+    from openlakeforge_platform_api.settings import QUERY_SIGNING_KEY_ENV
+
+    monkeypatch.setenv(QUERY_SIGNING_KEY_ENV, KEY)
+    trino = FakeTrino()
+    settings = _settings(
+        person_query=True, query_endpoints={"dev": {"statement_url": TRINO, "catalog": "lakehouse_dev"}}
+    )
+    client = TestClient(create_app(settings, trino_send=trino))
+
+    assert client.get("/api/v1/query-capabilities").json()["query_available"] is True
+    response = client.post("/api/v1/stages/dev/queries", json={"sql": "SELECT 1"})
+
+    assert response.status_code == 200, response.text
+    assert trino.sent and all(sent["headers"]["X-Trino-User"] == "anonymous" for sent in trino.sent)
+    assert not any({"Authorization", "X-Trino-Extra-Credential"} & set(sent["headers"]) for sent in trino.sent)

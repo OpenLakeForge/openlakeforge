@@ -196,8 +196,11 @@ class TrinoStatementClient:
             "X-Trino-User": self.user,
             "X-Trino-Catalog": self.catalog,
             "X-Trino-Source": self.source,
-            "Authorization": f"Bearer {bearer}",
         }
+        # Empty for the platform API's anonymous principal (ADR 0021, decision 8):
+        # Trino then uses the catalog's own credential, as its Web UI does.
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
         if self.schema:
             headers["X-Trino-Schema"] = self.schema
         return headers

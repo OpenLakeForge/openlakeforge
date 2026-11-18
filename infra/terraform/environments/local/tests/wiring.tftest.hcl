@@ -201,8 +201,10 @@ run "plain_http_without_identity_serves_the_api_anonymously" {
       && jsondecode(module.platform_api[0].settings_json).issuer_url == null
       && jsondecode(module.platform_api[0].settings_json).openmetadata_url == null
       && jsondecode(module.platform_api[0].settings_json).public_origin == "http://olf.localhost"
+      && jsondecode(module.platform_api[0].settings_json).person_query == true
+      && length(jsondecode(module.platform_api[0].settings_json).query_endpoints) > 0
     )
-    error_message = "the anonymous API has the highest role, no issuer, no OpenMetadata and the plain-HTTP origin"
+    error_message = "the anonymous API has the highest role, no issuer, no OpenMetadata, the plain-HTTP origin and queries"
   }
 
   assert {

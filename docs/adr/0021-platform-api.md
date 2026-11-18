@@ -419,8 +419,11 @@ to anyone who reaches loopback, and the platform API follows them:
   audiences, or with a `public_origin` that is not on `*.localhost`. That is
   the provider's rule, enforced again where it matters.
 - Changes are audited as `anonymous`. OpenMetadata authorizes the caller's own
-  token (decision 2), so its routes are not configured. Per-person queries
-  need Dex, so they stay off.
+  token (decision 2), so its routes are not configured.
+- Queries run as the Trino user `anonymous`, with no bearer and no extra
+  credential, so the stage catalog uses its own credential. That is the access
+  the stage's open Trino UI already gives on the same host, so the API adds
+  none.
 - `olf` reaches the API with the routes' own scheme: plain HTTP under
   `access.tls: none`.
 
@@ -774,3 +777,7 @@ four ranges, at the health routes' floor, read-only and not audited. No route ta
 
 2026-11-18: #21 slice M-d. `GET /api/v1/stages/{stage}/metrics` (`list_stage_metrics`) lists the stage's series of ADR
 0024's catalog with each one's ranges and availability, at the same floor.
+
+2026-11-18: decision 8 extended. The anonymous principal runs queries as the Trino user `anonymous` with the
+catalog's own credential, the access the stage's open Trino UI already gives. Without an issuer the local provider
+renders `person_query` and the query endpoints, so the portal's query page has stages to offer.

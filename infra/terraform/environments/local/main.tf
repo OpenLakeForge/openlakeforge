@@ -55,6 +55,8 @@ locals {
   # With an issuer the API validates every token; without one (local *.localhost only) it serves every caller as
   # the anonymous principal (ADR 0021, decision 8). Either way it is a path on the portal's host.
   platform_api_enabled = local.access_enabled && var.platform_api_image != null
+  # The API's query routes: each person's own with Dex, the anonymous principal's without an issuer.
+  api_query_enabled = local.query_api_enabled || !local.identity_enabled
   # ADR 0022: the collector writes archive format v2 beside the CronJob's v1,
   # one route per stage namespace plus the platform namespace.
   log_collector_routes = merge(
@@ -458,9 +460,11 @@ module "platform_api" {
   stages         = sort(keys(local.enabled_stages))
   # The portal route's origin (host and scheme of the "platform-api" route,
   # contracts.tf): the one origin the CSRF guard lets write. Per-person
-  # queries need the keyless stage catalogs and Dex.
+  # queries need the keyless stage catalogs and Dex; without an issuer the
+  # anonymous principal queries with the catalog's own credential, as the
+  # stage's open Trino UI does (ADR 0021, decision 8).
   public_origin = "${local.route_scheme}://${local.base_domain}"
-  person_query  = local.query_api_enabled
+  person_query  = local.api_query_enabled
   # Trino's plain HTTP port: it has no authentication of its own, and the
   # person's token rides each request for Polaris (ADR 0019 section 9).
   # Read server-side only.
@@ -469,7 +473,7 @@ module "platform_api" {
       statement_url = "http://${module.trino[stage].service_name}.${local.stage_namespaces[stage]}.svc.cluster.local:${module.trino[stage].http_port}/v1/statement"
       catalog       = local.stage_catalog_contracts[stage].catalog_name
     }
-    if local.query_api_enabled
+    if local.api_query_enabled
   }
   dagster_graphql_urls = local.dagster_graphql_urls
   # Built from locals the OpenMetadata module is given too, never from its

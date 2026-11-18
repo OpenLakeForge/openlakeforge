@@ -30,7 +30,7 @@ from openlakeforge_platform_api.models import (
     Table,
     Tables,
 )
-from openlakeforge_platform_api.query_identity import TrinoIdentity, trino_identity
+from openlakeforge_platform_api.query_identity import TrinoIdentity, polaris_credentials, trino_identity
 
 log = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ def _page(
     )
     try:
         result: TrinoResult = client.run(
-            sql, bearer=lambda: identity.token, extra_credentials=lambda token: {"token": token}, max_rows=limit + 1
+            sql, bearer=lambda: identity.token, extra_credentials=polaris_credentials, max_rows=limit + 1
         )
     except TrinoAuthError as exc:
         raise HTTPException(
