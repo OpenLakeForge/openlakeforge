@@ -155,8 +155,18 @@ class Docker:
     def image_exists(self, image: str, *, env: Mapping[str, str] | None = None) -> bool:
         return self.image_inspect(image, env=env, check=False).ok
 
-    def save(self, image: str, *, output_path: Path, env: Mapping[str, str] | None = None) -> CommandResult:
-        return self._run(["save", image, "-o", str(output_path)], env=env)
+    def save(
+        self,
+        image: str,
+        *,
+        output_path: Path,
+        platform: str | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        args = ["save"]
+        if platform is not None:
+            args += ["--platform", platform]
+        return self._run([*args, image, "-o", str(output_path)], env=env)
 
     def exec_(
         self,

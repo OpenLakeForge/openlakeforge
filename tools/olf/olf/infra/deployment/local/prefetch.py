@@ -2,8 +2,9 @@
 
 Port of `scripts/local/cluster/prefetch-images.sh`: pre-pulls heavy images
 directly into every kind node's containerd store so Helm releases don't time
-out on first deploy. A digest-pinned image is saved under its tag and given
-its digest name in each node with `ctr images tag` - see `_prefetch_one_image`.
+out on first deploy. Each image is pulled and saved for the nodes' platform
+only, and a digest-pinned one is saved under its tag and given its digest name
+in each node with `ctr images tag` - see `_prefetch_one_image`.
 """
 
 from __future__ import annotations
@@ -46,6 +47,9 @@ _POLARIS_IMAGES: dict[str, tuple[str, str]] = {
 # ponytail: the OpenMetadata server is not in the component catalog; pin it here until it is.
 _OPENMETADATA_SERVER_IMAGE = "docker.io/openmetadata/server:1.13.6"
 
+# `uname -m` spellings, for when the Docker server does not report its arch.
+_OCI_ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
+
 _ALWAYS = (
     "seaweedfs",
     "fluent_bit",
@@ -63,6 +67,10 @@ _ALWAYS = (
 def polaris_images(server_arch: str, catalog_images: Mapping[str, str]) -> tuple[str, str]:
     # kind imports a single-platform image, so known arches use their per-arch digest; the catalog pins the index.
     return _POLARIS_IMAGES.get(server_arch) or (catalog_images["polaris"], catalog_images["polaris_admin_tool"])
+
+
+def node_platform(server_arch: str) -> str:
+    return f"linux/{_OCI_ARCH.get(server_arch, server_arch)}"
 
 
 def load_catalog_images(config: LocalDeploymentConfig) -> dict[str, str]:
@@ -159,15 +167,24 @@ def prefetch_images(
     workers = [node for node in nodes if not node.startswith(control_plane)] or nodes
     targets = {image: nodes if image == catalog_images["traefik"] else workers for image in images}
 
+    platform = node_platform(server_arch)
     if work_dir is not None:
         work_dir.mkdir(parents=True, exist_ok=True)
         for image in images:
-            _prefetch_one_image(image, tools, nodes=targets[image], env=env, scratch_dir=work_dir, config=config)
+            _prefetch_one_image(
+                image, tools, nodes=targets[image], platform=platform, env=env, scratch_dir=work_dir, config=config
+            )
     else:
         with tempfile.TemporaryDirectory(prefix="olf-prefetch-") as scratch:
             for image in images:
                 _prefetch_one_image(
-                    image, tools, nodes=targets[image], env=env, scratch_dir=Path(scratch), config=config
+                    image,
+                    tools,
+                    nodes=targets[image],
+                    platform=platform,
+                    env=env,
+                    scratch_dir=Path(scratch),
+                    config=config,
                 )
 
     log.step("All images pre-loaded.")
@@ -178,8 +195,11 @@ def load_image_into_nodes(config: LocalDeploymentConfig, tools: Toolkit, image: 
     nodes = tools.kind.get_nodes(config.cluster.name, env=env)
     if not nodes:
         raise DeploymentPreconditionError(f"kind cluster '{config.cluster.name}' has no nodes.")
+    platform = node_platform(tools.docker.server_arch(env=env) or _platform.machine())
     with tempfile.TemporaryDirectory(prefix="olf-prefetch-") as scratch:
-        _prefetch_one_image(image, tools, nodes=nodes, env=env, scratch_dir=Path(scratch), config=config)
+        _prefetch_one_image(
+            image, tools, nodes=nodes, platform=platform, env=env, scratch_dir=Path(scratch), config=config
+        )
 
 
 def _prefetch_one_image(
@@ -187,6 +207,7 @@ def _prefetch_one_image(
     tools: Toolkit,
     *,
     nodes: list[str],
+    platform: str,
     env: Mapping[str, str],
     scratch_dir: Path,
     config: LocalDeploymentConfig,
@@ -199,15 +220,19 @@ def _prefetch_one_image(
         log.step(f"Using existing local image {image}...")
     else:
         log.step(f"Pulling {image}...")
-        tools.docker.pull(image, env=env, retry_policy=config.prefetch.pull_retry)
+        tools.docker.pull(image, platform=platform, env=env, retry_policy=config.prefetch.pull_retry)
 
     archive_image = archive_reference(image)
     if archive_image != image:
         tools.docker.tag(image, archive_image, env=env)
 
     archive = scratch_dir / archive_filename(image)
-    log.step(f"Saving {archive_image}...")
-    tools.docker.save(archive_image, output_path=archive, env=env)
+    log.step(f"Saving {archive_image} ({platform})...")
+    # Saved without a platform, a multi-arch pin is archived as its whole index, and what Docker puts under it
+    # depends on its image store: on the CI runner's the kube-state-metrics archive lacked the amd64 config the
+    # index points to, and `ctr import` failed "content digest ...: not found" (#21). Saved for one platform,
+    # the archive is that platform's manifest and every blob it names, or `docker save` fails saying which.
+    tools.docker.save(archive_image, output_path=archive, platform=platform, env=env)
 
     errors: list[BaseException] = []
     if archive_image != image:
