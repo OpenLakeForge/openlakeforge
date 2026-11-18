@@ -121,7 +121,22 @@ def _test_module(root: Path, module: Path, *, terraform: str, tools: Toolkit, en
     shutil.copytree(module, work, ignore=shutil.ignore_patterns(".terraform", ".terraform.lock.hcl"))
     shutil.copy2(root / "infra/terraform/environments/local/.terraform.lock.hcl", work / ".terraform.lock.hcl")
     tools.terraform.init(work, extra_args=("-backend=false", "-input=false"), env=env)
-    tools.runner.run([terraform, f"-chdir={work}", "test"], env=env, stream_output=True)
+    tools.runner.run(
+        [terraform, f"-chdir={work}", "test", *_module_test_vars(root, module)], env=env, stream_output=True
+    )
+
+
+# A module test that checks itself against the NetworkPolicy flow table declares this variable. Its default is the
+# table's path relative to the module in the tree, which the copy above does not keep, so the check passes it in.
+FLOWS_TEST_VARIABLE = "network_flows_file"
+
+
+def _module_test_vars(root: Path, module: Path) -> list[str]:
+    """`-var` arguments for the variables a module's tests declare and only the repository can supply."""
+    declaration = f'variable "{FLOWS_TEST_VARIABLE}"'
+    if any(declaration in test.read_text() for test in (module / "tests").glob("*.tftest.hcl")):
+        return [f"-var={FLOWS_TEST_VARIABLE}={root / 'release/network-flows.yaml'}"]
+    return []
 
 
 def _superset_template_overrides() -> list[str]:

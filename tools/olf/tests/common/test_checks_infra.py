@@ -95,3 +95,40 @@ def test_infra_templates_the_cached_tarball_not_the_repo_reference(
     assert len(templates) == 7
     assert all(Path(argv[3]).parent == cache and argv[3].endswith(".tgz") for argv in templates)
     assert all("--version" not in argv for argv in templates)
+
+
+def _module(root: Path, name: str, test_text: str) -> Path:
+    module = root / "infra/terraform/modules" / name
+    (module / "tests").mkdir(parents=True)
+    (module / "main.tf").write_text("")
+    (module / "tests/a.tftest.hcl").write_text(test_text)
+    return module
+
+
+def _tested_module_argv(root: Path, module: Path) -> list[str]:
+    lock = root / "infra/terraform/environments/local/.terraform.lock.hcl"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.touch()
+    commands: list[list[str]] = []
+    tools = SimpleNamespace(
+        runner=SimpleNamespace(run=lambda argv, **_kwargs: commands.append(argv)),
+        terraform=SimpleNamespace(init=lambda *_args, **_kwargs: None),
+    )
+    _infra._test_module(root, module, terraform="terraform", tools=tools, env={})  # type: ignore[arg-type]
+    (argv,) = commands
+    return argv
+
+
+def test_a_module_test_that_reads_the_flow_table_gets_its_path_in_the_repository(tmp_path: Path) -> None:
+    module = _module(tmp_path, "storage/x", 'variable "network_flows_file" {\n  type = string\n}\n')
+
+    argv = _tested_module_argv(tmp_path, module)
+
+    assert argv[-1] == f"-var=network_flows_file={tmp_path / 'release/network-flows.yaml'}"
+    assert argv[1] == f"-chdir={tmp_path / '.tmp/check-terraform-test/storage/x'}"
+
+
+def test_other_module_tests_get_no_variable(tmp_path: Path) -> None:
+    module = _module(tmp_path, "storage/y", 'run "plan" {\n  command = plan\n}\n')
+
+    assert _tested_module_argv(tmp_path, module)[2:] == ["test"]

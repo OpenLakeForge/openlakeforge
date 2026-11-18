@@ -49,6 +49,7 @@ sections:
       - docs/guides/promote-dev-to-prod.md
       - docs/guides/operations/alerts.md
       - docs/guides/operations/service-health.md
+      - docs/guides/operations/log-archive.md
       - docs/guides/run-behind-your-own-https.md
       - docs/guides/backup-and-restore.md
       - docs/guides/migrate-from-v0-5-alpha.md

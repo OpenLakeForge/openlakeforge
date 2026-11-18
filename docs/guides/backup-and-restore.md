@@ -113,8 +113,8 @@ In order:
 1. Checks the checksums, release, profile, stages, passphrase and that the
    platform is deployed. Nothing changes if a check fails.
 2. Stops the Dagster daemons and refuses while a run is in flight. Suspends
-   each stage's CronJobs, because the log archiver writes to the ops bucket
-   every 15 minutes.
+   each stage's CronJobs, because a CronJob that starts mid-restore could write
+   to a store or database being replaced.
 3. Scales the workloads that hold a database open or read the Secrets to 0:
    Dagster, Superset, OpenMetadata, Polaris, Trino, Dex and the platform API.
 4. Replaces the backed-up Secrets, drops and recreates each database with its
