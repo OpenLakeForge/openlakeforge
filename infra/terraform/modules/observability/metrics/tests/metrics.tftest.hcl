@@ -235,3 +235,65 @@ run "kube_state_metrics_never_watches_kube_system" {
 
   expect_failures = [kubernetes_role_v1.kube_state_metrics]
 }
+
+run "served_series_carry_only_decision_3_labels_and_every_group_is_limited" {
+  command = plan
+
+  assert {
+    condition     = yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).rule_files == ["/etc/prometheus/rules.yml"]
+    error_message = "Prometheus loads the rule file from its ConfigMap"
+  }
+
+  assert {
+    condition = alltrue([
+      for group in yamldecode(kubernetes_config_map_v1.prometheus.data["rules.yml"]).groups : group.limit == 500 && group.interval == "1m"
+    ])
+    error_message = "each group limits the series a rule may produce to 500, evaluated at the Portal's finest step"
+  }
+
+  # Every served series aggregates with sum, and its by-clause names only stage, component, service or domain.
+  assert {
+    condition = alltrue(flatten([
+      for group in yamldecode(kubernetes_config_map_v1.prometheus.data["rules.yml"]).groups : [
+        for rule in group.rules : (
+          can(regex("^sum (by \\(([a-z, ]*)\\) )?\\(", rule.expr))
+          && length(setsubtract(
+            toset(compact(split(", ", try(regex("^sum by \\(([a-z, ]*)\\)", rule.expr)[0], "")))),
+            toset(["stage", "component", "service", "domain"]),
+          )) == 0
+        ) if startswith(rule.record, "olf:")
+      ]
+    ]))
+    error_message = "an olf: series may carry only stage, component, service and domain (ADR 0024, Decision 3)"
+  }
+
+  assert {
+    condition = toset(flatten([
+      for group in yamldecode(kubernetes_config_map_v1.prometheus.data["rules.yml"]).groups : [for rule in group.rules : rule.record if startswith(rule.record, "olf:")]
+      ])) == toset([
+      "olf:cpu_usage_cores", "olf:memory_working_set_bytes", "olf:container_restarts",
+      "olf:node_cpu_usage_cores", "olf:node_memory_working_set_bytes",
+      "olf:trino_running_queries", "olf:trino_queued_queries", "olf:trino_failed_queries", "olf:trino_heap_used_bytes",
+      "olf:object_store_bucket_bytes", "olf:object_store_disk_used_bytes", "olf:object_store_disk_free_bytes",
+    ])
+    error_message = "one rule per Prometheus-sourced series of Decision 4's catalog"
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for group in yamldecode(kubernetes_config_map_v1.prometheus.data["rules.yml"]).groups : [
+        for rule in group.rules : strcontains(rule.expr, "group_left (component) namespace_pod:kube_pod_labels:component")
+        if contains(["olf:cpu_usage_cores", "olf:memory_working_set_bytes", "olf:container_restarts"], rule.record)
+      ]
+    ]))
+    error_message = "per-component series take component from the kube_pod_labels join, never from a raw pod label"
+  }
+
+  assert {
+    condition = contains(
+      split("|", [for job in yamldecode(kubernetes_config_map_v1.prometheus.data["prometheus.yml"]).scrape_configs : job.metric_relabel_configs[0].regex if job.job_name == "trino"][0]),
+      "JMX_java_lang_TYPE_Memory_ATTRIBUTE_HeapMemoryUsage_used",
+    )
+    error_message = "the Trino job keeps the heap series every heap rule reads"
+  }
+}

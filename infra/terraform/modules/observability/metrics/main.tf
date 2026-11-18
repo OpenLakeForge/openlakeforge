@@ -20,8 +20,10 @@ locals {
   keep = {
     kubelet_resource = ["container_cpu_usage_seconds_total", "container_memory_working_set_bytes", "node_cpu_usage_seconds_total", "node_memory_working_set_bytes"]
     kubelet          = ["kubelet_volume_stats_capacity_bytes", "kubelet_volume_stats_used_bytes"]
-    # The heap bean needs openmetrics.jmx-object-names on the coordinator, which slice M-c adds.
-    trino        = ["trino_execution_name_QueryManager_RunningQueries", "trino_execution_name_QueryManager_QueuedQueries", "trino_execution_name_QueryManager_FailedQueries_TotalCount", "trino_execution_name_QueryManager_CompletedQueries_TotalCount"]
+    # Trino 480 renders a CounterStat as one counter named after its attribute,
+    # with no _TotalCount (airlift 419's openmetrics Counter). The heap is the
+    # java.lang:type=Memory bean that modules/query/trino adds.
+    trino        = ["trino_execution_name_QueryManager_RunningQueries", "trino_execution_name_QueryManager_QueuedQueries", "trino_execution_name_QueryManager_FailedQueries", "trino_execution_name_QueryManager_CompletedQueries", local.trino_heap_used]
     object_store = ["SeaweedFS_volumeServer_resource", "SeaweedFS_volumeServer_total_disk_size", "SeaweedFS_s3_bucket_size_bytes", "SeaweedFS_s3_request_total"]
     # kube-state-metrics already exposes only these (--metric-allowlist); the
     # scrape keeps the same list, so a widened flag still stores nothing more.
@@ -30,6 +32,8 @@ locals {
     self = ["prometheus_tsdb_head_series", "prometheus_tsdb_storage_blocks_bytes", "prometheus_target_scrapes_exceeded_sample_limit_total"]
   }
   keep_rule = { for job, names in local.keep : job => { source_labels = ["__name__"], action = "keep", regex = join("|", names) } }
+  # A JMX composite attribute is exposed as JMX_<domain>_TYPE_<type>_ATTRIBUTE_<attribute>_<item>.
+  trino_heap_used = "JMX_java_lang_TYPE_Memory_ATTRIBUTE_HeapMemoryUsage_used"
 
   # The kubelet takes the ServiceAccount token as a bearer and authorizes it
   # with a SubjectAccessReview for nodes/metrics.
@@ -58,6 +62,7 @@ locals {
         retention = { time = "${var.retention_days}d", size = var.retention_size }
       }
     }
+    rule_files = ["/etc/prometheus/rules.yml"]
     scrape_configs = [
       merge(local.kubelet_job, {
         job_name               = "kubelet-resource"
@@ -158,6 +163,7 @@ resource "kubernetes_config_map_v1" "prometheus" {
   }
   data = {
     "prometheus.yml" = local.config_yaml
+    "rules.yml"      = local.rules_yaml
   }
 }
 
@@ -202,7 +208,7 @@ resource "kubernetes_deployment_v1" "prometheus" {
       metadata {
         labels = local.labels
         annotations = {
-          "openlakeforge.io/config-hash" = sha256(local.config_yaml)
+          "openlakeforge.io/config-hash" = sha256("${local.config_yaml}${local.rules_yaml}")
         }
       }
 
