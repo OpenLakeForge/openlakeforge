@@ -748,3 +748,9 @@ steps 7 and 9 and section 9 point 4 name the one catalog. Superset's database
 URI, the platform API's `query_endpoints[*].catalog` and `olf query` follow.
 A redeploy's artifacts phase re-imports the reports, which moves their
 datasets to the new catalog.
+
+2026-11-18: an exception for authentication off ([ADR 0021](0021-platform-api.md), decision 8). On a local profile
+without `spec.identity` no caller holds a token, so `lakehouse_<stage>` takes `iceberg.rest-catalog.session=NONE`
+(module variable `keyless = false`) and `trino-catalog-<stage>` holds `CATALOG_MANAGE_CONTENT` on its catalog. Vended
+credentials and the absence of a static S3 key are unchanged. With identity the grant is removed and the catalog is
+keyless again.

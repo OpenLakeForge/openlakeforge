@@ -128,7 +128,12 @@ class FakePolaris:
             case "GET", ["principals"]:
                 return 200, {"principals": [{"name": name} for name in self.principals]}
             case "DELETE", ["principal-roles", role]:
-                return (204, {}) if self.principal_roles.pop(role, None) is not None else (404, {})
+                if self.principal_roles.pop(role, None) is None:
+                    return 404, {}
+                # Polaris drops the role's assignments with it.
+                for principal in self.principals.values():
+                    principal["roles"] = [held for held in principal["roles"] if held != role]
+                return 204, {}
             case "DELETE", ["catalogs", catalog, "catalog-roles", role]:
                 return (204, {}) if self.catalog_roles[catalog].pop(role, None) is not None else (404, {})
             case "POST", ["principals"]:

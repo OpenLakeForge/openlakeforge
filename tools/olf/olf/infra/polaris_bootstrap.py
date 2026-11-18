@@ -114,6 +114,7 @@ class StageCatalog:
     deployer: Credential
     # The stage Trino's catalog credential, trino-catalog-<stage>. It holds no grant: Trino uses it only for the
     # catalog's configuration call, and every table request carries the caller's own token (ADR 0019 section 9).
+    # With authentication off it serves every request and holds the catalog's content (BootstrapPlan.anonymous).
     catalog: Credential
     # The Trino and Floe credentials of earlier deployments, removed once the stage has `processing`.
     legacy: tuple[Credential, ...] = ()
@@ -133,6 +134,9 @@ class BootstrapPlan:
     openmetadata: Credential
     sts: CatalogSts | None = None
     person_access: PersonAccess | None = None
+    # Authentication off (ADR 0021, decision 8): each stage Trino's catalog credential serves every request, so it
+    # holds the catalog's content, what platform-admin holds. A local test stack only; with identity it holds none.
+    anonymous: bool = False
 
 
 def _q(segment: str) -> str:
@@ -399,6 +403,15 @@ def run_bootstrap(
             stage.catalog_name,
         )
         ensure_credential(client, stage.catalog, environ=environ)
+        anonymous_role = f"anonymous-{stage.stage}"
+        if plan.anonymous:
+            grant_catalog_access(
+                client,
+                Grant(stage.catalog.principal, anonymous_role, "catalog-anonymous", MANAGE_CONTENT),
+                stage.catalog_name,
+            )
+        else:
+            _call(client, "DELETE", f"/principal-roles/{anonymous_role}", ok=(204,), absent=(404,))
         for old in stage.legacy:
             _call(client, "DELETE", f"/principals/{_q(old.principal)}", ok=(204,), absent=(404,))
             k8s.delete_secret(old.secret, old.namespace, environ=environ)
@@ -560,6 +573,7 @@ def bootstrap_plan(contracts: ProviderContracts) -> BootstrapPlan | None:
         openmetadata=_credential("openmetadata", "polaris-om-creds", "POLARIS_OM", shared),
         sts=sts,
         person_access=_person_access(contracts, catalogs),
+        anonymous=(contracts.shared.values.get("identity") or {}).get("implementation") == "identity.none",
     )
 
 

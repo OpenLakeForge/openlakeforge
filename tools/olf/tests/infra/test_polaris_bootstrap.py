@@ -668,3 +668,30 @@ def test_nothing_is_reached_without_a_polaris_catalog(monkeypatch: pytest.Monkey
     monkeypatch.setattr(k8s, "port_forward", Mock(side_effect=AssertionError("no Polaris to reach")))
 
     bootstrap_from_contract(_contracts(dev={"catalog": _GLUE}, prod={"catalog": _GLUE}), environ=_ENVIRON)
+
+
+def test_without_identity_each_stage_trinos_catalog_credential_holds_its_catalogs_content(
+    polaris: tuple[FakePolaris, PolarisClient], cluster: Cluster
+) -> None:
+    fake, client = polaris
+    contracts = _contracts()
+    assert bootstrap_plan(contracts).anonymous is False  # type: ignore[union-attr]
+    identity = {**contracts.shared.values["identity"], "implementation": "identity.none"}
+    shared = replace(contracts.shared, values={**contracts.shared.values, "identity": identity})
+    plan = bootstrap_plan(replace(contracts, shared=shared))
+    assert plan is not None and plan.anonymous
+
+    _bootstrap(client, plan)
+
+    state = fake.state()
+    for stage in plan.stages:
+        role = f"anonymous-{stage.stage}"
+        assert role in state["principals"][stage.catalog.principal]
+        assert state["principal_roles"][role] == {stage.catalog_name: ["catalog-anonymous"]}
+        assert state["catalog_roles"][stage.catalog_name]["catalog-anonymous"] == ["CATALOG_MANAGE_CONTENT"]
+
+    # Identity back on: the grant goes with the principal role.
+    _bootstrap(client, replace(plan, anonymous=False))
+    state = fake.state()
+    assert not any(role.startswith("anonymous-") for role in state["principal_roles"])
+    assert not any(r.startswith("anonymous-") for s in plan.stages for r in state["principals"][s.catalog.principal])

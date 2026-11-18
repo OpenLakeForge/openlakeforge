@@ -461,7 +461,8 @@ module "platform_api" {
   # The portal route's origin (host and scheme of the "platform-api" route,
   # contracts.tf): the one origin the CSRF guard lets write. Per-person
   # queries need the keyless stage catalogs and Dex; without an issuer the
-  # anonymous principal is offered queries too (ADR 0021, decision 8).
+  # anonymous principal queries through the catalog's own credential (ADR 0021,
+  # decision 8).
   public_origin = "${local.route_scheme}://${local.base_domain}"
   person_query  = local.api_query_enabled
   # Trino's plain HTTP port: it has no authentication of its own, and the
@@ -733,6 +734,9 @@ module "trino" {
   # Trino has no authentication of its own (ADR 0019 section 9): the UI signs
   # in as a fixed user and the perimeter (or no access) gates its route.
   web_ui_fixed_user = "olf-web"
+  # Authentication off: no caller has a token, so the catalog's credential serves every request (ADR 0021,
+  # decision 8). The Web UI, Superset, the platform API and the pipelines then all read.
+  keyless = local.identity_enabled
 
   depends_on = [
     module.polaris,

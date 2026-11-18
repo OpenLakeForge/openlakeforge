@@ -420,11 +420,15 @@ to anyone who reaches loopback, and the platform API follows them:
   the provider's rule, enforced again where it matters.
 - Changes are audited as `anonymous`. OpenMetadata authorizes the caller's own
   token (decision 2), so its routes are not configured.
-- Queries are offered, run as the Trino user `anonymous` with no bearer. The
-  stage catalog is keyless (ADR 0019, section 9): a table request needs a
-  Polaris token in the `token` extra credential, and the catalog's own
-  credential holds no grant. Until the API sends a token of its own for the
-  anonymous principal, a query that reads a table is refused by the catalog.
+- Queries run as the Trino user `anonymous` with no bearer. No caller has a
+  token, so the stage catalogs are not keyless (ADR 0019, section 9) here:
+  each stage Trino's catalog credential, `trino-catalog-<stage>`, serves every
+  request (`session=NONE`), and `olf`'s Polaris bootstrap grants it
+  `CATALOG_MANAGE_CONTENT` on its catalog. That covers the whole platform at
+  once: the Trino Web UI, Superset, the API and the pipelines. With identity,
+  the grant is removed and the catalogs are keyless again. The whole platform
+  then holds what `platform-admin` holds. This is a local test stack, and
+  restricting a caller who cannot sign in protects nothing.
 - `olf` reaches the API with the routes' own scheme: plain HTTP under
   `access.tls: none`.
 
@@ -781,4 +785,5 @@ four ranges, at the health routes' floor, read-only and not audited. No route ta
 
 2026-11-18: decision 8 extended. Without an issuer the local provider renders `person_query` and the query
 endpoints, so the portal's query page offers the stages, and the anonymous principal's queries reach Trino as the
-user `anonymous` with no bearer. Reading a table still needs a Polaris token, which the keyless catalog requires.
+user `anonymous` with no bearer. The stage catalogs are not keyless without an issuer: Trino's catalog credential
+serves every request and holds the catalog's content, so the Web UI and Superset read too.
