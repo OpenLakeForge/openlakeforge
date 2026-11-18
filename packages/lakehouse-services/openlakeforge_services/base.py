@@ -54,6 +54,9 @@ class JsonHttpClient:
     # One session per client keeps cookies across calls; Superset binds its
     # CSRF token to the session cookie it sets.
     session: requests.Session = field(default_factory=requests.Session, repr=False)
+    # How often a 429 is sent again. A caller with a deadline of its own (a health probe) passes 0: a wait it cannot
+    # afford is worse than an answer that says the service refused.
+    rate_limit_retries: int = RATE_LIMIT_RETRIES
 
     def send(
         self,
@@ -68,19 +71,19 @@ class JsonHttpClient:
 
         Classifies 5xx/connection/timeout as TransientServiceError (retryable),
         other HTTP errors as ServiceClientError. A 429 is sent again, up to
-        RATE_LIMIT_RETRIES times, after the wait the service asks for.
+        `rate_limit_retries` times, after the wait the service asks for.
         """
         all_headers = {"Accept": "application/json", **(headers or {})}
         if self.token:
             all_headers["Authorization"] = f"Bearer {self.token}"
-        for attempt in range(RATE_LIMIT_RETRIES + 1):
+        for attempt in range(self.rate_limit_retries + 1):
             try:
                 response = self.session.request(
                     method, f"{self.base_url}{path}", headers=all_headers, timeout=self.timeout, **kwargs
                 )
             except (requests.ConnectionError, requests.Timeout) as exc:
                 raise TransientServiceError(f"{method} {path} failed: {exc}") from exc
-            if response.status_code != 429 or 429 in ok_statuses or attempt == RATE_LIMIT_RETRIES:
+            if response.status_code != 429 or 429 in ok_statuses or attempt == self.rate_limit_retries:
                 break
             time.sleep(_rate_limit_wait(response))
 
