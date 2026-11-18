@@ -168,6 +168,96 @@ as `not_provided`; with it the integration is `available`. The reader's key is
 `Read` and `List` on that stage's `run-artifacts/quality/` prefix only
 (`quality_reader_credentials` in `modules/storage/seaweedfs`).
 
+## Quality publication to OpenMetadata
+
+Publishing a run's quality manifest to OpenMetadata is separate from the
+quality signal above: the signal says whether the data passed, publication says
+whether the catalog has caught up. A failed publication never changes the
+quality signal or a run's status (ADR 0007).
+
+The publisher (`openlakeforge_services/quality_publisher.py`) keeps, under the
+stage's activation prefix, one state object per run at
+`quality-sync/state/<domain>/<product>/<run>.json` and one summary at
+`quality-sync/summary.json`. The summary is the object a health reader takes:
+
+| Field | Meaning |
+| --- | --- |
+| `pending` | Results still to publish, including those waiting for a table to be registered |
+| `failed` | Results given up on after 10 attempts; they wait for `--retry-failed` |
+| `lag_seconds` | Age of the oldest unpublished result, null when nothing waits |
+| `last_success_at`, `last_failure_at` | Times of the last published and last failed result |
+| `last_error` | One line, never a response body |
+
+A stage without governance has no summary and no publisher, so a reader must
+treat a missing summary as `disabled`, not as a failed publisher. Retries back
+off from 1 minute to 1 hour. OpenMetadata statuses: PASS is `Success`, a blocking ERROR is `Failed`
+and an advisory WARN is `Aborted`, because `Failed` opens an incident in
+OpenMetadata 1.13.6 and `Success` would hide the warning. The original outcome
+and engine severity are in each result's values. `--warn-status Failed` opts
+into incidents for WARN.
+
+### Scheduled publication
+
+On the local provider, every stage with governance gets a CronJob in the
+platform namespace, `quality-reconciler-<stage>`, that runs the same publisher
+every 5 minutes (`modules/governance/quality-reconciler`). It is not rendered
+for a stage without governance: Slim has no CronJob, no ServiceAccount, no
+key, no Secret and no NetworkPolicy for it.
+
+| Setting | Value |
+| --- | --- |
+| Image | The platform API image, with the command `python -m openlakeforge_platform_api.quality_sync` |
+| Work per pass | At most 25 runs, oldest first; the rest wait for the next pass |
+| Overlap | None: a pass still going makes the next one skipped, and it stops after 240 seconds |
+| Result | Exit 0 when the pass finished, including results still waiting for a table; 1 when OpenMetadata or the bucket stopped answering, so the failed Job stays visible; 2 when its environment is wrong |
+| Retries | Inside the state objects (above), not by the Job: a failed Job is retried by the next schedule |
+
+Each stage's pass is confined to that stage:
+
+- Its ops-bucket key, `openlakeforge-quality-sync-<stage>`, can `Read` and
+  `List` that stage's `run-artifacts/quality/` and `Read`, `Write` and `List`
+  that stage's `quality-sync/`. It cannot read another stage's evidence, write a
+  manifest, or reach anything else in the bucket.
+- The pass is configured with that stage's activation prefix and database root
+  (`polaris.lakehouse_<stage>`). A prefix or root of another stage is refused
+  before any request, so a DEV pass cannot write PROD tables or PROD state.
+- Its egress is DNS, OpenMetadata on 8585 and the object store on 8333.
+  Nothing can connect to its pods, and it holds no Kubernetes API token.
+- OpenMetadata's ingestion bot is one identity for every stage; its token is
+  read from the `openmetadata-ingestion-bot` Secret and is never an argument, a
+  literal environment value or a log line. The stage boundary above is
+  enforced by the key and the pass's configuration, not by the token.
+
+Inspect or trigger a pass:
+
+```bash
+kubectl -n olf-system get cronjob -l app.kubernetes.io/name=quality-reconciler
+kubectl -n olf-system create job --from=cronjob/quality-reconciler-dev quality-reconciler-dev-now
+kubectl -n olf-system logs job/quality-reconciler-dev-now
+```
+
+Until `olf infra openmetadata bootstrap` has written the ingestion-bot
+Secret, a pass's pod cannot start (`CreateContainerConfigError`) and its Job
+fails at the 240-second deadline; passes publish once the Secret exists. The
+AWS and Azure roots do not deploy the reconciler yet, so there the command
+below is the only way to publish.
+
+No health route reads `quality-sync/summary.json` yet. Today it is readable in
+the bucket and through the output of the command below; the health route and
+its alert condition are a separate change.
+
+To publish without rerunning a pipeline, for a run that failed to publish or
+one older than the 30-day scan window:
+
+```bash
+uv run --project tools/olf olf infra openmetadata quality-sync --stage dev --limit 25
+uv run --project tools/olf olf infra openmetadata quality-sync --stage dev --run <dagster-run-id>
+uv run --project tools/olf olf infra openmetadata quality-sync --stage dev --retry-failed
+```
+
+A result already in OpenMetadata is never published twice. A table that is
+not registered keeps its results pending; the command never creates one.
+
 ## Schedule mismatch
 
 `expected_run` compares the schedule's state with what the code location

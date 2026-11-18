@@ -582,6 +582,9 @@ module "provider_contract" {
   foundation_kube_context = local.foundation_contract.kube_context
 
   observability = var.observability
+  # No metrics backend exists until #21 slice M-b fills this with the
+  # Prometheus Service URL; null keeps the contract honest meanwhile.
+  metrics_query = { api = null, url = null }
   # Archive and webhook alerting (ADR 0023) only: no adapter implements search, metrics or Grafana yet.
   # #22 slice b flips these as each one lands, so a Full profile that asks for
   # metrics reads as requested-but-unsupported rather than as working.

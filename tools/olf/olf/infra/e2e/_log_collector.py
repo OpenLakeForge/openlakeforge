@@ -12,6 +12,7 @@ SeaweedFS port-forward.
 from __future__ import annotations
 
 import contextlib
+import gzip
 import json
 import re
 import time
@@ -197,6 +198,37 @@ def _run_lines(archive: LogArchive, cfg: E2EConfig, run_id: str, token: str, sin
     return line_numbers(messages, token)
 
 
+def diagnose_missing_lines(cfg: E2EConfig, token: str, since: datetime, run_id: str) -> None:
+    """Say where lines of `token` went when the reader cannot find them by `run_id`: in the bucket, with what fields.
+
+    The reader selects on `run_id`, which the collector takes from the pod's labels through the Kubernetes API; a
+    line archived without it is in the bucket and invisible to the reader, which a missing line is not.
+    """
+    prefix = f"activations/{cfg.namespace.removeprefix('olf-')}/logs/v2/namespace={cfg.namespace}/"
+    matched: list[dict[str, Any]] = []
+    with _s3(cfg) as (client, bucket):
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
+            for item in page.get("Contents", []):
+                if item["LastModified"] < since:
+                    continue
+                body = gzip.decompress(client.get_object(Bucket=bucket, Key=item["Key"])["Body"].read())
+                matched.extend(json.loads(raw) for raw in body.splitlines() if token.encode() in raw)
+    with_run = [r for r in matched if r.get("run_id") == run_id]
+    log.info(f"Diagnosis for {token}: {len(matched)} archived records carry it, {len(with_run)} with run_id {run_id}.")
+    for record in matched[:2]:
+        log.info(f"  sample record: {json.dumps({k: v for k, v in record.items() if k != 'message'})}")
+    selector = f"app.kubernetes.io/name={COLLECTOR}"
+    text = kubectl(
+        cfg,
+        ["logs", "-n", cfg.platform_namespace, "-l", selector, "-c", "fluent-bit", "--tail=-1"],
+        capture=True,
+    )
+    lines = [line for line in text.splitlines() if re.search(r"kube|filter|metadata|api", line, re.IGNORECASE)]
+    log.info(f"  collector lines about the Kubernetes filter ({len(lines)}); the last 15:")
+    for line in lines[-15:]:
+        log.info(f"    {line[:300]}")
+
+
 def _emitter_image(cfg: E2EConfig) -> str:
     catalog = yaml.safe_load((cfg.distribution_root / "release/component-catalog.yaml").read_text())
     return str(catalog["components"]["images"]["k8s_bootstrap"])
@@ -270,11 +302,15 @@ def check_short_lived_pod_output(cfg: E2EConfig) -> None:
         _wait_until(lambda: bool(_pods_of(cfg, run_id)), f"the pod of {name} to be created", 120, poll_seconds=1.0)
         _wait_until(lambda: not _pods_of(cfg, run_id), f"the TTL to delete the pod of {name}", 300)
         with _archive(cfg) as archive:
-            await_exactly_once(
-                lambda: _run_lines(archive, cfg, run_id, token, started),
-                SHORT_LIVED_LINES,
-                what=f"run {run_id} (pod already deleted)",
-            )
+            try:
+                await_exactly_once(
+                    lambda: _run_lines(archive, cfg, run_id, token, started),
+                    SHORT_LIVED_LINES,
+                    what=f"run {run_id} (pod already deleted)",
+                )
+            except E2EError:
+                diagnose_missing_lines(cfg, token, started, run_id)
+                raise
     finally:
         kubectl(cfg, ["delete", "job", name, "-n", cfg.namespace, "--ignore-not-found", "--wait=false"])
 
@@ -320,10 +356,14 @@ def check_collector_restart(cfg: E2EConfig) -> None:
             ["wait", "--for=condition=complete", f"job/{name}", "-n", cfg.namespace, "--timeout=300s"],
         )
         with _archive(cfg) as archive:
-            await_exactly_once(
-                lambda: _run_lines(archive, cfg, run_id, token, started),
-                STREAM_LINES,
-                what=f"run {run_id} across a collector restart",
-            )
+            try:
+                await_exactly_once(
+                    lambda: _run_lines(archive, cfg, run_id, token, started),
+                    STREAM_LINES,
+                    what=f"run {run_id} across a collector restart",
+                )
+            except E2EError:
+                diagnose_missing_lines(cfg, token, started, run_id)
+                raise
     finally:
         kubectl(cfg, ["delete", "job", name, "-n", cfg.namespace, "--ignore-not-found", "--wait=false"])

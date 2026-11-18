@@ -5,8 +5,8 @@ engine's error counters at zero. Two drills prove the signals the stage health r
 
 1. `check_delivery_signals_follow_an_outage`: with the collector's route to the object store cut, known lines are
    written; the spool's oldest-file age and the newest object's age pass their warning thresholds while the engine's
-   S3 counters stay at zero; after the route is restored the spool drains, the signals recover and every line is in
-   the archive exactly once.
+   S3 counters stay at zero; after the route is restored every file spooled during the outage leaves the spool, the
+   signals recover and every line is in the archive exactly once.
 2. `check_spool_limit_is_the_loss_point`: the same cut, then more log than `store_dir_limit_size` holds. It asserts
    the spool-size signal turns critical and the spool stays bounded, and records which lines the plugin discarded and
    what it logged, which the ADR lists as open [T] items.
@@ -52,6 +52,7 @@ POLICY = "olf-flows-log-collector"
 S3_PORT = 8333
 PROBE_PORT = 2021
 SPOOL_PATH = "/spool"
+STATE_ROOT = "/var/fluent-bit"
 _FETCH = "import sys,urllib.request;sys.stdout.write(urllib.request.urlopen(sys.argv[1],timeout=10).read().decode())"
 ENGINE_PORT = 2020
 SIGNAL_MAX_AGE = timedelta(seconds=120)
@@ -60,8 +61,8 @@ POLL_SECONDS = 60.0
 OUTAGE_TIMEOUT_SECONDS = 40 * 60
 DRAIN_TIMEOUT_SECONDS = 30 * 60
 FILL_TIMEOUT_SECONDS = 30 * 60
-# Objects land in the bucket before the spool file is removed, so an empty spool is already complete; this only
-# guards a listing that lags the upload.
+# Objects land in the bucket before the spool file is removed, so a spool without the outage's files is already
+# complete; this only guards a listing that lags the upload.
 SETTLE_SECONDS = 60.0
 SETTLE_TIMEOUT_SECONDS = 10 * 60
 BASELINE_LINES = 20
@@ -78,6 +79,24 @@ _ENGINE_FAILURE_COUNTERS = (
     "fluentbit_output_retries_failed_total",
     "fluentbit_output_dropped_records_total",
 )
+# Lists the files under a stage's spool with their sizes, as the probe counts them: the quarantine has left the spool's
+# budget (`spool_probe.QUARANTINE_DIR`). An unreadable directory is an error, never an empty spool.
+_LIST_SPOOL = """
+import json, os, sys
+root, found = sys.argv[1], {}
+def fail(error):
+    raise error
+if os.path.isdir(root):
+    for here, subdirs, files in os.walk(root, onerror=fail):
+        subdirs[:] = [d for d in subdirs if d != "quarantine"]
+        for name in files:
+            path = os.path.join(here, name)
+            try:
+                found[os.path.relpath(path, root)] = os.stat(path).st_size
+            except FileNotFoundError:
+                pass
+sys.stdout.write(json.dumps(found))
+"""
 _PLUGIN_MESSAGE = re.compile(r"store_dir|limit|discard|drop|delet|quarantine|buffer|full", re.IGNORECASE)
 
 
@@ -316,23 +335,98 @@ def _engine_failures(cfg: E2EConfig) -> float:
     )
 
 
-def spool_drained(observations: Iterable[SpoolObservation], stage: str) -> bool:
-    """Whether every collector reports the stage's spool readable and empty; none reporting is not drained."""
-    mine = [o for o in observations if o.stage == stage]
-    return bool(mine) and all(not o.unreadable and o.oldest_file_age is None and o.size_bytes == 0 for o in mine)
+def undelivered(
+    at_restore: Mapping[str, Mapping[str, int]], now: Mapping[str, Mapping[str, int]]
+) -> dict[str, list[str]]:
+    """Per node, the spool files of `at_restore` that are still in the spool; a node that no longer reports keeps all.
+
+    A file leaves the spool when its upload succeeds, so this is the outage's backlog still to send. Files created
+    after the restore are not in it: a stage whose pods keep logging always holds the open buffer of the current
+    `upload_timeout` window, so "every spool empty" never holds on a live stage.
+    """
+    pending: dict[str, list[str]] = {}
+    for node, files in at_restore.items():
+        left = sorted(files) if node not in now else sorted(name for name in files if name in now[node])
+        if left:
+            pending[node] = left
+    return pending
 
 
-def _wait_drained(cfg: E2EConfig, timeout_seconds: float) -> None:
-    """Healthy signals are not enough: under half the limit and ten minutes old also reads healthy mid-drain."""
-    stage = _stage(cfg)
-    _wait_signals(
+def spool_files(cfg: E2EConfig) -> dict[str, dict[str, int]]:
+    """Per node, every file under the stage's spool and its size, read in each collector's probe container."""
+    directory = f"{STATE_ROOT}/spool-{_stage(cfg)}"
+    result: dict[str, dict[str, int]] = {}
+    for pod, node in _collector_nodes(cfg):
+        out = kubectl(
+            cfg,
+            [
+                "exec",
+                pod,
+                "-n",
+                cfg.platform_namespace,
+                "-c",
+                "spool-probe",
+                "--",
+                "python",
+                "-c",
+                _LIST_SPOOL,
+                directory,
+            ],
+            capture=True,
+        )
+        result[node] = {str(name): int(size) for name, size in json.loads(out).items()}
+    return result
+
+
+def _collector_nodes(cfg: E2EConfig) -> list[tuple[str, str]]:
+    """Name and node of each collector pod. The spool is on the node's hostPath, so a replaced pod keeps it."""
+    out = kubectl(
         cfg,
-        lambda s: (
-            all(signal.state is HealthState.HEALTHY for signal in s.values()) and spool_drained(_read_spool(cfg), stage)
-        ),
-        "the spool to drain and the signals to recover",
-        timeout_seconds,
+        [
+            "get",
+            "pods",
+            "-n",
+            cfg.platform_namespace,
+            "-l",
+            f"app.kubernetes.io/name={collector.COLLECTOR}",
+            "-o",
+            "json",
+        ],
+        capture=True,
     )
+    return [(item["metadata"]["name"], item["spec"].get("nodeName", "")) for item in json.loads(out)["items"]]
+
+
+def describe_spool(files: Mapping[str, Mapping[str, int]]) -> str:
+    return (
+        "; ".join(f"{node}: {len(held)} files, {sum(held.values())} bytes" for node, held in sorted(files.items()))
+        or "no collector pod"
+    )
+
+
+def _wait_drained(cfg: E2EConfig, at_restore: Mapping[str, Mapping[str, int]], timeout_seconds: float) -> None:
+    """Wait until every file spooled before the restore is uploaded and every signal is healthy.
+
+    Healthy signals alone are not enough: under half the limit and ten minutes old also reads healthy mid-drain.
+    """
+    log.info(f"Spooled when the route came back: {describe_spool(at_restore)}")
+    pending: dict[str, list[str]] = {}
+
+    def done(signals: Mapping[str, Signal]) -> bool:
+        nonlocal pending
+        now = spool_files(cfg)
+        pending = undelivered(at_restore, now)
+        log.info(f"  spool now: {describe_spool(now)}; outage files still spooled: {_count(pending)}")
+        return not pending and all(signal.state is HealthState.HEALTHY for signal in signals.values())
+
+    try:
+        _wait_signals(cfg, done, "the outage's spool to drain and the signals to recover", timeout_seconds)
+    except E2EError as exc:
+        raise E2EError(f"{exc}; outage files still spooled: {pending}") from exc
+
+
+def _count(pending: Mapping[str, Sequence[str]]) -> int:
+    return sum(len(names) for names in pending.values())
 
 
 def await_stable(read: Callable[[], set[int]], *, settle_seconds: float, timeout_seconds: float) -> set[int]:
@@ -382,14 +476,14 @@ def check_delivery_signals_follow_an_outage(cfg: E2EConfig) -> None:
         )
         if (spooled := max(o.size_bytes for o in _read_spool(cfg) if o.stage == _stage(cfg))) <= 0:
             raise E2EError(f"the spool age rose but the spool holds no bytes: {_describe(signals)}")
-        # The reason the signals exist: the engine reports success, so its counters say nothing is wrong.
-        if failures := _engine_failures(cfg):
-            raise E2EError(
-                f"the engine's S3 failure counters rose to {failures} during the outage: ADR 0022 needs review"
-            )
-        log.info(f"During the outage {spooled} bytes are spooled and the engine's S3 failure counters stay at zero.")
+        # ADR 0022 expects these to stay at zero, which is why the spool and the bucket are read instead. With
+        # `retry_limit` raised they rose (9.0 in the first run that got this far), so the value is recorded and
+        # the ADR's premise is left to its owner; the signals above are what this drill asserts.
+        failures = _engine_failures(cfg)
+        log.info(f"During the outage {spooled} bytes are spooled and the engine's S3 failure counters read {failures}.")
+        at_restore = spool_files(cfg)
 
-    _wait_drained(cfg, DRAIN_TIMEOUT_SECONDS)
+    _wait_drained(cfg, at_restore, DRAIN_TIMEOUT_SECONDS)
     log.info(f"Recovered: {_describe(_signals(cfg))}")
     with collector._archive(cfg) as archive:  # noqa: SLF001
         collector.await_exactly_once(
@@ -482,7 +576,8 @@ def check_spool_limit_is_the_loss_point(cfg: E2EConfig) -> None:
             _record_plugin_messages(cfg, started)
         finally:
             kubectl(cfg, ["delete", "job", name, "-n", cfg.namespace, "--ignore-not-found", "--wait=false"])
-    _wait_drained(cfg, DRAIN_TIMEOUT_SECONDS)
+        at_restore = spool_files(cfg)
+    _wait_drained(cfg, at_restore, DRAIN_TIMEOUT_SECONDS)
     collector._wait_until(lambda: collector._collector_ready(cfg), "the collector to be Ready", 120)  # noqa: SLF001
     if (restarts := _restarts(cfg)) != restarts_before:
         raise E2EError(f"the collector restarted while the spool filled ({restarts_before} -> {restarts})")

@@ -16,6 +16,27 @@ for how a release is cut and verified.
 
 ### Added
 
+- `local-full-e2e.yml` manual runs are opt-in. New dispatch inputs: `profile`
+  (a Deployment Profile as YAML text, so an agent can run the platform with
+  `-f "profile=$(cat openlakeforge.yaml)"` without committing it), `profile_path`
+  (a profile committed to the dispatched ref) and `registry_pull_check`. `checks`
+  accepts `none` to deploy and activate without e2e assertions. With a custom
+  profile the PROD steps run only when it enables PROD.
+- `olf infra openmetadata quality-sync` publishes a stage's Floe and dbt quality
+  results from the ops bucket to OpenMetadata test cases, with retry, idempotent
+  replay and a sync-lag summary, without rerunning a pipeline. A stage without
+  governance makes no request. See [quality
+  publication](docs/reference/health-signals.md#quality-publication-to-openmetadata)
+  and ADR 0007.
+- Scheduled quality publication: on the local provider, each stage with
+  governance gets a `quality-reconciler-<stage>` CronJob that runs the same
+  publisher every 5 minutes with a bounded batch, so results reach OpenMetadata
+  without an operator. It has its own ops-bucket key limited to that stage's
+  quality manifests and `quality-sync/` state, egress to OpenMetadata and the
+  object store only, and reads the ingestion bot's token from its Secret. Slim
+  renders none of it. No health route reads the sync summary yet. See
+  [scheduled
+  publication](docs/reference/health-signals.md#scheduled-publication).
 - Alert policy: `lakehouse_code/alerts.yml` (`AlertPolicy`) declares which
   conditions alert for which products and stages, their thresholds, and the
   routes that name the profile's receivers. A rule matches a domain and a

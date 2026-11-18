@@ -32,12 +32,14 @@ from olf.infra.e2e._issuer_outage import check_issuer_outage
 from olf.infra.e2e._layers import Layer, configured_layers
 from olf.infra.e2e._log_collector import check_collector_restart, check_short_lived_pod_output
 from olf.infra.e2e._log_delivery import check_delivery_signals_follow_an_outage, check_spool_limit_is_the_loss_point
+from olf.infra.e2e._log_footprint import check_collection_footprint
 from olf.infra.e2e._log_retention import check_archive_retention
 from olf.infra.e2e._maintenance import check_iceberg_maintenance
 from olf.infra.e2e._network import check_network_and_rbac
 from olf.infra.e2e._perimeter import check_perimeter
 from olf.infra.e2e._perimeter_latency import check_perimeter_latency
 from olf.infra.e2e._preflight import check_aws_provider_contracts, check_aws_storage_and_glue
+from olf.infra.e2e._quality_publication import check_quality_publication
 from olf.infra.e2e._rotation import check_secret_rotation
 from olf.infra.e2e._secret_exposure import check_secret_exposure
 from olf.infra.e2e._shell import (
@@ -390,6 +392,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         [
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
             FullAssertion("OpenMetadata governance assets", check_openmetadata_assets, layer="governance"),
+            FullAssertion("OpenMetadata quality publication", check_quality_publication, layer="governance"),
             FullAssertion("ops bucket artifacts", check_ops_artifacts),
         ]
     )
@@ -401,6 +404,9 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         assertions.append(FullAssertion("log collector restart mid-stream", check_collector_restart, tier="drill"))
         assertions.append(
             FullAssertion("log archive retention in the object store", check_archive_retention, tier="drill")
+        )
+        assertions.append(
+            FullAssertion("log collector footprint at three log rates", check_collection_footprint, tier="drill")
         )
         # They cut the collector's route to the object store, so they run after the checks that need the archive.
         assertions.append(

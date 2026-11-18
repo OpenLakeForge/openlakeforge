@@ -272,6 +272,8 @@
       },
       "metrics": {
         "enabled": true,
+        "query_api": null,
+        "query_url": null,
         "retention_days": 7,
         "retention_supported": false,
         "supported": false

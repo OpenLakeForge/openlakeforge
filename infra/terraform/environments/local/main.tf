@@ -68,6 +68,10 @@ locals {
   alerts_enabled = length(var.observability.alert_receivers) > 0
   # Shared by the alerts identity's grant and the evaluator's state_base_uri, which must agree.
   alerts_prefix = "alerts/"
+  # ADR 0007: a quality reconciler per governed stage and only then, so Slim renders no CronJob, Secret or key. The
+  # platform phase cannot know the descriptors' schema FQNs (ADR 0002), so none is passed: Polaris's physical schema
+  # is `<domain>_silver`, which the publisher derives under the stage's own database root.
+  quality_reconciler_secrets = { for name in keys(local.governed_stages) : name => "quality-reconciler-${name}-s3-creds" }
   # Reached in-cluster over F32 and F38 (ADR 0017), around the perimeter.
   dagster_graphql_urls = {
     for name in keys(local.enabled_stages) :
@@ -259,6 +263,14 @@ module "seaweedfs" {
       ops_bucket_name         = var.ops_bucket_name
     }
   } : {}
+  # One key per governed stage for its quality reconciler (ADR 0007): its own manifests and its own `quality-sync/`.
+  quality_sync_credentials = {
+    for name, secret in local.quality_reconciler_secrets : name => {
+      namespace               = kubernetes_namespace_v1.shared.metadata[0].name
+      credentials_secret_name = secret
+      ops_bucket_name         = var.ops_bucket_name
+    }
+  }
   audit_writer_credentials = local.platform_api_enabled ? {
     namespace               = kubernetes_namespace_v1.shared.metadata[0].name
     credentials_secret_name = "platform-api-audit-writer-s3-creds"
@@ -337,6 +349,28 @@ module "alerts" {
   # Flow F44. Built from the module's defaults, never from module.platform_api, so the evaluator does not order after
   # the API and the API's service caller below needs only this module's ServiceAccount name.
   platform_api_url = local.platform_api_enabled && local.alerts_enabled ? "http://platform-api.${kubernetes_namespace_v1.shared.metadata[0].name}:8080" : null
+}
+
+# ADR 0007: publishes each governed stage's quality results to OpenMetadata. It runs the platform API image, which
+# olf builds whenever a stage has governance, and exists only for a governed stage.
+module "quality_reconciler" {
+  source = "../../modules/governance/quality-reconciler"
+
+  namespace         = kubernetes_namespace_v1.shared.metadata[0].name
+  image             = var.platform_api_image
+  image_pull_policy = "Never"
+  stages = {
+    for name, secret in local.quality_reconciler_secrets : name => {
+      artifact_base_uri       = "${local.artifact_base_uri}/activations/${name}/"
+      database_fqn            = local.stage_catalog_contracts[name].catalog_database_fqn
+      credentials_secret_name = module.seaweedfs.quality_sync_secret_names[name]
+    }
+  }
+  openmetadata_url          = "http://${local.openmetadata_service.name}.${kubernetes_namespace_v1.shared.metadata[0].name}:${local.openmetadata_service.port}"
+  ingestion_bot_secret_name = local.governance_enabled ? module.openmetadata[0].contract.ingestion_bot_secret_name : ""
+  ingestion_bot_jwt_key     = local.governance_enabled ? module.openmetadata[0].contract.ingestion_bot_jwt_key : ""
+  s3_endpoint_url           = module.seaweedfs.contract.endpoint
+  s3_region                 = module.seaweedfs.contract.region
 }
 
 module "cert_manager" {
@@ -816,6 +850,7 @@ locals {
     { for name in ["oauth2-proxy", "perimeter-cookie-secret"] : name => local.identity_enabled },
     { "platform-api" = length(module.platform_api) > 0 },
     { "alert-evaluator" = local.alerts_enabled },
+    { "quality-reconciler" = local.governance_enabled },
     { for name in ["dex", "dex-credentials"] : name => local.identity_dex },
     { for name in ["openmetadata", "opensearch"] : name => local.governance_enabled },
   )

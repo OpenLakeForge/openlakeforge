@@ -80,6 +80,62 @@ Floe and dbt-trino each emit OpenLineage events straight to OpenMetadata's
   port, and the HTTPS port dbt uses once workload authentication is on.
 - OpenMetadata owns entity resolution and lineage persistence.
 
+### Quality results use the OpenMetadata TestCase APIs
+
+Lineage and quality are different data. Lineage is a statement by the engine
+that wrote a table, so it travels the engine's own OpenLineage emission and
+nothing else. A quality result is a record the platform already holds: the
+normalized per-run manifest the pipeline writes to the stage's ops bucket
+(ADR 0023, `run-artifacts/quality/<domain>/<product>/<run>/manifest.json`).
+OpenMetadata is a consumer of that record and never reruns Floe or dbt.
+
+- **API.** A short-lived reconciler reads the manifests and publishes them
+  through OpenMetadata's `TestDefinition`, `TestCase` and `TestCaseResult`
+  routes (`/api/v1/dataQuality/...`) with the shared `OpenMetadataClient`.
+  This is the one place the platform writes to the catalog on an engine's
+  behalf, and it is narrow: quality only. There is no lineage proxy and no
+  lineage REST push; the two rejected approaches below stay rejected.
+- **No native dbt ingestion for results.** dbt's `run_results.json` ingestion
+  would publish a second copy of what the manifest already carries, covers
+  neither Floe nor the WARN/ERROR distinction below, and had a reported
+  regression in 1.13.0 (open-metadata/OpenMetadata#29824). Native dbt
+  metadata ingestion may enrich the catalog later, provided it does not
+  create test results.
+- **After the run, never inside it.** Publication runs on its own schedule
+  and on demand (`olf`), keyed by stage and Dagster run. A run's outcome never
+  depends on OpenMetadata being reachable, and a failed publication is a
+  retriable state shown beside the pipeline's quality, not instead of it.
+  Slim has no governance layer and no reconciler: no OpenMetadata request is
+  ever made and no credential is mounted.
+- **Existing tables only, in the result's own stage.** The table FQN is
+  `<catalog service>.lakehouse_<stage>.<schema>.<table>`, built from the
+  stage the manifest was written for. The reconciler looks the table up and
+  publishes only when it exists; an unregistered table keeps the result
+  pending until registration, and nothing is created implicitly. A DEV
+  manifest can name only DEV FQNs.
+- **Stable cases, one result per execution.** A case is named from the engine
+  and the check id and lives under the table (or column) it checks, so a
+  second run adds a result to the same case. The result's timestamp is the
+  engine's observation time in milliseconds, which also makes a replay find the
+  result already there.
+- **Statuses.** OpenMetadata knows `Success`, `Failed` and `Aborted`. PASS is
+  `Success` and a blocking ERROR is `Failed`. An advisory WARN cannot be
+  `Success`, which would hide it, and `Failed` opens an incident
+  (`TestCaseResultRepository.setTestCaseResultIncidentId`, read on 1.13.6), a
+  side effect nobody chose for a check the pipeline survived. WARN therefore
+  publishes as `Aborted`, which shows without an incident, and every result
+  carries the original outcome, engine severity and pipeline outcome in its
+  details so OpenMetadata's coarser status never replaces them. An operator
+  who wants incidents for WARN sets the WARN status to `Failed`. `not_run` and
+  `unknown` are never published: an unexecuted check has no result.
+- **State.** Pending, failed and synced publications are objects in the same
+  ops bucket, under `quality-sync/`, keyed by stage and run; a summary there
+  carries the sync lag and the last success and failure for the health
+  signal. There is no new database.
+- **Identity.** The reconciler uses the ingestion bot's token, which the
+  platform already issues. A dedicated quality-writer bot holding only
+  test-case permissions is narrower and is follow-up work.
+
 ### Two rejected approaches, still rejected
 
 **A normalising OpenLineage proxy.** An earlier design deployed a proxy that
@@ -159,3 +215,7 @@ a dataset whose namespace is not mapped.
 the endpoint in the profile the code location renders and the JWT as a Secret
 reference on the Job; there is no generated manifest left to keep
 credential-free.
+
+2026-11-17 (#797): quality results reach OpenMetadata through its TestCase
+APIs from the manifests in the ops bucket, after the run; lineage stays
+native, and no proxy is added.

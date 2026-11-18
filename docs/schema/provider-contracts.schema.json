@@ -185,6 +185,24 @@
         "retention_supported": {"type": "boolean", "description": "False while nothing applies retention_days to the stored data."}
       }
     },
+    "observabilityMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "supported", "retention_days", "retention_supported"],
+      "dependentRequired": {"query_api": ["query_url"], "query_url": ["query_api"]},
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "supported": {"type": "boolean", "description": "False when this provider has no adapter that can honour the capability, whatever the profile asks for."},
+        "retention_days": {"type": "integer", "minimum": 1, "description": "The retention the profile asks for."},
+        "retention_supported": {"type": "boolean", "description": "False while nothing applies retention_days to the stored data."},
+        "query_api": {"enum": ["prometheus-http-v1", null], "description": "The query protocol the read path speaks, not the product behind it. Null when there is no query endpoint."},
+        "query_url": {"anyOf": [{"$ref": "#/definitions/nonEmptyString"}, {"type": "null"}], "description": "Where the platform API reaches the metrics backend. Null whenever supported is false."}
+      },
+      "allOf": [
+        {"if": {"properties": {"query_api": {"type": "string"}}, "required": ["query_api"]}, "then": {"properties": {"query_url": {"type": "string"}, "supported": {"const": true}}}},
+        {"if": {"properties": {"query_url": {"type": "string"}}, "required": ["query_url"]}, "then": {"properties": {"query_api": {"type": "string"}, "supported": {"const": true}}}}
+      ]
+    },
     "observabilityBinding": {
       "type": "object",
       "additionalProperties": false,
@@ -205,7 +223,7 @@
             "search": {"$ref": "#/definitions/observabilityCapability"}
           }
         },
-        "metrics": {"$ref": "#/definitions/observabilityRetainedCapability"},
+        "metrics": {"$ref": "#/definitions/observabilityMetrics"},
         "grafana": {"$ref": "#/definitions/observabilityCapability"},
         "alerts": {
           "type": "object",

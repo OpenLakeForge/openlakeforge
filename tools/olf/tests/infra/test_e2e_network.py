@@ -1,4 +1,6 @@
+import contextlib
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -247,3 +249,27 @@ def test_a_labelled_probe_pod_has_a_controller_so_no_workload_adopts_it(monkeypa
     (owner,) = override["metadata"]["ownerReferences"]
     assert owner["controller"] is True
     assert (owner["kind"], owner["name"], owner["uid"]) == ("Namespace", "olf-system", "ns-uid")
+
+
+def test_a_negative_probe_retries_only_its_control_ports(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts: list[int] = []
+
+    def connect(_cfg: object, _ns: str, _pod: str, _ip: str, port: int) -> int:
+        attempts.append(port)
+        return 28
+
+    @contextlib.contextmanager
+    def probe(*_a: object) -> Iterator[str]:
+        yield "p"
+
+    monkeypatch.setattr(_network, "kubectl", lambda *_a, **_k: "")
+    monkeypatch.setattr(_network, "_connect", connect)
+    monkeypatch.setattr(_network, "_probe_pod", probe)
+    monkeypatch.setattr(_network, "_olf_namespaces", lambda _cfg: ["olf-dev", "olf-system"])
+    monkeypatch.setattr(_network, "_pod_ip", lambda _cfg, ns, _labels: "10.0.0.1" if ns == "olf-system" else None)
+    monkeypatch.setattr(_network, "POLICY_LAG_RETRY_SECONDS", 0)
+    cfg = SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system", environ={})
+    with pytest.raises(E2EError, match="did not connect"):
+        _network.check_negative_flows(cfg, FLOWS)  # type: ignore[arg-type]
+    # postgresql:5432 is a stage-wide control, so the stage probe tries it twice; the outside and platform probes once.
+    assert attempts.count(5432) == 4

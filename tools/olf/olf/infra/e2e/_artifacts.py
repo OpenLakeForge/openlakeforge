@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
+from collections.abc import Iterator
 from typing import Any
 
 import boto3
@@ -33,11 +35,22 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
     # The local stack has no polling CronJob: the node collector archives pod logs (ADR 0022).
     if cfg.env != "local":
         trigger_log_archive_job(cfg)
+    with ops_bucket_client(cfg) as (client, bucket):
+        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory, pod_log_layout=_pod_log_layout(cfg))
+
+
+def _pod_log_layout(cfg: E2EConfig) -> str:
+    # The node collector writes v2 on local; the polling CronJob writes v1 (`k8s`) elsewhere.
+    return "v2" if cfg.env == "local" else "k8s"
+
+
+@contextlib.contextmanager
+def ops_bucket_client(cfg: E2EConfig) -> Iterator[tuple[Any, str]]:
+    """An S3 client for the shared ops bucket, through the provider's own access path, and the bucket's name."""
     provider_contracts = load_provider_contracts_or_raise(cfg)
     bucket = provider_contracts["shared"]["ops_storage"]["bucket_name"]
     if cfg.env == "aws":
-        client = aws_session(cfg_environ(cfg), region=aws_stack_region(cfg)).client("s3")
-        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory, pod_log_layout=_pod_log_layout(cfg))
+        yield aws_session(cfg_environ(cfg), region=aws_stack_region(cfg)).client("s3"), bucket
         return
 
     assert cfg.seaweedfs_local_port is not None
@@ -75,12 +88,7 @@ def check_ops_artifacts(cfg: E2EConfig) -> None:
             config=Config(s3={"addressing_style": "path"}),
         )
         wait_for_bucket(client, bucket, endpoint)
-        assert_ops_artifacts(client, bucket, cfg.namespace, cfg.inventory, pod_log_layout=_pod_log_layout(cfg))
-
-
-def _pod_log_layout(cfg: E2EConfig) -> str:
-    # The node collector writes v2 on local; the polling CronJob writes v1 (`k8s`) elsewhere.
-    return "v2" if cfg.env == "local" else "k8s"
+        yield client, bucket
 
 
 def trigger_log_archive_job(cfg: E2EConfig) -> None:
