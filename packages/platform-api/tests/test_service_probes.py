@@ -224,6 +224,16 @@ def test_a_killed_workload_is_critical_and_a_partial_one_is_a_warning() -> None:
     assert by_component(probes(partial).probe(ALL))["trino.workloads"].state is HealthState.WARNING
 
 
+def test_one_controller_scaled_to_zero_beside_a_ready_one_is_a_warning() -> None:
+    # Dagster's daemon at zero replicas beside its ready webserver: both match the dagster selector.
+    daemon_stopped = Cluster(
+        [controller(DAGSTER), controller(DAGSTER, replicas=0), controller(TRINO)], [pod(DAGSTER), pod(TRINO)]
+    )
+    signal = by_component(probes(daemon_stopped).probe(ALL))["dagster.workloads"]
+    assert signal.state is HealthState.WARNING
+    assert "1 scaled to zero" in signal.reason
+
+
 def test_a_stuck_pod_is_degraded_whether_unschedulable_or_crash_looping() -> None:
     stuck = Cluster(
         [controller(DAGSTER, ready=0), controller(TRINO)],

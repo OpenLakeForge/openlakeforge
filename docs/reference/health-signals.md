@@ -40,7 +40,7 @@ The stage health route returns each service with its `component`, a `source` (wh
 
 | Component | Source | `healthy` means | Does not mean |
 | --- | --- | --- | --- |
-| `dagster.workloads`, `trino.workloads` | `kubernetes` | Pods ready, schedulable, not crash looping | The service answers |
+| `dagster.workloads`, `trino.workloads` | `kubernetes` | Pods ready, schedulable, not crash looping, and no matching Deployment or StatefulSet scaled to zero | The service answers |
 | `dagster.read-api` | `dagster-graphql` | The webserver answers with a code location loaded | A run would launch |
 | `trino.readiness` | `trino-http` | The coordinator finished starting | Workers, catalogs or Polaris access work |
 | `polaris.readiness` | `polaris-http` | The catalog's management port answers `/q/health/ready` as UP, sent with no credential | A catalog read works, a grant holds, or the stage's catalog exists |
