@@ -179,7 +179,8 @@ every signal to be `healthy` and every file that was in a spool when the route
 came back to have left it (a stage whose pods keep logging always holds the
 buffer of the current `upload_timeout` window, so an empty spool is not the
 drained state), then for the lines to be in the archive exactly once. Run 2: fills the spool past `store_dir_limit_size` with
-numbered lines, asserts the size signal turns `critical`, that the spool peak
+numbered lines, asserts the size signal turns `critical` (a fill Job that fails
+ends that wait at once: it has stopped writing), that the spool peak
 stays within one 8M file plus 8M of the limit and that the collector does not
 restart, then waits for the emitter Job to finish (a failed or overdue one is an error, so
 the loss is measured against every planned line), for the files spooled at the restore to leave the spool and the archive to stop changing, and
@@ -416,3 +417,8 @@ value or setting changed.
 lifecycle rule, with `fs.configure`'s limit of 255 per unit: above 255 days the
 TTL is whole weeks, months or years, rounded up when the days do not divide
 (#1248 review).
+
+2026-11-18: run 2 of the failure-injection e2e stops waiting for the spool to
+fill as soon as its fill Job fails, instead of after 30 minutes. A fill that
+wrote nothing (BusyBox awk rejecting `%*s`, fixed in #1264) had read as a
+collector that never spooled it; no threshold or setting changed.
