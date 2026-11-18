@@ -129,6 +129,25 @@ Delivery rules:
   when it opens and once when it resolves; a warning that becomes critical
   sends one `escalated`.
 
+`GET /api/v1/stages/{stage}/alerts/incidents` on the platform API lists a
+stage's open incidents, read-only, for `data-engineer` and above. Each carries
+its latest notification's `delivery`:
+
+| `status` | Meaning |
+| --- | --- |
+| `pending` | Queued: not every receiver routed to it has it yet |
+| `delivered` | Every receiver routed to it accepted it |
+| `undeliverable` | It was given up after 12 evaluations, or a receiver rejected it |
+| `unrouted` | No receiver was routed to it, so nobody was told |
+| `unknown` | It left the queue before the evaluator kept outcomes |
+
+The answer's `state` is `not_provided` without an evaluator or the API's key
+to read its state, and
+`unavailable` with `incidents: null` when the state cannot be read or the
+evaluator has not written one yet. `stale: true` means the last evaluation is
+more than 10 minutes old, so the list may be out of date. Receiver names and
+URLs never appear in the answer.
+
 ## Write the alert policy
 
 `lakehouse_code/alerts.yml` says which conditions alert for which products and

@@ -239,9 +239,11 @@ The alert policy is not part of the fingerprint, and the scope keeps the job as
 
 Incidents notify **once on fire and once on resolve**, with no reminders
 (Maintainer). There is no acknowledgement in v0.7 (Maintainer): no route, no
-`acknowledged` state and no POST. Incident status may be readable, through the
-platform API with a read-only key on `alerts/state/`, as the logs route is
-**[T: not decided to be built here; #793 owns the route]**. If acknowledgement
+`acknowledged` state and no POST. Incident status is readable through the
+platform API, `GET /api/v1/stages/{stage}/alerts/incidents` (#1258), with a
+read-only key on `alerts/state/*` that cannot write: the evaluator stays the
+only writer, and a state the API cannot parse is answered `unavailable`, never
+copied or replaced by it. If acknowledgement
 is ever built, it is written as **separate objects** under `alerts/ack/`, which
 the evaluator reads and never edits, so the evaluator stays the only writer of
 state.
@@ -282,13 +284,18 @@ adds the reads the alert policy needs.
 
 | Object | Content |
 | --- | --- |
-| `alerts/state/v1/state.json` | `schema_version`, `evaluated_at` (written by the evaluator), the open incidents only (fingerprint, id, severity, notified severity, opened_at, last_seen, last run), the per-fingerprint id sequence, the per-stage count of consecutive unreadable evaluations, and an **outbox** of notifications not yet delivered |
+| `alerts/state/v1/state.json` | `schema_version`, `evaluated_at` (written by the evaluator), the open incidents only (fingerprint, id, severity, notified severity, opened_at, last_seen, last run, and how its latest notification left the outbox: event, `delivered`, `undeliverable` or `unrouted`, with receiver, acceptance and attempt counts), the per-fingerprint id sequence, the per-stage count of consecutive unreadable evaluations, and an **outbox** of notifications not yet delivered, each with the receivers that settled it and those of them that rejected it |
 | `alerts/state/v1/policy/<stage>.json` | the stage's last good alert policy: the activation revision it came from, the validated policy and the job map (Decision 10) |
 | `alerts/history/v1/date=<YYYY-MM-DD>/<incident-id>-<seq>-<event>.json` | one object per event (`opened`, `escalated`, `severity_changed`, `resolved`, `resolved_silently`) and per delivery attempt (receiver name, attempt number, HTTP status or error class, time). No payload body and no URL |
 | `alerts/state/v1/corrupt/<UTC time>.json` | a state object that failed to parse, kept for the operator |
 
 Event status and delivery status are separate: an incident can be `firing` with
-its notification `pending`, `delivered` or `undeliverable`.
+its notification `pending`, `delivered` or `undeliverable`. The outbox forgets
+a notification once it settles, so the evaluator keeps the outcome on the open
+incident: `undeliverable` when the entry expired or a receiver rejected it,
+`unrouted` when no receiver was routed to it, `delivered` otherwise. A state
+written before outcomes were kept reads with none, which the API answers as
+`unknown`.
 
 A run of the evaluator writes in this order, which is what makes delivery
 asynchronous from evaluation:
@@ -1077,3 +1084,9 @@ grant with AccessDenied, so every stage's policy read failed and no product aler
 
 2026-11-18: `olf alert explain` takes `--job` for a job of no product (#1280), which `--product` could not name although
 the global rules cover it. No deviation from the decisions above.
+
+2026-11-18: #1258. Decision 3's incident read path is built: `GET /api/v1/stages/{stage}/alerts/incidents` on the
+platform API, read-only, with a key that can only read and list `alerts/state/*`; the **[T]** is gone. To tell a
+delivered notification from an expired or rejected one after it leaves the outbox, `state.json` now keeps, per open
+incident, its latest notification's outcome and counts, and per outbox entry the receivers that rejected it. Both keys
+are optional on read, so a state written before this change still parses, with no outcome. `schema_version` stays 1.

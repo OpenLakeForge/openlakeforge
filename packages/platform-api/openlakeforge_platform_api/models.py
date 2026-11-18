@@ -307,6 +307,52 @@ class StageQualityHealth(BaseModel):
     pipelines: list[PipelineQuality]
 
 
+class AlertStateStatus(BaseModel):
+    """Whether the evaluator's state could be read. `stale` is None unless it was, and an old state is never current."""
+
+    status: Literal["available", "unavailable", "not_provided"]
+    reason: str
+    evaluated_at: datetime | None
+    stale: bool | None
+
+
+class AlertDelivery(BaseModel):
+    """The incident's latest notification: queued (`pending`) or how it left the outbox. Counts only, never a receiver.
+
+    `unknown` is a notification settled by an evaluator that did not keep outcomes yet; its counts are None.
+    """
+
+    status: Literal["pending", "delivered", "undeliverable", "unrouted", "unknown"]
+    event: Literal["opened", "escalated", "resolved"] | None
+    attempts: int | None
+    receivers: int | None
+    delivered: int | None
+
+
+class AlertIncident(BaseModel):
+    """An open incident, from the fields of the ADR 0023 notification payload only."""
+
+    id: str
+    condition: str
+    severity: Literal["warning", "critical"]
+    domain: str | None
+    product: str | None
+    table: str | None
+    component: str | None
+    opened_at: datetime
+    last_seen_at: datetime
+    summary: str
+    run_ids: list[str]
+    delivery: AlertDelivery
+
+
+class StageAlertIncidents(BaseModel):
+    stage: str
+    state: AlertStateStatus
+    # None whenever the state is not `available`: an unreadable state is not an empty one.
+    incidents: list[AlertIncident] | None
+
+
 # The IntegrationStatus vocabulary: a metric's state is never a health state, and an absent series is not a zero one.
 MetricState = Literal["available", "disabled", "unavailable", "not_provided"]
 MetricRangeName = Literal["1h", "6h", "24h", "7d"]

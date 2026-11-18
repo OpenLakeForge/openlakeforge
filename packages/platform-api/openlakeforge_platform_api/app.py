@@ -18,6 +18,7 @@ from fastapi.routing import APIRoute
 from openlakeforge_services.logs import ObjectStore
 
 from openlakeforge_platform_api import (
+    alert_routes,
     csrf,
     discovery,
     file_writes,
@@ -55,6 +56,9 @@ AUDIT_SECRET_KEY_ENV = "OPENLAKEFORGE_AUDIT_SECRET_ACCESS_KEY"
 # The files explorer's key: read, list, write and delete on the stage buckets, and nothing else.
 FILES_ACCESS_KEY_ENV = "OPENLAKEFORGE_FILES_ACCESS_KEY_ID"
 FILES_SECRET_KEY_ENV = "OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY"
+# Read and List on the alert evaluator's `state/` only.
+ALERTS_ACCESS_KEY_ENV = "OPENLAKEFORGE_ALERTS_ACCESS_KEY_ID"
+ALERTS_SECRET_KEY_ENV = "OPENLAKEFORGE_ALERTS_SECRET_ACCESS_KEY"
 
 # Every service probe, and the S3 client it lists with, is bounded by this (ADR 0021, decision 7).
 
@@ -280,6 +284,30 @@ def _files_store(settings: Settings) -> files.FileStore | None:
     return cast("files.FileStore", client)
 
 
+def _alert_state_store(settings: Settings) -> alert_routes.StateStore | None:
+    """An S3 client with the alert state reader's key, or None when there is no evaluator state or no key.
+
+    Its own identity: the evaluator's key can write, and the files key reaches the whole ops bucket.
+    """
+    access_key = os.environ.get(ALERTS_ACCESS_KEY_ENV)
+    secret_key = os.environ.get(ALERTS_SECRET_KEY_ENV)
+    if not settings.alerts_state_base_uri or not access_key or not secret_key:
+        return None
+    return cast(
+        alert_routes.StateStore,
+        boto3.client(
+            "s3",
+            endpoint_url=settings.s3_endpoint_url,
+            region_name=settings.s3_region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            config=Config(
+                s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=5, retries={"max_attempts": 1}
+            ),
+        ),
+    )
+
+
 def _probe_store(settings: Settings) -> ListableStore | None:
     """The S3 client the object-store probe lists with, or None when there is no key or no bucket to list.
 
@@ -341,6 +369,7 @@ def create_app(
     trino_send: Callable[..., requests.Response] | None = None,
     service_probes: StageProber | None = None,
     quality_readers: dict[str, QualityReader] | None = None,
+    alert_state_store: alert_routes.StateStore | None = None,
 ) -> FastAPI:
     # No interactive docs or OpenAPI route: each would be a route outside the
     # matrix. ADR 0021 decision 5 commits the OpenAPI document under docs/schema.
@@ -381,6 +410,7 @@ def create_app(
     app.state.object_store = object_store or _object_store(settings)
     app.state.files_store = files_store or _files_store(settings)
     app.state.quality_readers = _quality_readers(settings) if quality_readers is None else quality_readers
+    app.state.alert_state_store = alert_state_store or _alert_state_store(settings)
     app.state.audit = audit or AuditLog(_audit_store(settings), settings.audit_base_uri)
     # The HTTP transport for the Trino client; tests inject a fake, and a private CA is the only thing production adds.
     app.state.trino_send = trino_send or functools.partial(requests.request, verify=settings.ca_file or True)
@@ -415,6 +445,12 @@ def create_app(
         quality_routes.get_stage_quality_health,
         methods=["GET"],
         name="get_stage_quality_health",
+    )
+    app.add_api_route(
+        "/api/v1/stages/{stage}/alerts/incidents",
+        alert_routes.list_alert_incidents,
+        methods=["GET"],
+        name="list_alert_incidents",
     )
     app.add_api_route("/api/v1/stages/{stage}/logs", reads.list_logs, methods=["GET"], name="list_logs")
     app.add_api_route(

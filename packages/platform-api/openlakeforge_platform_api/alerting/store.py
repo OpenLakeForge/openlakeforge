@@ -23,6 +23,8 @@ from openlakeforge_services.logs import ObjectStore
 log = logging.getLogger(__name__)
 
 _MISSING = frozenset({"NoSuchKey", "404"})
+# The state document, under the base prefix. The platform API reads it too, never through this class: read_state writes.
+STATE_OBJECT = ("state", "v1", "state.json")
 
 
 class AlertObjectStore(ObjectStore, Protocol):
@@ -62,7 +64,7 @@ class AlertStore:
 
     def read_state(self, now: datetime) -> AlertState:
         """The stored state; an empty one when it is missing, or when it is corrupt after keeping a copy of it."""
-        key = self._key("state", "v1", "state.json")
+        key = self._key(*STATE_OBJECT)
         try:
             body = self._client.get_object(Bucket=self._bucket, Key=key)["Body"].read()
         except ClientError as error:
@@ -105,7 +107,7 @@ class AlertStore:
         document = json.loads(state_to_json(state))
         document["evaluated_at"] = evaluated_at.isoformat()
         body = json.dumps(document, sort_keys=True, separators=(",", ":"))
-        self._put(self._key("state", "v1", "state.json"), body.encode())
+        self._put(self._key(*STATE_OBJECT), body.encode())
 
     def write_pending_history(self, records: list[PendingRecord], state: AlertState | None) -> None:
         """The transition records of a state about to be written, tagged with that state's digest; [] clears them."""

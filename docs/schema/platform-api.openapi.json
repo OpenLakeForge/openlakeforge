@@ -1,6 +1,234 @@
 {
   "components": {
     "schemas": {
+      "AlertDelivery": {
+        "description": "The incident's latest notification: queued (`pending`) or how it left the outbox. Counts only, never a receiver.\n\n`unknown` is a notification settled by an evaluator that did not keep outcomes yet; its counts are None.",
+        "properties": {
+          "attempts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempts"
+          },
+          "delivered": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivered"
+          },
+          "event": {
+            "anyOf": [
+              {
+                "enum": [
+                  "opened",
+                  "escalated",
+                  "resolved"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event"
+          },
+          "receivers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receivers"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "delivered",
+              "undeliverable",
+              "unrouted",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "event",
+          "attempts",
+          "receivers",
+          "delivered"
+        ],
+        "title": "AlertDelivery",
+        "type": "object"
+      },
+      "AlertIncident": {
+        "description": "An open incident, from the fields of the ADR 0023 notification payload only.",
+        "properties": {
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component"
+          },
+          "condition": {
+            "title": "Condition",
+            "type": "string"
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/AlertDelivery"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product"
+          },
+          "run_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Run Ids",
+            "type": "array"
+          },
+          "severity": {
+            "enum": [
+              "warning",
+              "critical"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "table": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table"
+          }
+        },
+        "required": [
+          "id",
+          "condition",
+          "severity",
+          "domain",
+          "product",
+          "table",
+          "component",
+          "opened_at",
+          "last_seen_at",
+          "summary",
+          "run_ids",
+          "delivery"
+        ],
+        "title": "AlertIncident",
+        "type": "object"
+      },
+      "AlertStateStatus": {
+        "description": "Whether the evaluator's state could be read. `stale` is None unless it was, and an old state is never current.",
+        "properties": {
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "stale": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale"
+          },
+          "status": {
+            "enum": [
+              "available",
+              "unavailable",
+              "not_provided"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "evaluated_at",
+          "stale"
+        ],
+        "title": "AlertStateStatus",
+        "type": "object"
+      },
       "Bucket": {
         "properties": {
           "created_at": {
@@ -1752,6 +1980,38 @@
         "title": "ServiceHealth",
         "type": "object"
       },
+      "StageAlertIncidents": {
+        "properties": {
+          "incidents": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AlertIncident"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Incidents"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/AlertStateStatus"
+          }
+        },
+        "required": [
+          "stage",
+          "state",
+          "incidents"
+        ],
+        "title": "StageAlertIncidents",
+        "type": "object"
+      },
       "StageHealth": {
         "properties": {
           "evaluated_at": {
@@ -2215,6 +2475,46 @@
           }
         },
         "summary": "Query Capabilities"
+      }
+    },
+    "/api/v1/stages/{stage}/alerts/incidents": {
+      "get": {
+        "description": "The stage's open incidents, each with its latest notification's delivery; never an empty list for none.",
+        "operationId": "list_alert_incidents_api_v1_stages__stage__alerts_incidents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StageAlertIncidents"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Alert Incidents"
       }
     },
     "/api/v1/stages/{stage}/buckets": {
