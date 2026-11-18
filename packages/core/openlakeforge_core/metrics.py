@@ -25,6 +25,19 @@ class MetricSource(StrEnum):
     DAGSTER = "dagster"
 
 
+class StepAggregation(StrEnum):
+    """How a recording rule is turned into one value per step."""
+
+    # A gauge: the rule's value at each step.
+    NONE = "none"
+    # A counter: its increase over each step rather than its running total.
+    INCREASE = "increase"
+    # Per-interval increments the rule already computed (M-c's `olf:container_restarts`, a per-minute count, because a
+    # counter summed across pods drops when a pod goes and increase() would read the drop as restarts): their sum
+    # over each step.
+    SUM_OVER_TIME = "sum_over_time"
+
+
 @dataclass(frozen=True)
 class MetricRange:
     name: str
@@ -62,8 +75,7 @@ class MetricSeries:
     # True where each stage has its own target behind the series (each stage's Trino coordinator), so the stage's
     # `up` alone vouches for it; the kubelet and object-store targets serve every stage at once.
     per_stage_targets: bool = False
-    # A counter, served as its increase over each step rather than its running total.
-    increase: bool = False
+    aggregation: StepAggregation = StepAggregation.NONE
 
     @property
     def rule(self) -> str | None:
@@ -98,7 +110,7 @@ CATALOG: tuple[MetricSeries, ...] = (
         ("stage", "component"),
         _PROMETHEUS,
         ("kube-state-metrics",),
-        increase=True,
+        aggregation=StepAggregation.SUM_OVER_TIME,
     ),
     MetricSeries("node_cpu_usage_cores", "cores", _PLATFORM, (), _PROMETHEUS, ("kubelet-resource",)),
     MetricSeries("node_memory_working_set_bytes", "bytes", _PLATFORM, (), _PROMETHEUS, ("kubelet-resource",)),
@@ -116,7 +128,7 @@ CATALOG: tuple[MetricSeries, ...] = (
         _PROMETHEUS,
         ("trino",),
         per_stage_targets=True,
-        increase=True,
+        aggregation=StepAggregation.INCREASE,
     ),
     MetricSeries("trino_heap_used_bytes", "bytes", _STAGE, ("stage",), _PROMETHEUS, ("trino",), per_stage_targets=True),
     MetricSeries("object_store_bucket_bytes", "bytes", _BOTH, ("stage",), _PROMETHEUS, ("object-store",)),

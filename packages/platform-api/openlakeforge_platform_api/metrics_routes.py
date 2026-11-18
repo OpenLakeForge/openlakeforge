@@ -19,6 +19,7 @@ from openlakeforge_core.metrics import (
     MetricScope,
     MetricSeries,
     MetricSource,
+    StepAggregation,
     find_series,
 )
 from openlakeforge_services.base import ServiceClientError
@@ -70,9 +71,11 @@ def _quoted(value: str) -> str:
 def _expression(series: MetricSeries, stage: str, metric_range: MetricRange) -> str:
     matcher = f"{{stage={_quoted(stage)}}}" if "stage" in series.labels else ""
     selector = f"{series.rule}{matcher}"
-    if series.increase:
-        return f"increase({selector}[{int(metric_range.step.total_seconds())}s])"
-    return selector
+    if series.aggregation is StepAggregation.NONE:
+        return selector
+    # Each point is the value over the step that ends at it: a counter's increase, or the sum of the increments the
+    # rule recorded within it.
+    return f"{series.aggregation.value}({selector}[{int(metric_range.step.total_seconds())}s])"
 
 
 def _targets_expression(series: MetricSeries, stage: str, metric_range: MetricRange) -> str:

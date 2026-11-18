@@ -124,6 +124,17 @@ def test_the_query_names_only_the_series_rule_the_stage_and_the_catalogs_step(
     assert float(points["end"]) - float(points["start"]) == 86400 - 300
 
 
+def test_restarts_are_the_rules_per_minute_increments_summed_over_each_step(
+    api: TestClient, mint: Mint, prometheus: FakePrometheus
+) -> None:
+    prometheus.up = [{"metric": {"job": "kube-state-metrics"}, "value": [0, "1"]}]
+
+    api.get("/api/v1/stages/dev/metrics/container_restarts?range=6h", headers=_as(mint, "data-engineer"))
+
+    # Never increase(): the rule is not a counter, and a pod that goes would read as restarts.
+    assert prometheus.queries[-1]["query"] == 'sum_over_time(olf:container_restarts{stage="dev"}[60s])'
+
+
 def test_prometheus_down_is_unavailable_with_no_lines(api: TestClient, mint: Mint, prometheus: FakePrometheus) -> None:
     prometheus.fail_status = 503
 
