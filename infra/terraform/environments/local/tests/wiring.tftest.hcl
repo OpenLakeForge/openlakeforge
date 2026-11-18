@@ -341,19 +341,21 @@ run "a_governed_stage_gets_a_reconciler_pinned_to_it" {
   }
 }
 
-# ADR 0024: without metrics there is no Prometheus, no endpoint in the
-# contract and no flow row for it on either side.
+# ADR 0024: without metrics there is no Prometheus or kube-state-metrics, no
+# endpoint in the contract and no flow row for either on either side.
 run "a_profile_without_metrics_renders_no_prometheus" {
   command = plan
 
   assert {
-    condition     = length(module.metrics) == 0 && !contains(keys(module.network_policy.workload_policy_names), "prometheus")
-    error_message = "metrics off must render no Prometheus resource or policy"
+    condition = length(module.metrics) == 0 && length(setintersection(
+      toset(keys(module.network_policy.workload_policy_names)), toset(["prometheus", "kube-state-metrics"])
+    )) == 0
+    error_message = "metrics off must render no Prometheus or kube-state-metrics resource or policy"
   }
 
   assert {
-    condition     = length([for f in local.policy_flows : f.id if contains(["F45", "F46", "F47", "F48", "F49"], f.id)]) == 0
-    error_message = "metrics off must leave no Prometheus row, including the stage ingress (F48) and the API's egress (F45)"
+    condition     = length([for f in local.policy_flows : f.id if contains(["F45", "F46", "F47", "F48", "F49", "F50", "F51"], f.id)]) == 0
+    error_message = "metrics off must leave no metrics row, including the stage ingress (F48) and the API's egress (F45)"
   }
 
   assert {
@@ -374,13 +376,20 @@ run "a_profile_with_metrics_deploys_prometheus_and_publishes_it" {
   }
 
   assert {
-    condition     = length(module.metrics) == 1 && contains(keys(module.network_policy.workload_policy_names), "prometheus")
-    error_message = "metrics on deploys Prometheus with a NetworkPolicy of its own"
+    condition = length(module.metrics) == 1 && length(setintersection(
+      toset(keys(module.network_policy.workload_policy_names)), toset(["prometheus", "kube-state-metrics"])
+    )) == 2
+    error_message = "metrics on deploys Prometheus and kube-state-metrics, each with a NetworkPolicy of its own"
   }
 
   assert {
-    condition     = toset([for f in local.policy_flows : f.id if contains(["F45", "F46", "F47", "F48", "F49"], f.id)]) == toset(["F45", "F46", "F47", "F48", "F49"])
-    error_message = "metrics on renders F45 to F49"
+    condition     = toset([for f in local.policy_flows : f.id if contains(["F45", "F46", "F47", "F48", "F49", "F50", "F51"], f.id)]) == toset(["F45", "F46", "F47", "F48", "F49", "F50", "F51"])
+    error_message = "metrics on renders F45 to F51"
+  }
+
+  assert {
+    condition     = module.metrics[0].kube_state_metrics_role_namespaces == sort(concat(["olf-system"], [for name, namespace in kubernetes_namespace_v1.stage : namespace.metadata[0].name]))
+    error_message = "kube-state-metrics holds a Role in olf-system and in each enabled stage namespace, and in no other"
   }
 
   assert {
