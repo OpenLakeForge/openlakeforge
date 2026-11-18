@@ -78,6 +78,9 @@ class Settings:
     # Each stage's activation prefix, s3://<ops bucket>/activations/<stage>/, where its quality manifests are written
     # under run-artifacts/quality/. The key that reads them is per stage and comes from the environment.
     quality_manifests: Mapping[str, str] = field(default_factory=dict)
+    # Each governed stage's publication summary, s3://<ops bucket>/activations/<stage>/quality-sync/summary.json,
+    # written by its quality reconciler (ADR 0007) and read with the files key. A stage left out has no publisher.
+    quality_sync_summaries: Mapping[str, str] = field(default_factory=dict)
     s3_endpoint_url: str | None = None
     s3_region: str = "us-east-1"
     # Where audit records are stored, s3://<bucket>/<prefix>/. The write-only key comes from the environment
@@ -151,6 +154,9 @@ class Settings:
                     for stage, archive in (data.get("log_archives") or {}).items()
                 },
                 quality_manifests={str(s): str(uri) for s, uri in (data.get("quality_manifests") or {}).items()},
+                quality_sync_summaries={
+                    str(s): str(uri) for s, uri in (data.get("quality_sync_summaries") or {}).items()
+                },
                 s3_endpoint_url=data.get("s3_endpoint_url") or None,
                 s3_region=str(data.get("s3_region") or "us-east-1"),
                 audit_base_uri=data.get("audit_base_uri") or None,
@@ -275,6 +281,13 @@ class Settings:
         for stage, uri in self.quality_manifests.items():
             if urlsplit(uri).scheme != "s3" or not urlsplit(uri).netloc or not uri.endswith("/"):
                 raise SettingsError(f"quality_manifests[{stage!r}] must be s3://<bucket>/<prefix>/, ending in /")
+        stray = sorted(set(self.quality_sync_summaries) - set(self.stages))
+        if stray:
+            raise SettingsError(f"quality_sync_summaries names stages that are not enabled: {', '.join(stray)}")
+        for stage, uri in self.quality_sync_summaries.items():
+            parts = urlsplit(uri)
+            if parts.scheme != "s3" or not parts.netloc or not parts.path.strip("/") or uri.endswith("/"):
+                raise SettingsError(f"quality_sync_summaries[{stage!r}] must be s3://<bucket>/<key> of one object")
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")

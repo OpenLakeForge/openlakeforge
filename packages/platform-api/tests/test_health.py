@@ -10,10 +10,12 @@ from typing import Any
 import pytest
 from conftest import Mint
 from fastapi.testclient import TestClient
+from openlakeforge_core import Signal
 from test_reads import UNREACHABLE, FakeDagster, _as, _settings
 
 from openlakeforge_platform_api.app import create_app
-from openlakeforge_platform_api.settings import Settings
+from openlakeforge_platform_api.service_probes import StageTargets
+from openlakeforge_platform_api.settings import Settings, SettingsError
 
 NOW = time.time()
 HOUR = 3600
@@ -310,8 +312,50 @@ def test_slim_with_no_metrics_still_answers_and_never_calls_absent_integrations_
         "dagster": "available",
         "services": "disabled",
         "quality": "not_provided",
+        "quality-sync": "not_provided",
         "metrics": "not_provided",
     }
+
+
+SUMMARY = "s3://ops/activations/dev/quality-sync/summary.json"
+
+
+class RecordingProber:
+    def __init__(self) -> None:
+        self.targets: list[StageTargets] = []
+
+    def probe(self, targets: StageTargets) -> list[Signal]:
+        self.targets.append(targets)
+        return []
+
+
+def test_a_governed_stage_has_its_publication_read_from_its_own_summary(
+    settings: Settings, dagster: ScheduledDagster, mint: Mint
+) -> None:
+    prober = RecordingProber()
+    configured = _settings(
+        settings,
+        dagster_graphql_urls={"dev": f"{dagster.url}/graphql"},
+        stage_namespaces={"dev": "olf-dev"},
+        quality_sync_summaries={"dev": SUMMARY},
+    )
+    api = TestClient(create_app(configured, service_probes=prober))
+
+    stage = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
+
+    assert {item["name"]: item["status"] for item in stage["integrations"]}["quality-sync"] == "available"
+    assert [targets.quality_sync_summary_uri for targets in prober.targets] == [SUMMARY]
+
+
+@pytest.mark.parametrize(
+    "summaries",
+    [{"staging": SUMMARY}, {"dev": "s3://ops/activations/dev/quality-sync/"}, {"dev": "https://ops/summary.json"}],
+)
+def test_a_summary_setting_outside_the_stages_or_not_one_s3_object_is_refused(
+    settings: Settings, summaries: dict[str, str]
+) -> None:
+    with pytest.raises(SettingsError, match="quality_sync_summaries"):
+        _settings(settings, quality_sync_summaries=summaries)
 
 
 def test_a_pipeline_that_never_ran_is_unknown_not_healthy(

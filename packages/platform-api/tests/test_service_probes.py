@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -13,6 +14,7 @@ import pytest
 import requests
 from botocore.exceptions import ClientError, EndpointConnectionError
 from openlakeforge_core import HealthState, Signal, SignalKind, SpoolObservation
+from openlakeforge_core.quality_sync import PublicationThresholds, SyncSummary
 from openlakeforge_services.dagster import DagsterTransientError
 
 from openlakeforge_platform_api import service_probes
@@ -38,7 +40,9 @@ ALL = StageTargets(
     log_archive_base_uri="s3://ops/activations/dev/logs",
     log_archive_namespace="olf-dev",
     spool_probe_url="http://log-collector-probe.olf-system.svc:2021",
+    quality_sync_summary_uri="s3://ops/activations/dev/quality-sync/summary.json",
 )
+SUMMARY_KEY = "activations/dev/quality-sync/summary.json"
 REPOSITORIES = {"repositoriesOrError": {"__typename": "RepositoryConnection", "nodes": [{"name": "r"}]}}
 
 
@@ -128,6 +132,46 @@ def fresh_archive(age: timedelta = timedelta(minutes=2)) -> Archive:
     return Archive({ARCHIVE_PREFIX + "dev-1.ndjson.gz": NOW - age})
 
 
+class Summaries:
+    """The ops bucket's objects as the publication probe reads them; a key that is not there is S3's NoSuchKey."""
+
+    def __init__(self, objects: dict[str, bytes] | None = None, error: Exception | None = None) -> None:
+        self.objects = objects or {}
+        self.error = error
+        self.reads: list[tuple[str, str]] = []
+
+    def get_object(self, **kwargs: Any) -> Any:
+        if self.error:
+            raise self.error
+        self.reads.append((kwargs["Bucket"], kwargs["Key"]))
+        if kwargs["Key"] not in self.objects:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+        return {"Body": io.BytesIO(self.objects[kwargs["Key"]])}
+
+
+def summary(
+    *,
+    age: timedelta = timedelta(minutes=3),
+    stage: str = "dev",
+    pending: int = 0,
+    lag: timedelta | None = None,
+    failed: int = 0,
+    rejected: int = 0,
+    error: str | None = None,
+) -> Summaries:
+    """A bucket holding the reconciler's summary of a pass that ended `age` ago."""
+    written = SyncSummary(
+        stage=stage,
+        observed_at=NOW - age,
+        pending=pending,
+        failed=failed,
+        rejected_runs=rejected,
+        oldest_pending_at=None if lag is None else NOW - lag,
+        last_error=error,
+    )
+    return Summaries({SUMMARY_KEY: written.to_json().encode()})
+
+
 def spool(*, age: timedelta | None = None, size: int = 0, stage: str = "dev", seen: datetime = NOW) -> SpoolObservation:
     return SpoolObservation(stage, seen, age, size, 512_000_000)
 
@@ -145,6 +189,7 @@ def probes(
     store: Store | None = None,
     archive: Archive | None = None,
     spool_read: Callable[[str], tuple[list[SpoolObservation], int]] = lambda url: ([spool()], 0),
+    summaries: Summaries | None = None,
     timeout: timedelta = timedelta(seconds=2),
 ) -> ServiceProbes:
     return ServiceProbes(
@@ -154,6 +199,7 @@ def probes(
         store=store or Store(),
         archive_store=archive or fresh_archive(),
         spool_read=spool_read,
+        summary_store=summaries or summary(),
         timeout=timeout,
         ttl=TTL,
         clock=lambda: NOW,
@@ -271,6 +317,7 @@ def test_a_stage_without_dagster_trino_or_a_store_reports_disabled_and_probes_no
         "log-archive.spool-age",
         "log-archive.spool-size",
         "log-archive.newest-object",
+        "quality-sync.publication",
     }
 
 
@@ -821,3 +868,122 @@ def test_a_collector_that_hangs_does_not_cost_the_reachable_ones_their_reading(
     assert signals["log-archive.spool-age"].state is HealthState.CRITICAL
     assert signals["log-archive.spool-size"].state is HealthState.CRITICAL
     assert elapsed < outer.total_seconds()
+
+
+PUBLICATION = "quality-sync.publication"
+
+
+def publication(summaries: Summaries) -> Signal:
+    return by_component(probes(summaries=summaries).probe(ALL))[PUBLICATION]
+
+
+def test_a_recent_pass_reads_healthy_even_with_results_still_waiting_their_first_pass() -> None:
+    bucket = summary(pending=3, lag=timedelta(minutes=4))
+
+    signal = publication(bucket)
+
+    assert signal.state is HealthState.HEALTHY
+    assert signal.reason == "last pass 3 min ago, 3 result(s) waiting"
+    assert bucket.reads == [("ops", SUMMARY_KEY)]
+
+
+@pytest.mark.parametrize(
+    ("age", "expected"),
+    [
+        (timedelta(minutes=14), HealthState.HEALTHY),
+        (timedelta(minutes=15), HealthState.WARNING),
+        (timedelta(minutes=59), HealthState.WARNING),
+        (timedelta(hours=1), HealthState.CRITICAL),
+    ],
+)
+def test_a_reconciler_that_stopped_passing_goes_stale(age: timedelta, expected: HealthState) -> None:
+    signal = publication(summary(age=age))
+
+    assert signal.state is expected
+    if expected is not HealthState.HEALTHY:
+        assert signal.reason.startswith("no publication pass for")
+
+
+@pytest.mark.parametrize(
+    ("lag", "expected"),
+    [
+        (timedelta(minutes=29), HealthState.HEALTHY),
+        (timedelta(minutes=30), HealthState.WARNING),
+        (timedelta(hours=2), HealthState.CRITICAL),
+    ],
+)
+def test_an_openmetadata_outage_shows_as_lag_with_the_last_error(lag: timedelta, expected: HealthState) -> None:
+    signal = publication(summary(pending=4, lag=lag, error="OpenMetadata unavailable (HTTP 503)"))
+
+    assert signal.state is expected
+    if expected is not HealthState.HEALTHY:
+        assert "OpenMetadata unavailable (HTTP 503)" in signal.reason
+
+
+def test_results_that_gave_up_are_critical_and_a_rejected_manifest_is_a_warning() -> None:
+    gave_up = publication(summary(failed=2, error="OpenMetadata refused the request (HTTP 400)"))
+    rejected = publication(summary(rejected=1))
+
+    assert gave_up.state is HealthState.CRITICAL
+    assert gave_up.reason.startswith("2 result(s) gave up after 10 attempts")
+    assert rejected.state is HealthState.WARNING
+
+
+def test_the_worst_finding_decides() -> None:
+    signal = publication(summary(age=timedelta(minutes=20), rejected=1, pending=1, lag=timedelta(hours=3)))
+
+    assert signal.state is HealthState.CRITICAL
+    assert "waiting, the oldest for 180 min" in signal.reason
+
+
+@pytest.mark.parametrize(
+    ("bucket", "reason"),
+    [
+        (Summaries(), "no publication summary"),
+        (Summaries({SUMMARY_KEY: b"{not json"}), "the publication summary is unreadable"),
+        (Summaries({SUMMARY_KEY: b'{"version": 99}'}), "the publication summary is unreadable"),
+        (Summaries({SUMMARY_KEY: b"\xff\xfe"}), "the publication summary is unreadable"),
+        (Summaries({SUMMARY_KEY: b" " * (64 * 1024 + 1)}), "the publication summary is unreadable"),
+        (summary(stage="prod"), "the publication summary is stage 'prod'"),
+        (Summaries(error=ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")), "AccessDenied"),
+        (Summaries(error=EndpointConnectionError(endpoint_url="http://s3")), "unreachable"),
+    ],
+)
+def test_a_summary_that_is_missing_unreadable_or_refused_is_unknown_never_healthy(
+    bucket: Summaries, reason: str
+) -> None:
+    signal = publication(bucket)
+
+    assert signal.state is HealthState.UNKNOWN
+    assert reason in signal.reason
+
+
+def test_a_governed_stage_without_a_key_to_read_with_is_unknown_not_disabled() -> None:
+    keyless = ServiceProbes(
+        kube_list=healthy_cluster(),
+        http_get_json=lambda url, _timeout: {},
+        dagster_query=lambda url, query: REPOSITORIES,
+        store=None,
+        clock=lambda: NOW,
+    )
+    targets = StageTargets(stage="dev", namespace="olf-dev", quality_sync_summary_uri=ALL.quality_sync_summary_uri)
+
+    signal = by_component(keyless.probe(targets))[PUBLICATION]
+
+    assert signal.state is HealthState.UNKNOWN
+
+
+def test_a_stage_without_a_reconciler_reports_publication_disabled_and_reads_nothing() -> None:
+    bucket = summary(failed=5)
+
+    signal = by_component(probes(summaries=bucket).probe(StageTargets(stage="dev", namespace="olf-dev")))[PUBLICATION]
+
+    assert signal.state is HealthState.DISABLED
+    assert bucket.reads == []
+
+
+def test_publication_thresholds_keep_warning_below_critical() -> None:
+    with pytest.raises(ValueError, match="staleness"):
+        PublicationThresholds(stale_warning=timedelta(hours=2))
+    with pytest.raises(ValueError, match="lag"):
+        PublicationThresholds(lag_critical=timedelta(minutes=10))

@@ -60,12 +60,54 @@ Archive delivery has stopped or is late (ADR 0022). `spool-age` and `spool-size`
 one. Check that the collector pods run and that `object-store.list` is not failing. Logs already archived stay
 readable with `olf logs` while delivery is down.
 
-### Metrics scrape staleness and quality publisher lag
+### quality-sync.publication
 
-Not reported yet. There is no metrics source connected to the API (#21). Quality manifests are already published:
-each product run's hooks upload its Floe and dbt results to the ops bucket, and the `quality` signal reads them. What
-is missing is a lag signal for that publication and for the OpenMetadata publisher (#797), which is not built. Neither
-lag is probed, so the stage shows no lag signal rather than a failed one.
+Quality results are not reaching OpenMetadata in time (ADR 0007). The row reads the summary the stage's
+`quality-reconciler-<stage>` CronJob writes after each pass; it says nothing about whether the data passed its checks,
+which the pipelines' `quality` signal still shows. A stage without governance, as on Slim, reads `disabled` and lists
+the `quality-sync` integration as `not_provided`. The thresholds are in
+[health signals](../../reference/health-signals.md#publication-health).
+
+| Reason starts with | What it means |
+| --- | --- |
+| `no publication pass for` | No pass has finished in 15 minutes or more: the CronJob is suspended, its pods fail, or its key cannot write |
+| `... result(s) waiting, the oldest for` | Passes run but results stay unpublished: OpenMetadata refuses or is down, or a table is not registered there |
+| `... result(s) gave up after 10 attempts` | Retries are exhausted; nothing publishes them until a replay |
+| `... manifest(s) cannot be published` | A manifest is malformed, of an unsupported version, or names another stage, product or run |
+| `no publication summary` | No pass has ever finished on this stage |
+
+1. Look at the CronJob and its latest Job:
+
+   ```bash
+   kubectl -n olf-system get cronjob quality-reconciler-<stage>
+   kubectl -n olf-system get jobs -l openlakeforge.io/job=quality-reconciler,openlakeforge.io/stage=<stage>
+   kubectl -n olf-system logs job/<latest-job>
+   ```
+
+   A pod in `CreateContainerConfigError` means `olf infra openmetadata bootstrap` has not written the ingestion bot's
+   Secret yet. A Job that exits 1 lost OpenMetadata or the bucket mid-pass.
+2. Run a pass now instead of waiting for the schedule:
+
+   ```bash
+   kubectl -n olf-system create job --from=cronjob/quality-reconciler-<stage> quality-reconciler-<stage>-now
+   ```
+
+3. When results gave up, give them a fresh set of attempts once OpenMetadata answers:
+
+   ```bash
+   uv run --project tools/olf olf infra openmetadata quality-sync --stage <stage> --retry-failed
+   ```
+
+4. A table that is not registered keeps its results waiting; the publisher never creates one. Once OpenMetadata's
+   catalog ingestion has registered the table, the next pass publishes them.
+
+While the row is degraded the pipelines run as before and the Portal's quality status is unaffected; only
+OpenMetadata's test history is behind.
+
+### Metrics scrape staleness
+
+Not reported yet. There is no metrics source connected to the API (#21), so the stage lists the `metrics` integration
+as `not_provided` rather than showing a failed signal.
 
 ## The limit of in-app monitoring
 
