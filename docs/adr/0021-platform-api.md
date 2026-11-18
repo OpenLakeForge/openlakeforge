@@ -771,3 +771,6 @@ folded into the stage's state.
 2026-11-18: #21 slice M-d. `GET /api/v1/stages/{stage}/metrics/{series}?range=` (`get_stage_metric`) and `GET
 /api/v1/platform/metrics/{series}?range=` (`get_platform_metric`) serve the named series of ADR 0024's catalog over its
 four ranges, at the health routes' floor, read-only and not audited. No route takes a query, start, end or step.
+
+2026-11-18: #21 slice M-d. `GET /api/v1/stages/{stage}/metrics` (`list_stage_metrics`) lists the stage's series of ADR
+0024's catalog with each one's ranges and availability, at the same floor.

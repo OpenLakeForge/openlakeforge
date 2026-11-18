@@ -411,6 +411,9 @@ def create_app(
     )
     app.add_api_route("/api/v1/stages/{stage}/logs", reads.list_logs, methods=["GET"], name="list_logs")
     app.add_api_route(
+        "/api/v1/stages/{stage}/metrics", metrics_routes.list_stage_metrics, methods=["GET"], name="list_stage_metrics"
+    )
+    app.add_api_route(
         "/api/v1/stages/{stage}/metrics/{series}",
         metrics_routes.get_stage_metric,
         methods=["GET"],

@@ -2,12 +2,9 @@
 
 ## Status
 
-Proposed, awaiting the owner's approval (#21). Slices M-a, M-b and M-e under
-"Build order" are built; of M-c, kube-state-metrics; of M-d, the series catalog
-(`openlakeforge_core.metrics`), the Prometheus client
-(`openlakeforge_services.prometheus`), the platform API's metrics settings and
-the health routes' `metrics` integration, and the two series routes. The rest
-is not. This record decides the backend, the scrape
+Proposed, awaiting the owner's approval (#21). Slices M-a, M-b, M-d and M-e
+under "Build order" are built, and of M-c, kube-state-metrics; the rest is not.
+This record decides the backend, the scrape
 baseline, the label policy, the read path through the platform API, the network
 and RBAC additions and the contract shape for `spec.observability.metrics`; the
 slices under "Build order" implement it once it is approved.
@@ -263,7 +260,7 @@ Routes, all read-only and not audited, like the health routes:
 
 | Route | Returns |
 | --- | --- |
-| `GET /api/v1/stages/{stage}/metrics` | The catalog for that stage: each series' name, unit, labels and its availability (`available`, `disabled`, `unavailable`, `not_provided`, the existing `IntegrationStatus` vocabulary) |
+| `GET /api/v1/stages/{stage}/metrics` | The catalog for that stage: each series' name, unit, labels, source, the ranges the retention allows, and its availability (`available`, `disabled`, `unavailable`, `not_provided`, the existing `IntegrationStatus` vocabulary) with a reason. A Prometheus series is `available` while one of its scrape targets (the stage's own, for Trino) is up, from one `up` query; a Dagster series while the stage's Dagster answers |
 | `GET /api/v1/stages/{stage}/metrics/{series}?range=<r>` | One series' points for the stage |
 | `GET /api/v1/platform/metrics/{series}?range=<r>` | A `platform`-scope series: nodes and `olf-system` components |
 
@@ -276,8 +273,8 @@ Routes, all read-only and not audited, like the health routes:
 
 No `start`, `end`, `step` or query parameter exists. A range longer than the
 retention is a 400, not a short answer that looks complete. Every read the API
-sends Prometheus, the health probe included, is one attempt with a 5 s deadline
-across the whole read, as the service probes have
+sends Prometheus, the health probe and the catalog's `up` query included, is one
+attempt with a 5 s deadline across the whole read, as the service probes have
 (`PROBE_TIMEOUT` in `service_probes.py` **[V]**): no retry after a 429, and past
 the deadline the answer is `unavailable` with that reason.
 
@@ -538,3 +535,7 @@ in the range.
 increments over each step, not as the increase of a counter: the rule records
 increments because a counter summed across pods drops when a pod goes.
 `trino_failed_queries` stays an increase per step.
+
+2026-11-18: M-d complete with the catalog route. Each entry also names its
+source and the ranges the retention allows, so a client offers no range the
+series route would refuse.
