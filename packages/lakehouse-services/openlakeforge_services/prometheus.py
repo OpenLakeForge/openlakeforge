@@ -36,25 +36,28 @@ def _value(raw: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _labels(item: Any) -> dict[str, str]:
+    metric = item.get("metric") if isinstance(item, Mapping) else None
+    if not isinstance(metric, Mapping):
+        raise PrometheusError(f"malformed result: a series without a metric mapping: {item!r}")
+    return {str(k): str(v) for k, v in metric.items()}
+
+
 def _series(data: Any, result_type: str) -> list[PrometheusSeries]:
     if not isinstance(data, Mapping) or data.get("resultType") != result_type:
         kind = data.get("resultType") if isinstance(data, Mapping) else None
         raise PrometheusError(f"expected a {result_type} result, got {kind!r}")
+    result = data.get("result")
+    if not isinstance(result, list):
+        raise PrometheusError(f"malformed {result_type} result: result is {type(result).__name__}, not a list")
     try:
         if result_type == "matrix":
             return [
-                PrometheusSeries(
-                    {str(k): str(v) for k, v in item["metric"].items()},
-                    [(float(time), _value(value)) for time, value in item["values"]],
-                )
-                for item in data["result"]
+                PrometheusSeries(_labels(item), [(float(time), _value(value)) for time, value in item["values"]])
+                for item in result
             ]
         return [
-            PrometheusSeries(
-                {str(k): str(v) for k, v in item["metric"].items()},
-                [(float(item["value"][0]), _value(item["value"][1]))],
-            )
-            for item in data["result"]
+            PrometheusSeries(_labels(item), [(float(item["value"][0]), _value(item["value"][1]))]) for item in result
         ]
     except (KeyError, TypeError, ValueError, IndexError) as exc:
         raise PrometheusError(f"malformed {result_type} result: {exc!r}") from exc
@@ -69,7 +72,10 @@ class PrometheusClient:
     def _get(self, path: str, params: Mapping[str, Any]) -> Any:
         # A refused query is a 400 or 422 whose body still carries the API's error; the base client raises on it with
         # that body in the message, which is the reason a caller logs.
-        body = self._http.request("GET", path, params=params)
+        body: Any = self._http.request("GET", path, params=params)
+        # A proxy or a misconfigured backend can answer 200 with JSON that is not the API's envelope at all.
+        if not isinstance(body, Mapping):
+            raise PrometheusError(f"{path} answered {type(body).__name__}, not the HTTP API's envelope")
         if body.get("status") != "success":
             raise PrometheusError(f"{path} answered {body.get('errorType')!r}: {body.get('error')!r}")
         return body.get("data")

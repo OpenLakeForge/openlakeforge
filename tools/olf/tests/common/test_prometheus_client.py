@@ -105,6 +105,16 @@ def test_a_value_json_cannot_carry_is_none_never_zero(prometheus: FakePrometheus
     assert line.samples == [(1700000000.0, None)]
 
 
+def test_an_instant_series_with_a_null_metric_is_an_error(prometheus: FakePrometheus) -> None:
+    prometheus.body = {
+        "status": "success",
+        "data": {"resultType": "vector", "result": [{"metric": None, "value": [1, "1"]}]},
+    }
+
+    with pytest.raises(PrometheusError, match="without a metric mapping"):
+        PrometheusClient(prometheus.url).query("up", time=1700000000)
+
+
 def test_a_refused_query_raises_with_prometheus_reason(prometheus: FakePrometheus) -> None:
     prometheus.status = 400
     prometheus.body = {"status": "error", "errorType": "bad_data", "error": "parse error"}
@@ -136,6 +146,15 @@ def test_an_unreachable_prometheus_is_transient() -> None:
     ("body", "message"),
     [
         (b"<html>a proxy page</html>", "answered None"),
+        ([], "answered list, not the HTTP API's envelope"),
+        (b"null", "answered NoneType, not the HTTP API's envelope"),
+        ({"status": "success", "data": []}, "expected a matrix result, got None"),
+        ({"status": "success", "data": {"resultType": "matrix", "result": None}}, "result is NoneType, not a list"),
+        ({"status": "success", "data": {"resultType": "matrix", "result": [None]}}, "without a metric mapping"),
+        (
+            {"status": "success", "data": {"resultType": "matrix", "result": [{"metric": None, "values": []}]}},
+            "without a metric mapping",
+        ),
         ({"status": "success", "data": {"resultType": "vector", "result": []}}, "expected a matrix result"),
         ({"status": "success", "data": {"resultType": "matrix", "result": [{"values": []}]}}, "malformed"),
         (
