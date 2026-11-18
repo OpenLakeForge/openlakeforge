@@ -25,8 +25,8 @@ the profile declares at least one receiver. The design is
 > 1. Add `lakehouse_code/alerts.yml`. A project made by `olf init` carries the
 >    sample one; an existing project, and one made with `olf init --empty`,
 >    does not. [Write the policy](#write-the-alert-policy) or copy the sample's.
-> 2. Run `olf check contracts`, then `olf alert explain` for a product and a
->    stage to see what will alert.
+> 2. Run `olf check contracts`, then `olf alert explain` for a product (or a
+>    job) and a stage to see what will alert.
 > 3. Build a revision and deploy it to each stage
 >    ([promote DEV to PROD](../promote-dev-to-prod.md)). The evaluator reads the
 >    policy of the stage's active revision, and activation fails when a route
@@ -214,11 +214,11 @@ file order:
 alerts.yml: rules[0] and rules[2] have the same specificity and both set ['run_failed'] for stage(s) ['prod']; make one more specific or split their stages
 ```
 
-### See what a product gets
+### See what a product or a job gets
 
-`olf alert explain` prints, for one product in one stage, the rule that wins for
-each condition, its options and the routes it notifies. It reads `alerts.yml`
-and `governance.yml` and needs no cluster or credential:
+`olf alert explain` prints, for one product or one job in one stage, the rule
+that wins for each condition, its options and the routes it notifies. It reads
+`alerts.yml` and `governance.yml` and needs no cluster or credential:
 
 ```bash
 olf alert explain --stage prod --product order_revenue
@@ -233,6 +233,26 @@ order_revenue (domain sales, job order_revenue_pipeline) in prod
   schedule_mismatch: severity=warning; rules[0] (*/*); notifies on-call -> on-call
 ```
 
+A job of no product, such as `gold_maintenance`, takes `--job` in place of
+`--product`. It resolves as the evaluator resolves it: by the global rules
+alone, those whose `match` is `{domain: "*", product: "*"}`. A job named
+`<product>_pipeline` resolves as that product:
+
+```bash
+olf alert explain --stage prod --job gold_maintenance
+```
+
+```text
+job gold_maintenance (no product: global rules only) in prod
+  run_failed: severity=critical; rules[0] (*/*); notifies on-call -> on-call
+  missed_run: grace=15m, severity=critical; rules[0] (*/*); notifies on-call -> on-call
+  freshness: grace=15m, severity=critical; rules[0] (*/*); notifies on-call -> on-call
+  quality: level=error; rules[0] (*/*); notifies on-call -> on-call
+  schedule_mismatch: severity=warning; rules[0] (*/*); notifies on-call -> on-call
+```
+
+`olf` reads no cluster, so it does not check that the job exists.
+
 A condition no rule names prints `not declared, does not alert`, and one a rule
 turned off prints `off by` that rule. `--project` selects another project root.
 
@@ -240,7 +260,7 @@ turned off prints `off by` that rule. `--project` selects another project root.
 | --- | --- |
 | `0` | The policy was read, including a project with no `alerts.yml`, which prints that nothing alerts. |
 | `1` | The project, `governance.yml` or `alerts.yml` is invalid, or the product is not in `governance.yml`. |
-| `2` | The stage is not `dev`, `uat` or `prod`. |
+| `2` | The stage is not `dev`, `uat` or `prod`, or not exactly one of `--product` and `--job` is given. |
 
 ### Each condition's options
 

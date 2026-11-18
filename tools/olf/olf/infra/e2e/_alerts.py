@@ -671,7 +671,10 @@ def check_alert_delivery(cfg: E2EConfig) -> None:
         h = Harness(cfg, client, s3, bucket, stage, pod, cronjob, routes, secrets)
         h.clear_state()
         try:
-            # Whatever is already firing in the stage is told once here, so the cases below see only their own.
+            # A real failure of the job as its latest run would hold its run_failed incident open, and the cases'
+            # failures would deduplicate into it (#1279); a success first makes the job start from resolved.
+            h.succeed_a_run(token)
+            # Whatever else is already firing in the stage is told once here, so the cases below see only their own.
             h.evaluate()
             run_failed_and_resolved(h, token)
             bounded_retries(h, token)
