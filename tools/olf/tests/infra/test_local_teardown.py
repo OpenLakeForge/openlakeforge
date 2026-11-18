@@ -60,6 +60,106 @@ def test_platform_down_raises_when_context_unreachable(tmp_path: Path) -> None:
         teardown.platform_down(config, tools, env={})
 
 
+def _kubeconfig(port: int, *, cluster: str = "openlakeforge-local") -> str:
+    name = f"kind-{cluster}"
+    return (
+        "apiVersion: v1\nkind: Config\n"
+        f"clusters:\n- name: {name}\n  cluster:\n    server: https://127.0.0.1:{port}\n"
+        f"contexts:\n- name: {name}\n  context:\n    cluster: {name}\n    user: {name}\n"
+        f"current-context: {name}\n"
+    )
+
+
+class _UnreachableRunner(RecordingRunner):
+    """kubectl cannot reach the context; kind reports the cluster on `live_port`, or none."""
+
+    def __init__(self, live_port: int | None) -> None:
+        super().__init__()
+        self._live_port = live_port
+
+    def run(self, command, **kwargs):  # type: ignore[override]
+        argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+        self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+        if argv[:3] == ["kind", "get", "kubeconfig"]:
+            if self._live_port is None:
+                return _fail()
+            return _ok(_kubeconfig(self._live_port))
+        return _fail()
+
+
+def _unreachable_message(config: LocalDeploymentConfig, runner: RecordingRunner) -> str:
+    with pytest.raises(DeploymentPreconditionError) as raised:
+        teardown.platform_down(config, _toolkit(runner), env={})
+    return str(raised.value)
+
+
+def test_unreachable_context_names_the_kubeconfig_and_state_root_it_read(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+
+    message = _unreachable_message(config, _UnreachableRunner(live_port=None))
+
+    assert str(config.paths.kubeconfig_path) in message
+    assert str(tmp_path / ".tmp") in message
+    assert str(config.paths.foundation_state_path) in message
+    assert "No kind cluster named 'openlakeforge-local' is running" in message
+
+
+def test_source_teardown_points_at_the_installed_state_that_owns_the_cluster(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reported case: deployed with the installed olf, torn down from the
+    source tree, whose `.tmp` kubeconfig was left by an earlier deployment."""
+    home = tmp_path / "olf-home"
+    monkeypatch.setenv("OLF_HOME", str(home))
+    installed_kubeconfig = home / "state" / "local" / "kubeconfig.yaml"
+    installed_kubeconfig.parent.mkdir(parents=True)
+    installed_kubeconfig.write_text(_kubeconfig(43175))
+    config = _config(tmp_path / "repo")
+    config.paths.kubeconfig_path.parent.mkdir(parents=True)
+    config.paths.kubeconfig_path.write_text(_kubeconfig(34243))
+
+    message = _unreachable_message(config, _UnreachableRunner(live_port=43175))
+
+    assert "running at https://127.0.0.1:43175" in message
+    assert "points at https://127.0.0.1:34243" in message
+    assert "another deployment of 'openlakeforge-local'" in message
+    assert f"installed olf kubeconfig {installed_kubeconfig} matches the running cluster" in message
+
+
+def test_installed_teardown_points_at_the_source_tree_state_that_owns_the_cluster(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    context = DeploymentContext.local(repo_root=project, state_root=tmp_path / "olf-home" / "state")
+    config = LocalDeploymentConfig.from_environment({}, context=context)
+    config.paths.foundation_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.foundation_state_path.write_text("{}")
+    source_kubeconfig = project / ".tmp" / "kubeconfigs" / "local.yaml"
+    source_kubeconfig.parent.mkdir(parents=True)
+    source_kubeconfig.write_text(_kubeconfig(34243))
+
+    message = _unreachable_message(config, _UnreachableRunner(live_port=34243))
+
+    assert f"installed olf state root {tmp_path / 'olf-home' / 'state' / 'local'}" in message
+    assert "has no server for that context" in message
+    assert f"source-tree olf kubeconfig {source_kubeconfig} matches the running cluster" in message
+    assert "uv run --project tools/olf --locked olf infra destroy" in message
+
+
+def test_unreachable_context_does_not_point_at_another_root_that_does_not_match(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "olf-home"
+    monkeypatch.setenv("OLF_HOME", str(home))
+    installed_kubeconfig = home / "state" / "local" / "kubeconfig.yaml"
+    installed_kubeconfig.parent.mkdir(parents=True)
+    installed_kubeconfig.write_text(_kubeconfig(40000))
+    config = _config(tmp_path / "repo")
+
+    message = _unreachable_message(config, _UnreachableRunner(live_port=43175))
+
+    assert "another deployment" in message
+    assert str(installed_kubeconfig) not in message
+
+
 def test_platform_down_raises_when_foundation_state_missing(tmp_path: Path) -> None:
     context = DeploymentContext.local(repo_root=tmp_path)
     config = LocalDeploymentConfig.from_environment({}, context=context)
