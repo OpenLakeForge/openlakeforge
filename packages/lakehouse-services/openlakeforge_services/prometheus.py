@@ -12,7 +12,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .base import RATE_LIMIT_RETRIES, JsonHttpClient, ServiceClientError
+import requests
+
+from .base import RATE_LIMIT_RETRIES, JsonHttpClient, ServiceClientError, TransientServiceError
 
 # The platform API's bound on every Prometheus call, as on its service probes: a chart that waits longer than this is
 # worse than one that says `unavailable`.
@@ -80,7 +82,12 @@ class PrometheusClient:
     def _get(self, path: str, params: Mapping[str, Any]) -> Any:
         # A refused query is a 400 or 422 whose body still carries the API's error; the base client raises on it with
         # that body in the message, which is the reason a caller logs.
-        body: Any = self._http.request("GET", path, params=params)
+        try:
+            body: Any = self._http.request("GET", path, params=params)
+        except requests.RequestException as exc:
+            # The shared client classifies connection errors and timeouts; a body cut off mid-read
+            # (ChunkedEncodingError) or any other transport failure is the same outage to a caller.
+            raise TransientServiceError(f"{path} failed: {exc!r}") from exc
         # A proxy or a misconfigured backend can answer 200 with JSON that is not the API's envelope at all.
         if not isinstance(body, Mapping):
             raise PrometheusError(f"{path} answered {type(body).__name__}, not the HTTP API's envelope")
