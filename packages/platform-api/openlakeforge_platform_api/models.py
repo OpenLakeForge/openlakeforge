@@ -256,6 +256,25 @@ MetricState = Literal["available", "disabled", "unavailable", "not_provided"]
 MetricRangeName = Literal["1h", "6h", "24h", "7d"]
 
 
+class MetricSeriesInfo(BaseModel):
+    """One catalog entry (ADR 0024, decision 4) and whether its source answers now."""
+
+    name: str
+    unit: str
+    source: Literal["prometheus", "dagster"]
+    labels: list[str]
+    # The ranges this deployment serves for the series; one past the metrics retention is left out.
+    ranges: list[MetricRangeName]
+    state: MetricState
+    reason: str
+
+
+class MetricCatalog(BaseModel):
+    stage: str
+    observed_at: datetime
+    series: list[MetricSeriesInfo]
+
+
 class MetricLine(BaseModel):
     labels: dict[str, str]
     # One [time, value] pair per step, oldest first; a step without a sample is null, never 0.

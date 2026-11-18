@@ -181,7 +181,8 @@ run "external_issuer_leaves_person_queries_off" {
   }
 }
 
-run "plain_http_without_identity_has_no_api" {
+# ADR 0021, decision 8: without identity the API serves every caller anonymously, behind no perimeter.
+run "plain_http_without_identity_serves_the_api_anonymously" {
   command = plan
 
   variables {
@@ -190,8 +191,23 @@ run "plain_http_without_identity_has_no_api" {
   }
 
   assert {
-    condition     = length(module.platform_api) == 0 && length(module.perimeter) == 0
-    error_message = "no identity deploys neither the API nor the perimeter"
+    condition     = length(module.platform_api) == 1 && length(module.perimeter) == 0
+    error_message = "no identity deploys the API and no perimeter"
+  }
+
+  assert {
+    condition = (
+      jsondecode(module.platform_api[0].settings_json).anonymous_role == "platform-admin"
+      && jsondecode(module.platform_api[0].settings_json).issuer_url == null
+      && jsondecode(module.platform_api[0].settings_json).openmetadata_url == null
+      && jsondecode(module.platform_api[0].settings_json).public_origin == "http://olf.localhost"
+    )
+    error_message = "the anonymous API has the highest role, no issuer, no OpenMetadata and the plain-HTTP origin"
+  }
+
+  assert {
+    condition     = output.route_groups["platform-api"] == ""
+    error_message = "the anonymous API's route sits behind no perimeter group"
   }
 }
 

@@ -38,6 +38,8 @@ class Instance:
     client_id: str
     # The Dex adapter (`identity.issuer: github`), which serves people's data access (ADR 0019).
     dex: bool = False
+    # The routes' scheme, which the API is reached with when there is no issuer to take it from.
+    scheme: str = "https"
 
     @property
     def anonymous(self) -> bool:
@@ -64,10 +66,11 @@ def resolve_instance(profile_file: str) -> Instance:
             "this deployment publishes no routes, so platform commands have nothing to reach; "
             "use the `olf infra` commands, which run with cluster access"
         )
-    if identity is None:
-        return Instance(access.base_domain, "", "")  # authentication is off: platform commands run anonymously
     # access.tls 'none' turns off route TLS only; identity decides whether sign-in exists.
     scheme = "http" if access.tls == "none" else "https"
+    if identity is None:
+        # Authentication is off: platform commands run anonymously (ADR 0021, decision 8).
+        return Instance(access.base_domain, "", "", scheme=scheme)
     issuer = identity.issuer_url if identity.issuer == "external" else f"{scheme}://auth.{access.base_domain}"
     assert issuer is not None  # validated: issuer 'external' requires issuer_url
     client_id = (identity.client_ids or {}).get(CLI_CLIENT, CLI_CLIENT)

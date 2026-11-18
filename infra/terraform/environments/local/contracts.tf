@@ -527,7 +527,7 @@ locals {
         service_name = module.platform_api[0].service_name
         service_port = module.platform_api[0].service_port
         path         = module.platform_api[0].path
-        group        = module.perimeter[0].api_group
+        group        = local.identity_enabled ? module.perimeter[0].api_group : ""
       }
     },
   )

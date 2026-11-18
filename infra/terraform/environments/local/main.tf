@@ -51,8 +51,10 @@ locals {
   run_artifact_base_uri = "${local.artifact_base_uri}/run-artifacts"
   # Each stage's Dagster and log archiver write under their own prefix of the
   # ops bucket; the platform API's read-only key is scoped to the same prefixes.
-  stage_log_prefixes   = { for name in keys(local.enabled_stages) : name => "activations/${name}/logs" }
-  platform_api_enabled = local.identity_enabled && var.platform_api_image != null
+  stage_log_prefixes = { for name in keys(local.enabled_stages) : name => "activations/${name}/logs" }
+  # With an issuer the API validates every token; without one (local *.localhost only) it serves every caller as
+  # the anonymous principal (ADR 0021, decision 8). Either way it is a path on the portal's host.
+  platform_api_enabled = local.access_enabled && var.platform_api_image != null
   # ADR 0022: the collector writes archive format v2 beside the CronJob's v1,
   # one route per stage namespace plus the platform namespace.
   log_collector_routes = merge(
@@ -432,7 +434,8 @@ module "portal" {
 }
 
 # ADR 0021: the platform API, at /api on the portal's host. It validates every
-# token itself, so it needs an issuer. Its one service credential is the
+# token itself against the issuer; with no issuer (decision 8) every caller is
+# the anonymous principal, holding the highest role. Its one service credential is the
 # read-only object-store key for the log archive: Dagster takes none, and
 # OpenMetadata gets the caller's own token.
 module "platform_api" {
@@ -442,15 +445,17 @@ module "platform_api" {
   namespace           = kubernetes_namespace_v1.shared.metadata[0].name
   image               = var.platform_api_image
   image_pull_policy   = "Never"
-  issuer_url          = local.identity_oidc.issuer_url
-  internal_issuer_url = local.identity_oidc.internal_url
+  issuer_url          = try(local.identity_oidc.issuer_url, null)
+  internal_issuer_url = try(local.identity_oidc.internal_url, null)
   # Only olf-cli's audience, which a browser session's ID token carries too
   # (Dex trustedPeers, ADR 0014); the perimeter client is never listed.
-  audiences    = [local.identity_oidc.clients["olf-cli"].client_id]
-  role_claim   = local.identity_oidc.role_claim
-  role_mapping = local.identity_oidc.role_mapping
+  audiences    = local.identity_enabled ? [local.identity_oidc.clients["olf-cli"].client_id] : []
+  role_claim   = try(local.identity_oidc.role_claim, null)
+  role_mapping = try(local.identity_oidc.role_mapping, {})
   precedence   = local.identity_roles.precedence
-  stages       = sort(keys(local.enabled_stages))
+  # Authentication off, as Superset's public admin is: anyone who reaches *.localhost holds the highest role.
+  anonymous_role = local.identity_enabled ? null : local.identity_roles.precedence[0]
+  stages         = sort(keys(local.enabled_stages))
   # The portal route's origin (host and scheme of the "platform-api" route,
   # contracts.tf): the one origin the CSRF guard lets write. Per-person
   # queries need the keyless stage catalogs and Dex.
@@ -470,7 +475,8 @@ module "platform_api" {
   # Built from locals the OpenMetadata module is given too, never from its
   # contract, so the API never orders after the governance module: a
   # governance failure must not hold back the API and its other routes.
-  openmetadata_url = local.governance_enabled ? "http://${local.openmetadata_service.name}.${kubernetes_namespace_v1.shared.metadata[0].name}:${local.openmetadata_service.port}" : null
+  # OpenMetadata authorizes the caller's own token, which an anonymous caller has none of.
+  openmetadata_url = local.governance_enabled && local.identity_enabled ? "http://${local.openmetadata_service.name}.${kubernetes_namespace_v1.shared.metadata[0].name}:${local.openmetadata_service.port}" : null
   # The archived-logs route (ADR 0021): read with the key the SeaweedFS
   # credentials Job mints, over F33 (ADR 0017).
   log_archives = {

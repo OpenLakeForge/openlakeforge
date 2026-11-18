@@ -19,6 +19,7 @@ from openlakeforge_platform_api.app import create_app
 from openlakeforge_platform_api.settings import Settings, SettingsError
 
 CPU = "/api/v1/stages/dev/metrics/cpu_usage_cores?range=1h"
+CATALOG = "/api/v1/stages/dev/metrics"
 
 
 class FakePrometheus(_Server):
@@ -298,6 +299,42 @@ def test_pipeline_series_read_unavailable_when_dagster_is_down(settings: Setting
     assert (body["state"], body["lines"]) == ("unavailable", [])
 
 
+def test_the_catalog_lists_each_stage_series_with_its_state_and_ranges(
+    settings: Settings, mint: Mint, prometheus: FakePrometheus, dagster: FakeDagster
+) -> None:
+    prometheus.up = [
+        {"metric": {"job": "kubelet-resource"}, "value": [0, "1"]},
+        {"metric": {"job": "trino", "stage": "dev"}, "value": [0, "0"]},
+        {"metric": {"job": "trino", "stage": "prod"}, "value": [0, "1"]},
+    ]
+    api = _api(
+        settings,
+        metrics_enabled=True,
+        metrics_url=prometheus.url,
+        metrics_retention_days=2,
+        dagster_graphql_urls={"dev": f"{dagster.url}/graphql"},
+    )
+
+    body = api.get(CATALOG, headers=_as(mint, "data-engineer")).json()
+
+    series = {item["name"]: item for item in body["series"]}
+    assert "node_cpu_usage_cores" not in series
+    assert series["cpu_usage_cores"]["state"] == "available"
+    assert series["cpu_usage_cores"]["ranges"] == ["1h", "6h", "24h"]
+    # PROD's coordinator being up says nothing about DEV's.
+    assert series["trino_running_queries"]["state"] == "unavailable"
+    assert series["container_restarts"]["reason"] == "no target is scraped"
+    assert series["pipeline_runs"]["labels"] == ["stage", "job", "status"]
+    assert (series["pipeline_runs"]["state"], series["pipeline_runs"]["ranges"][-1]) == ("available", "7d")
+
+
+def test_the_catalog_never_reads_available_without_a_backend_or_a_dagster(settings: Settings, mint: Mint) -> None:
+    body = _api(settings).get(CATALOG, headers=_as(mint, "data-engineer")).json()
+
+    assert {item["state"] for item in body["series"] if item["source"] == "prometheus"} == {"disabled"}
+    assert {item["state"] for item in body["series"] if item["source"] == "dagster"} == {"disabled"}
+
+
 @pytest.mark.parametrize(
     ("metrics", "status"),
     [
@@ -327,7 +364,7 @@ def test_the_metrics_integration_is_available_when_the_backend_answers(
     assert {item["name"]: item["status"] for item in stage["integrations"]}["metrics"] == "available"
 
 
-@pytest.mark.parametrize("path", [CPU, "/api/v1/platform/metrics/node_cpu_usage_cores?range=1h"])
+@pytest.mark.parametrize("path", [CATALOG, CPU, "/api/v1/platform/metrics/node_cpu_usage_cores?range=1h"])
 def test_an_analyst_reads_no_metrics(api: TestClient, mint: Mint, path: str) -> None:
     assert api.get(path, headers=_as(mint, "analyst")).status_code == 403
 
@@ -431,4 +468,18 @@ def test_a_slow_backend_answers_a_series_as_unavailable_at_the_deadline(
     body = api.get(CPU, headers=_as(mint, "data-engineer")).json()
 
     assert (body["state"], body["reason"]) == ("unavailable", "the metrics backend did not answer within 0.5 s")
+    assert time.monotonic() - started < 1.5
+
+
+def test_a_slow_backend_reads_the_catalog_unavailable_at_the_deadline(
+    api: TestClient, mint: Mint, prometheus: FakePrometheus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(metrics_routes, "READ_DEADLINE_SECONDS", 0.5)
+    prometheus.delay = 2.0
+    started = time.monotonic()
+
+    body = api.get(CATALOG, headers=_as(mint, "data-engineer")).json()
+
+    cpu = next(item for item in body["series"] if item["name"] == "cpu_usage_cores")
+    assert (cpu["state"], cpu["reason"]) == ("unavailable", "the metrics backend did not answer within 0.5 s")
     assert time.monotonic() - started < 1.5

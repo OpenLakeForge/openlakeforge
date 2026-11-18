@@ -120,10 +120,11 @@ def _enforce(request: Request) -> None:
             _refuse(request, permission, 403, "operation not permitted")
         return
     token = _bearer_token(request)
-    if token is None:
+    anonymous_role = request.app.state.settings.anonymous_role
+    if token is None and anonymous_role is None:
         _refuse(request, permission, 401, "a bearer token is required", _UNAUTHORIZED)
     services: ServiceTokenValidator = request.app.state.service_validator
-    if services.is_service_token(token):
+    if token is not None and services.is_service_token(token):
         try:
             principal = services.validate(token)
         except InvalidToken as exc:
@@ -136,13 +137,20 @@ def _enforce(request: Request) -> None:
             _refuse(request, permission, 403, f"service {principal.service!r} may not perform {operation!r}")
         # No `request.state.token`: it is a Kubernetes credential, which no service the API forwards to may receive.
         return
-    validator: TokenValidator = request.app.state.validator
-    try:
-        principal = validator.validate(token)
-    except InvalidToken as exc:
-        _refuse(request, permission, 401, f"token refused: {exc}", _UNAUTHORIZED)
-    except IssuerUnavailable:
-        _refuse(request, permission, 503, "the identity issuer is unavailable")
+    if anonymous_role is not None:
+        if token is not None:
+            _refuse(request, permission, 401, "authentication is off on this deployment: send no token", _UNAUTHORIZED)
+        # ADR 0021, decision 8: with no issuer, every caller is the one anonymous principal.
+        principal = Principal(subject=ANONYMOUS, role=anonymous_role, email=None, name=None, audience="")
+    else:
+        assert token is not None  # refused above when authentication is on
+        validator: TokenValidator = request.app.state.validator
+        try:
+            principal = validator.validate(token)
+        except InvalidToken as exc:
+            _refuse(request, permission, 401, f"token refused: {exc}", _UNAUTHORIZED)
+        except IssuerUnavailable:
+            _refuse(request, permission, 503, "the identity issuer is unavailable")
     request.state.principal = principal
     if principal.role is None:
         # ADR 0014: authenticated with no recognised role is denied everywhere.
@@ -157,7 +165,8 @@ def _enforce(request: Request) -> None:
         else:
             detail = f"{operation!r} does not apply to stage {stage!r}" if stage else f"{operation!r} needs a stage"
         _refuse(request, permission, 403, detail)
-    # Kept for the routes that forward it to a service that authorizes the person (ADR 0021, decision 2).
+    # Kept for the routes that forward it to a service that authorizes the person (ADR 0021, decision 2); None for
+    # the anonymous principal, whose deployment configures no such service.
     request.state.token = token
 
 
@@ -401,6 +410,9 @@ def create_app(
         name="list_pipeline_health",
     )
     app.add_api_route("/api/v1/stages/{stage}/logs", reads.list_logs, methods=["GET"], name="list_logs")
+    app.add_api_route(
+        "/api/v1/stages/{stage}/metrics", metrics_routes.list_stage_metrics, methods=["GET"], name="list_stage_metrics"
+    )
     app.add_api_route(
         "/api/v1/stages/{stage}/metrics/{series}",
         metrics_routes.get_stage_metric,

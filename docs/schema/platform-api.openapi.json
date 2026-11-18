@@ -728,6 +728,33 @@
         "title": "Logs",
         "type": "object"
       },
+      "MetricCatalog": {
+        "properties": {
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/MetricSeriesInfo"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "observed_at",
+          "series"
+        ],
+        "title": "MetricCatalog",
+        "type": "object"
+      },
       "MetricLine": {
         "properties": {
           "labels": {
@@ -871,6 +898,72 @@
           "lines"
         ],
         "title": "MetricSeriesData",
+        "type": "object"
+      },
+      "MetricSeriesInfo": {
+        "description": "One catalog entry (ADR 0024, decision 4) and whether its source answers now.",
+        "properties": {
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ranges": {
+            "items": {
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            },
+            "title": "Ranges",
+            "type": "array"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "prometheus",
+              "dagster"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "available",
+              "disabled",
+              "unavailable",
+              "not_provided"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "unit",
+          "source",
+          "labels",
+          "ranges",
+          "state",
+          "reason"
+        ],
+        "title": "MetricSeriesInfo",
         "type": "object"
       },
       "Objects": {
@@ -2690,6 +2783,46 @@
           }
         },
         "summary": "List Logs"
+      }
+    },
+    "/api/v1/stages/{stage}/metrics": {
+      "get": {
+        "description": "The stage's catalog: each series, the ranges it serves here, and whether its source answers now.",
+        "operationId": "list_stage_metrics_api_v1_stages__stage__metrics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Stage Metrics"
       }
     },
     "/api/v1/stages/{stage}/metrics/{series}": {
