@@ -17,6 +17,7 @@ Local only: it reads the filer inside its pod and needs the SeaweedFS port-forwa
 from __future__ import annotations
 
 import json
+import math
 import time
 import uuid
 from collections.abc import Iterable, Mapping
@@ -35,16 +36,32 @@ EXPIRY_TIMEOUT_SECONDS = 240.0
 EXPIRY_POLL_SECONDS = 15.0
 
 
+def seaweedfs_ttl(days: int) -> tuple[str, int]:
+    """The TTL the seaweedfs module renders for `days`, and the days it keeps.
+
+    `fs.configure -ttl` in SeaweedFS 4.48 takes a count of 1 to 255, so above 255 days the module uses the shortest
+    TTL of whole weeks, months (30 days) or years (365 days) that is at least `days`, the larger unit on a tie
+    (`retention_ttl` in modules/storage/seaweedfs/main.tf; its tftest pins the same values).
+    """
+    if days <= 255:
+        return f"{days}d", days
+    candidates = [
+        (math.ceil(days / unit) * unit, order, f"{math.ceil(days / unit)}{suffix}")
+        for order, (suffix, unit) in enumerate((("y", 365), ("M", 30), ("w", 7)))
+        if math.ceil(days / unit) <= 255
+    ]
+    kept, _, ttl = min(candidates)
+    return ttl, kept
+
+
 def retention_rules(filer_conf: Mapping[str, Any]) -> dict[str, str]:
     """Location prefix to TTL string of every path rule in the filer's configuration."""
     return {rule["locationPrefix"]: rule.get("ttl", "") for rule in filer_conf.get("locations", [])}
 
 
-def missing_rules(rules: Mapping[str, str], bucket: str, prefixes: Iterable[str], days: int) -> list[str]:
-    """The prefixes with no rule of exactly `days` days, as the filer path each would be under."""
-    return [
-        f"/buckets/{bucket}/{prefix}" for prefix in prefixes if rules.get(f"/buckets/{bucket}/{prefix}") != f"{days}d"
-    ]
+def missing_rules(rules: Mapping[str, str], bucket: str, prefixes: Iterable[str], ttl: str) -> list[str]:
+    """The prefixes with no rule of exactly `ttl`, as the filer path each would be under."""
+    return [f"/buckets/{bucket}/{prefix}" for prefix in prefixes if rules.get(f"/buckets/{bucket}/{prefix}") != ttl]
 
 
 def entry_ttl_seconds(entry: Mapping[str, Any]) -> int | None:
@@ -119,17 +136,18 @@ def check_archive_retention(cfg: E2EConfig) -> None:
     if not supported:
         raise E2EError("the provider contract reports archive retention as unsupported, so none was applied")
     prefixes = _stage_prefixes(cfg)
+    ttl_rule, kept_days = seaweedfs_ttl(days)
     rules = retention_rules(json.loads(_filer_get(cfg, "/etc/seaweedfs/filer.conf")))
-    if missing := missing_rules(rules, bucket, prefixes, days):
-        raise E2EError(f"the filer has no {days}d TTL rule for {missing}; it has {rules}")
+    if missing := missing_rules(rules, bucket, prefixes, ttl_rule):
+        raise E2EError(f"the filer has no {ttl_rule} TTL rule for {missing}; it has {rules}")
     with collector._s3(cfg) as (client, _bucket):  # noqa: SLF001
         key = _newest_v2_key(client, bucket, cfg)
         entry = json.loads(_filer_get(cfg, f"/buckets/{bucket}/{key}?metadata=true"))
         ttl = entry_ttl_seconds(entry)
         log.info(f"{key} carries ttl_sec={ttl}")
-        if ttl != days * 86400:
+        if ttl != kept_days * 86400:
             raise E2EError(
-                f"{key} has TTL {ttl}s, not {days * 86400}s ({days} days); its entry: {json.dumps(entry)[:600]}"
+                f"{key} has TTL {ttl}s, not {kept_days * 86400}s ({ttl_rule}); its entry: {json.dumps(entry)[:600]}"
             )
         _check_a_path_ttl_expires(cfg, client, bucket)
 

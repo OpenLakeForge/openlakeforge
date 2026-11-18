@@ -19,6 +19,23 @@ locals {
   bucket_job_annotations = {
     "openlakeforge.io/seaweedfs-release-revision" = tostring(helm_release.seaweedfs.metadata.revision)
   }
+
+  # `fs.configure -ttl` in 4.48 takes a count of 1 to 255 and a unit of m, h, d, w, M (30 days) or y (365 days)
+  # (weed/shell/command_fs_configure.go, weed/storage/needle/volume_ttl.go). Up to 255 days stays in days. Above
+  # that, the TTL is the shortest one of whole weeks, months or years that is at least the asked days, the larger
+  # unit on a tie: exact when the days divide (365 is 1y), otherwise rounded up, never down (256 days is 37w, 259).
+  retention_days = var.object_retention == null ? 0 : var.object_retention.days
+  retention_ttl_candidates = [
+    for unit in [{ suffix = "y", days = 365 }, { suffix = "M", days = 30 }, { suffix = "w", days = 7 }] : {
+      ttl  = "${ceil(local.retention_days / unit.days)}${unit.suffix}"
+      days = ceil(local.retention_days / unit.days) * unit.days
+    } if ceil(local.retention_days / unit.days) <= 255
+  ]
+  retention_ttl = (
+    var.object_retention == null ? null :
+    local.retention_days <= 255 ? "${local.retention_days}d" :
+    [for c in local.retention_ttl_candidates : c.ttl if c.days == min([for o in local.retention_ttl_candidates : o.days]...)][0]
+  )
 }
 
 resource "helm_release" "seaweedfs" {
@@ -245,15 +262,15 @@ resource "kubernetes_job_v1" "object_retention" {
             export WEED_CLUSTER_SW_FILER="${local.filer_service_name}:8888"
 
             %{for prefix in var.object_retention.prefixes~}
-            echo 'fs.configure -locationPrefix=/buckets/${var.object_retention.bucket}/${prefix} -ttl=${var.object_retention.days}d -apply' | /usr/bin/weed shell
+            echo 'fs.configure -locationPrefix=/buckets/${var.object_retention.bucket}/${prefix} -ttl=${local.retention_ttl} -apply' | /usr/bin/weed shell
             %{endfor~}
 
             # A rule that was only accepted is not enough: it must be in the filer's configuration.
             rules="$(echo 'fs.configure' | /usr/bin/weed shell | tr -d ' \n')"
             %{for prefix in var.object_retention.prefixes~}
             case "$rules" in
-              *'"locationPrefix":"/buckets/${var.object_retention.bucket}/${prefix}","collection":"","replication":"","ttl":"${var.object_retention.days}d"'*) ;;
-              *) echo "No ${var.object_retention.days}d retention rule for ${prefix}" >&2; exit 1 ;;
+              *'"locationPrefix":"/buckets/${var.object_retention.bucket}/${prefix}","collection":"","replication":"","ttl":"${local.retention_ttl}"'*) ;;
+              *) echo "No ${local.retention_ttl} retention rule for ${prefix}" >&2; exit 1 ;;
             esac
             %{endfor~}
           SCRIPT

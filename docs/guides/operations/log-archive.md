@@ -40,12 +40,16 @@ buffers for five minutes (`upload_timeout`) before it writes an object. Records 
 
 `spec.observability.logs.archive.retention_days` (default 30) is applied to the v2 prefixes as a SeaweedFS filer path
 TTL, set by a Job in the shared namespace each time the platform is applied. An object written under a v2 prefix expires
-that many days after it was written. Three limits:
+that many days after it was written. Four limits:
 
 - The rule reaches only objects written after it is set. Changing `retention_days` does not shorten the life of
   objects already stored.
 - Objects under `k8s/` (the layout written before the collector) have no rule and are never expired.
 - SeaweedFS 4.48 accepts an S3 lifecycle rule and returns it, but creates no TTL from it, so the archive does not use one.
+- A path TTL counts at most 255 of a unit. Above 255 days the rule is in whole weeks, months (30 days) or years (365
+  days): exact where the days divide (365 is `1y`, 3650 is `10y`), otherwise rounded up to the nearest one. An object
+  is then kept up to 6 days longer than asked up to 1785 days, and up to 29 days longer above that (256 is `37w`, 259
+  days).
 
 `olf infra deploy` reports `logs.archive.retention_supported: true` in the provider contract on the local provider;
 on AWS and Azure it is `false` and the value is a request only.
