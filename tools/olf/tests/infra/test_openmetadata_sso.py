@@ -85,13 +85,6 @@ def test_an_applied_config_is_reput_without_a_restart(env: dict[str, Any]) -> No
     assert env["restarts"] == 0
 
 
-def test_no_oidc_means_no_put(env: dict[str, Any]) -> None:
-    env["data"] = None
-    run()
-    assert FakeClient.calls == []
-    assert env["restarts"] == 0
-
-
 def test_an_issuer_that_never_answers_fails_before_the_put(env: dict[str, Any]) -> None:
     env["probe"] = []
     with pytest.raises(OpenMetadataError, match="did not answer from inside the cluster"):
@@ -142,3 +135,31 @@ def test_apply_sso_reads_the_cluster_through_the_explicit_environ(
 
     with pytest.raises(k8s.KubectlError, match="KUBE_CONTEXT is required"):
         _sso.apply_sso("ns", service="openmetadata", remote_port=8585, log_path="/dev/null")
+
+
+def test_without_identity_a_server_left_on_sso_is_put_back_on_the_releases_basic_login(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env["data"] = None
+    release = {"AUTHENTICATION_PROVIDER": '"basic"', "AUTHORIZER_ADMIN_PRINCIPALS": '["admin"]'}
+    monkeypatch.setattr(_sso.k8s, "secret_value", lambda _name, key, *_a, **_k: release.get(key, ""))
+    stored = {"authenticationConfiguration": {**AUTH}, "authorizerConfiguration": {"adminPrincipals": []}}
+    FakeClient.current = stored  # type: ignore[assignment]  # the GETs answer with the stored configuration
+
+    run()
+
+    put = [c for c in FakeClient.calls if c[0] == "PUT"]
+    assert put[0][1] == "/api/v1/system/security/config"
+    assert put[0][2]["authenticationConfiguration"]["provider"] == "basic"
+    assert "oidcConfiguration" not in put[0][2]["authenticationConfiguration"]
+    assert put[0][2]["authorizerConfiguration"]["adminPrincipals"] == ["admin"]
+    assert env["restarts"] == 1
+
+
+def test_without_identity_a_server_already_on_basic_login_is_left_alone(env: dict[str, Any]) -> None:
+    env["data"] = None
+    FakeClient.current = {"provider": "basic"}
+
+    run()
+
+    assert [c[0] for c in FakeClient.calls] == ["GET"] and env["restarts"] == 0
