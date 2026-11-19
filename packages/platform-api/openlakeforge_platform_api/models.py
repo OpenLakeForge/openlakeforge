@@ -29,6 +29,11 @@ class Job(BaseModel):
     repository: str
     name: str
     description: str
+    # The domain and data product the job loads, from its definition tags (#1272): plain names, the same as
+    # `/data-products` names, never a display name. Null for a job of no product, such as a maintenance job, and for a
+    # tag that is not a plain name.
+    domain: str | None
+    product: str | None
 
 
 class Jobs(BaseModel):
@@ -211,6 +216,9 @@ class HealthThresholds(BaseModel):
 
 class StagePipelineState(BaseModel):
     job: str
+    # As on `Job`.
+    domain: str | None
+    product: str | None
     state: HealthStateName
 
 
@@ -274,6 +282,9 @@ class PipelineFreshness(BaseModel):
 
 class PipelineHealth(BaseModel):
     job: str
+    # As on `Job`.
+    domain: str | None
+    product: str | None
     state: HealthStateName
     latest_run: Run | None
     last_success: Run | None
@@ -308,8 +319,9 @@ class PipelineQuality(BaseModel):
     """The manifest behind one product pipeline's quality signal: counts and a run id, no check, table or row."""
 
     job: str
+    # As on `Job`.
     domain: str | None
-    product: str
+    product: str | None
     # The run whose manifest decided `state`; None while no run has answered.
     run_id: str | None
     # When the manifest's newest result was observed.
@@ -355,11 +367,15 @@ class AlertDelivery(BaseModel):
 
 
 class AlertIncident(BaseModel):
-    """An open incident, from the fields of the ADR 0023 notification payload only."""
+    """An open incident, from the fields of the ADR 0023 notification payload only, and its job's domain and product."""
 
     id: str
     condition: str
     severity: Literal["warning", "critical"]
+    # The Dagster job the incident is scoped to, which the payload names `product` (ADR 0023); null for a service one.
+    job: str | None
+    # The job's domain and data product as on `Job`, read from Dagster's job definitions when the route answers; null
+    # when the job is of no product, no longer listed, or Dagster could not be read.
     domain: str | None
     product: str | None
     table: str | None

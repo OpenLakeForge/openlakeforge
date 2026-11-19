@@ -76,7 +76,7 @@
         "type": "object"
       },
       "AlertIncident": {
-        "description": "An open incident, from the fields of the ADR 0023 notification payload only.",
+        "description": "An open incident, from the fields of the ADR 0023 notification payload only, and its job's domain and product.",
         "properties": {
           "component": {
             "anyOf": [
@@ -110,6 +110,17 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job"
           },
           "last_seen_at": {
             "format": "date-time",
@@ -167,6 +178,7 @@
           "id",
           "condition",
           "severity",
+          "job",
           "domain",
           "product",
           "table",
@@ -723,6 +735,17 @@
             "title": "Description",
             "type": "string"
           },
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
           "location": {
             "title": "Location",
             "type": "string"
@@ -730,6 +753,17 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product"
           },
           "repository": {
             "title": "Repository",
@@ -740,7 +774,9 @@
           "location",
           "repository",
           "name",
-          "description"
+          "description",
+          "domain",
+          "product"
         ],
         "title": "Job",
         "type": "object"
@@ -1367,6 +1403,17 @@
       },
       "PipelineHealth": {
         "properties": {
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
           "failed_runs": {
             "title": "Failed Runs",
             "type": "integer"
@@ -1398,6 +1445,17 @@
               }
             ]
           },
+          "product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product"
+          },
           "schedule": {
             "$ref": "#/components/schemas/PipelineSchedule"
           },
@@ -1422,6 +1480,8 @@
         },
         "required": [
           "job",
+          "domain",
+          "product",
           "state",
           "latest_run",
           "last_success",
@@ -1485,8 +1545,15 @@
             "title": "Observed At"
           },
           "product": {
-            "title": "Product",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product"
           },
           "reason": {
             "title": "Reason",
@@ -2166,9 +2233,31 @@
       },
       "StagePipelineState": {
         "properties": {
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
           "job": {
             "title": "Job",
             "type": "string"
+          },
+          "product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product"
           },
           "state": {
             "enum": [
@@ -2184,6 +2273,8 @@
         },
         "required": [
           "job",
+          "domain",
+          "product",
           "state"
         ],
         "title": "StagePipelineState",

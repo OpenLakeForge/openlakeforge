@@ -309,10 +309,15 @@ class QualityManifest:
             raise QualityRecordError(f"quality manifest is invalid: {exc}") from exc
 
 
+def is_plain_name(value: str) -> bool:
+    """Whether `value` is a name `manifest_key` takes as a key segment."""
+    return bool(_SEGMENT.match(value))
+
+
 def manifest_key(domain: str, product: str, dagster_run_id: str) -> str:
     """The manifest's key relative to a stage's artifact prefix, keyed by Dagster run like the dbt artifacts."""
     for name, value in (("domain", domain), ("product", product), ("dagster_run_id", dagster_run_id)):
-        if not _SEGMENT.match(value):
+        if not is_plain_name(value):
             raise QualityRecordError(f"{name} {value!r} is not a safe path segment")
     return f"run-artifacts/quality/{domain}/{product}/{dagster_run_id}/{MANIFEST_FILENAME}"
 

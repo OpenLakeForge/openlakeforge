@@ -14,7 +14,7 @@ from openlakeforge_services.dagster import DagsterJob, DagsterRun
 from openlakeforge_services.logs import ArchivedLogLine
 from openlakeforge_services.openmetadata import DataProduct as ServiceDataProduct
 
-from openlakeforge_platform_api import models
+from openlakeforge_platform_api import models, reads
 from openlakeforge_platform_api.app import create_app
 from openlakeforge_platform_api.openapi import DOCUMENT_PATH, REGENERATE, render
 from openlakeforge_platform_api.settings import Settings
@@ -91,7 +91,11 @@ def test_jobs_log_lines_and_data_products_keep_their_wire_form() -> None:
     ]
     product = ServiceDataProduct("orders", "Orders", ("sales", "finance"))
 
-    assert _typed(models.Jobs(jobs=[models.Job(**asdict(job))])) == _wire({"jobs": [asdict(job)]})
+    # The job's tags are read for its domain and product (#1272), never answered.
+    legacy_job = {name: value for name, value in asdict(job).items() if name != "tags"}
+    assert _typed(models.Jobs(jobs=[reads._job(job)])) == _wire(
+        {"jobs": [{**legacy_job, "domain": None, "product": None}]}
+    )
     # The reader's lines carry more fields than the route answers with.
     answered = [{name: asdict(line)[name] for name in models.LogLine.model_fields} for line in lines]
     assert _typed(models.Logs(lines=[models.LogLine(**line) for line in answered], truncated=True)) == _wire(

@@ -843,3 +843,14 @@ occurrence the core signal judged, copied from it. Only `expected_run` sets it, 
 expected at that occurrence; it is null on every other kind and on an `expected_run` that judged none, and is never
 filled from `schedule.last_expected_at` or `observed_at`. Freshness does not set it, so ADR 0023 is unchanged.
 `get_stage_health` and the alert evaluator are unchanged.
+
+2026-11-19: #1272. Each Dagster job maps to the domain and data product it loads, from its job definition's tags: a
+product job declares `openlakeforge/product` beside `openlakeforge/silver-domain`, and the Dagster job read selects
+definition tags, so a job that has never run is mapped. `Job`, `StagePipelineState` and `PipelineHealth` gain
+`domain` and `product`, plain names (the quality manifest key's segment rule) and `null` for a job of no product, for
+a tag that is not a plain name, and for the product of a job deployed before the product tag; the job is listed
+either way and its tags are never answered. The quality signal and `get_stage_quality_health` read the same tags, so
+`PipelineQuality.product` is nullable and the `_pipeline` suffix rule is gone. `AlertIncident` gains `job`, the job
+the incident is scoped to, and its `domain` and `product` are now that job's, read from the stage's Dagster job list
+when the route answers, `null` when Dagster cannot be read in 10 seconds. The core `Scope`, whose `product` holds the
+job name, and ADR 0023's incident fingerprints and notification payload are unchanged; ADR 0004 is unchanged.

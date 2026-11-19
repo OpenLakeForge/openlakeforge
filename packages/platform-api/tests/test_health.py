@@ -11,7 +11,7 @@ import pytest
 from conftest import Mint
 from fastapi.testclient import TestClient
 from openlakeforge_core import Signal
-from test_reads import UNREACHABLE, FakeDagster, _as, _settings
+from test_reads import MAPPED, MAPPED_JOBS, UNREACHABLE, FakeDagster, _as, _settings
 
 from openlakeforge_platform_api.app import create_app
 from openlakeforge_platform_api.service_probes import StageTargets
@@ -150,7 +150,7 @@ def test_a_failed_latest_run_is_critical_and_rolls_up_to_the_stage(
     stage = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
 
     assert stage["state"] == "critical"
-    assert stage["pipelines"] == [{"job": "orders_job", "state": "critical"}]
+    assert stage["pipelines"] == [{"job": "orders_job", "domain": None, "product": None, "state": "critical"}]
 
 
 def test_a_stopped_scheduler_after_yesterdays_run_is_critical_once_todays_run_is_overdue(
@@ -163,7 +163,7 @@ def test_a_stopped_scheduler_after_yesterdays_run_is_critical_once_todays_run_is
     assert _expected_run(api, mint)["state"] == "critical"
     stage = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
     assert stage["state"] == "critical"
-    assert stage["pipelines"] == [{"job": "orders_job", "state": "critical"}]
+    assert stage["pipelines"] == [{"job": "orders_job", "domain": None, "product": None, "state": "critical"}]
 
 
 def test_a_schedule_within_its_grace_period_is_not_yet_critical(
@@ -416,6 +416,21 @@ def test_a_pipeline_that_never_ran_is_unknown_not_healthy(
     stage = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
 
     assert stage["state"] == "unknown"
+
+
+def test_each_pipeline_names_its_domain_and_product_whether_or_not_it_has_run(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.jobs = MAPPED_JOBS
+    dagster.runs = [_run("r1", "FAILURE", HOUR, job="order_revenue_pipeline")]
+
+    stage = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
+    pipelines = api.get(PIPELINES, headers=_as(mint, "data-engineer")).json()["pipelines"]
+
+    assert {p["job"]: (p["domain"], p["product"]) for p in stage["pipelines"]} == MAPPED
+    assert {p["job"]: (p["domain"], p["product"]) for p in pipelines} == MAPPED
+    # A tag that is not a plain name reads null and the job is still listed and evaluated.
+    assert next(p for p in pipelines if p["job"] == "odd_pipeline")["state"] == "unknown"
 
 
 def test_a_stale_latest_run_is_unknown_not_healthy(api: TestClient, mint: Mint, dagster: ScheduledDagster) -> None:

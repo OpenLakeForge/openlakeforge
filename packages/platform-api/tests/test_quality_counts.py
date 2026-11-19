@@ -21,7 +21,8 @@ from test_reads import _settings as _api_settings
 from openlakeforge_platform_api import quality_routes
 from openlakeforge_platform_api.app import create_app
 from openlakeforge_platform_api.permissions import PermissionMatrix
-from openlakeforge_platform_api.quality_health import DOMAIN_TAG, QualityReader
+from openlakeforge_platform_api.pipeline_health import DOMAIN_TAG, PRODUCT_TAG
+from openlakeforge_platform_api.quality_health import QualityReader
 from openlakeforge_platform_api.settings import Settings
 
 BASE = "s3://ops/activations/dev/"
@@ -32,25 +33,33 @@ PIPELINES = "/api/v1/stages/dev/health/pipelines"
 
 
 class Dagster(ScheduledDagster):
-    """Product pipelines whose runs name their domain, newest first per job."""
+    """Jobs whose definitions name their domain and product, and their runs newest first per job."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.jobs = [JOB]
+        self.tagged: dict[str, dict[str, str]] = {JOB: _product("orders")}
         self.runs = []
 
     def answer(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         if "query Jobs" in query:
-            jobs = [{"name": job, "description": ""} for job in self.jobs]
+            jobs = [
+                {"name": job, "description": "", "tags": [{"key": k, "value": v} for k, v in tags.items()]}
+                for job, tags in self.tagged.items()
+            ]
             repository = {"name": "__repository__", "location": {"name": "loc"}, "jobs": jobs}
             return {"repositoriesOrError": {"__typename": "RepositoryConnection", "nodes": [repository]}}
         return super().answer(query, variables)
 
 
-def _runs(*statuses: str, job: str = JOB, domain: str | None = "sales") -> list[dict[str, Any]]:
+def _product(product: str, domain: str = "sales") -> dict[str, str]:
+    return {DOMAIN_TAG: domain, PRODUCT_TAG: product}
+
+
+def _runs(*statuses: str, job: str = JOB) -> list[dict[str, Any]]:
     """`run-1` is the oldest; Dagster answers newest first."""
     stamp = time.time() - 1800
-    tags = [{"key": DOMAIN_TAG, "value": domain}] if domain else []
+    # The product is read from the job's definition, never a run's tags, so these name none.
+    tags = [{"key": "dagster/schedule_name", "value": "daily"}]
     runs = [
         {
             "runId": f"{job}-run-{n}" if job != JOB else f"run-{n}",
@@ -337,12 +346,17 @@ def test_the_state_is_the_quality_signal_of_the_pipeline_health_route(
 def test_totals_sum_the_pipelines_whose_counts_are_known(
     api: TestClient, mint: Mint, dagster: Dagster, bucket: FakeBucket
 ) -> None:
-    dagster.jobs = [JOB, "invoices_pipeline", "refunds_pipeline", "gold_maintenance"]
+    dagster.tagged = {
+        JOB: _product("orders"),
+        "invoices_pipeline": _product("invoices"),
+        "refunds_pipeline": _product("refunds"),
+        "gold_maintenance": {},
+    }
     dagster.runs = (
         _runs("SUCCESS")
         + _runs("FAILURE", job="invoices_pipeline")
         + _runs("SUCCESS", job="refunds_pipeline")
-        + _runs("SUCCESS", job="gold_maintenance", domain=None)
+        + _runs("SUCCESS", job="gold_maintenance")
     )
     _store(bucket, _result(QualityOutcome.PASSED, check="a"), _result(QualityOutcome.WARN, check="b"))
     _store(

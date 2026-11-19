@@ -25,7 +25,7 @@ from openlakeforge_core.alerts import (
 )
 from openlakeforge_core.alerts_state import expire_outbox, record_attempt, record_delivery
 from openlakeforge_core.health import Scope
-from test_reads import _as
+from test_reads import UNREACHABLE, FakeDagster, _as, job_tags
 from test_reads import _settings as _api_settings
 
 from openlakeforge_platform_api import alert_routes
@@ -38,6 +38,7 @@ BASE = "s3://ops/alerts/"
 STATE_KEY = "alerts/state/v1/state.json"
 INCIDENTS = "/api/v1/stages/dev/alerts/incidents"
 RECEIVER_URL = "https://hooks.example.test/T000/secret-token"
+JOB = "order_revenue_pipeline"
 
 
 def _now() -> datetime:
@@ -56,7 +57,8 @@ def _incident(
     scope = (
         Scope(stage=stage)
         if kind in (AlertKind.SERVICE_DEGRADED, AlertKind.HEALTH_UNREADABLE)
-        else Scope(stage=stage, domain="sales", product="orders", table="silver.orders")
+        # A pipeline incident's scope names its job in `product` (pipeline_health._evaluate).
+        else Scope(stage=stage, product=JOB)
     )
     return Incident(
         id=f"fp{number}-{int(opened.timestamp())}-1",
@@ -176,9 +178,11 @@ def test_a_firing_incident_with_a_queued_notification_is_pending(
         "id": incident.id,
         "condition": "run_failed",
         "severity": "critical",
-        "domain": "sales",
-        "product": "orders",
-        "table": "silver.orders",
+        "job": JOB,
+        # No Dagster is configured for the stage, so nothing maps the job.
+        "domain": None,
+        "product": None,
+        "table": None,
         "component": None,
         "opened_at": incident.opened_at.isoformat().replace("+00:00", "Z"),
         "last_seen_at": incident.last_seen_at.isoformat().replace("+00:00", "Z"),
@@ -287,6 +291,56 @@ def test_only_the_stages_own_incidents_are_listed_platform_conditions_included(
     found = _only(api, mint)
 
     assert (found["condition"], found["component"], found["domain"]) == ("service_degraded", "trino.workloads", None)
+
+
+def _scoped(incident: Incident, job: str) -> Incident:
+    return replace(incident, scope=Scope(stage="dev", product=job))
+
+
+def test_each_incident_names_its_jobs_domain_and_product_from_the_job_definition(
+    settings: Settings, mint: Mint, bucket: FakeBucket
+) -> None:
+    dagster = FakeDagster()
+    dagster.jobs = [
+        {"name": JOB, "description": "", "tags": job_tags(domain="sales", product="order_revenue")},
+        {"name": "gold_maintenance", "description": "", "tags": []},
+    ]
+    api = TestClient(
+        create_app(
+            _api_settings(settings, alerts_state_base_uri=BASE, dagster_graphql_urls={"dev": f"{dagster.url}/graphql"}),
+            alert_state_store=bucket,
+        )
+    )
+    incidents = (
+        _incident(1),
+        _scoped(_incident(2), "gold_maintenance"),
+        _scoped(_incident(3), "removed_pipeline"),
+        _incident(4, kind=AlertKind.SERVICE_DEGRADED, component="trino.workloads"),
+    )
+    _write(bucket, AlertState(incidents=incidents))
+    try:
+        found = _get(api, mint)["incidents"]
+    finally:
+        dagster.close()
+
+    assert [(i["job"], i["domain"], i["product"]) for i in found] == [
+        (JOB, "sales", "order_revenue"),
+        ("gold_maintenance", None, None),
+        ("removed_pipeline", None, None),
+        (None, None, None),
+    ]
+
+
+def test_an_unreadable_dagster_leaves_domain_and_product_null_and_still_answers(
+    settings: Settings, mint: Mint, bucket: FakeBucket
+) -> None:
+    configured = _api_settings(settings, alerts_state_base_uri=BASE, dagster_graphql_urls={"dev": UNREACHABLE})
+    api = TestClient(create_app(configured, alert_state_store=bucket))
+    _write(bucket, AlertState(incidents=(_incident(),)))
+
+    found = _only(api, mint)
+
+    assert (found["job"], found["domain"], found["product"]) == (JOB, None, None)
 
 
 def test_no_incidents_is_an_empty_list_only_from_a_fresh_state(api: TestClient, mint: Mint, bucket: FakeBucket) -> None:

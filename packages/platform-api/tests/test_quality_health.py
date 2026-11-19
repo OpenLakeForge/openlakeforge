@@ -29,22 +29,25 @@ from test_reads import _settings as _api_settings
 from openlakeforge_platform_api.alerting.run import run_once
 from openlakeforge_platform_api.alerting.store import AlertStore
 from openlakeforge_platform_api.app import create_app
-from openlakeforge_platform_api.pipeline_health import read_stage_pipelines
-from openlakeforge_platform_api.quality_health import DOMAIN_TAG, QualityReader
+from openlakeforge_platform_api.pipeline_health import DOMAIN_TAG, PRODUCT_TAG, read_stage_pipelines
+from openlakeforge_platform_api.quality_health import QualityReader
 from openlakeforge_platform_api.settings import Settings, SettingsError
 
 BASE = "s3://ops/activations/dev/"
 PREFIX = "activations/dev/"
 JOB = "orders_pipeline"
+# The definition tags of the product job `JOB`; its runs' tags are not read for its domain or product.
+PRODUCT_JOB = {DOMAIN_TAG: "sales", PRODUCT_TAG: "orders"}
 
 
 class FakeDagster(DagsterClient):
-    def __init__(self, runs: list[DagsterRun], job: str = JOB) -> None:
+    def __init__(self, runs: list[DagsterRun], job: str = JOB, tags: dict[str, str] | None = None) -> None:
         super().__init__("http://dagster.invalid/graphql")
         self.runs, self.job = runs, job
+        self.tags = PRODUCT_JOB if tags is None else tags
 
     def list_jobs(self) -> list[DagsterJob]:
-        return [DagsterJob("loc", "repo", self.job, "")]
+        return [DagsterJob("loc", "repo", self.job, "", self.tags)]
 
     def list_schedules(self) -> list[DagsterSchedule]:
         return []
@@ -53,11 +56,9 @@ class FakeDagster(DagsterClient):
         return self.runs
 
 
-def _run(run_id: str = "run-1", status: str = "SUCCESS", *, tags: dict[str, str] | None = None) -> DagsterRun:
+def _run(run_id: str = "run-1", status: str = "SUCCESS") -> DagsterRun:
     stamp = (NOW - timedelta(minutes=30)).timestamp()
-    return DagsterRun(
-        run_id, JOB, status, stamp - 60, stamp - 59, stamp, {DOMAIN_TAG: "sales"} if tags is None else tags
-    )
+    return DagsterRun(run_id, JOB, status, stamp - 60, stamp - 59, stamp, {})
 
 
 def _result(
@@ -97,15 +98,20 @@ def _store(*results: QualityResult, run_id: str = "run-1", complete: bool = True
     return bucket
 
 
-def _quality(bucket: FakeBucket, run: DagsterRun | None = None, job: str = JOB) -> dict[str, str] | None:
-    """The quality signal's state and reason for the pipeline's latest run, or None when it carries none."""
-    _, (pipeline,) = read_stage_pipelines(FakeDagster([run or _run()], job), "dev", NOW, QualityReader(bucket, BASE))
+def _quality(
+    bucket: FakeBucket, run: DagsterRun | None = None, tags: dict[str, str] | None = None
+) -> dict[str, str] | None:
+    """The quality signal's state and reason for the pipeline's latest run, or None when it carries none.
+
+    `tags` are the job definition's, the product job's by default."""
+    dagster = FakeDagster([run or _run()], tags=tags)
+    _, (pipeline,) = read_stage_pipelines(dagster, "dev", NOW, QualityReader(bucket, BASE))
     found = [signal for signal in pipeline.signals if signal.kind.value == "quality"]
     return {"state": found[0].state.value, "reason": found[0].reason} if found else None
 
 
-def _state(bucket: FakeBucket, run: DagsterRun | None = None, job: str = JOB) -> str | None:
-    found = _quality(bucket, run, job)
+def _state(bucket: FakeBucket, run: DagsterRun | None = None, tags: dict[str, str] | None = None) -> str | None:
+    found = _quality(bucket, run, tags)
     return found["state"] if found else None
 
 
@@ -193,8 +199,9 @@ def test_a_store_that_cannot_be_read_reads_unknown() -> None:
     assert _state(bucket) == "unknown"
 
 
-@pytest.mark.parametrize("domain", ["../other", "a/b", "", "sales\n", "%2e%2e"])
-def test_a_tag_that_is_not_a_plain_name_never_becomes_a_key_segment(domain: str) -> None:
+@pytest.mark.parametrize("tag", [DOMAIN_TAG, PRODUCT_TAG])
+@pytest.mark.parametrize("value", ["../other", "a/b", "", "sales\n", "%2e%2e"])
+def test_a_tag_that_is_not_a_plain_name_never_becomes_a_key_segment(tag: str, value: str) -> None:
     requested: list[str] = []
 
     class Spy(FakeBucket):
@@ -202,13 +209,17 @@ def test_a_tag_that_is_not_a_plain_name_never_becomes_a_key_segment(domain: str)
             requested.append(Key)
             return super().get_object(Bucket=Bucket, Key=Key)
 
-    assert _state(Spy(), _run(tags={DOMAIN_TAG: domain})) == "unknown"
+    assert _state(Spy(), tags={**PRODUCT_JOB, tag: value}) == "unknown"
     assert requested == []
 
 
 def test_a_job_that_is_not_a_product_pipeline_carries_no_quality_signal() -> None:
-    assert _quality(_store(), _run(tags={})) is None
-    assert _quality(_store(), job="orders_maintenance") is None
+    assert _quality(_store(), tags={}) is None
+
+
+def test_a_job_deployed_before_the_product_tag_carries_no_quality_signal_rather_than_a_guess() -> None:
+    # The job is named like a product pipeline and its manifest is there, but no product is read from the name.
+    assert _quality(_store(_result(QualityOutcome.WARN)), tags={DOMAIN_TAG: "sales"}) is None
 
 
 def test_without_a_reader_a_pipeline_carries_no_quality_signal() -> None:
@@ -238,6 +249,29 @@ def test_the_alert_evaluator_opens_a_quality_incident_from_a_blocking_error_mani
     (payload,) = [payload for _, payload in notifier.sent]
     assert (payload["event"], payload["condition"], payload["severity"]) == ("opened", "quality", "critical")
     assert payload["links"]["run"] == "http://dagster-dev.example.test/runs/run-1"
+
+
+@pytest.mark.parametrize("tags", [PRODUCT_JOB, {DOMAIN_TAG: "sales"}, {}], ids=["product", "domain-only", "untagged"])
+def test_a_jobs_domain_and_product_never_re_key_its_incidents(tags: dict[str, str]) -> None:
+    state, notifier = _declared(), FakeNotifier()
+    manifests = QualityReader(_store(_result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED)), BASE)
+
+    run_once(
+        settings=_settings(A),
+        store=AlertStore(state, "s3://ops/alerts/"),
+        dagster={"dev": FakeDagster([_run(status="FAILURE")], tags=tags)},
+        notifiers={"ops": notifier},
+        now=NOW,
+        quality={"dev": manifests},
+    )
+
+    opened = {payload["condition"]: payload for _, payload in notifier.sent}
+    # The fingerprints of `Scope(stage="dev", product=JOB)` before #1272: the scope names the job, whatever its tags.
+    pinned = {"run_failed": "1c0286ead372c62a", "quality": "4ba0651cd835f470"}
+    # Only a job that names its product has a quality signal to open an incident from.
+    expected = pinned if tags == PRODUCT_JOB else {"run_failed": pinned["run_failed"]}
+    assert {condition: payload["incident_id"].split("-")[0] for condition, payload in opened.items()} == expected
+    assert {(payload.get("domain"), payload["product"]) for payload in opened.values()} == {(None, JOB)}
 
 
 def test_the_alert_evaluator_opens_nothing_for_a_pipeline_whose_manifest_passed_or_is_missing() -> None:
@@ -461,7 +495,7 @@ def test_an_unreadable_failed_manifest_keeps_an_open_incident_open_and_silent() 
 
 
 class QualityDagster(ScheduledDagster):
-    """A Dagster whose one job is a product pipeline with a run that names its domain."""
+    """A Dagster whose one job is a product pipeline with a run."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -474,16 +508,17 @@ class QualityDagster(ScheduledDagster):
                 "creationTime": stamp - 60,
                 "startTime": stamp - 59,
                 "endTime": stamp,
-                "tags": [{"key": DOMAIN_TAG, "value": "sales"}],
+                "tags": [],
             }
         ]
 
     def answer(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         if "query Jobs" in query:
+            tags = [{"key": key, "value": value} for key, value in PRODUCT_JOB.items()]
             repository = {
                 "name": "__repository__",
                 "location": {"name": "loc"},
-                "jobs": [{"name": JOB, "description": ""}],
+                "jobs": [{"name": JOB, "description": "", "tags": tags}],
             }
             return {"repositoriesOrError": {"__typename": "RepositoryConnection", "nodes": [repository]}}
         return super().answer(query, variables)

@@ -151,10 +151,12 @@ module does not parse cron.
 When a stage has a quality manifest reader, each product pipeline's latest run
 carries one `quality` signal, scoped like its other signals. It is read from
 `activations/<stage>/run-artifacts/quality/<domain>/<product>/<run>/manifest.json`,
-which every Floe and dbt step of the run rewrites. The domain is the run's
-`openlakeforge/silver-domain` tag and the product is the job name without its
-`_pipeline` suffix; a job with no such tag, a maintenance job for one, gets no
-quality signal.
+which every Floe and dbt step of the run rewrites. The domain and product are
+the job definition's `openlakeforge/silver-domain` and `openlakeforge/product`
+tags, which the health routes also answer as each pipeline's `domain` and
+`product`. A job without both, a maintenance job for one, gets no quality
+signal; so does a product job deployed before the product tag, until its code
+location is redeployed. The job name is never parsed for a product.
 
 | Manifest | `quality` |
 | --- | --- |

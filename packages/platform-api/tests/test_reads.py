@@ -60,6 +60,10 @@ class FakeDagster(_Server):
 
     def __init__(self) -> None:
         self.runs: list[dict[str, Any]] = [RUN]
+        self.jobs: list[dict[str, Any]] = [
+            {"name": "orders_job", "description": "Orders"},
+            {"name": "__ASSET_JOB", "description": None},
+        ]
         self.fail_status: int | None = None
         self.graphql_errors: list[dict[str, Any]] = []
         self.variables: list[dict[str, Any]] = []
@@ -79,8 +83,7 @@ class FakeDagster(_Server):
 
     def answer(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         if "query Jobs" in query:
-            jobs = [{"name": "orders_job", "description": "Orders"}, {"name": "__ASSET_JOB", "description": None}]
-            repository = {"name": "__repository__", "location": {"name": "project-code"}, "jobs": jobs}
+            repository = {"name": "__repository__", "location": {"name": "project-code"}, "jobs": self.jobs}
             return {"repositoriesOrError": {"__typename": "RepositoryConnection", "nodes": [repository]}}
         if "query Runs" in query:
             job = variables["filter"].get("pipelineName")
@@ -209,9 +212,50 @@ def test_jobs_are_the_projects_own(api: TestClient, mint: Mint) -> None:
 
     assert response.json() == {
         "jobs": [
-            {"location": "project-code", "repository": "__repository__", "name": "orders_job", "description": "Orders"}
+            {
+                "location": "project-code",
+                "repository": "__repository__",
+                "name": "orders_job",
+                "description": "Orders",
+                "domain": None,
+                "product": None,
+            }
         ]
     }
+
+
+def job_tags(**tags: str) -> list[dict[str, str]]:
+    """A job definition's tags as Dagster answers them: `domain` and `product` name the product job tags."""
+    keys = {"domain": "openlakeforge/silver-domain", "product": "openlakeforge/product"}
+    return [{"key": keys.get(name, name), "value": value} for name, value in tags.items()]
+
+
+# A product job, a maintenance job, a product job deployed before the product tag, and one whose tags are no plain
+# names. None of them has run.
+MAPPED_JOBS: list[dict[str, Any]] = [
+    {"name": "order_revenue_pipeline", "description": "", "tags": job_tags(domain="sales", product="order_revenue")},
+    {"name": "gold_maintenance", "description": "", "tags": []},
+    {"name": "invoices_pipeline", "description": "", "tags": job_tags(domain="finance")},
+    {"name": "odd_pipeline", "description": "", "tags": job_tags(domain="../sales", product="a/b")},
+]
+MAPPED = {
+    "order_revenue_pipeline": ("sales", "order_revenue"),
+    "gold_maintenance": (None, None),
+    "invoices_pipeline": ("finance", None),
+    "odd_pipeline": (None, None),
+}
+
+
+def test_each_job_names_the_domain_and_product_its_definition_tags_name(
+    api: TestClient, dagster: FakeDagster, mint: Mint
+) -> None:
+    dagster.jobs = [*MAPPED_JOBS, {**MAPPED_JOBS[0], "name": "secret_job", "tags": job_tags(binding="bucket-a")}]
+
+    jobs = api.get("/api/v1/stages/dev/jobs", headers=_as(mint, "data-engineer")).json()["jobs"]
+
+    assert {job["name"]: (job["domain"], job["product"]) for job in jobs} == {**MAPPED, "secret_job": (None, None)}
+    # The tags themselves are never answered: a job's tags carry its sources' stage bindings.
+    assert "bucket-a" not in json.dumps(jobs)
 
 
 def test_runs_are_filtered_by_job_and_limited(api: TestClient, dagster: FakeDagster, mint: Mint) -> None:
