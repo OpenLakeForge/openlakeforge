@@ -189,7 +189,7 @@ what it may launch.
 | `olf runs show <run-id>` | One run's status, times and tags | `data-engineer` |
 | `olf runs launch <job>` | Launches the job as you, on `dev` only; the API stores an audit record first and launches nothing if it cannot | `data-engineer` |
 | `olf logs` | The stage's archived pod log lines for a day (`--date`, default today in UTC) or one `--hour`; `--pod`, `--container`, `--run-id`, `--product`, `--component`, `--severity`, `--since`, `--until`, `--limit` 1 to 5000 (default 500) | `data-engineer` on `dev`; `platform-admin` on every stage |
-| `olf health <stage>` | The stage's health: its state, each service's state, when it was observed, until when that answer is usable and why, each pipeline's state; `unknown` and `disabled` print as themselves, never as healthy | `data-engineer` |
+| `olf health <stage>` | The stage's health: its state, then its service rows grouped by service under the service's worst state, each with its component key and display name, state, when it was observed, until when that answer is usable, its last durable write where the API reports one (`—` otherwise) and why; then each pipeline's state; `unknown` and `disabled` print as themselves, never as healthy | `data-engineer` |
 | `olf pipelines health <stage>` | Each pipeline's state and the reason behind it | `data-engineer` |
 | `olf domain list` | Governance domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |
 | `olf product list` | Data products and their domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |
