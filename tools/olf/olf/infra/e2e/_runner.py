@@ -36,6 +36,7 @@ from olf.infra.e2e._log_footprint import check_collection_footprint
 from olf.infra.e2e._log_retention import check_archive_retention
 from olf.infra.e2e._maintenance import check_iceberg_maintenance
 from olf.infra.e2e._metrics import check_metrics_cardinality, check_metrics_off, check_metrics_reads
+from olf.infra.e2e._metrics_drills import check_metrics_footprint, check_metrics_outage
 from olf.infra.e2e._network import check_network_and_rbac
 from olf.infra.e2e._perimeter import check_perimeter
 from olf.infra.e2e._perimeter_latency import check_perimeter_latency
@@ -403,6 +404,9 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         # After the pipelines ran, so the run series have points; each skips when metrics are off.
         assertions.append(FullAssertion("metrics series through the platform API", check_metrics_reads))
         assertions.append(FullAssertion("metrics labels and series budget", check_metrics_cardinality))
+        assertions.append(FullAssertion("metrics backend footprint", check_metrics_footprint, tier="drill"))
+        # Scales Prometheus to zero, so it runs after every check that reads it.
+        assertions.append(FullAssertion("metrics outage reads unavailable", check_metrics_outage, tier="drill"))
         # Each waits out the collector's 5m upload_timeout, so they are drills.
         assertions.append(
             FullAssertion("short-lived pod output in the log archive", check_short_lived_pod_output, tier="drill")
