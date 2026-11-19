@@ -178,7 +178,7 @@ def test_e2e_kubectl_and_probes_read_the_contract_environment(tmp_path: Path, ku
         "creds:AWS_ACCESS_KEY_ID",
         "creds:AWS_SECRET_ACCESS_KEY",
     )
-    assert _isolation._sibling_stage(cfg) == "dev"
+    assert _isolation._other_enabled_stages(cfg, ["dev"]) == ["dev"]
     for call in _calls(kubectl_log):
         assert call["kubeconfig"] == str(tmp_path / "contract/kubeconfig")
         assert call["marker"] == "from-contract"

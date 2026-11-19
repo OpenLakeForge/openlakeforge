@@ -85,7 +85,9 @@ on:
           activation needs that digest too) and runs DEV's full suite, but
           skips the PROD snapshot, the promotion and the PROD suite.
           'dev+prod' runs the whole promotion lifecycle; the nightly
-          schedule always uses it.
+          schedule always uses it. Only 'dev+prod' (or a custom profile that
+          enables both) runs the cross-stage isolation probes: with one stage
+          there is nothing to isolate against.
         type: choice
         options:
           - dev-only
@@ -528,10 +530,12 @@ jobs:
           fi
 
       - name: Run the full e2e suite against PROD
-        # `run_full` (olf.infra.e2e._runner) includes `check_stage_isolation`
-        # whenever a sibling stage namespace exists, so this run and DEV's
-        # above already assert the cross-stage negative-isolation criteria
-        # from each stage's own vantage point.
+        # `run_full` (olf.infra.e2e._runner) includes `check_stage_isolation`,
+        # which probes every other enabled stage, so this run and DEV's above
+        # together cover both ordered pairs (#251). Each writes
+        # stage-isolation-<namespace>.json to the evidence uploaded below. A
+        # pair whose other stage has no runs or data yet is recorded as
+        # deferred in DEV's report and compared here.
         if: (inputs.suite || 'full') != 'smoke' && steps.profile.outputs.prod == 'true' && inputs.checks != 'none'
         working-directory: ${{ env.PROJECT_DIR }}
         env:
@@ -661,7 +665,7 @@ jobs:
 
       - name: Upload ingress drill evidence
         # Written by the full suite's Traefik restart and certificate renewal
-        # drills (#268), pass or fail.
+        # drills (#268), and each stage's isolation report (#251), pass or fail.
         if: always() && (inputs.suite || 'full') != 'smoke'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

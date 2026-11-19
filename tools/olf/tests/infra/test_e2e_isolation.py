@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from contextlib import contextmanager
 from dataclasses import replace
@@ -12,59 +13,250 @@ from conftest import e2e_cfg
 from olf.infra.e2e import _isolation
 from olf.infra.e2e._shell import E2EError
 
+OPS = "openlakeforge-ops"
+
+
+def _denied(operation: str) -> ClientError:
+    return ClientError({"Error": {"Code": "AccessDenied", "Message": "denied"}}, operation)
+
 
 class _S3Client:
-    def __init__(self) -> None:
-        self.head_buckets: list[str] = []
-        self.prefixes: list[str] = []
+    """A SeaweedFS stand-in that grants an identity only its own buckets and ops-bucket prefixes, as the gateway's
+    auth config does; `leaks` names buckets or ops prefixes it wrongly grants as well."""
+
+    def __init__(self, buckets: set[str], prefixes: set[str], objects: dict[tuple[str, str], bytes]) -> None:
+        self.buckets = buckets
+        self.prefixes = prefixes
+        self.objects = objects
+
+    def _allowed(self, bucket: str, key: str = "") -> bool:
+        if bucket == OPS:
+            return any(key.startswith(prefix) for prefix in self.prefixes)
+        return bucket in self.buckets
 
     def head_bucket(self, *, Bucket: str) -> None:  # noqa: N803
-        self.head_buckets.append(Bucket)
-        if Bucket == "lakehouse-prod-bronze":
-            raise ClientError({"Error": {"Code": "403", "Message": "denied"}}, "HeadBucket")
+        if not self._allowed(Bucket):
+            raise ClientError({"Error": {"Code": "403", "Message": ""}}, "HeadBucket")
 
-    def list_objects_v2(self, *, Bucket: str, Prefix: str, MaxKeys: int) -> None:  # noqa: N803, ARG002
-        self.prefixes.append(Prefix)
-        if Prefix == "activations/prod/":
-            raise ClientError({"Error": {"Code": "403", "Message": "denied"}}, "ListObjectsV2")
+    def list_objects_v2(self, *, Bucket: str, Prefix: str, MaxKeys: int) -> dict:  # noqa: N803, ARG002
+        if not self._allowed(Bucket, Prefix):
+            raise _denied("ListObjectsV2")
+        return {}
+
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes) -> None:  # noqa: N803
+        if not self._allowed(Bucket, Key):
+            raise _denied("PutObject")
+        self.objects[(Bucket, Key)] = Body
+
+    def delete_object(self, *, Bucket: str, Key: str) -> None:  # noqa: N803
+        self.objects.pop((Bucket, Key), None)
 
 
-def test_isolation_uses_the_selected_stage_bucket_from_the_contract(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    cfg = replace(e2e_cfg(tmp_path), namespace="olf-dev", shared_namespace="olf-system")
-    provider_contracts = {
+def _contracts(stages: tuple[str, ...]) -> dict:
+    return {
         "stages": {
-            "dev": {"storage": {"bronze": {"bucket_name": "lakehouse-dev-bronze"}}},
-            "prod": {"storage": {"bronze": {"bucket_name": "lakehouse-prod-bronze"}}},
+            stage: {"storage": {layer: {"bucket_name": f"{stage}-{layer}"} for layer in ("bronze", "silver", "gold")}}
+            for stage in stages
         }
     }
-    client = _S3Client()
 
-    monkeypatch.setattr(_isolation, "load_provider_contracts_or_raise", lambda _cfg: provider_contracts)
-    monkeypatch.setattr(_isolation.k8s, "resource_exists", lambda *_args, **_kwargs: True)
-    def _trino_query(_cfg, sql: str, **_identity) -> str:  # noqa: ANN001, ANN003
-        if "lakehouse_prod" in sql:
-            raise E2EError("Access Denied: Cannot select from columns [...] in catalog lakehouse_prod")
-        return ""
 
-    monkeypatch.setattr(_isolation, "trino_query", _trino_query)
-    monkeypatch.setattr(_isolation, "_s3_identity", lambda *_args, **_kwargs: ("key", "secret"))
-    monkeypatch.setattr(_isolation, "_s3_client", lambda *_args, **_kwargs: client)
+def _cluster(
+    monkeypatch: pytest.MonkeyPatch,
+    stages: tuple[str, ...],
+    *,
+    namespaces: tuple[str, ...] | None = None,
+    leaks: dict[str, set[str]] | None = None,
+    quality_keys: bool = True,
+) -> dict[tuple[str, str], bytes]:
+    """Stub a local cluster with `stages` enabled; every identity is granted exactly its own state plus `leaks`
+    (identity -> extra buckets or ops prefixes). Returns the objects written through the stand-in gateway."""
+    objects: dict[tuple[str, str], bytes] = {}
+    leaks = leaks or {}
+    grants: dict[str, tuple[set[str], set[str]]] = {}
+    for stage in stages:
+        grants[f"seaweedfs-{stage}-s3-creds"] = (
+            {f"{stage}-{layer}" for layer in ("bronze", "silver", "gold")},
+            {f"activations/{stage}/"},
+        )
+        if quality_keys:
+            grants[f"quality-reconciler-{stage}-s3-creds"] = (
+                set(),
+                {f"activations/{stage}/quality-sync/", f"activations/{stage}/run-artifacts/quality/"},
+            )
+            grants[f"platform-api-quality-reader-{stage}-s3-creds"] = (
+                set(),
+                {f"activations/{stage}/run-artifacts/quality/"},
+            )
+    for secret, extra in leaks.items():
+        grants[secret][0].update(extra)
+        grants[secret][1].update(extra)
+
+    def _identity(_namespace: str, secret: str, **_kw) -> tuple[str, str] | None:  # noqa: ANN003
+        return (secret, "secret") if secret in grants else None
+
+    def _client(access_key: str, _secret: str, **_kw) -> _S3Client:  # noqa: ANN003
+        return _S3Client(*grants[access_key], objects)
+
+    def _trino_query(cfg, sql: str, **_kw) -> str:  # noqa: ANN001, ANN003
+        own = cfg.namespace.removeprefix("olf-")
+        if any(f"lakehouse_{stage}." in sql for stage in stages if stage != own):
+            raise E2EError("Query failed: Access Denied: Cannot access catalog")
+        return "1"
 
     @contextmanager
     def _port_forward(*_args, **_kwargs):  # noqa: ANN202
         yield 8333
 
+    present = {f"olf-{stage}" for stage in (stages if namespaces is None else namespaces)}
+    monkeypatch.setattr(_isolation, "load_provider_contracts_or_raise", lambda _cfg: _contracts(stages))
+    monkeypatch.setattr(_isolation.k8s, "resource_exists", lambda _kind, name, *_a, **_kw: name in present)
     monkeypatch.setattr(_isolation.k8s, "port_forward", _port_forward)
-    monkeypatch.setattr(_isolation, "check_stage_data_is_its_own", lambda *_args: None)
-    monkeypatch.setattr(_isolation, "check_dagster_state_isolation", lambda *_args: None)
+    monkeypatch.setattr(_isolation, "_s3_identity", _identity)
+    monkeypatch.setattr(_isolation, "_s3_client", _client)
+    monkeypatch.setattr(_isolation, "trino_query", _trino_query)
     monkeypatch.setattr(_isolation, "check_keyless_trino", lambda *_args: None)
+    monkeypatch.setattr(
+        _isolation,
+        "check_stage_data_is_its_own",
+        lambda _cfg, _contracts, _stage, other: _isolation.NotCompared("deferred", f"{other} has written nothing"),
+    )
+    monkeypatch.setattr(_isolation, "check_dagster_state_isolation", lambda *_args: None)
+    monkeypatch.setenv("OPENLAKEFORGE_OPS_BUCKET_NAME", OPS)
+    return objects
 
-    _isolation.check_stage_isolation(cfg)
 
-    assert client.head_buckets == ["lakehouse-prod-bronze", "lakehouse-dev-bronze"]
-    assert client.prefixes == ["activations/prod/", "activations/dev/"]
+def _stage_cfg(tmp_path: Path, stage: str):  # noqa: ANN202
+    return replace(e2e_cfg(tmp_path), namespace=f"olf-{stage}", shared_namespace="olf-system")
+
+
+def _report(tmp_path: Path, stage: str) -> dict:
+    return json.loads((tmp_path / f".tmp/e2e-evidence/stage-isolation-olf-{stage}.json").read_text())
+
+
+@pytest.mark.parametrize(
+    ("stages", "pairs"),
+    [
+        (["dev"], []),
+        (["prod", "dev", "dev"], [("dev", "prod"), ("prod", "dev")]),
+        (
+            ["dev", "uat", "prod"],
+            [("dev", "prod"), ("dev", "uat"), ("prod", "dev"), ("prod", "uat"), ("uat", "dev"), ("uat", "prod")],
+        ),
+    ],
+)
+def test_every_ordered_pair_of_distinct_stages_is_generated(stages: list[str], pairs: list[tuple[str, str]]) -> None:
+    assert _isolation.ordered_stage_pairs(stages) == pairs
+
+
+def test_the_suites_of_three_stages_together_probe_every_ordered_pair(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    stages = ("dev", "uat", "prod")
+    _cluster(monkeypatch, stages)
+
+    for stage in stages:
+        _isolation.check_stage_isolation(_stage_cfg(tmp_path, stage))
+
+    reports = [_report(tmp_path, stage) for stage in stages]
+    covered = {(result["stage"], result["other_stage"]) for report in reports for result in report["results"]}
+    assert covered == set(_isolation.ordered_stage_pairs(stages))
+    assert sorted(tuple(pair) for report in reports for pair in report["pairs"]) == _isolation.ordered_stage_pairs(
+        stages
+    )
+
+
+def test_the_report_records_each_probe_of_each_pair(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _cluster(monkeypatch, ("dev", "uat", "prod"))
+
+    _isolation.check_stage_isolation(_stage_cfg(tmp_path, "dev"))
+
+    report = _report(tmp_path, "dev")
+    assert {key: report[key] for key in ("schema_version", "check", "stage", "enabled_stages", "pairs")} == {
+        "schema_version": 1,
+        "check": "stage-isolation",
+        "stage": "dev",
+        "enabled_stages": ["dev", "prod", "uat"],
+        "pairs": [["dev", "prod"], ["dev", "uat"]],
+    }
+    statuses = {(r["other_stage"], r["probe"]): r["status"] for r in report["results"]}
+    for other in ("prod", "uat"):
+        assert statuses == statuses | {
+            (other, "trino-catalog"): "passed",
+            (other, "polaris-catalog"): "passed",
+            (other, "object-storage"): "passed",
+            (other, "quality-state"): "passed",
+            (other, "stage-data"): "deferred",
+            (other, "dagster-runs"): "passed",
+        }
+    assert len(statuses) == 12
+    assert all(set(r) == {"stage", "other_stage", "probe", "status", "detail"} for r in report["results"])
+
+
+def test_a_breach_in_one_pair_fails_the_check_after_probing_every_pair(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _cluster(monkeypatch, ("dev", "uat", "prod"), leaks={"seaweedfs-dev-s3-creds": {"prod-silver"}})
+
+    with pytest.raises(E2EError, match=r"object-storage \(dev -> prod\): isolation breach: .*prod-silver"):
+        _isolation.check_stage_isolation(_stage_cfg(tmp_path, "dev"))
+
+    statuses = {(r["other_stage"], r["probe"]): r["status"] for r in _report(tmp_path, "dev")["results"]}
+    assert statuses[("prod", "object-storage")] == "failed"
+    assert statuses[("uat", "object-storage")] == "passed"
+
+
+def test_a_cross_stage_write_that_succeeds_is_removed_and_reported(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    objects = _cluster(
+        monkeypatch,
+        ("dev", "prod"),
+        leaks={"quality-reconciler-prod-s3-creds": {"activations/dev/quality-sync/zz-olf-e2e-isolation-probe"}},
+    )
+
+    with pytest.raises(
+        E2EError, match=r"quality-state \(prod -> dev\): .* not denied PutObject under activations/dev/"
+    ):
+        _isolation.check_stage_isolation(_stage_cfg(tmp_path, "prod"))
+
+    assert objects == {}
+
+
+def test_a_stage_without_quality_keys_skips_the_quality_probe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _cluster(monkeypatch, ("dev", "prod"), quality_keys=False)
+
+    _isolation.check_stage_isolation(_stage_cfg(tmp_path, "dev"))
+
+    (quality,) = [r for r in _report(tmp_path, "dev")["results"] if r["probe"] == "quality-state"]
+    assert quality["status"] == "skipped"
+
+
+def test_a_positive_control_failure_is_not_read_as_isolation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An identity refused everything, its own bucket included, proves nothing about isolation."""
+    _cluster(monkeypatch, ("dev", "prod"))
+    monkeypatch.setattr(_isolation, "_s3_client", lambda *_a, **_kw: _S3Client(set(), set(), {}))
+
+    with pytest.raises(E2EError, match=r"positive control failed: dev could not HeadBucket on its own bronze"):
+        _isolation.check_stage_isolation(_stage_cfg(tmp_path, "dev"))
+
+
+def test_a_single_stage_deployment_skips_the_probe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _cluster(monkeypatch, ("dev",))
+
+    _isolation.check_stage_isolation(_stage_cfg(tmp_path, "dev"))
+
+    assert not (tmp_path / ".tmp/e2e-evidence").exists()
+
+
+def test_a_contract_stage_without_a_namespace_is_not_probed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _cluster(monkeypatch, ("dev", "uat", "prod"), namespaces=("dev", "prod"))
+
+    _isolation.check_stage_isolation(_stage_cfg(tmp_path, "dev"))
+
+    report = _report(tmp_path, "dev")
+    assert report["enabled_stages"] == ["dev", "prod"]
+    assert {r["other_stage"] for r in report["results"]} == {"prod"}
 
 
 OWN = "dev-id\ndev-secret\n"

@@ -5,6 +5,10 @@ cannot read/write PROD, and vice versa." Every probe is paired with a
 positive control against the caller's own stage, so the suite cannot pass
 merely because the cluster is broken rather than because isolation holds.
 
+Each stage's suite probes every other enabled stage (#251), so the suites of
+an N-stage deployment together cover every ordered pair of stages. Each suite
+records what it found in `.tmp/e2e-evidence/stage-isolation-<namespace>.json`.
+
 Local-only today: local is the only stage-aware root with more than one
 stage actually provisioned in this repository's verification profile. A
 deployment with only one enabled stage has nothing to isolate against, so
@@ -13,8 +17,12 @@ this module skips cleanly rather than failing.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+import functools
+import itertools
+import json
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
 
 from openlakeforge_services.base import ServiceClientError
 
@@ -24,18 +32,83 @@ from olf.infra.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME
 from olf.infra.e2e._shell import E2EConfig, E2EError, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import PROBE_SCHEMA, list_tables, processing_credential, trino_query
 
+ProbeStatus = Literal["passed", "failed", "deferred", "skipped"]
+REPORT_SCHEMA_VERSION = 1
+# The key a cross-stage write probe would leave if it were not refused; it is deleted again when it is not.
+WRITE_PROBE_KEY = "zz-olf-e2e-isolation-probe"
 
-def _sibling_stage(cfg: E2EConfig) -> str | None:
-    """The other enabled stage to probe isolation against, or None if there
-    isn't one (single-stage deployment - nothing to isolate)."""
+
+@dataclass(frozen=True)
+class NotCompared:
+    """A probe that could not compare a pair: `deferred` until the other stage has state of that kind (its own
+    suite then compares the pair), `skipped` when this stage holds no identity of that kind."""
+
+    status: Literal["deferred", "skipped"]
+    reason: str
+
+
+@dataclass(frozen=True)
+class ProbeResult:
+    stage: str
+    other_stage: str
+    probe: str
+    status: ProbeStatus
+    detail: str | None = None
+
+
+@dataclass
+class IsolationReport:
+    """What one stage's suite found against every other enabled stage. A failing probe is recorded and the rest
+    still run, so one breach does not hide the others."""
+
+    stage: str
+    enabled_stages: list[str]
+    results: list[ProbeResult] = field(default_factory=list)
+
+    def run(self, other: str, probe: str, call: Callable[[], NotCompared | None]) -> None:
+        log.step(f"Checking {probe} isolation ({self.stage} -> {other})...")
+        try:
+            outcome = call()
+        except E2EError as exc:
+            log.error(f"{probe} isolation ({self.stage} -> {other}): {exc}")
+            self.results.append(ProbeResult(self.stage, other, probe, "failed", str(exc)))
+            return
+        if outcome is None:
+            self.results.append(ProbeResult(self.stage, other, probe, "passed"))
+        else:
+            self.results.append(ProbeResult(self.stage, other, probe, outcome.status, outcome.reason))
+
+    def failures(self) -> list[ProbeResult]:
+        return [result for result in self.results if result.status == "failed"]
+
+    def as_json(self) -> dict[str, Any]:
+        return {
+            "schema_version": REPORT_SCHEMA_VERSION,
+            "check": "stage-isolation",
+            "stage": self.stage,
+            "enabled_stages": self.enabled_stages,
+            "pairs": [list(pair) for pair in ordered_stage_pairs(self.enabled_stages) if pair[0] == self.stage],
+            "results": [asdict(result) for result in self.results],
+        }
+
+
+def ordered_stage_pairs(stages: Iterable[str]) -> list[tuple[str, str]]:
+    """Every ordered (A, B) pair of distinct stages: A's identities must not reach B's state. A stage's suite
+    probes the pairs it comes first in, so the suites of all enabled stages together cover every pair."""
+    return list(itertools.permutations(sorted(set(stages)), 2))
+
+
+def _other_enabled_stages(cfg: E2EConfig, stages: Iterable[str]) -> list[str]:
+    """The contract's other stages whose namespace exists. A contract file exported before a stage was removed
+    still names it, and a probe of a namespace that is gone would fail as a connection error, not a breach."""
     this_stage = cfg.namespace.removeprefix("olf-")
-    candidates = ("dev", "prod", "uat")
-    for candidate in candidates:
-        if candidate == this_stage:
-            continue
-        if k8s.resource_exists("namespace", f"olf-{candidate}", f"olf-{candidate}", environ=cfg.environ):
-            return candidate
-    return None
+    others = []
+    for stage in sorted(set(stages) - {this_stage}):
+        if k8s.resource_exists("namespace", f"olf-{stage}", f"olf-{stage}", environ=cfg.environ):
+            others.append(stage)
+        else:
+            log.info(f"Stage {stage} is in the provider contract but olf-{stage} does not exist; not probed.")
+    return others
 
 
 def _expect_trino_denied(cfg: E2EConfig, *, user: str, sql: str, what: str, sibling: str) -> None:
@@ -187,24 +260,14 @@ def _s3_client(access_key: str, secret_key: str, *, local_port: int, region: str
     )
 
 
-def _bronze_bucket_for_stage(provider_contracts: dict[str, Any], stage: str) -> str:
-    try:
-        bucket = provider_contracts["stages"][stage]["storage"]["bronze"]["bucket_name"]
-    except (KeyError, TypeError) as exc:
-        raise E2EError(
-            f"provider_contracts.stages.{stage}.storage.bronze.bucket_name is required for isolation."
-        ) from exc
-    if not isinstance(bucket, str) or not bucket:
-        raise E2EError(f"provider_contracts.stages.{stage}.storage.bronze.bucket_name must be a non-empty string.")
-    return bucket
-
-
 def _stage_bucket(provider_contracts: dict[str, Any], stage: str, layer: str) -> str:
     try:
         bucket = provider_contracts["stages"][stage]["storage"][layer]["bucket_name"]
     except (KeyError, TypeError) as exc:
         raise E2EError(f"provider_contracts.stages.{stage}.storage.{layer}.bucket_name is required.") from exc
-    return str(bucket)
+    if not isinstance(bucket, str) or not bucket:
+        raise E2EError(f"provider_contracts.stages.{stage}.storage.{layer}.bucket_name must be a non-empty string.")
+    return bucket
 
 
 def _materialized_tables(cfg: E2EConfig, catalog: str) -> list[tuple[str, str]]:
@@ -300,7 +363,7 @@ def _bucket_data_files(cfg: E2EConfig, provider_contracts: dict[str, Any], stage
 
 def check_stage_data_is_its_own(
     cfg: E2EConfig, provider_contracts: dict[str, Any], this_stage: str, sibling: str
-) -> None:
+) -> NotCompared | None:
     """Promotion copies no data: this stage's Silver and Gold hold only files
     this stage wrote.
 
@@ -317,13 +380,14 @@ def check_stage_data_is_its_own(
     sibling_files = _bucket_data_files(cfg, provider_contracts, sibling)
     if not sibling_files:
         log.info(f"{sibling} has written no Silver or Gold data yet; its suite compares the pair.")
-        return
+        return NotCompared("deferred", f"{sibling} has written no Silver or Gold data yet")
     copied = _bucket_data_files(cfg, provider_contracts, this_stage) & sibling_files
     if copied:
         raise E2EError(
             f"promotion copied data: {this_stage}'s buckets hold {len(copied)} data file(s) that also exist "
             f"in {sibling}'s, e.g. {sorted(copied)[:3]}."
         )
+    return None
 
 
 def _dagster_run_ids(
@@ -343,7 +407,7 @@ def _dagster_run_ids(
     return {run["runId"] for run in result["results"]}
 
 
-def check_dagster_state_isolation(cfg: E2EConfig, this_stage: str, sibling: str) -> None:
+def check_dagster_state_isolation(cfg: E2EConfig, this_stage: str, sibling: str) -> NotCompared | None:
     """Each stage's Dagster instance sees only its own runs.
 
     Run IDs are UUIDs, so disjointness only means something when both sides
@@ -368,47 +432,166 @@ def check_dagster_state_isolation(cfg: E2EConfig, this_stage: str, sibling: str)
         # The promotion order runs DEV's suite before PROD has run anything;
         # the pair is compared from PROD's suite, once both have history.
         log.info(f"{sibling}'s Dagster has no runs yet; its suite compares the pair.")
-        return
+        return NotCompared("deferred", f"{sibling}'s Dagster has no runs yet")
     shared = runs[this_stage] & runs[sibling]
     if shared:
         raise E2EError(f"isolation breach: {this_stage} and {sibling} Dagster share runs {sorted(shared)[:5]}.")
+    return None
 
 
-def check_stage_isolation(cfg: E2EConfig) -> None:
-    """Prove this stage's runtime identity cannot read/write the sibling
-    stage's Trino catalog, S3 buckets, or ops-bucket activation prefix -
-    and, as a positive control, that it *can* reach its own."""
-    if cfg.env != "local":
-        log.info(f"Skipping stage isolation probe: not yet wired for {cfg.env}.")
-        return
-    sibling = _sibling_stage(cfg)
-    if sibling is None:
-        log.info("Skipping stage isolation probe: only one stage is enabled.")
-        return
+_LAYERS = ("bronze", "silver", "gold")
 
-    this_stage = cfg.namespace.removeprefix("olf-")
-    provider_contracts = load_provider_contracts_or_raise(cfg)
-    this_bucket = _bronze_bucket_for_stage(provider_contracts, this_stage)
-    sibling_bucket = _bronze_bucket_for_stage(provider_contracts, sibling)
-    runtime_user = f"{cfg.namespace}-runtime"
-    log.step(f"Checking Trino cross-stage isolation ({this_stage} -> {sibling})...")
-    _expect_trino_denied(
-        cfg,
-        user=runtime_user,
-        sql=f"SELECT 1 FROM lakehouse_{sibling}.information_schema.tables LIMIT 1",
-        what=f"read access to lakehouse_{sibling}",
-        sibling=sibling,
+
+def _expect_s3_allowed(call: Callable[[], object], *, who: str, what: str) -> None:
+    """A positive control: without it a denial could be a broken identity or gateway, not isolation."""
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    try:
+        call()
+    except (BotoCoreError, ClientError) as exc:
+        raise E2EError(f"positive control failed: {who} could not {what} ({exc}).") from exc
+
+
+def _expect_s3_write_denied(client: Any, bucket: str, key: str, *, who: str, what: str) -> None:
+    """Require PutObject to be refused; an object that was written anyway is deleted before the breach is reported,
+    so a failing probe does not leave state in the other stage."""
+    written: list[str] = []
+
+    def put() -> None:
+        client.put_object(Bucket=bucket, Key=key, Body=b"")
+        written.append(key)
+
+    try:
+        _expect_s3_denied(put, who=who, what=what)
+    finally:
+        if written:
+            try:
+                client.delete_object(Bucket=bucket, Key=key)
+            except Exception as exc:  # the breach is what the run reports, not the cleanup
+                log.error(f"could not remove the isolation write probe s3://{bucket}/{key}: {exc}")
+
+
+def _expect_list_denied(client: Any, bucket: str, prefix: str, *, who: str) -> None:
+    _expect_s3_denied(
+        lambda: client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1),
+        who=who,
+        what=f"listing {prefix} in {bucket}",
     )
-    # Positive control: the same identity must still reach its own catalog.
-    trino_query(cfg, f"SELECT 1 FROM lakehouse_{this_stage}.information_schema.tables LIMIT 1")
-    check_keyless_trino(cfg, provider_contracts, this_stage, sibling)
 
-    log.step(f"Checking SeaweedFS cross-stage isolation ({this_stage} -> {sibling})...")
+
+def _check_object_storage(
+    client: Any, provider_contracts: dict[str, Any], ops_bucket: str, this_stage: str, other: str
+) -> None:
+    """`this_stage`'s S3 identity can neither read nor write `other`'s lakehouse buckets or its activation prefix
+    in the shared ops bucket, and still reaches its own."""
+    for layer in _LAYERS:
+        bucket = _stage_bucket(provider_contracts, other, layer)
+        _expect_s3_denied(
+            functools.partial(client.head_bucket, Bucket=bucket),
+            who=this_stage,
+            what=f"HeadBucket on {other}'s {layer} bucket {bucket}",
+        )
+    other_bronze = _stage_bucket(provider_contracts, other, "bronze")
+    _expect_s3_write_denied(
+        client, other_bronze, f"{WRITE_PROBE_KEY}/{this_stage}", who=this_stage, what=f"PutObject in {other_bronze}"
+    )
+    _expect_list_denied(client, ops_bucket, f"activations/{other}/", who=this_stage)
+    _expect_s3_write_denied(
+        client,
+        ops_bucket,
+        f"activations/{other}/{WRITE_PROBE_KEY}",
+        who=this_stage,
+        what=f"PutObject under activations/{other}/ in the shared ops bucket",
+    )
+    for layer in _LAYERS:
+        bucket = _stage_bucket(provider_contracts, this_stage, layer)
+        _expect_s3_allowed(
+            functools.partial(client.head_bucket, Bucket=bucket),
+            who=this_stage,
+            what=f"HeadBucket on its own {layer} bucket {bucket}",
+        )
+    _expect_s3_allowed(
+        lambda: client.list_objects_v2(Bucket=ops_bucket, Prefix=f"activations/{this_stage}/", MaxKeys=1),
+        who=this_stage,
+        what=f"list its own activations/{this_stage}/",
+    )
+
+
+def _check_quality_state(
+    cfg: E2EConfig, local_port: int, region: str, ops_bucket: str, this_stage: str, other: str
+) -> NotCompared | None:
+    """The stage's quality keys (ADR 0007, #1186) reach only the stage's own quality manifests and sync state: the
+    reconciler's key, which also writes `quality-sync/`, and the platform API's read-only quality key."""
+    namespace = cfg.shared_namespace or "olf-system"
+    keys = (
+        (f"quality-reconciler-{this_stage}", ("quality-sync/", "run-artifacts/quality/"), "quality-sync/"),
+        (f"platform-api-quality-reader-{this_stage}", ("run-artifacts/quality/",), "run-artifacts/quality/"),
+    )
+    probed = []
+    for name, denied, own in keys:
+        identity = _s3_identity(namespace, f"{name}-s3-creds", environ=cfg.environ)
+        if identity is None:
+            continue
+        probed.append(name)
+        client = _s3_client(*identity, local_port=local_port, region=region)
+        for prefix in denied:
+            _expect_list_denied(client, ops_bucket, f"activations/{other}/{prefix}", who=name)
+        if own == "quality-sync/":
+            _expect_s3_write_denied(
+                client,
+                ops_bucket,
+                f"activations/{other}/quality-sync/{WRITE_PROBE_KEY}",
+                who=name,
+                what=f"PutObject under activations/{other}/quality-sync/",
+            )
+        _expect_s3_allowed(
+            functools.partial(
+                client.list_objects_v2, Bucket=ops_bucket, Prefix=f"activations/{this_stage}/{own}", MaxKeys=1
+            ),
+            who=name,
+            what=f"list its own activations/{this_stage}/{own}",
+        )
+    if not probed:
+        return NotCompared("skipped", f"{this_stage} has no quality reconciler or quality reader key")
+    return None
+
+
+def _retain_report(cfg: E2EConfig, report: IsolationReport) -> None:
+    path = cfg.repo_root / ".tmp/e2e-evidence" / f"stage-isolation-{cfg.namespace}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = report.as_json()
+    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    log.info("STAGE_ISOLATION_JSON " + json.dumps(record, sort_keys=True))
+
+
+def _probe_every_other_stage(
+    cfg: E2EConfig, provider_contracts: dict[str, Any], report: IsolationReport, others: list[str]
+) -> None:
+    this_stage = report.stage
+    # Positive control: the stage's own identity reaches its own catalog, so a denial below is not a dead coordinator.
+    trino_query(cfg, f"SELECT 1 FROM lakehouse_{this_stage}.information_schema.tables LIMIT 1")
+    for other in others:
+        report.run(
+            other,
+            "trino-catalog",
+            functools.partial(
+                _expect_trino_denied,
+                cfg,
+                user=f"{cfg.namespace}-runtime",
+                sql=f"SELECT 1 FROM lakehouse_{other}.information_schema.tables LIMIT 1",
+                what=f"read access to lakehouse_{other}",
+                sibling=other,
+            ),
+        )
+        report.run(
+            other, "polaris-catalog", functools.partial(check_keyless_trino, cfg, provider_contracts, this_stage, other)
+        )
+
     identity = _s3_identity(cfg.namespace, f"seaweedfs-{this_stage}-s3-creds", environ=cfg.environ)
     if identity is None:
         raise E2EError(f"stage isolation probe: seaweedfs-{this_stage}-s3-creds not found in {cfg.namespace}.")
-    access_key, secret_key = identity
     region = config.env("OPENLAKEFORGE_STORAGE_REGION", "us-east-1", environ=cfg.environ)
+    ops_bucket = config.env("OPENLAKEFORGE_OPS_BUCKET_NAME", "openlakeforge-ops", environ=cfg.environ)
     log_prefix = config.env("OPENLAKEFORGE_PORT_FORWARD_LOG_PREFIX", "/tmp/openlakeforge", environ=cfg.environ)
     with k8s.port_forward(
         "seaweedfs-s3",
@@ -417,25 +600,51 @@ def check_stage_isolation(cfg: E2EConfig) -> None:
         log_path=f"{log_prefix}-isolation-s3.log",
         environ=cfg.environ,
     ) as local_port:
-        client = _s3_client(access_key, secret_key, local_port=local_port, region=region)
+        client = _s3_client(*identity, local_port=local_port, region=region)
+        for other in others:
+            report.run(
+                other,
+                "object-storage",
+                functools.partial(_check_object_storage, client, provider_contracts, ops_bucket, this_stage, other),
+            )
+            report.run(
+                other,
+                "quality-state",
+                functools.partial(_check_quality_state, cfg, local_port, region, ops_bucket, this_stage, other),
+            )
 
-        _expect_s3_denied(
-            lambda: client.head_bucket(Bucket=sibling_bucket),
-            who=this_stage,
-            what=f"HeadBucket on {sibling_bucket}",
+    for other in others:
+        report.run(
+            other,
+            "stage-data",
+            functools.partial(check_stage_data_is_its_own, cfg, provider_contracts, this_stage, other),
         )
+        report.run(other, "dagster-runs", functools.partial(check_dagster_state_isolation, cfg, this_stage, other))
 
-        ops_bucket = config.env("OPENLAKEFORGE_OPS_BUCKET_NAME", "openlakeforge-ops", environ=cfg.environ)
-        _expect_s3_denied(
-            lambda: client.list_objects_v2(Bucket=ops_bucket, Prefix=f"activations/{sibling}/", MaxKeys=1),
-            who=this_stage,
-            what=f"listing activations/{sibling}/ in the shared ops bucket",
+
+def check_stage_isolation(cfg: E2EConfig) -> None:
+    """Prove this stage's identities cannot read or write any other enabled stage's Trino catalog, Polaris
+    catalog, lakehouse buckets, ops-bucket activation prefix, quality state or Dagster run store -- and, as a
+    positive control, that they still reach their own. Every pair is probed before the first failure is raised,
+    and the report is written either way."""
+    if cfg.env != "local":
+        log.info(f"Skipping stage isolation probe: not yet wired for {cfg.env}.")
+        return
+    provider_contracts = load_provider_contracts_or_raise(cfg)
+    others = _other_enabled_stages(cfg, provider_contracts.get("stages") or {})
+    if not others:
+        log.info("Skipping stage isolation probe: only one stage is enabled.")
+        return
+
+    this_stage = cfg.namespace.removeprefix("olf-")
+    report = IsolationReport(this_stage, sorted({this_stage, *others}))
+    try:
+        _probe_every_other_stage(cfg, provider_contracts, report, others)
+    finally:
+        _retain_report(cfg, report)
+    failures = report.failures()
+    if failures:
+        raise E2EError(
+            f"stage isolation failed in {len(failures)} probe(s): "
+            + "; ".join(f"{r.probe} ({r.stage} -> {r.other_stage}): {r.detail}" for r in failures)
         )
-
-        # Positive controls: the same identity must still reach its own
-        # bucket and its own ops-bucket activation prefix.
-        client.head_bucket(Bucket=this_bucket)
-        client.list_objects_v2(Bucket=ops_bucket, Prefix=f"activations/{this_stage}/", MaxKeys=1)
-
-    check_stage_data_is_its_own(cfg, provider_contracts, this_stage, sibling)
-    check_dagster_state_isolation(cfg, this_stage, sibling)
