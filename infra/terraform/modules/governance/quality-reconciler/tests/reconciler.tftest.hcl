@@ -5,13 +5,11 @@
 mock_provider "kubernetes" {}
 
 variables {
-  namespace                 = "olf-system"
-  image                     = "openlakeforge/platform-api:local-abc"
-  openmetadata_url          = "http://openmetadata.olf-system:8585"
-  ingestion_bot_secret_name = "openmetadata-ingestion-bot"
-  ingestion_bot_jwt_key     = "OPENMETADATA_INGESTION_BOT_JWT"
-  s3_endpoint_url           = "http://seaweedfs-s3.olf-system:8333"
-  s3_region                 = "us-east-1"
+  namespace        = "olf-system"
+  image            = "openlakeforge/platform-api:local-abc"
+  openmetadata_url = "http://openmetadata.olf-system:8585"
+  s3_endpoint_url  = "http://seaweedfs-s3.olf-system:8333"
+  s3_region        = "us-east-1"
   stages = {
     dev = {
       artifact_base_uri       = "s3://ops/activations/dev/"
@@ -73,7 +71,7 @@ run "each_governed_stage_gets_its_own_cronjob" {
   }
 }
 
-run "a_stage_reads_only_its_own_key_and_the_ingestion_bot_by_reference" {
+run "a_stage_reads_only_its_own_key_and_its_own_writer_token_by_reference" {
   command = plan
 
   assert {
@@ -94,11 +92,22 @@ run "a_stage_reads_only_its_own_key_and_the_ingestion_bot_by_reference" {
       anytrue([
         for e in job.spec[0].job_template[0].spec[0].template[0].spec[0].container[0].env :
         e.name == "OPENMETADATA_TOKEN" && e.value == null
-        && e.value_from[0].secret_key_ref[0].name == "openmetadata-ingestion-bot"
-        && e.value_from[0].secret_key_ref[0].key == "OPENMETADATA_INGESTION_BOT_JWT"
+        && e.value_from[0].secret_key_ref[0].name == "openmetadata-quality-writer-${stage}"
+        && e.value_from[0].secret_key_ref[0].key == "OPENMETADATA_QUALITY_WRITER_JWT"
       ])
     ])
-    error_message = "the ingestion bot's token reaches the pod through secretKeyRef"
+    error_message = "each stage's pass publishes with its own quality writer's token, through secretKeyRef"
+  }
+
+  assert {
+    condition = alltrue([
+      for stage, job in kubernetes_cron_job_v1.reconciler :
+      !anytrue([
+        for e in job.spec[0].job_template[0].spec[0].template[0].spec[0].container[0].env :
+        try(e.value_from[0].secret_key_ref[0].name, "") == "openmetadata-ingestion-bot"
+      ])
+    ])
+    error_message = "the reconciler no longer mounts the ingestion bot's token (ADR 0007, Identity)"
   }
 
   assert {

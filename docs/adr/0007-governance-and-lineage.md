@@ -136,9 +136,29 @@ OpenMetadata is a consumer of that record and never reruns Floe or dbt.
   ops bucket, under `quality-sync/`, keyed by stage and run; a summary there
   carries the sync lag and the last success and failure for the health
   signal. There is no new database.
-- **Identity.** The reconciler uses the ingestion bot's token, which the
-  platform already issues. A dedicated quality-writer bot holding only
-  test-case permissions is narrower and is follow-up work.
+- **Identity.** Each governed stage publishes as its own OpenMetadata bot,
+  `olf-quality-writer-<stage>`, never as the ingestion bot. Its token is in
+  the Secret `openmetadata-quality-writer-<stage>` in the platform
+  namespace, which only that stage's reconciler CronJob mounts and
+  `olf infra openmetadata quality-sync` reads. The OpenMetadata bootstrap
+  reconciles the bots on every deploy, keeps a token that still works, and
+  deletes the bot and its Secret when a stage loses governance. Every bot
+  holds one role, `OlfQualityWriterRole`, whose policy grants what the
+  publisher's routes are authorized against on 1.13.6 and nothing else:
+  `ViewBasic`, `ViewTests` and `EditTests` on tables, and `Create` and
+  `EditAll` on test definitions. `EditTests` on the table is the only grant
+  that lets 1.13.6 create a new test case, and it also covers adding a
+  result. The role has no other edit on a table, so a description, tag or
+  lineage edit answers 403; the Full e2e asserts the description and
+  lineage refusals with the stage's own token. It has no `ViewAll` either,
+  which would match a table's sample data and a case's failed rows. A bot
+  that OpenMetadata creates also gets `DefaultBotRole`, whose
+  `DataConsumerPolicy` allows description and tag edits on every resource,
+  so the bootstrap removes that role. OpenMetadata policies cannot match on
+  a table's FQN, so the role does not keep stages apart. A stage's bot is a
+  separate credential to revoke and a separate author in a result's
+  history. The DEV/PROD boundary is still the stage's ops-bucket key and
+  its pass's database root, as described above.
 
 #### OpenMetadata 1.13.6 compatibility limits
 
@@ -264,3 +284,7 @@ native, and no proxy is added.
 around, and the routes it calls, are listed; no decision changes. The
 existing-tables bullet is corrected to match the code: a result that never
 finds its table ends `failed` after 10 attempts.
+
+2026-11-19 (#346): quality results are published by a least-privilege
+`olf-quality-writer-<stage>` bot per governed stage instead of the
+ingestion bot.

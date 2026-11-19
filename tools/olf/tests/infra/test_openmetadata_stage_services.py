@@ -13,7 +13,7 @@ import pytest
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
 from olf.infra import k8s
-from olf.infra.openmetadata import _bootstrap, _stage_services, _stale_services
+from olf.infra.openmetadata import _bootstrap, _quality_writer, _stage_services, _stale_services
 from olf.infra.openmetadata._stage_services import StageServices
 
 PIPELINES = "/api/v1/services/ingestionPipelines"
@@ -230,6 +230,7 @@ def _invoke(monkeypatch: pytest.MonkeyPatch, *flags: str) -> tuple[int, list[tup
     monkeypatch.setattr(runtime, "provider_contract_environment", lambda **_kwargs: contextlib.nullcontext(contract))
     monkeypatch.setattr(_bootstrap, "bootstrap_auth", lambda *_args, **_kwargs: "client")
     monkeypatch.setattr(_stale_services, "remove_legacy_services", lambda _client: None)
+    monkeypatch.setattr(_quality_writer, "ensure_quality_writers", lambda *_args: None)
     monkeypatch.setattr(
         _stage_services,
         "bootstrap_stage_services",
