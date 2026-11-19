@@ -30,6 +30,7 @@ from openlakeforge_platform_api import (
     queries,
     reads,
     report_routes,
+    run_failure,
     writes,
 )
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
@@ -426,6 +427,12 @@ def create_app(
         "/api/v1/stages/{stage}/runs", writes.launch_run, methods=["POST"], status_code=202, name="launch_run"
     )
     app.add_api_route("/api/v1/stages/{stage}/runs/{run_id}", reads.get_run, methods=["GET"], name="get_run")
+    app.add_api_route(
+        "/api/v1/stages/{stage}/runs/{run_id}/failure",
+        run_failure.get_run_failure,
+        methods=["GET"],
+        name="get_run_failure",
+    )
     app.add_api_route(
         "/api/v1/stages/{stage}/health", health_routes.get_stage_health, methods=["GET"], name="get_stage_health"
     )

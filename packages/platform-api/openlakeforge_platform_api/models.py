@@ -344,6 +344,43 @@ class StageQualityHealth(BaseModel):
     pipelines: list[PipelineQuality]
 
 
+class FailedStep(BaseModel):
+    """One failed step of a run: its Dagster step key and the innermost cause of its error."""
+
+    step: str
+    # The innermost cause's Python class name; None when Dagster reports none.
+    error_class: str | None
+    # The first line of the innermost cause's message, redacted, then cut to its bound.
+    message: str
+    # Whether `message` is less than the whole innermost message: a cut line or lines after the first.
+    message_truncated: bool
+
+
+class RunRows(BaseModel):
+    """Rows Floe rejected and accepted in a run, summed over its tables from the run's quality manifest."""
+
+    rejected: int
+    accepted: int
+    # The manifest's own flag: false when the run did not finish writing it, so the sums may be partial.
+    complete: bool
+
+
+class RunFailure(BaseModel):
+    """What went wrong in one run, bounded and redacted; a run that did not fail has no steps and no message."""
+
+    run_id: str
+    job: str
+    status: str
+    # At most a few failed steps, in event order. None when the event log could not be read, never an empty list.
+    steps: list[FailedStep] | None
+    # The run's own failure when no step failed, such as a run pod killed for memory; bounded like a step's message.
+    run_message: str | None
+    steps_truncated: bool
+    # None when the run has no quality manifest, it cannot be read, or no Floe result reports the counts: never zeros.
+    rows: RunRows | None
+    sources: list[IntegrationStatus]
+
+
 class AlertStateStatus(BaseModel):
     """Whether the evaluator's state could be read. `stale` is None unless it was, and an old state is never current."""
 

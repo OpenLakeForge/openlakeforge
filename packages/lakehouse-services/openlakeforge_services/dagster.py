@@ -42,6 +42,28 @@ class DagsterHTTPError(ServiceClientError):
 # The fields every run read selects, so `DagsterRun.from_graphql` sees one shape.
 _RUN_FIELDS = "runId jobName status creationTime startTime endTime tags { key value }"
 
+# A run's failure events, read by CI diagnostics (`poll`) and served by the platform API, so the two cannot drift.
+# `stack` is never selected: a stack trace can carry locals and paths, and what is not fetched cannot be served.
+_ERROR = "message className cause { message className cause { message className cause { message className } } }"
+_RUN_FAILURES = f"""
+query RunFailures($runId: ID!) {{
+  logsForRun(runId: $runId) {{
+    __typename
+    ... on EventConnection {{
+      events {{
+        ... on RunFailureEvent {{ message }}
+        ... on ExecutionStepFailureEvent {{
+          stepKey
+          error {{ {_ERROR} }}
+        }}
+      }}
+    }}
+    ... on RunNotFoundError {{ message }}
+    ... on PythonError {{ message }}
+  }}
+}}
+"""
+
 
 @dataclass(frozen=True)
 class DagsterJob:
@@ -75,6 +97,24 @@ class DagsterRun:
             ended_at=run.get("endTime"),
             tags={tag["key"]: tag["value"] for tag in run.get("tags") or []},
         )
+
+
+@dataclass(frozen=True)
+class DagsterError:
+    message: str
+    # The exception's Python class name; Dagster reports none for some errors.
+    class_name: str | None
+
+
+@dataclass(frozen=True)
+class DagsterFailure:
+    """One failure event of a run: a failed step, or the run's own failure (`step_key` None), such as a run pod the
+    kernel killed with no step failed."""
+
+    step_key: str | None
+    # A step's error, then each cause in turn: Dagster wraps the step's exception, so the reason is the last one. The
+    # run's own failure has its message alone.
+    errors: tuple[DagsterError, ...]
 
 
 @dataclass(frozen=True)
@@ -475,45 +515,41 @@ class DagsterClient:
         detail = f": {last_error}" if last_error else ""
         raise ServiceClientError(f"{job_name} run {run_id} did not finish within {timeout_seconds} seconds{detail}")
 
+    def run_failures(self, run_id: str) -> list[DagsterFailure]:
+        """The run's failed steps and its own failure, in event-log order."""
+        logs = self.graphql(_RUN_FAILURES, {"runId": run_id})["logsForRun"]
+        events = logs.get("events")
+        if not isinstance(events, list):
+            raise ServiceClientError(
+                f"Dagster could not read the event log of run {run_id}: {logs.get('message', logs)}"
+            )
+        failures = []
+        for event in events:
+            if event.get("stepKey"):
+                errors, error = [], event.get("error")
+                while error:
+                    errors.append(DagsterError(str(error.get("message") or ""), error.get("className")))
+                    error = error.get("cause")
+                failures.append(DagsterFailure(str(event["stepKey"]), tuple(errors)))
+            elif event.get("message"):
+                failures.append(DagsterFailure(None, (DagsterError(str(event["message"]), None),)))
+        return failures
+
     def _step_failures(self, run_id: str) -> str:
         """The failed steps' own errors, which otherwise live only in the event
         log of a cluster CI has already torn down. Best effort: a failed lookup
         must not replace the run failure being reported."""
         try:
-            events = self.graphql(
-                """
-                query RunFailures($runId: ID!) {
-                  logsForRun(runId: $runId) {
-                    ... on EventConnection {
-                      events {
-                        ... on RunFailureEvent { message }
-                        ... on ExecutionStepFailureEvent {
-                          stepKey
-                          error { message cause { message cause { message cause { message } } } }
-                        }
-                      }
-                    }
-                  }
-                }
-                """,
-                {"runId": run_id},
-            )["logsForRun"]["events"]
+            failures = self.run_failures(run_id)
         except Exception:  # noqa: BLE001
             return ""
         lines = []
-        for event in events:
-            if not event.get("stepKey"):
-                # A run pod killed by the kernel has no failed step, only the run's own message.
-                if event.get("message"):
-                    lines.append(f"\n  run: {event['message'].strip()}")
-                continue
-            # Dagster wraps a step's exception in DagsterExecutionStepExecutionError,
-            # whose own message names only the op; the reason is down the cause chain.
-            messages, error = [], event.get("error")
-            while error:
-                messages.append(error["message"].strip())
-                error = error.get("cause")
-            lines.append(f"\n  {event['stepKey']}: " + "\n    caused by: ".join(messages))
+        for failure in failures:
+            messages = [error.message.strip() for error in failure.errors]
+            if failure.step_key is None:
+                lines.append(f"\n  run: {messages[0]}")
+            else:
+                lines.append(f"\n  {failure.step_key}: " + "\n    caused by: ".join(messages))
         return "".join(lines)
 
     def discover_repository(self, job_name: str) -> tuple[str, str]:

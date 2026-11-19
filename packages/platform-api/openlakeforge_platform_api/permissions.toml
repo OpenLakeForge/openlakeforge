@@ -40,6 +40,12 @@ stages = ["*"]
 role = "data-engineer"
 stages = ["*"]
 
+# A run's failed steps and rejected-row counts (#1271), bounded and redacted, no stack trace. The Dagster UI shows the
+# same errors at this floor (ADR 0014), so the row is get_run's. Read-only and not audited.
+[operations.get_run_failure]
+role = "data-engineer"
+stages = ["*"]
+
 # Health is computed from the same Dagster reads as list_runs and shows less of them (ids, statuses and times, no
 # tags), so the floor is the same. Read-only and not audited, like the rows above. A deployment without
 # `spec.identity` renders no issuer, so the API cannot start there and nothing here is reachable unauthenticated.
