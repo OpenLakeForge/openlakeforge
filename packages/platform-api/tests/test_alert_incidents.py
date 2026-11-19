@@ -374,6 +374,45 @@ def test_a_stalled_dagster_never_holds_the_workers_the_alert_state_is_read_with(
     assert [(body["incidents"][0]["domain"], body["incidents"][0]["product"]) for body in answers] == [(None, None)] * 3
 
 
+def test_the_job_lookup_gets_only_what_the_state_read_left_of_the_deadline(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, mint: Mint
+) -> None:
+    class Slow(FakeBucket):
+        def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+            time.sleep(0.3)
+            return super().get_object(Bucket=Bucket, Key=Key)
+
+    release = threading.Event()
+
+    def stalled(self: object) -> list[object]:
+        release.wait(5)
+        return []
+
+    monkeypatch.setattr(alert_routes, "READ_DEADLINE_SECONDS", 0.5)
+    monkeypatch.setattr(alert_routes.DagsterClient, "list_jobs", stalled)
+    bucket = Slow()
+    dagster = FakeDagster()
+    api = TestClient(
+        create_app(
+            _api_settings(settings, alerts_state_base_uri=BASE, dagster_graphql_urls={"dev": f"{dagster.url}/graphql"}),
+            alert_state_store=bucket,
+        )
+    )
+    _write(bucket, AlertState(incidents=(_incident(),)))
+    try:
+        started = time.monotonic()
+        body = _get(api, mint)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        dagster.close()
+
+    # A fresh allowance for the lookup would take 0.3 + 0.5 s; the shared one ends at 0.5 s.
+    assert elapsed < 0.75
+    assert body["state"]["status"] == "available"
+    assert (body["incidents"][0]["domain"], body["incidents"][0]["product"]) == (None, None)
+
+
 def test_no_incidents_is_an_empty_list_only_from_a_fresh_state(api: TestClient, mint: Mint, bucket: FakeBucket) -> None:
     evaluated = _now() - timedelta(minutes=4)
     _write(bucket, AlertState(), evaluated)

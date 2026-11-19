@@ -65,8 +65,9 @@ class _Missing(Exception):
     pass
 
 
-def _bounded[T](read: Callable[[], T], pool: ThreadPoolExecutor = _READS) -> T:
-    expires = time.monotonic() + READ_DEADLINE_SECONDS
+def _bounded[T](read: Callable[[], T], expires: float, pool: ThreadPoolExecutor = _READS) -> T:
+    """`read`'s answer before `expires`, a monotonic time shared by the whole request so that its reads together keep
+    to READ_DEADLINE_SECONDS."""
 
     def run() -> T:
         # A read queued behind stalled ones is dropped once its caller has stopped waiting.
@@ -76,10 +77,10 @@ def _bounded[T](read: Callable[[], T], pool: ThreadPoolExecutor = _READS) -> T:
 
     answer = pool.submit(run)
     try:
-        return answer.result(timeout=READ_DEADLINE_SECONDS)
+        return answer.result(timeout=max(expires - time.monotonic(), 0))
     except FutureTimeout as exc:
         answer.cancel()
-        raise _Unavailable(f"the alert state was not read within {READ_DEADLINE_SECONDS:g} s") from exc
+        raise _Unavailable(f"the read did not finish within the request's {READ_DEADLINE_SECONDS:g} s") from exc
 
 
 def _read(store: StateStore, base_uri: str) -> bytes:
@@ -143,14 +144,14 @@ def _delivery(incident: Incident, queued: OutboxEntry | None) -> dict[str, Any]:
     }
 
 
-def _job_scopes(request: Request, stage: str) -> dict[str, JobScope]:
+def _job_scopes(request: Request, stage: str, expires: float) -> dict[str, JobScope]:
     """Each listed job's domain and product; none when the stage has no Dagster or it cannot be read in time, and the
     incidents are then answered with a null domain and product rather than not at all."""
     url = request.app.state.settings.dagster_graphql_urls.get(stage)
     if not url:
         return {}
     try:
-        jobs = _bounded(lambda: DagsterClient(url).list_jobs(), _JOB_READS)
+        jobs = _bounded(lambda: DagsterClient(url).list_jobs(), expires, _JOB_READS)
     except (_Unavailable, ServiceClientError) as exc:
         log.warning("the jobs of stage %s could not be read for incident scopes: %s", stage, exc)
         return {}
@@ -197,8 +198,10 @@ def list_alert_incidents(request: Request, stage: str) -> StageAlertIncidents:
 
     if settings.alerts_state_base_uri is None or store is None:
         return answer("not_provided", "no alert evaluator, or no key to read its state, is configured")
+    # One deadline for the request: the optional job lookup gets only what the state read left.
+    expires = time.monotonic() + READ_DEADLINE_SECONDS
     try:
-        body = _bounded(lambda: _read(store, settings.alerts_state_base_uri))
+        body = _bounded(lambda: _read(store, settings.alerts_state_base_uri), expires)
     except _Missing:
         return answer("unavailable", "the alert evaluator has not written a state yet")
     except _Unavailable as exc:
@@ -212,7 +215,7 @@ def list_alert_incidents(request: Request, stage: str) -> StageAlertIncidents:
     stale = evaluated_at is None or datetime.now(UTC) - evaluated_at > STALE_AFTER
     queued = _latest_queued(state)
     found = [i for i in state.incidents if i.scope.stage == stage]
-    scopes = _job_scopes(request, stage) if any(i.scope.product for i in found) else {}
+    scopes = _job_scopes(request, stage, expires) if any(i.scope.product for i in found) else {}
     incidents = [_incident(i, queued.get(i.id), scopes) for i in found]
     if evaluated_at is None:
         reason = "the alert state does not say when it was evaluated"
