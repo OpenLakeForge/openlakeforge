@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -413,3 +414,59 @@ def test_a_second_pass_that_changes_the_status_fails() -> None:
 
     with pytest.raises(E2EError, match="is Failed after a second reconciler pass"):
         evidence._publish_and_replay(TARGETS, catalog.reconcile, catalog.results)
+
+
+ALIASED = "order_revenue_gold.revenue_by_day_v2"
+DBT_RESULTS = "s3://ops/activations/dev/run-artifacts/dbt/sales/order_revenue/run/target/run_results.json"
+
+
+def aliased_manifest() -> QualityManifest:
+    """The run's records as the dbt adapter writes them for `mart_order_revenue_by_day` built under an alias."""
+    results = tuple(
+        dataclasses.replace(r, table=ALIASED, artifact_uri=DBT_RESULTS) if r.engine == "dbt" else r
+        for r in manifest().results
+    )
+    return QualityManifest(STAGE, "sales", "order_revenue", RUN, results, complete=True)
+
+
+def test_a_dbt_record_on_an_aliased_model_matches_the_model_dagster_checked() -> None:
+    checks = evidence.assert_run_checks(run_checks(), PRODUCT)
+    dbt_manifest = {
+        "nodes": {
+            "model.p.mart_order_revenue_by_day": {
+                "resource_type": "model",
+                "name": "mart_order_revenue_by_day",
+                "schema": "order_revenue_gold",
+                "alias": "revenue_by_day_v2",
+            },
+            "model.p.mart_plain": {"resource_type": "model", "name": "mart_plain", "schema": "order_revenue_gold"},
+            f"test.p.{DBT_TABLE_TEST}": {"resource_type": "test", "name": DBT_TABLE_TEST, "schema": "x"},
+        }
+    }
+    tables = evidence.model_tables(dbt_manifest)
+
+    assert tables == {
+        "mart_order_revenue_by_day": ALIASED,
+        "mart_plain": "order_revenue_gold.mart_plain",
+    }
+    evidence.assert_manifest(aliased_manifest(), checks, stage=STAGE, run_id=RUN, gold_tables=tables)
+    with pytest.raises(E2EError, match=r"recorded on order_revenue_gold.revenue_by_day_v2, Dagster checked"):
+        evidence.assert_manifest(aliased_manifest(), checks, stage=STAGE, run_id=RUN)
+    elsewhere = {"mart_order_revenue_by_day": "order_revenue_gold.revenue_by_day_v3"}
+    with pytest.raises(E2EError, match=r"\(order_revenue_gold.revenue_by_day_v3\)"):
+        evidence.assert_manifest(aliased_manifest(), checks, stage=STAGE, run_id=RUN, gold_tables=elsewhere)
+
+
+def test_the_dbt_manifest_is_the_one_beside_the_runs_run_results() -> None:
+    assert evidence.dbt_manifest_uri(aliased_manifest()) == DBT_RESULTS.removesuffix("run_results.json") + (
+        "manifest.json"
+    )
+    assert evidence.dbt_manifest_uri(manifest()) is None
+
+
+def test_the_openmetadata_case_of_an_aliased_model_is_on_its_physical_table() -> None:
+    _, dbt = evidence.case_targets(
+        aliased_manifest(), database_fqn="lakehouse.lakehouse_dev", silver_schemas=None, gold_schemas=None
+    )
+
+    assert dbt.fqn == f'lakehouse.lakehouse_dev.order_revenue_gold.revenue_by_day_v2."olf.dbt.{DBT_TABLE_TEST}"'

@@ -6,21 +6,6 @@ pipelines. Each service row carries a state, the time the API observed it and th
 (timeout, refused permission, unreachable service) reads `unknown`, never `healthy`; a component the deployment leaves
 out reads `disabled`. How the states are computed is in [health signals](../../reference/health-signals.md).
 
-The table groups the rows by service, under a heading such as `Log archive: warning` that carries the worst state of
-the service's components. Each row shows its `component` key and its display `name`; `last write` is the component's
-own last durable write (`last_success_at` in `--json`), reported only for `log-archive.newest-object` and
-`quality-sync.publication` and printed as `—` everywhere else, never as the probe time. An API that reports no service
-for its rows lists them under `(service not reported)`.
-
-```text
-Log archive: warning
-        component         |         name        |  state  |       observed       |     valid until      |      last write      |          reason
---------------------------+---------------------+---------+----------------------+----------------------+----------------------+------------------------
-log-archive.spool-age     | Log spool age       | healthy | 2026-11-19T09:00:00Z | 2026-11-19T09:00:30Z | —                    | oldest spool 40s
-log-archive.newest-object | Newest archived log | warning | 2026-11-19T09:00:00Z | 2026-11-19T09:00:30Z | 2026-11-19T07:02:11Z | newest object is 2h old
-(2 rows)
-```
-
 The probes need no Prometheus, Loki or Grafana, so a Slim stack shows the same table. Without a metrics source the
 stage lists the `metrics` integration as unavailable, and the service rows are unaffected.
 

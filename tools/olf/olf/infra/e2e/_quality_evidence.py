@@ -145,11 +145,19 @@ def check_real_quality_evidence(cfg: E2EConfig, product: Product | None = None) 
             body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
         except Exception as exc:
             raise E2EError(f"run {run_id} has no readable quality manifest at s3://{bucket}/{key}: {exc}") from exc
-    try:
-        manifest = QualityManifest.from_json(body.decode())
-    except QualityRecordError as exc:
-        raise E2EError(f"run {run_id}'s quality manifest is invalid: {exc}") from exc
-    assert_manifest(manifest, checks, stage=stage, run_id=run_id)
+        try:
+            manifest = QualityManifest.from_json(body.decode())
+        except QualityRecordError as exc:
+            raise E2EError(f"run {run_id}'s quality manifest is invalid: {exc}") from exc
+        dbt_uri = dbt_manifest_uri(manifest)
+        if dbt_uri is None:
+            raise E2EError(f"run {run_id}'s dbt records point at no run_results.json to find its dbt manifest beside")
+        dbt_bucket, dbt_key = _split_s3(dbt_uri)
+        try:
+            dbt_manifest = json.loads(s3.get_object(Bucket=dbt_bucket, Key=dbt_key)["Body"].read())
+        except Exception as exc:
+            raise E2EError(f"run {run_id}'s dbt manifest {plain_uri(dbt_uri)} is not readable: {exc}") from exc
+    assert_manifest(manifest, checks, stage=stage, run_id=run_id, gold_tables=model_tables(dbt_manifest))
     log.info(f"Quality evidence of {product.job_name} run {run_id} in stage {stage}:")
     for line in evidence_lines(checks, manifest, product):
         log.info(f"  {line}")
@@ -266,9 +274,19 @@ def _floe_check_problems(evaluation: CheckEvaluation) -> list[str]:
     return problems
 
 
-def assert_manifest(manifest: QualityManifest, checks: RunChecks, *, stage: str, run_id: str) -> None:
+def assert_manifest(
+    manifest: QualityManifest,
+    checks: RunChecks,
+    *,
+    stage: str,
+    run_id: str,
+    gold_tables: Mapping[str, str] | None = None,
+) -> None:
     """The run's manifest is complete and says what Dagster says: five Floe records per Silver table checked, and a
-    record with the same outcome for every dbt check."""
+    record with the same outcome for every dbt check, on the physical table of the model Dagster checked.
+
+    Dagster keys a Gold asset by model name while a record names the relation dbt built, whose alias may differ, so
+    `gold_tables` (model name -> `schema.relation`, from the run's dbt manifest) joins the two."""
     problems: list[str] = []
     if (manifest.stage, manifest.dagster_run_id) != (stage, run_id):
         problems.append(f"it is for stage {manifest.stage} run {manifest.dagster_run_id}")
@@ -298,12 +316,49 @@ def assert_manifest(manifest: QualityManifest, checks: RunChecks, *, stage: str,
             problems.append(f"dbt check {name} has no record")
         elif dbt_record.outcome is not evaluation.outcome:
             problems.append(f"dbt {name} is {dbt_record.outcome.value}, Dagster says {evaluation.outcome.value}")
-        elif not (dbt_record.table or "").endswith(f".{evaluation.asset[-1]}"):
+        elif not _same_table(dbt_record.table or "", evaluation.asset[-1], gold_tables or {}):
+            expected = (gold_tables or {}).get(evaluation.asset[-1], f"*.{evaluation.asset[-1]}")
             problems.append(
-                f"dbt {name} is recorded on {dbt_record.table}, Dagster checked {'/'.join(evaluation.asset)}"
+                f"dbt {name} is recorded on {dbt_record.table}, Dagster checked {'/'.join(evaluation.asset)} "
+                f"({expected})"
             )
     if problems:
         raise E2EError(f"run {run_id}'s quality manifest disagrees with the run:\n  " + "\n  ".join(problems))
+
+
+def _same_table(recorded: str, model: str, gold_tables: Mapping[str, str]) -> bool:
+    physical = gold_tables.get(model)
+    return recorded == physical if physical else recorded.endswith(f".{model}")
+
+
+def dbt_manifest_uri(manifest: QualityManifest) -> str | None:
+    """The run's own dbt `manifest.json`, uploaded beside the `run_results.json` its dbt records point at."""
+    for result in manifest.results:
+        uri = result.artifact_uri or ""
+        if result.engine == "dbt" and uri.endswith("/run_results.json"):
+            return uri.removesuffix("run_results.json") + "manifest.json"
+    return None
+
+
+def model_tables(dbt_manifest: Mapping[str, Any]) -> dict[str, str]:
+    """Model name -> the `schema.relation` dbt built it as, the relation being its alias when one is set: the naming
+    the dbt quality adapter gives a record's table."""
+    tables: dict[str, str] = {}
+    for node in (dbt_manifest.get("nodes") or {}).values():
+        if not isinstance(node, Mapping) or node.get("resource_type") != "model":
+            continue
+        name, schema = node.get("name"), node.get("schema")
+        relation = node.get("alias") or name
+        if isinstance(name, str) and isinstance(schema, str) and schema and isinstance(relation, str):
+            tables[name] = f"{schema}.{relation}"
+    return tables
+
+
+def _split_s3(uri: str) -> tuple[str, str]:
+    parts = urllib.parse.urlsplit(uri)
+    if parts.scheme != "s3" or not parts.netloc:
+        raise E2EError(f"{plain_uri(uri)} is not an s3:// object")
+    return parts.netloc, parts.path.lstrip("/")
 
 
 def evidence_lines(checks: RunChecks, manifest: QualityManifest, product: Product) -> list[str]:

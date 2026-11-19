@@ -42,42 +42,26 @@ def _pipeline(job: str, state: str, reason: str) -> dict[str, Any]:
     }
 
 
-WRITTEN = "2026-11-16T08:55:00Z"
-
-
-def _service(component: str, state: str, service: str, name: str, display: str, **fields: Any) -> dict[str, Any]:
-    return {
-        "component": component,
-        "source": "kubernetes",
-        "state": state,
-        "reason": f"{component} is {state}",
-        "observed_at": NOW,
-        "expires_at": EXPIRES,
-        "max_age_seconds": 60,
-        "display_name": display,
-        "service": service,
-        "service_display_name": name,
-        "last_success_at": None,
-        **fields,
-    }
-
-
 def _stage(state: str) -> dict[str, Any]:
     return {
         "stage": "dev",
         "state": state,
         "evaluated_at": NOW,
         "services": [
-            _service("trino.workloads", "healthy", "trino", "Trino", "Trino workloads", reason="probe answered"),
-            _service(
-                "polaris.readiness",
-                state,
-                "polaris",
-                "Polaris",
-                "Polaris catalog",
-                observed_at=None,
-                expires_at=None,
-            ),
+            {
+                "component": "trino",
+                "state": "healthy",
+                "reason": "probe answered",
+                "observed_at": NOW,
+                "expires_at": EXPIRES,
+            },
+            {
+                "component": "polaris",
+                "state": state,
+                "reason": f"polaris is {state}",
+                "observed_at": None,
+                "expires_at": None,
+            },
         ],
         "pipelines": [{"job": "orders_job", "state": state}],
         "integrations": [{"name": "quality", "status": "unavailable", "reason": "Floe reports are not read"}],
@@ -117,118 +101,13 @@ def test_health_shows_each_service_and_pipeline_and_the_unavailable_integration(
 
     result = _olf("health", "dev")
 
-    assert "Polaris: critical" in result.stdout
-    assert "polaris.readiness | Polaris catalog | critical | never" in result.stdout
-    assert "polaris.readiness is critical" in result.stdout
-    assert "Trino: healthy" in result.stdout
-    assert _row(result.stdout, "trino.workloads")[:4] == ["trino.workloads", "Trino workloads", "healthy", NOW]
+    assert "polaris | critical | never" in result.stdout
+    assert "polaris is critical" in result.stdout
+    assert "trino   | healthy  | " + NOW in result.stdout
     assert EXPIRES in result.stdout
     assert "probe answered" in result.stdout
     assert "orders_job | critical" in result.stdout
     assert "quality is unavailable: Floe reports are not read" in result.stdout
-
-
-def _services_only(monkeypatch: pytest.MonkeyPatch, services: list[dict[str, Any]]) -> None:
-    monkeypatch.setitem(ANSWERS, "/api/v1/stages/dev/health", {**_stage("warning"), "services": services})
-
-
-def _row(stdout: str, component: str) -> list[str]:
-    line = next(line for line in stdout.splitlines() if line.startswith(component + " "))
-    return [cell.strip() for cell in line.split("|")]
-
-
-def _heading_of(stdout: str, component: str) -> str:
-    # The heading a component's row sits under: the last `<service>: <state>` line above it.
-    lines = stdout.splitlines()
-    row = next(i for i, line in enumerate(lines) if line.startswith(component + " "))
-    return next(line for line in reversed(lines[:row]) if ": " in line and "|" not in line)
-
-
-def test_services_are_grouped_under_their_service_headed_by_the_worst_state(
-    fake: FakeAPI, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    log = ("log-archive", "Log archive")
-    _services_only(
-        monkeypatch,
-        [
-            _service("log-archive.spool-age", "healthy", *log, "Log spool age"),
-            _service("trino.readiness", "healthy", "trino", "Trino", "Trino coordinator"),
-            _service("log-archive.spool-size", "warning", *log, "Log spool size"),
-            _service("log-archive.newest-object", "disabled", *log, "Newest archived log"),
-        ],
-    )
-
-    result = _olf("health", "dev")
-
-    assert result.exit_code == 0, result.output
-    assert result.stdout.count("Log archive: ") == 1
-    for component in ("log-archive.spool-age", "log-archive.spool-size", "log-archive.newest-object"):
-        assert _heading_of(result.stdout, component) == "Log archive: warning"
-    assert _heading_of(result.stdout, "trino.readiness") == "Trino: healthy"
-    assert _row(result.stdout, "log-archive.spool-size")[1] == "Log spool size"
-
-
-def test_an_unknown_component_outranks_its_healthy_neighbours_in_the_heading(
-    fake: FakeAPI, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _services_only(
-        monkeypatch,
-        [
-            _service("dagster.workloads", "healthy", "dagster", "Dagster", "Dagster workloads"),
-            _service("dagster.read-api", "unknown", "dagster", "Dagster", "Dagster API", observed_at=None),
-        ],
-    )
-
-    result = _olf("health", "dev")
-
-    assert _heading_of(result.stdout, "dagster.workloads") == "Dagster: unknown"
-    assert "Dagster: healthy" not in result.stdout
-
-
-def test_last_write_shows_the_durable_write_and_a_dash_where_there_is_none(
-    fake: FakeAPI, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    log = ("log-archive", "Log archive")
-    _services_only(
-        monkeypatch,
-        [
-            _service("log-archive.newest-object", "healthy", *log, "Newest archived log", last_success_at=WRITTEN),
-            _service("log-archive.spool-age", "healthy", *log, "Log spool age"),
-        ],
-    )
-
-    result = _olf("health", "dev")
-
-    assert _row(result.stdout, "log-archive.newest-object")[5] == WRITTEN
-    # Never the probe time in place of a write the API did not report.
-    assert _row(result.stdout, "log-archive.spool-age")[3:6] == [NOW, EXPIRES, "\u2014"]
-
-
-def test_rows_from_an_api_without_display_fields_are_shown_honestly(
-    fake: FakeAPI, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    legacy = {
-        "component": "polaris",
-        "state": "critical",
-        "reason": "polaris is critical",
-        "observed_at": None,
-        "expires_at": None,
-    }
-    _services_only(monkeypatch, [legacy])
-
-    result = _olf("health", "dev")
-
-    assert result.exit_code == 0, result.output
-    assert _heading_of(result.stdout, "polaris") == "(service not reported): critical"
-    assert _row(result.stdout, "polaris") == [
-        "polaris",
-        "polaris",
-        "critical",
-        "never",
-        "-",
-        "\u2014",
-        "polaris is critical",
-    ]
 
 
 def test_an_unknown_stage_never_prints_healthy(fake: FakeAPI, monkeypatch: pytest.MonkeyPatch) -> None:

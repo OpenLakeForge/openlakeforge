@@ -8,10 +8,8 @@ exact code path with the full run instead of duplicating lifecycle logic.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
-import sys
 from pathlib import Path
 
 import typer
@@ -21,14 +19,6 @@ from olf.infra.commands._shared import PROVIDER_HELP
 from olf.infra.commands._shared import deployment_context as _build_context
 
 app_help = "Deployment lifecycle: foundation, platform, and artifact orchestration."
-
-
-_JSON_HELP = "Print a JSON report on stdout; progress and Terraform output go to stderr."
-
-
-def _progress_to_stderr(json_output: bool) -> contextlib.AbstractContextManager[object]:
-    # Toolchain provisioning and Terraform stream on stdout; --json keeps stdout to the report.
-    return contextlib.redirect_stdout(sys.stderr) if json_output else contextlib.nullcontext()
 
 
 def _build_engine(context, *, var_file: str):  # noqa: ANN001, ANN202
@@ -128,40 +118,27 @@ def plan(
         ),
     ),
     detailed_exitcode: bool = typer.Option(False, "--detailed-exitcode", help="Return 2 when changes are pending."),
-    json_output: bool = typer.Option(False, "--json", help=_JSON_HELP),
 ) -> None:
     """Plan Terraform-managed deployment phases without applying them."""
     from olf.common.deployment.errors import DeploymentError
 
-    with _progress_to_stderr(json_output):
-        context = _build_context(
-            provider,
-            profile=profile,
-            namespace=namespace,
-            stage=stage,
-            cluster_name=cluster_name,
-            kubeconfig_path=kubeconfig_path,
-            project_root=project_root,
-            allow_stage_removal=allow_stage_removal,
-        )
-        engine = _build_engine(context, var_file=var_file)
-        resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform"))
-        try:
-            changes = engine.plan(resolved_phase)
-        except DeploymentError as exc:
-            raise typer.Exit(code=fail(str(exc))) from exc
-    message = "Terraform changes are pending." if changes else "Terraform reports no changes."
-    if json_output:
-        deploy_command = "olf infra deploy" + ("" if phase == "all" else f" --phase {phase}")
-        check = {
-            "id": f"terraform-plan:{phase}",
-            "status": "changes" if changes else "pass",
-            "message": message,
-            "remedy": f"Apply with `{deploy_command}` and the same options." if changes else None,
-        }
-        typer.echo(json.dumps({"command": "infra plan", "ok": True, "changes": changes, "checks": [check]}, indent=2))
-    else:
-        typer.echo(message)
+    context = _build_context(
+        provider,
+        profile=profile,
+        namespace=namespace,
+        stage=stage,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
+        allow_stage_removal=allow_stage_removal,
+    )
+    engine = _build_engine(context, var_file=var_file)
+    resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform"))
+    try:
+        changes = engine.plan(resolved_phase)
+    except DeploymentError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo("Terraform changes are pending." if changes else "Terraform reports no changes.")
     if changes and detailed_exitcode:
         raise typer.Exit(code=2)
 
@@ -178,31 +155,26 @@ def doctor(
         "", "--project-root", help="Writable project root; defaults to the current directory."
     ),
     var_file: str = typer.Option("", "--var-file", help="Terraform tfvars file override."),
-    json_output: bool = typer.Option(False, "--json", help=_JSON_HELP),
 ) -> None:
     """Check host tools, source inputs, and provider authentication without mutating deployment state."""
     from olf.common.deployment.errors import DeploymentError
 
-    with _progress_to_stderr(json_output):
-        context = _build_context(
-            provider,
-            profile=profile,
-            namespace=namespace,
-            stage=stage,
-            cluster_name=cluster_name,
-            kubeconfig_path=kubeconfig_path,
-            project_root=project_root,
-        )
-        engine = _build_engine(context, var_file=var_file)
-        resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform", "artifacts"))
-        try:
-            report = engine.doctor(resolved_phase)
-        except DeploymentError as exc:
-            raise typer.Exit(code=fail(str(exc))) from exc
-    if json_output:
-        typer.echo(json.dumps({"command": "infra doctor", **report.as_dict()}, indent=2))
-    else:
-        typer.echo(report.render())
+    context = _build_context(
+        provider,
+        profile=profile,
+        namespace=namespace,
+        stage=stage,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
+    )
+    engine = _build_engine(context, var_file=var_file)
+    resolved_phase = _resolve_phase(phase, valid=("all", "foundation", "platform", "artifacts"))
+    try:
+        report = engine.doctor(resolved_phase)
+    except DeploymentError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+    typer.echo(report.render())
     if not report.ok:
         raise typer.Exit(code=1)
 
