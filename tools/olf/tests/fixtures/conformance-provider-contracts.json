@@ -262,7 +262,7 @@
         "archive": {
           "enabled": true,
           "retention_days": 30,
-          "retention_supported": false,
+          "retention_supported": true,
           "supported": true
         },
         "search": {
@@ -272,11 +272,11 @@
       },
       "metrics": {
         "enabled": true,
-        "query_api": null,
-        "query_url": null,
+        "query_api": "prometheus-http-v1",
+        "query_url": "http://prometheus.olf-system.svc:9090",
         "retention_days": 7,
-        "retention_supported": false,
-        "supported": false
+        "retention_supported": true,
+        "supported": true
       },
       "ref": "shared/observability"
     },

@@ -46,9 +46,20 @@ in the design below:
   `olf infra openmetadata deploy-metadata` clears `isAdmin` on the local `admin` user (kept, not deleted) after
   every restart, so a GitHub login named `admin` resolves to it and stays at the read baseline (OM-11,
   closed); every sign-in starts there until the role sync grants more.
-- **Not done.** Removing `spec.identity` from an install that already has SSO does
-  not restore basic login (the stored provider stays); rebuild the metadata
-  database. The bootstrap removes the `Organization`
+- **Removing identity restores basic login** (#1276). When `spec.identity` is
+  gone, Terraform no longer publishes `openmetadata-sso-config`, and
+  `olf infra openmetadata deploy-metadata` (the artifacts phase of
+  `olf infra deploy`) writes the release's basic `authenticationConfiguration`
+  and `adminPrincipals` back through `PUT /api/v1/system/security/config` with
+  the automation bot's token, then restarts OpenMetadata so the handler is built
+  from them. After the restart it reconciles the built-in `admin` password with
+  Secret `openmetadata-admin` (`reconcile_admin_password`, #1281): if that
+  password does not log in, it is set through
+  `PUT /api/v1/users/changePassword`, so a stack first deployed with identity
+  does not come back with `admin` / `admin`. A server already on basic login
+  gets the password check alone, and a stack with no automation bot (never
+  deployed with identity) is left to the release's basic login.
+- **Not done.** The bootstrap removes the `Organization`
   default roles and `NoOwner-Rule` before it enables SSO (OM-12); the payloads are
   unverified at runtime.
 
