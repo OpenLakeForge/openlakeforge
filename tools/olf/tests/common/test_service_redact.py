@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from openlakeforge_services.redact import REDACTED, redact
 
@@ -40,3 +42,19 @@ def test_a_secret_is_replaced_and_the_text_around_it_kept(text: str, secret: str
 )
 def test_text_without_a_secret_is_unchanged(text: str) -> None:
     assert redact(text) == text
+
+
+@pytest.mark.parametrize(
+    ("text", "tail"),
+    [
+        (json.dumps({"password": 'prefix"remaining-secret', "user": "ada"}), "remaining-secret"),
+        (json.dumps({"api_key": 'a\\"b\\\\c"rest-of-key'}), "rest-of-key"),
+        ("token='it\\'s-still-secret' then", "s-still-secret"),
+        ('password="cut short before the closing quote', "closing quote"),
+    ],
+)
+def test_a_quoted_secret_with_escaped_or_missing_quotes_is_consumed_whole(text: str, tail: str) -> None:
+    redacted = redact(text)
+
+    assert tail not in redacted
+    assert REDACTED in redacted

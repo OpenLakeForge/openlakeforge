@@ -15,9 +15,12 @@ _USERINFO = re.compile(r"(?P<scheme>\b[A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]+@")
 # A URL's whole query: a presigned URL carries its credential and signature there, under names no list can foresee.
 _QUERY = re.compile(r"(?P<url>\b[A-Za-z][A-Za-z0-9+.-]*://[^\s?#]*)\?[^\s#]*")
 _SCHEME_TOKEN = re.compile(r"(?i)\b(?P<scheme>bearer|basic)\s+[A-Za-z0-9._~+/=-]+")
+# A quoted value is escape-aware, so a JSON-serialized secret holding `\"` is consumed whole, and an unclosed
+# quote (a message cut short) runs to the end rather than leaving its tail.
 _KEY_VALUE = re.compile(
     r"(?i)(?P<key>\b[\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key"
-    r"|credential|signature)[\w.-]*[\"']?)(?P<sep>\s*[=:]\s*)(?P<value>\"[^\"]*\"|'[^']*'|[^\s,;&\"'}]+)"
+    r"|credential|signature)[\w.-]*[\"']?)(?P<sep>\s*[=:]\s*)"
+    r"(?P<value>\"(?:\\.|[^\"\\])*\"?|'(?:\\.|[^'\\])*'?|[^\s,;&\"'}]+)"
 )
 _LOOKALIKES = (
     # AWS access key ids, by their documented prefixes.
