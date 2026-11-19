@@ -51,14 +51,18 @@ def test_the_catalog_root_is_the_selected_stages_never_another():
         assert bucket == "ops"
         yield Bucket()
 
+    opened: list[str] = []
+
     @contextmanager
-    def catalog():
+    def catalog(stage):
+        opened.append(stage)
         yield Client()
 
     outcome = run_quality_sync(ENV, open_store=store, open_catalog=catalog)
     assert outcome.stage == "prod"
     assert outcome.report is not None
     assert all("activations/prod/" in item for item in seen)
+    assert opened == ["prod"], "the catalog is opened with the stage's own writer, never another stage's"
 
 
 def test_the_batch_size_is_bounded():
@@ -79,5 +83,5 @@ def test_a_malformed_schema_mapping_is_refused():
         run_quality_sync(
             {**ENV, "OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON": "[1]"},
             open_store=lambda bucket: contextlib.nullcontext(object()),
-            open_catalog=lambda: contextlib.nullcontext(object()),  # type: ignore[arg-type,return-value]
+            open_catalog=lambda _stage: contextlib.nullcontext(object()),  # type: ignore[arg-type,return-value]
         )

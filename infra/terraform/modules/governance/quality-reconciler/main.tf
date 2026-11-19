@@ -14,7 +14,7 @@ locals {
 
 # No Role is bound and the default token is not mounted: the reconciler holds
 # no Kubernetes API access. Its credentials are the stage's ops-bucket key and
-# the ingestion bot's token, both from Secrets.
+# the stage's quality-writer token, both from Secrets.
 resource "kubernetes_service_account_v1" "reconciler" {
   count = length(var.stages) > 0 ? 1 : 0
 
@@ -156,8 +156,8 @@ resource "kubernetes_cron_job_v1" "reconciler" {
                 name = "OPENMETADATA_TOKEN"
                 value_from {
                   secret_key_ref {
-                    name = var.ingestion_bot_secret_name
-                    key  = var.ingestion_bot_jwt_key
+                    name = "${var.writer_secret_prefix}${each.key}"
+                    key  = var.writer_jwt_key
                   }
                 }
               }

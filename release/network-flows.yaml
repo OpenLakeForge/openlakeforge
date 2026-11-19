@@ -350,7 +350,7 @@ flows:
   - id: F52
     from: {scope: shared, pods: {openlakeforge.io/job: quality-reconciler}}
     to: {scope: shared, pods: {app.kubernetes.io/name: openmetadata, app.kubernetes.io/instance: openmetadata}}
-    ports: [8585] # test case definitions, cases and results, with the ingestion bot's token
+    ports: [8585] # test case definitions, cases and results, with the stage's quality-writer bot token
     tag: T # needs a reconciler pass on a running cluster
   - id: F53
     from: {scope: shared, pods: {openlakeforge.io/job: quality-reconciler}}

@@ -200,8 +200,8 @@ def openmetadata_quality_sync(
     from olf.infra import k8s
     from olf.infra.artifact_store import ArtifactStoreError, artifact_storage_client
     from olf.infra.commands.runtime import provider_contract_environment
-    from olf.infra.openmetadata._auth import INGESTION_BOT_JWT_KEY, INGESTION_BOT_SECRET
     from olf.infra.openmetadata._quality_sync import QualitySyncError, run_quality_sync
+    from olf.infra.openmetadata._quality_writer import JWT_KEY, writer_credentials
 
     if warn_status not in {status.value for status in OmStatus if status is not OmStatus.SUCCESS}:
         raise typer.Exit(code=fail("--warn-status must be Aborted or Failed: a WARN is never published as Success."))
@@ -218,11 +218,11 @@ def openmetadata_quality_sync(
         governance = _governance_service(contract)
 
         @contextmanager
-        def open_catalog() -> Iterator[OpenMetadataClient]:
+        def open_catalog(catalog_stage: str) -> Iterator[OpenMetadataClient]:
             with governance.url(contract) as route:
-                # The ingestion bot, not the admin automation bot: the Secret every runtime consumer already reads.
+                # The stage's quality writer, the identity its scheduled pass publishes with (ADR 0007).
                 token = k8s.secret_value(
-                    INGESTION_BOT_SECRET, INGESTION_BOT_JWT_KEY, governance.namespace, environ=contract
+                    writer_credentials(catalog_stage), JWT_KEY, governance.namespace, environ=contract
                 )
                 yield route.client(OpenMetadataClient, token=token)
 

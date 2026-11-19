@@ -15,6 +15,7 @@ from olf.infra.access import Route
 from olf.infra.openmetadata import (
     _bootstrap,
     _catalog_seed,
+    _quality_writer,
     _search_reindex,
     _signup_baseline,
     _stage_services,
@@ -46,6 +47,7 @@ def run_bootstrap(
     # Gated: without stages, every stage's services would be removed as ungoverned.
     if stages:
         _stage_services.bootstrap_stage_services(client, stages, environ=environ)
+        _quality_writer.ensure_quality_writers(client, route, namespace, [s.stage for s in stages], environ)
     _stale_services.remove_legacy_services(client)
     if sso:
         _signup_baseline.restrict_signup_defaults(client)
