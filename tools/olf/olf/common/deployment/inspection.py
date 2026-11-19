@@ -46,6 +46,15 @@ class DoctorReport:
             lines.append(f"{status:4} {item.name}: {item.detail}")
         return "\n".join(lines)
 
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "ok": self.ok,
+            "checks": [
+                {"id": item.name, "status": "pass" if item.ok else "fail", "message": item.detail, "remedy": None}
+                for item in self.items
+            ],
+        }
+
 
 def _toolchain_mode_item(tools: Toolkit) -> DoctorItem:
     resolver = tools.resolver

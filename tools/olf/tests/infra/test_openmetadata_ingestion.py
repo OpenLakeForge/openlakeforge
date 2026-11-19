@@ -6,7 +6,12 @@ import yaml
 
 from olf.infra.openmetadata._ingestion import ingestion_cronjob, ingestion_job
 
+REPO_ROOT = Path(__file__).resolve().parents[4]
+
+# An explicit environ replaces os.environ, so the repo-root pin conftest sets would not reach
+# `config.distribution_root`, which then falls back to the working directory (#1301).
 BASE = {
+    "OPENLAKEFORGE_REPO_ROOT": str(REPO_ROOT),
     "OPENLAKEFORGE_QUERY_TRINO_HOST": "trino.olf-system",
     "OPENLAKEFORGE_QUERY_TRINO_PORT": "8080",
     "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev",
@@ -57,7 +62,7 @@ def test_hourly_refresh_runs_the_same_pod_as_the_job():
 
 
 def test_nothing_triggers_the_pipeline_client_pipeline_any_more():
-    module = Path(__file__).parents[4] / "infra/terraform/modules/governance/openmetadata"
+    module = REPO_ROOT / "infra/terraform/modules/governance/openmetadata"
     assert not (module / "refresh.tf").exists()
 
 
@@ -97,7 +102,9 @@ def test_the_crawl_runs_beside_the_stage_coordinator_and_addresses_openmetadata_
     cronjob, job = applied
     assert (cronjob["metadata"]["namespace"], job["metadata"]["namespace"]) == ("olf-dev", "olf-dev")
     workflow = yaml.safe_load(job["spec"]["template"]["spec"]["containers"][0]["env"][0]["value"])
-    assert workflow["workflowConfig"]["openMetadataServerConfig"]["hostPort"] == "http://openmetadata.olf-system:8585/api"
+    assert (
+        workflow["workflowConfig"]["openMetadataServerConfig"]["hostPort"] == "http://openmetadata.olf-system:8585/api"
+    )
 
 
 POLARIS = {
@@ -157,3 +164,21 @@ def test_the_polaris_secret_is_copied_into_the_crawl_namespace(monkeypatch: pyte
     )
 
     assert written == [("polaris-om-creds", "olf-dev", {"POLARIS_OM_CLIENT_ID": "id"})]
+
+
+def test_the_image_pin_is_read_from_the_repository_whatever_the_working_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from olf.infra import k8s
+    from olf.infra.openmetadata import _ingestion
+
+    jobs: list[dict] = []
+    monkeypatch.setattr(k8s, "apply_manifest", lambda *a, **k: None)
+    monkeypatch.setattr(k8s, "run_job", lambda job, **_: jobs.append(job))
+    monkeypatch.chdir(tmp_path)
+
+    _ingestion.run_trino_ingestion(BASE, namespace="olf-system", service="polaris")
+
+    catalog = yaml.safe_load((REPO_ROOT / "release/component-catalog.yaml").read_text())
+    image = jobs[0]["spec"]["template"]["spec"]["containers"][0]["image"]
+    assert image == catalog["components"]["images"]["openmetadata_ingestion"]

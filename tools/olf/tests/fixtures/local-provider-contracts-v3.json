@@ -19,10 +19,10 @@
       "stage/prod/orchestration": {"url": "https://dagster-prod.olf.localhost", "enabled": true, "exposure": "user-facing"}
     }, "perimeter": {"implementation": "perimeter.oauth2_proxy", "enabled": true, "protected_routes": ["shared/portal", "shared/query", "stage/dev/orchestration", "stage/prod/orchestration"], "callback_url": "https://oauth2.olf.localhost/oauth2/callback"}},
     "observability": {"ref": "shared/observability", "implementation": "observability.object_log_archive",
-      "logs": {"archive": {"enabled": true, "retention_days": 30, "retention_supported": false, "supported": true}, "search": {"enabled": false, "supported": false}},
-      "metrics": {"enabled": false, "retention_days": 7, "retention_supported": false, "supported": false, "query_api": null, "query_url": null},
+      "logs": {"archive": {"enabled": true, "retention_days": 30, "retention_supported": true, "supported": true}, "search": {"enabled": false, "supported": false}},
+      "metrics": {"enabled": false, "retention_days": 7, "retention_supported": true, "supported": true, "query_api": null, "query_url": null},
       "grafana": {"enabled": false, "supported": false},
-      "alerts": {"receivers": [], "supported": false}}
+      "alerts": {"receivers": [], "supported": true}}
   },
   "stages": {
     "dev": {
