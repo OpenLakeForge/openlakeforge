@@ -26,6 +26,7 @@ from openlakeforge_core.quality import (
 )
 from openlakeforge_core.quality_sync import OmStatus, case_name, epoch_millis, om_status
 from openlakeforge_runtime.floe_quality import FLOE_CHECK_IDS
+from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.quality_publisher import QualityCatalog, QualityPublisher
 
@@ -65,6 +66,14 @@ query ProductRuns($filter: RunsFilter, $limit: Int) {
     ... on InvalidPipelineRunsFilterError { message }
     ... on PythonError { message }
   }
+}
+"""
+
+# The assets of the deployed job: its selection is `ProductDefinitionSpec.resolve()` as the code location ran it, so
+# its Silver keys are the product's Silver inputs. olf cannot import the spec itself (it has no Dagster).
+_JOB_ASSETS = """
+query JobAssets($selector: PipelineSelector!) {
+  assetNodes(pipeline: $selector) { assetKey { path } }
 }
 """
 
@@ -137,8 +146,14 @@ def check_real_quality_evidence(cfg: E2EConfig, product: Product | None = None) 
     stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
     log.step(f"Checking the quality evidence of a real {product.job_name} run...")
     with dagster_client(cfg) as client:
-        run_id = latest_full_run(client, product)
-        checks = assert_run_checks(read_check_evaluations(client, run_id), product)
+        silver_tables = product_silver_tables(client, product)
+        if not silver_tables:
+            log.info(
+                f"{product.id} reads no {product.domain_name} Silver table, only other products' public marts: "
+                "its runs have no Floe checks, so the Floe evidence is skipped."
+            )
+        run_id = latest_full_run(client, product, needs_silver=bool(silver_tables))
+        checks = assert_run_checks(read_check_evaluations(client, run_id), product, silver_tables)
     with ops_bucket_client(cfg) as (s3, bucket):
         key = f"activations/{stage}/{manifest_key(product.domain_name, product.id, run_id)}"
         try:
@@ -164,28 +179,47 @@ def check_real_quality_evidence(cfg: E2EConfig, product: Product | None = None) 
     if not configured_layers(cfg)["governance"]:
         log.info("Governance is off for this stage; the run's evidence is not published to OpenMetadata.")
         return
-    _check_openmetadata_results(cfg, stage, product, manifest)
+    _check_openmetadata_results(cfg, stage, product, manifest, floe=bool(silver_tables))
 
 
-def latest_full_run(client: DagsterClient, product: Product) -> str:
-    """The newest successful run of the job that selected Silver: a Gold-only selection has no Floe checks."""
+def product_silver_tables(client: DagsterClient, product: Product) -> tuple[str, ...]:
+    """The domain Silver tables the deployed job selects: none for a product reading only other products' marts."""
+    try:
+        location, repository = client.discover_repository(product.job_name)
+    except ServiceClientError as exc:
+        raise E2EError(f"Dagster has no loaded {product.job_name}: {exc}") from exc
+    selector = {"pipelineName": product.job_name, "repositoryName": repository, "repositoryLocationName": location}
+    nodes = client.graphql(_JOB_ASSETS, {"selector": selector}).get("assetNodes") or []
+    if not nodes:
+        raise E2EError(f"Dagster lists no assets for {product.job_name}")
+    return job_silver_tables([tuple(node["assetKey"]["path"]) for node in nodes], product.domain_name)
+
+
+def job_silver_tables(assets: Iterable[tuple[str, ...]], domain: str) -> tuple[str, ...]:
+    return tuple(sorted({asset[1] for asset in assets if _is_silver(asset, domain)}))
+
+
+def latest_full_run(client: DagsterClient, product: Product, *, needs_silver: bool = True) -> str:
+    """The newest successful run of the job, one that selected Silver when the product reads any: a Gold-only
+    selection has no Floe checks."""
     result = client.graphql(
         _RUNS, {"filter": {"pipelineName": product.job_name, "statuses": ["SUCCESS"]}, "limit": RUN_LOOKUP_LIMIT}
     )["runsOrError"]
     if result.get("__typename") != "Runs":
         raise E2EError(f"Dagster could not list {product.job_name} runs: {result.get('message', result)}")
-    run_id = pick_full_run(result.get("results") or [], product.domain_name)
+    run_id = pick_full_run(result.get("results") or [], product.domain_name, needs_silver=needs_silver)
     if run_id is None:
-        raise E2EError(f"{product.job_name} has no successful run that selected its Silver tables")
+        wanted = "that selected its Silver tables" if needs_silver else "at all"
+        raise E2EError(f"{product.job_name} has no successful run {wanted}")
     return run_id
 
 
-def pick_full_run(runs: Sequence[Mapping[str, Any]], domain: str) -> str | None:
+def pick_full_run(runs: Sequence[Mapping[str, Any]], domain: str, *, needs_silver: bool = True) -> str | None:
     for run in runs:
         if run.get("status") != "SUCCESS":
             continue
         selection = run.get("assetSelection")
-        if selection is None or any(_is_silver(tuple(key["path"]), domain) for key in selection):
+        if not needs_silver or selection is None or any(_is_silver(tuple(key["path"]), domain) for key in selection):
             return str(run["runId"])
     return None
 
@@ -224,9 +258,12 @@ def parse_check_evaluations(pages: Iterable[Mapping[str, Any]]) -> list[CheckEva
     return evaluations
 
 
-def assert_run_checks(evaluations: Sequence[CheckEvaluation], product: Product) -> RunChecks:
-    """Every Silver table carries exactly the five Floe checks, once each, with counts and a report; Gold carries
-    the dbt checks, and no check is evaluated twice."""
+def assert_run_checks(
+    evaluations: Sequence[CheckEvaluation], product: Product, silver_tables: Sequence[str]
+) -> RunChecks:
+    """Every Silver table the product reads (`silver_tables`, none for a product on other products' marts alone)
+    carries exactly the five Floe checks, once each, with counts and a report; no other Silver table is checked;
+    Gold carries the dbt checks, and no check is evaluated twice."""
     domain = product.domain_name
     repeated = sorted(
         f"{'/'.join(a)}:{n}" for (a, n), c in Counter((e.asset, e.name) for e in evaluations).items() if c > 1
@@ -248,11 +285,16 @@ def assert_run_checks(evaluations: Sequence[CheckEvaluation], product: Product) 
             dbt[evaluation.name] = evaluation
         else:
             problems.append(f"check {evaluation.name} on {key}, which is neither {domain} Silver nor {product.id} Gold")
-    if not silver:
+    if silver_tables and not silver:
         problems.append(f"no {domain} Silver table has a Floe check")
     if not dbt:
         problems.append(f"no {product.id} Gold table has a dbt check")
-    for table, found in sorted(silver.items()):
+    problems.extend(
+        f"{domain}/{table} has checks, but {product.id} does not read it"
+        for table in sorted(set(silver) - {*silver_tables})
+    )
+    for table in sorted(silver_tables) if silver else ():
+        found = silver.get(table, {})
         if sorted(found) != sorted(FLOE_CHECK_IDS):
             problems.append(f"{domain}/{table} has checks {sorted(found)}, not the five Floe checks")
         for name, evaluation in sorted(found.items()):
@@ -411,20 +453,24 @@ def case_targets(
     silver_schemas: Mapping[str, str] | None,
     gold_schemas: Mapping[str, str] | None,
     warn_status: OmStatus = OmStatus.ABORTED,
+    floe: bool = True,
 ) -> list[CaseTarget]:
-    """One Floe case on its Silver table and one dbt case on its Gold table, table-level when the run has one.
-    The table FQNs are the provider contract's, built here independently of the publisher's own mapping."""
+    """One Floe case on its Silver table and one dbt case on its Gold table, table-level when the run has one; the
+    dbt case alone when the product reads no Silver (`floe` false). The table FQNs are the provider contract's,
+    built here independently of the publisher's own mapping."""
     publishable = [r for r in manifest.results if om_status(r.outcome) is not None and r.table]
-    floe = sorted(
+    floe_records = sorted(
         (r for r in publishable if r.engine == "floe"), key=lambda r: (r.check_id != "floe_not_null", r.table or "")
     )
     dbt = sorted((r for r in publishable if r.engine == "dbt"), key=lambda r: (r.column is not None, r.check_id))
-    if not floe or not dbt:
-        raise E2EError(f"run {manifest.dagster_run_id} has no publishable Floe and dbt result")
+    if not dbt or (floe and not floe_records):
+        wanted = "Floe and dbt result" if floe else "dbt result"
+        raise E2EError(f"run {manifest.dagster_run_id} has no publishable {wanted}")
     silver_schema = (silver_schemas or {}).get(manifest.domain) or f"{database_fqn}.{manifest.domain}_silver"
     gold_schema = (gold_schemas or {}).get(manifest.product) or f"{database_fqn}.{manifest.product}_gold"
+    cases = [(floe_records[0], silver_schema)] if floe else []
     targets = []
-    for record, schema in ((floe[0], silver_schema), (dbt[0], gold_schema)):
+    for record, schema in (*cases, (dbt[0], gold_schema)):
         table = f"{schema}.{(record.table or '').rsplit('.', 1)[-1]}"
         # OpenMetadata names a column case after the column's FQN (`EntityLink.getFullyQualifiedFieldValue`).
         parent = f"{table}.{record.column}" if record.column else table
@@ -466,7 +512,9 @@ def assert_one_result(target: CaseTarget, found: Sequence[Mapping[str, Any]], wh
     return found[0]
 
 
-def _check_openmetadata_results(cfg: E2EConfig, stage: str, product: Product, manifest: QualityManifest) -> None:
+def _check_openmetadata_results(
+    cfg: E2EConfig, stage: str, product: Product, manifest: QualityManifest, *, floe: bool = True
+) -> None:
     environ = cfg_environ(cfg)
     database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", "", environ=environ)
     if not database_fqn:
@@ -481,7 +529,10 @@ def _check_openmetadata_results(cfg: E2EConfig, stage: str, product: Product, ma
         silver_schemas=silver_schemas,
         gold_schemas=gold_schemas,
         warn_status=warn_status,
+        floe=floe,
     )
+    if not floe:
+        log.info(f"  {product.id} reads no Silver: no Floe case to check in OpenMetadata, only the dbt case.")
     with ops_bucket_client(cfg) as (s3, bucket), openmetadata_client(cfg) as (client, token):
         password = (
             "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ)

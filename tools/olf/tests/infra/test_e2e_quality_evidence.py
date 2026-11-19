@@ -23,6 +23,7 @@ AT = datetime(2026, 11, 19, 10, 30, tzinfo=UTC)
 REPORT = "s3://ops/activations/dev/floe/reports/sales/orders/run.json"
 DBT_TABLE_TEST = "openlakeforge_dbt_unique_combination_of_columns_mart_order_revenue_by_day_order_date__region"
 DBT_COLUMN_TEST = "not_null_mart_order_revenue_by_day_order_date"
+SILVER = ("accounts", "orders")
 FLOE = ("floe_cast_error", "floe_not_null", "floe_unique", "floe_schema_mismatch", "floe_file_status")
 
 
@@ -126,7 +127,7 @@ def test_the_latest_run_that_selected_silver_is_taken_over_a_newer_gold_only_run
 
 
 def test_a_full_run_has_five_floe_checks_per_silver_table_and_dbt_checks_on_gold() -> None:
-    checks = evidence.assert_run_checks(run_checks(), PRODUCT)
+    checks = evidence.assert_run_checks(run_checks(), PRODUCT, SILVER)
 
     assert sorted(checks.silver) == ["accounts", "orders"]
     assert all(sorted(found) == sorted(FLOE) for found in checks.silver.values())
@@ -179,11 +180,13 @@ def test_a_full_run_has_five_floe_checks_per_silver_table_and_dbt_checks_on_gold
 )
 def test_checks_that_are_not_the_expected_evidence_fail(change: Any, message: str) -> None:
     with pytest.raises(E2EError, match=message):
-        evidence.assert_run_checks(change(run_checks()), PRODUCT)
+        evidence.assert_run_checks(change(run_checks()), PRODUCT, SILVER)
 
 
 def test_a_complete_manifest_that_agrees_with_the_run_passes() -> None:
-    evidence.assert_manifest(manifest(), evidence.assert_run_checks(run_checks(), PRODUCT), stage=STAGE, run_id=RUN)
+    evidence.assert_manifest(
+        manifest(), evidence.assert_run_checks(run_checks(), PRODUCT, SILVER), stage=STAGE, run_id=RUN
+    )
 
 
 @pytest.mark.parametrize(
@@ -196,13 +199,13 @@ def test_a_complete_manifest_that_agrees_with_the_run_passes() -> None:
     ],
 )
 def test_a_manifest_that_disagrees_with_the_run_fails(built: Any, kwargs: dict[str, str], message: str) -> None:
-    checks = evidence.assert_run_checks(run_checks(), PRODUCT)
+    checks = evidence.assert_run_checks(run_checks(), PRODUCT, SILVER)
     with pytest.raises(E2EError, match=message):
         evidence.assert_manifest(built(), checks, **{"stage": STAGE, "run_id": RUN, **kwargs})
 
 
 def test_manifest_floe_tables_must_be_the_tables_dagster_checked() -> None:
-    checks = evidence.assert_run_checks(run_checks(("orders",)), PRODUCT)
+    checks = evidence.assert_run_checks(run_checks(("orders",)), PRODUCT, ("orders",))
     with pytest.raises(E2EError, match=r"Floe records name tables \['accounts', 'orders'\]"):
         evidence.assert_manifest(manifest(), checks, stage=STAGE, run_id=RUN)
 
@@ -222,7 +225,7 @@ def test_evidence_lines_carry_outcome_counts_and_a_report_without_a_query() -> N
         for e in checks
     ]
 
-    lines = evidence.evidence_lines(evidence.assert_run_checks(presigned, PRODUCT), manifest(), PRODUCT)
+    lines = evidence.evidence_lines(evidence.assert_run_checks(presigned, PRODUCT, SILVER), manifest(), PRODUCT)
 
     assert (
         "floe_not_null on sales_silver.orders: passed, rows=100, accepted=98, rejected=2, violations=2, "
@@ -430,7 +433,7 @@ def aliased_manifest() -> QualityManifest:
 
 
 def test_a_dbt_record_on_an_aliased_model_matches_the_model_dagster_checked() -> None:
-    checks = evidence.assert_run_checks(run_checks(), PRODUCT)
+    checks = evidence.assert_run_checks(run_checks(), PRODUCT, SILVER)
     dbt_manifest = {
         "nodes": {
             "model.p.mart_order_revenue_by_day": {
@@ -470,3 +473,96 @@ def test_the_openmetadata_case_of_an_aliased_model_is_on_its_physical_table() ->
     )
 
     assert dbt.fqn == f'lakehouse.lakehouse_dev.order_revenue_gold.revenue_by_day_v2."olf.dbt.{DBT_TABLE_TEST}"'
+
+
+class FakeJobClient:
+    def __init__(self, assets: list[list[str]]) -> None:
+        self.assets = assets
+        self.selector: dict[str, str] = {}
+
+    def discover_repository(self, job_name: str) -> tuple[str, str]:
+        return "order_revenue_location", "__repository__"
+
+    def graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        self.selector = variables["selector"]
+        return {"assetNodes": [{"assetKey": {"path": path}} for path in self.assets]}
+
+
+def test_the_silver_tables_are_those_the_deployed_job_selects() -> None:
+    client = FakeJobClient([["shop", "orders"], ["sales", "orders"], ["sales", "accounts"], ["order_revenue", "m"]])
+
+    assert evidence.product_silver_tables(client, PRODUCT) == ("accounts", "orders")  # type: ignore[arg-type]
+    assert client.selector == {
+        "pipelineName": "order_revenue_pipeline",
+        "repositoryName": "__repository__",
+        "repositoryLocationName": "order_revenue_location",
+    }
+    gold_only = FakeJobClient([["order_revenue", "forecast"]])
+    assert evidence.product_silver_tables(gold_only, PRODUCT) == ()  # type: ignore[arg-type]
+    with pytest.raises(E2EError, match="no assets"):
+        evidence.product_silver_tables(FakeJobClient([]), PRODUCT)  # type: ignore[arg-type]
+
+
+def test_a_product_without_silver_takes_its_latest_run_whatever_it_selected() -> None:
+    runs = [
+        {"runId": "failed", "status": "FAILURE", "assetSelection": None},
+        {"runId": "gold-only", "status": "SUCCESS", "assetSelection": [{"path": ["order_revenue", "mart_a"]}]},
+    ]
+
+    assert evidence.pick_full_run(runs, "sales", needs_silver=False) == "gold-only"
+    assert evidence.pick_full_run(runs, "sales") is None
+
+
+def dbt_only_manifest() -> QualityManifest:
+    return QualityManifest(
+        STAGE, "sales", "order_revenue", RUN, tuple(r for r in manifest().results if r.engine == "dbt"), complete=True
+    )
+
+
+def test_a_product_without_silver_passes_on_dbt_evidence_alone() -> None:
+    dbt_only = [e for e in run_checks() if e.asset[0] != "sales"]
+
+    checks = evidence.assert_run_checks(dbt_only, PRODUCT, ())
+    evidence.assert_manifest(dbt_only_manifest(), checks, stage=STAGE, run_id=RUN)
+
+    assert checks.silver == {}
+    lines = evidence.evidence_lines(checks, dbt_only_manifest(), PRODUCT)
+    assert len(lines) == 2
+    assert all(line.startswith("dbt ") for line in lines)
+
+
+def test_a_product_without_silver_still_needs_its_dbt_checks_and_no_floe_checks() -> None:
+    with pytest.raises(E2EError, match="no order_revenue Gold table has a dbt check"):
+        evidence.assert_run_checks([], PRODUCT, ())
+    with pytest.raises(E2EError, match="sales/orders has checks, but order_revenue does not read it"):
+        evidence.assert_run_checks(run_checks(("orders",)), PRODUCT, ())
+    checks = evidence.assert_run_checks([e for e in run_checks() if e.asset[0] != "sales"], PRODUCT, ())
+    with pytest.raises(E2EError, match="Floe records name tables"):
+        evidence.assert_manifest(manifest(), checks, stage=STAGE, run_id=RUN)
+
+
+def test_a_product_with_silver_still_needs_all_five_floe_checks_on_each_table() -> None:
+    without_unique = [e for e in run_checks() if (e.asset, e.name) != (("sales", "accounts"), "floe_unique")]
+    with pytest.raises(E2EError, match=r"sales/accounts has checks .*, not the five Floe checks"):
+        evidence.assert_run_checks(without_unique, PRODUCT, SILVER)
+    with pytest.raises(E2EError, match=r"sales/accounts has checks \[\], not the five Floe checks"):
+        evidence.assert_run_checks(run_checks(("orders",)), PRODUCT, SILVER)
+    with pytest.raises(E2EError, match="no sales Silver table has a Floe check"):
+        evidence.assert_run_checks([e for e in run_checks() if e.asset[0] != "sales"], PRODUCT, SILVER)
+
+
+def test_the_openmetadata_targets_are_the_dbt_case_alone_without_silver() -> None:
+    schemas: dict[str, Any] = {"database_fqn": "lakehouse.lakehouse_dev", "silver_schemas": None, "gold_schemas": None}
+
+    [dbt] = evidence.case_targets(dbt_only_manifest(), floe=False, **schemas)
+    assert dbt.fqn == f'lakehouse.lakehouse_dev.order_revenue_gold.mart_order_revenue_by_day."olf.dbt.{DBT_TABLE_TEST}"'
+    with pytest.raises(E2EError, match="no publishable Floe and dbt result"):
+        evidence.case_targets(dbt_only_manifest(), **schemas)
+    floe, with_silver_dbt = evidence.case_targets(manifest(), **schemas)
+    assert floe.fqn == 'lakehouse.lakehouse_dev.sales_silver.accounts."olf.floe.floe_not_null"'
+    assert with_silver_dbt == dbt
+    without_dbt = QualityManifest(
+        STAGE, "sales", "order_revenue", RUN, tuple(r for r in manifest().results if r.engine == "floe")
+    )
+    with pytest.raises(E2EError, match="no publishable dbt result"):
+        evidence.case_targets(without_dbt, floe=False, **schemas)
