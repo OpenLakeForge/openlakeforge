@@ -102,6 +102,9 @@ for _name, _value in dbt_environment().items():
 # commits to one table, where the loser fails or replaces the winner's snapshot. The limit is per domain rather than
 # per table because Floe's Job is one per domain, and it holds however many products a domain has.
 SILVER_DOMAIN_TAG = "openlakeforge/silver-domain"
+# The product the job loads, beside its domain: the platform API maps a job to its domain and product from these two
+# definition tags (#1272), so nothing parses the job name. A job without them belongs to no product.
+PRODUCT_TAG = "openlakeforge/product"
 
 _STAGE_ENV = "OPENLAKEFORGE_STAGE"
 # Only PROD carries the recurring-schedule scaffold. DEV and UAT stay manual:
@@ -617,7 +620,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             ).required_multi_asset_neighbors()
         ),
         executor_def=in_process_executor,
-        tags={**_bronze_source_binding_tags(inputs), SILVER_DOMAIN_TAG: spec.domain},
+        tags={**_bronze_source_binding_tags(inputs), SILVER_DOMAIN_TAG: spec.domain, PRODUCT_TAG: spec.product},
         hooks=_quality_manifest_hooks(spec, inputs.silver_inputs),
     )
 
