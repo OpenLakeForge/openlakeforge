@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 import tomllib
 from dataclasses import replace
@@ -341,6 +342,36 @@ def test_an_unreadable_dagster_leaves_domain_and_product_null_and_still_answers(
     found = _only(api, mint)
 
     assert (found["job"], found["domain"], found["product"]) == (JOB, None, None)
+
+
+def test_a_stalled_dagster_never_holds_the_workers_the_alert_state_is_read_with(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, mint: Mint, bucket: FakeBucket
+) -> None:
+    release = threading.Event()
+
+    def stalled(self: object) -> list[object]:
+        release.wait(5)
+        return []
+
+    monkeypatch.setattr(alert_routes, "READ_DEADLINE_SECONDS", 0.2)
+    monkeypatch.setattr(alert_routes.DagsterClient, "list_jobs", stalled)
+    dagster = FakeDagster()
+    api = TestClient(
+        create_app(
+            _api_settings(settings, alerts_state_base_uri=BASE, dagster_graphql_urls={"dev": f"{dagster.url}/graphql"}),
+            alert_state_store=bucket,
+        )
+    )
+    _write(bucket, AlertState(incidents=(_incident(),)))
+    try:
+        # More stalled job reads than the state reader has workers: each request still reads the state.
+        answers = [_get(api, mint) for _ in range(3)]
+    finally:
+        release.set()
+        dagster.close()
+
+    assert [body["state"]["status"] for body in answers] == ["available"] * 3
+    assert [(body["incidents"][0]["domain"], body["incidents"][0]["product"]) for body in answers] == [(None, None)] * 3
 
 
 def test_no_incidents_is_an_empty_list_only_from_a_fresh_state(api: TestClient, mint: Mint, bucket: FakeBucket) -> None:

@@ -44,6 +44,9 @@ READ_DEADLINE_SECONDS = 10.0
 MAX_STATE_BYTES = 16 * 1024 * 1024
 _MISSING = frozenset({"NoSuchKey", "404"})
 _READS = ThreadPoolExecutor(max_workers=2, thread_name_prefix="alert-state-read")
+# The optional Dagster job read has its own workers: a stalled Dagster keeps a call running past the deadline (its
+# client's own timeout is longer), and it must never hold the workers the alert state is read with.
+_JOB_READS = ThreadPoolExecutor(max_workers=2, thread_name_prefix="alert-job-read")
 
 StateName = Literal["available", "unavailable", "not_provided"]
 
@@ -62,7 +65,7 @@ class _Missing(Exception):
     pass
 
 
-def _bounded[T](read: Callable[[], T]) -> T:
+def _bounded[T](read: Callable[[], T], pool: ThreadPoolExecutor = _READS) -> T:
     expires = time.monotonic() + READ_DEADLINE_SECONDS
 
     def run() -> T:
@@ -71,7 +74,7 @@ def _bounded[T](read: Callable[[], T]) -> T:
             raise _Unavailable("the read was dropped: its caller had stopped waiting")
         return read()
 
-    answer = _READS.submit(run)
+    answer = pool.submit(run)
     try:
         return answer.result(timeout=READ_DEADLINE_SECONDS)
     except FutureTimeout as exc:
@@ -147,7 +150,7 @@ def _job_scopes(request: Request, stage: str) -> dict[str, JobScope]:
     if not url:
         return {}
     try:
-        jobs = _bounded(lambda: DagsterClient(url).list_jobs())
+        jobs = _bounded(lambda: DagsterClient(url).list_jobs(), _JOB_READS)
     except (_Unavailable, ServiceClientError) as exc:
         log.warning("the jobs of stage %s could not be read for incident scopes: %s", stage, exc)
         return {}
