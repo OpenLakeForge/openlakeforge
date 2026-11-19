@@ -5,15 +5,18 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from conftest import Mint
 from fastapi.testclient import TestClient
 from openlakeforge_core import Signal
+from openlakeforge_core.metrics import RANGES
 from test_reads import MAPPED, MAPPED_JOBS, UNREACHABLE, FakeDagster, _as, _settings
 
 from openlakeforge_platform_api.app import create_app
+from openlakeforge_platform_api.models import MetricRangeName
+from openlakeforge_platform_api.pipeline_health import RUN_CAP, RUN_WINDOW
 from openlakeforge_platform_api.service_probes import StageTargets
 from openlakeforge_platform_api.settings import Settings, SettingsError
 
@@ -43,6 +46,10 @@ class ScheduledDagster(FakeDagster):
         if "query Schedules" in query:
             repository = {"schedules": self.schedules}
             return {"repositoriesOrError": {"__typename": "RepositoryConnection", "nodes": [repository]}}
+        created_after = variables.get("filter", {}).get("createdAfter")
+        if "query Runs" in query and created_after is not None:
+            runs = [run for run in self.runs if run["creationTime"] > created_after][: variables["limit"]]
+            return {"runsOrError": {"__typename": "Runs", "results": runs}}
         return super().answer(query, variables)
 
 
@@ -150,7 +157,9 @@ def test_a_failed_latest_run_is_critical_and_rolls_up_to_the_stage(
     stage = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
 
     assert stage["state"] == "critical"
-    assert stage["pipelines"] == [{"job": "orders_job", "domain": None, "product": None, "state": "critical"}]
+    assert stage["pipelines"] == [
+        {"job": "orders_job", "domain": None, "product": None, "state": "critical", "failed_runs": 1}
+    ]
 
 
 def test_a_stopped_scheduler_after_yesterdays_run_is_critical_once_todays_run_is_overdue(
@@ -163,7 +172,9 @@ def test_a_stopped_scheduler_after_yesterdays_run_is_critical_once_todays_run_is
     assert _expected_run(api, mint)["state"] == "critical"
     stage = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
     assert stage["state"] == "critical"
-    assert stage["pipelines"] == [{"job": "orders_job", "domain": None, "product": None, "state": "critical"}]
+    assert stage["pipelines"] == [
+        {"job": "orders_job", "domain": None, "product": None, "state": "critical", "failed_runs": 0}
+    ]
 
 
 def test_a_schedule_within_its_grace_period_is_not_yet_critical(
@@ -451,7 +462,10 @@ def test_an_unreachable_dagster_is_unknown_and_unavailable_with_no_error_text(se
         "status": "unavailable",
         "reason": "Dagster could not be read",
     }
-    assert api.get(PIPELINES, headers=_as(mint, "data-engineer")).json()["pipelines"] == []
+    assert stage.json()["failed_runs"] is None
+    pipelines = api.get(PIPELINES, headers=_as(mint, "data-engineer")).json()
+    assert pipelines["pipelines"] == []
+    assert pipelines["failed_runs"] is None
 
 
 def test_a_stage_with_no_dagster_is_disabled_for_stage_health_and_absent_for_pipelines(
@@ -463,6 +477,7 @@ def test_a_stage_with_no_dagster_is_disabled_for_stage_health_and_absent_for_pip
 
     assert stage["state"] == "unknown"
     assert stage["integrations"][0]["status"] == "disabled"
+    assert stage["failed_runs"] is None
     assert api.get("/api/v1/stages/prod/health/pipelines", headers=headers).status_code == 404
 
 
@@ -476,3 +491,99 @@ def test_a_stopped_schedule_is_a_mismatch_only_when_the_cadence_declares_it_runn
     dagster.schedules = [_schedule(status, 2 * HOUR, declared=declared)]
 
     assert _expected_run(api, mint)["state"] == expected
+
+
+def _window_of(api: TestClient, mint: Mint, path: str, range_name: str) -> dict[str, Any]:
+    response = api.get(f"{path}?range={range_name}", headers=_as(mint, "data-engineer"))
+    assert response.status_code == 200
+    body: dict[str, Any] = response.json()
+    return body
+
+
+def test_the_range_scopes_the_failed_run_counts_and_never_the_state(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [
+        _run("r4", "SUCCESS", 600),
+        _run("r3", "FAILURE", 1800),
+        _run("r2", "FAILURE", 3 * HOUR),
+        _run("r1", "FAILURE", 2 * 24 * HOUR),
+    ]
+    expected = {"1h": 1, "6h": 2, "24h": 2, "7d": 3}
+    signals: list[list[tuple[str, str]]] = []
+
+    for range_name, failed in expected.items():
+        stage = _window_of(api, mint, STAGE, range_name)
+        pipelines = _window_of(api, mint, PIPELINES, range_name)
+        (pipeline,) = pipelines["pipelines"]
+        assert stage["state"] == "healthy"
+        assert stage["pipelines"][0]["state"] == pipeline["state"] == "healthy"
+        signals.append([(signal["kind"], signal["state"]) for signal in pipeline["signals"]])
+        assert stage["failed_runs"] == stage["pipelines"][0]["failed_runs"] == failed
+        assert pipelines["failed_runs"] == pipeline["failed_runs"] == failed
+        assert pipeline["covered_from"] is None
+        for body in (stage, pipelines):
+            window = body["window"]
+            assert window["range"] == range_name
+            assert window["covered_from"] is None
+            assert window["to"] == body["evaluated_at"]
+            span = datetime.fromisoformat(window["to"]) - datetime.fromisoformat(window["from"])
+            assert span == RANGES[range_name].duration
+    assert all(each == signals[0] for each in signals)
+
+
+def test_the_default_range_is_24h(api: TestClient, mint: Mint, dagster: ScheduledDagster) -> None:
+    dagster.runs = [_run("r2", "SUCCESS", 600), _run("r1", "FAILURE", 2 * 24 * HOUR)]
+
+    stage = api.get(STAGE, headers=_as(mint, "data-engineer")).json()
+
+    assert stage["window"]["range"] == "24h"
+    assert stage["failed_runs"] == 0
+
+
+def test_a_window_holding_more_runs_than_a_jobs_own_read_is_counted_whole(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    failures = [_run(f"f{index}", "FAILURE", 2 * HOUR + index) for index in range(RUN_WINDOW + 5)]
+    dagster.runs = [_run("latest", "SUCCESS", 600), *failures]
+
+    body = _window_of(api, mint, PIPELINES, "24h")
+
+    (pipeline,) = body["pipelines"]
+    assert pipeline["failed_runs"] == RUN_WINDOW + 5
+    assert pipeline["covered_from"] is None
+    assert body["window"]["covered_from"] is None
+
+
+def test_a_job_with_more_runs_than_the_read_bound_reports_where_its_count_starts(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    # RUN_CAP failures in the last hours, and one more failure and an older one still in the 24 h window.
+    recent = [_run(f"f{index}", "FAILURE", 60 + index) for index in range(RUN_CAP)]
+    dagster.runs = [*recent, _run("hidden", "FAILURE", 10 * HOUR), _run("old", "SUCCESS", 20 * HOUR)]
+    oldest_read = datetime.fromtimestamp(NOW - 60 - (RUN_CAP - 1), UTC)
+
+    stage = _window_of(api, mint, STAGE, "24h")
+    body = _window_of(api, mint, PIPELINES, "24h")
+
+    (pipeline,) = body["pipelines"]
+    assert pipeline["failed_runs"] == RUN_CAP
+    assert datetime.fromisoformat(pipeline["covered_from"]) == oldest_read
+    assert datetime.fromisoformat(body["window"]["covered_from"]) == oldest_read
+    assert datetime.fromisoformat(stage["window"]["covered_from"]) == oldest_read
+    assert stage["failed_runs"] == RUN_CAP
+
+
+@pytest.mark.parametrize("path", [STAGE, PIPELINES])
+@pytest.mark.parametrize("range_name", ["30d", "2h", "", "24H"])
+def test_a_range_outside_the_vocabulary_is_a_400(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster, path: str, range_name: str
+) -> None:
+    response = api.get(f"{path}?range={range_name}", headers=_as(mint, "data-engineer"))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "range must be one of 1h, 6h, 24h, 7d"
+
+
+def test_the_health_window_takes_the_metrics_routes_range_vocabulary() -> None:
+    assert get_args(MetricRangeName) == tuple(RANGES)

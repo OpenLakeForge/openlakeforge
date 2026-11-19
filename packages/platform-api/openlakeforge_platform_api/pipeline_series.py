@@ -18,16 +18,15 @@ from openlakeforge_core.health import RunStatus
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient, DagsterRun
 
-from openlakeforge_platform_api.pipeline_health import RUN_STATUS, at
+from openlakeforge_platform_api.pipeline_health import RUN_CAP, RUN_STATUS, at
 
 log = logging.getLogger(__name__)
 
 PIPELINE_RUNS = "pipeline_runs"
 PIPELINE_RUN_DURATION_SECONDS = "pipeline_run_duration_seconds"
 PIPELINE_SERIES = (PIPELINE_RUNS, PIPELINE_RUN_DURATION_SECONDS)
-# The read bound of ADR 0024, decision 2: the longest range the metrics routes accept, and runs per stage.
+# The read bound of ADR 0024, decision 2: the longest range the metrics routes accept, and RUN_CAP runs per stage.
 MAX_RANGE = timedelta(days=7)
-RUN_CAP = 500
 
 SeriesState = Literal["available", "disabled", "unavailable"]
 Point = tuple[datetime, float | None]

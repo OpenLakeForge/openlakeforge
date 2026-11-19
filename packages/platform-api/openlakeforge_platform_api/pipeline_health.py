@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 from openlakeforge_core.alert_policy import (
@@ -51,8 +51,12 @@ RUN_MAX_AGE = timedelta(days=7)
 SCHEDULE_MAX_AGE = timedelta(minutes=5)
 # Dagster's scheduler ticks once a minute and a run is created after the tick; this leaves room for a slow queue.
 SCHEDULE_GRACE = DEFAULT_GRACE
-# Runs read per pipeline: enough to find a recent success and count failures without paging.
+# Runs read per pipeline for its signals: enough to find a recent success without paging. A `range` never changes it,
+# so the same runs give the same state whatever window a caller asks for.
 RUN_WINDOW = 25
+# The bound of every stage-wide read of runs created since a time (ADR 0024, decision 2): the pipeline series, and a
+# health window that a job's own RUN_WINDOW runs do not reach back to.
+RUN_CAP = 500
 
 RUN_STATUS = {
     "SUCCESS": RunStatus.SUCCEEDED,
@@ -102,6 +106,15 @@ class QualityEvidence:
 
 
 @dataclass(frozen=True)
+class RunWindow:
+    """A job's runs created after `since`, counted. `covered_from` is set when the bounded reads stopped short of
+    `since`: only runs created from then on were seen, so `failed_runs` is a count over that shorter span."""
+
+    failed_runs: int
+    covered_from: datetime | None
+
+
+@dataclass(frozen=True)
 class PipelineEvaluation:
     job: str
     runs: list[DagsterRun]
@@ -114,6 +127,8 @@ class PipelineEvaluation:
     # From the job definition's tags (`job_scope`); not part of the signals' scope, which stays keyed by job.
     domain: str | None = None
     product: str | None = None
+    # Set only when the caller asked for a window (`read_stage_pipelines(since=...)`); it never feeds the signals.
+    window: RunWindow | None = None
 
     @property
     def state(self) -> HealthState:
@@ -319,18 +334,46 @@ def _evaluate(
     return PipelineEvaluation(job, runs, schedule, due, signals, evidence, domain=mapped.domain, product=mapped.product)
 
 
+def _reaches(runs: list[DagsterRun], since: datetime) -> bool:
+    """Whether a job's RUN_WINDOW read holds every run of it created after `since`."""
+    return len(runs) < RUN_WINDOW or min(run.created_at for run in runs) <= since.timestamp()
+
+
+def _window(job: str, runs: list[DagsterRun], stage_runs: list[DagsterRun] | None, since: datetime) -> RunWindow:
+    """The job's runs created after `since`, from its own read and, where that stops short, the stage-wide one.
+
+    Each read is complete from its oldest run on, the job's for that job and the stage's for every job, so together
+    they cover the job from the older of the two. Creation time places a run, as in the pipeline series.
+    """
+    seen = {run.run_id: run for run in runs}
+    covered_from: datetime | None = None
+    # `read_stage_pipelines` reads the stage's runs whenever a job's own read stops short, so None means it reaches.
+    if stage_runs is not None and not _reaches(runs, since):
+        seen.update((run.run_id, run) for run in stage_runs if run.job_name == job)
+        if len(stage_runs) >= RUN_CAP:
+            oldest = at(min(run.created_at for run in [*runs, *stage_runs]))
+            covered_from = oldest if oldest > since else None
+    failed = sum(run.status == "FAILURE" and run.created_at > since.timestamp() for run in seen.values())
+    return RunWindow(failed, covered_from)
+
+
 def read_stage_pipelines(
     client: DagsterClient | None,
     stage: str,
     now: datetime,
     quality: QualityReader | None = None,
     policy: ResolvedPolicy | None = None,
+    since: datetime | None = None,
 ) -> tuple[IntegrationStatus, list[PipelineEvaluation]]:
     """The stage's pipelines, and whether Dagster could be read; an unreadable Dagster yields no pipelines.
 
     With a `quality` reader each product pipeline with a run also carries a quality signal; without one, none.
     With a `policy` each job takes its grace and freshness bounds from the rule that wins for it (ADR 0023, decision
     8); the health routes pass none and keep the cadence-derived signals.
+
+    With `since` each pipeline also carries its `window`, counted from the same reads plus, only when some job's own
+    read does not reach back to `since`, one stage-wide read of the runs created after it, capped at RUN_CAP. The
+    signals are evaluated from the job's RUN_WINDOW runs either way, so the window never changes a state.
     """
     if client is None:
         absent = IntegrationStatus(name="dagster", status="disabled", reason="no Dagster is configured for this stage")
@@ -341,6 +384,11 @@ def read_stage_pipelines(
         tags = {job.name: job.tags for job in listed}
         schedules = client.list_schedules()
         runs = {job: client.list_runs(job_name=job, limit=RUN_WINDOW) for job in jobs}
+        stage_runs = (
+            client.list_runs_created_after(since.timestamp(), limit=RUN_CAP)
+            if since is not None and not all(_reaches(runs[job], since) for job in jobs)
+            else None
+        )
     except ServiceClientError as exc:
         # The service's own message goes to the log, not the caller: a Dagster PythonError can carry a stack trace.
         log.warning("Dagster for stage %s could not be read for health: %s", stage, exc)
@@ -355,4 +403,9 @@ def read_stage_pipelines(
         )
         for job in jobs
     ]
+    if since is not None:
+        pipelines = [
+            replace(pipeline, window=_window(pipeline.job, runs[pipeline.job], stage_runs, since))
+            for pipeline in pipelines
+        ]
     return IntegrationStatus(name="dagster", status="available", reason="read from Dagster"), pipelines
