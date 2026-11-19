@@ -3,7 +3,14 @@ from typing import Any
 
 import pytest
 from openlakeforge_services.base import ServiceClientError
-from openlakeforge_services.dagster import DagsterClient, DagsterJob, DagsterRun, DagsterSchedule
+from openlakeforge_services.dagster import (
+    DagsterClient,
+    DagsterError,
+    DagsterFailure,
+    DagsterJob,
+    DagsterRun,
+    DagsterSchedule,
+)
 
 
 def _client(response: Mapping[str, Any], sent: list[Mapping[str, Any] | None] | None = None) -> DagsterClient:
@@ -262,3 +269,34 @@ def test_reloading_a_location_the_webserver_does_not_know_is_an_error() -> None:
 
     with pytest.raises(ServiceClientError, match="could not reload code location sales-dagster: no such location"):
         client.reload_location_image("sales-dagster")
+
+
+def test_run_failures_reads_failed_steps_with_their_cause_chain_and_the_runs_own_failure_in_order() -> None:
+    step = {
+        "stepKey": "silver_sales",
+        "error": {
+            "message": 'Error occurred while executing op "silver_sales":',
+            "className": "DagsterExecutionStepExecutionError",
+            "cause": {"message": "orders.amount expected decimal", "className": "FloeSchemaMismatch", "cause": None},
+        },
+    }
+    events = [{"message": "Run worker pod terminated: OOMKilled"}, {}, step]
+    client = _client({"logsForRun": {"__typename": "EventConnection", "events": events}})
+
+    assert client.run_failures("run-1") == [
+        DagsterFailure(None, (DagsterError("Run worker pod terminated: OOMKilled", None),)),
+        DagsterFailure(
+            "silver_sales",
+            (
+                DagsterError('Error occurred while executing op "silver_sales":', "DagsterExecutionStepExecutionError"),
+                DagsterError("orders.amount expected decimal", "FloeSchemaMismatch"),
+            ),
+        ),
+    ]
+
+
+def test_run_failures_reports_an_event_log_dagster_could_not_read() -> None:
+    client = _client({"logsForRun": {"__typename": "RunNotFoundError", "message": "run run-1 not found"}})
+
+    with pytest.raises(ServiceClientError, match="event log of run run-1: run run-1 not found"):
+        client.run_failures("run-1")
