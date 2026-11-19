@@ -837,3 +837,9 @@ floor, read-only and not audited, with no acknowledgement: the stage's open inci
 object-store identity, the alert state key (`Read` and `List` on `alerts/state/*`), joins decision 3's list and the
 service table. A missing, unreadable or unparsable state is `unavailable` with no incidents, and a state older than two
 evaluator runs is `stale`. The read is held to a 10-second deadline, and the API never writes the state.
+
+2026-11-19: #1273. `HealthSignal` gains `due`, additive and nullable on the same path version (decision 5): the
+occurrence the core signal judged, copied from it. Only `expected_run` sets it, and only when a run was actually
+expected at that occurrence; it is null on every other kind and on an `expected_run` that judged none, and is never
+filled from `schedule.last_expected_at` or `observed_at`. Freshness does not set it, so ADR 0023 is unchanged.
+`get_stage_health` and the alert evaluator are unchanged.

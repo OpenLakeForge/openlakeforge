@@ -192,6 +192,9 @@ class HealthSignal(BaseModel):
     run: str | None
     observed_at: datetime | None
     expires_at: datetime | None
+    # The occurrence the signal judged: set by the core signal on `expected_run` when a run was actually expected,
+    # null on every other kind. Never `schedule.last_expected_at` or `observed_at` standing in for it.
+    due: datetime | None
 
 
 class HealthThresholds(BaseModel):
