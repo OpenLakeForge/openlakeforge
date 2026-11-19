@@ -111,13 +111,17 @@ OpenMetadata is a consumer of that record and never reruns Floe or dbt.
   `<catalog service>.lakehouse_<stage>.<schema>.<table>`, built from the
   stage the manifest was written for. The reconciler looks the table up and
   publishes only when it exists; an unregistered table keeps the result
-  pending until registration, and nothing is created implicitly. A DEV
+  pending, retried with backoff, and nothing is created implicitly. After
+  `MAX_ATTEMPTS` (10) the result is `failed` until a replay with
+  `--retry-failed` ([limits](#openmetadata-1136-compatibility-limits)). A DEV
   manifest can name only DEV FQNs.
 - **Stable cases, one result per execution.** A case is named from the engine
   and the check id and lives under the table (or column) it checks, so a
   second run adds a result to the same case. The result's timestamp is the
   engine's observation time in milliseconds, which also makes a replay find the
-  result already there.
+  result already there; a result whose `olf_identity` value matches within 24
+  hours also counts, so a manifest restamped for the same execution adds
+  nothing.
 - **Statuses.** OpenMetadata knows `Success`, `Failed` and `Aborted`. PASS is
   `Success` and a blocking ERROR is `Failed`. An advisory WARN cannot be
   `Success`, which would hide it, and `Failed` opens an incident
@@ -257,4 +261,6 @@ APIs from the manifests in the ops bucket, after the run; lineage stays
 native, and no proxy is added.
 
 2026-11-19 (#346): the OpenMetadata 1.13.6 limits the quality publisher works
-around, and the routes it calls, are listed; no decision changes.
+around, and the routes it calls, are listed; no decision changes. The
+existing-tables bullet is corrected to match the code: a result that never
+finds its table ends `failed` after 10 attempts.
