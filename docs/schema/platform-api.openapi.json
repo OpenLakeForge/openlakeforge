@@ -538,6 +538,18 @@
       },
       "HealthSignal": {
         "properties": {
+          "due": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due"
+          },
           "expires_at": {
             "anyOf": [
               {
@@ -607,7 +619,8 @@
           "reason",
           "run",
           "observed_at",
-          "expires_at"
+          "expires_at",
+          "due"
         ],
         "title": "HealthSignal",
         "type": "object"

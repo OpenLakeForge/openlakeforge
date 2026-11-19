@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -141,6 +142,23 @@ def test_expected_run_compares_the_schedule_with_its_declared_status(
     states = {signal.kind.value: signal.state.value for signal in evaluation.signals}
 
     assert states["expected_run"] == expected
+
+
+def test_a_missed_runs_expected_run_signal_carries_the_cron_occurrence_and_no_other_signal_has_one() -> None:
+    evaluation = _evaluate("dev", "orders_job", [_success(_utc(15, 9, 5))], _schedule("0 9 * * *"), _utc(16, 12))
+    dues = {signal.kind.value: signal.due for signal in evaluation.signals}
+
+    assert dues.pop("expected_run") == _utc(16, 9)
+    assert dues == dict.fromkeys(["execution", "latest_success", "freshness"])
+
+
+def test_a_schedule_switched_on_after_its_occurrence_has_no_due_on_the_signal_but_keeps_its_last_expected_at() -> None:
+    schedule = replace(_schedule("0 9 * * *"), started_at=_utc(16, 10).timestamp())
+    evaluation = _evaluate("dev", "orders_job", [_success(_utc(15, 9, 5))], schedule, _utc(16, 12))
+    expected_run = next(signal for signal in evaluation.signals if signal.kind.value == "expected_run")
+
+    assert expected_run.due is None
+    assert evaluation.due == _utc(16, 9)
 
 
 def _conditions(**when: object):

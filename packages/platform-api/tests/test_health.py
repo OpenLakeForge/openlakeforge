@@ -231,6 +231,56 @@ def test_a_cron_that_cannot_be_read_is_unknown_not_healthy(
     assert _expected_run(api, mint)["state"] == "unknown"
 
 
+def test_a_missed_runs_expected_run_signal_carries_the_cron_occurrence_and_no_other_kind_has_a_due(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", 22 * HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 2 * HOUR, tick_age=22 * HOUR)]
+    # The cron names the due minute, so the occurrence is that minute's start.
+    occurrence = datetime.fromtimestamp(NOW - 2 * HOUR, UTC).replace(second=0, microsecond=0)
+
+    (pipeline,) = api.get(PIPELINES, headers=_as(mint, "data-engineer")).json()["pipelines"]
+    states = {signal["kind"]: signal["state"] for signal in pipeline["signals"]}
+    dues = {signal["kind"]: signal["due"] for signal in pipeline["signals"]}
+
+    assert states["expected_run"] == "critical"
+    assert datetime.fromisoformat(dues.pop("expected_run")) == occurrence
+    assert dues == dict.fromkeys(["execution", "latest_success", "freshness"])
+
+
+def test_a_schedule_switched_on_after_its_occurrence_gives_no_due_while_the_schedule_keeps_its_last_expected_at(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", 30 * HOUR)]
+    dagster.schedules = [_schedule("RUNNING", 2 * HOUR, started_age=HOUR)]
+
+    (pipeline,) = api.get(PIPELINES, headers=_as(mint, "data-engineer")).json()["pipelines"]
+
+    assert next(signal for signal in pipeline["signals"] if signal["kind"] == "expected_run")["due"] is None
+    assert pipeline["schedule"]["last_expected_at"] is not None
+
+
+@pytest.mark.parametrize(
+    ("schedules", "state"),
+    [
+        # Running, but no tick and no start time: nothing shows the schedule was on when its run came due.
+        ([_schedule("RUNNING", 2 * HOUR)], "unknown"),
+        ([_schedule("STOPPED", 2 * HOUR)], "disabled"),
+        ([], "disabled"),
+    ],
+    ids=["unknown", "stopped", "absent"],
+)
+def test_an_expected_run_that_judged_no_occurrence_has_no_due(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster, schedules: list[dict[str, Any]], state: str
+) -> None:
+    dagster.runs = [_run("r1", "SUCCESS", 30 * HOUR)]
+    dagster.schedules = schedules
+
+    expected_run = _expected_run(api, mint)
+
+    assert (expected_run["state"], expected_run["due"]) == (state, None)
+
+
 def test_a_daily_pipeline_with_a_success_since_the_previous_due_time_is_fresh(
     api: TestClient, mint: Mint, dagster: ScheduledDagster
 ) -> None:

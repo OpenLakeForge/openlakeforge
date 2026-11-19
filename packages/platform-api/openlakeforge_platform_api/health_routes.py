@@ -100,6 +100,7 @@ def _signal(signal: Signal) -> HealthSignal:
         run=signal.run,
         observed_at=signal.observed_at,
         expires_at=signal.expires_at,
+        due=signal.due,
     )
 
 
