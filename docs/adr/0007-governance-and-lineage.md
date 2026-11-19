@@ -165,8 +165,9 @@ The routes the publisher calls, and no others:
 | `GET` | `/api/v1/dataQuality/testCases/testCaseResults/{case FQN}?startTs=&endTs=` | Whether this execution is already there |
 | `POST` | `/api/v1/dataQuality/testCases/testCaseResults/{case FQN}` | Add the result |
 
-FQNs in a path are percent-encoded whole (`quote(fqn, safe="")`), quotes and
-dots included. When results wait or give up, the re-sync runbook is
+FQNs in a path are percent-encoded whole (`quote(fqn, safe="")`), so the quotes
+and slashes of a name are escaped. When results wait or give up, the re-sync
+runbook is
 [service health § quality-sync.publication](../guides/operations/service-health.md#quality-syncpublication);
 the state and summary objects are described in
 [health signals](../reference/health-signals.md#quality-publication-to-openmetadata).
