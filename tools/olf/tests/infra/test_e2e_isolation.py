@@ -206,6 +206,27 @@ def test_a_breach_in_one_pair_fails_the_check_after_probing_every_pair(
     assert statuses[("uat", "object-storage")] == "passed"
 
 
+def test_a_kubectl_failure_in_one_probe_is_recorded_and_the_other_pairs_still_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A sibling whose Dagster has no Ready endpoint fails its port-forward with KubectlError, not E2EError."""
+    _cluster(monkeypatch, ("dev", "uat", "prod"))
+
+    def _dagster(_cfg, _stage: str, other: str) -> None:  # noqa: ANN001
+        if other == "prod":
+            raise _isolation.k8s.KubectlError("kubectl port-forward exited before localhost:3000 became ready.")
+
+    monkeypatch.setattr(_isolation, "check_dagster_state_isolation", _dagster)
+
+    with pytest.raises(E2EError, match=r"dagster-runs \(dev -> prod\): kubectl port-forward exited"):
+        _isolation.check_stage_isolation(_stage_cfg(tmp_path, "dev"))
+
+    results = {(r["other_stage"], r["probe"]): r for r in _report(tmp_path, "dev")["results"]}
+    assert results[("prod", "dagster-runs")]["status"] == "failed"
+    assert "port-forward exited" in results[("prod", "dagster-runs")]["detail"]
+    assert results[("uat", "dagster-runs")]["status"] == "passed"
+
+
 def test_a_cross_stage_write_that_succeeds_is_removed_and_reported(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

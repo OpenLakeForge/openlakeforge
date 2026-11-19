@@ -65,12 +65,12 @@ All `new` commands validate the result before writing and accept
 | `olf infra destroy` | Tear down the platform, then the foundation; `--phase platform` or `foundation` for one. `--force` destroys the foundation with platform resources left. |
 | `olf infra status` | Service URLs, then pods, services and PVCs per namespace. `--json` for JSON. |
 | `olf infra forward` | Port-forward every service to `localhost` until Ctrl-C. |
-| `olf infra doctor` | Check the host, tools, project and cloud authentication without changing anything. `--json` for [JSON](#json-reports). |
+| `olf infra doctor` | Check the host, tools, project and cloud authentication without changing anything. |
 | `olf infra restore --from <dir>` | Local provider only. Restores a backup onto a platform already deployed without the project (`olf infra platform apply`, which also recreates a destroyed cluster; `olf infra deploy --phase platform` when the cluster still exists) from the same release and `openlakeforge.yaml`; it refuses a backup whose release, profile, stages or checksums differ. Pauses the Dagster daemons and refuses while a run is in flight, suspends the stages' CronJobs, then scales Dagster, Superset, OpenMetadata, Polaris, Trino, Dex and the platform API to 0, replaces the backed-up Secrets, drops and reloads every database, makes each bucket equal to the backup's (objects written after it are deleted, then the listing is checked against the inventory by key and size), scales back up (shared services, then stages, then the daemons) and resumes the CronJobs, then reconciles the platform (`olf infra deploy --phase platform`) and reactivates, per enabled stage, the project revision the restored `ACTIVE.json` names, building nothing from the current checkout (a stage with no pointer is left alone; if a revision's image no longer exists, for example one built with `olf infra project image --no-push`, the restore fails naming the stage, revision and image). When the backup holds `local-ca`, restore also deletes the `publish-local-ca-*` Job and the Secret of every Certificate that ClusterIssuer `local-ca` issued before the reconcile, so the apply republishes the `olf-local-ca` ConfigMaps and cert-manager signs the Certificates again; after the revisions are back it waits for them and restarts the workloads that mount the ConfigMap or those Secrets. The Secrets bundle passphrase comes from `OLF_BACKUP_PASSPHRASE` or a prompt. If a step fails the workloads stay at 0: rerun the same command. |
 | `olf infra source bind <source> --stage dev -f openlakeforge.yaml` | Bind the source's declared runtime keys; `--set KEY=VALUE`, `--secret-from-env KEY=VAR`, or `--secret-from-file KEY=PATH`. `--partial` keeps existing declared keys; `--dry-run` prints key names without writing. |
 | `olf infra source bindings --stage dev -f openlakeforge.yaml` | Report bound, missing and extra keys for every source. Reads Secret key names only; exits 1 for missing or unreadable bindings. |
 | `olf infra source unbind <source> --stage dev -f openlakeforge.yaml` | Delete the source's ConfigMap and Secret in the selected stage. |
-| `olf infra plan` | Show the Terraform plan of the foundation or platform. `--detailed-exitcode` exits 2 when changes are pending; `--json` for [JSON](#json-reports). |
+| `olf infra plan` | Show the Terraform plan of the foundation or platform. |
 | `olf infra product run <product>` | Launch a product's pipeline in a stage and wait for it (`--stage`, `-f`). `--full-refresh bronze\|gold` asks that run only for a full refresh; see [Full refresh](descriptors.md#full-refresh). |
 | `olf infra maintenance run --layer silver\|gold` | Launch the stage's Iceberg maintenance job and wait for it (`--stage`, `--dry-run`, `--json`, `-f`); prints per-table snapshots and orphans. See [Silver table maintenance](../architecture/floe-validation.md#silver-table-maintenance). |
 | `olf infra query "<sql>"` | Run SQL against a stage's catalog (`--stage`, `--format table\|csv\|json`, `--file`). Local and Azure only. |
@@ -87,7 +87,7 @@ All `new` commands validate the result before writing and accept
 | `olf profile validate --project .` | `openlakeforge.yaml` |
 | `olf profile resolve --project . --json` | Prints the resolved stages and capabilities |
 | `olf alert explain --stage <stage> (--product <id> \| --job <name>)` | Prints, per condition, the `alerts.yml` rule that wins for a product, or a job such as `gold_maintenance` (a job of no product gets the global rules alone), in a stage, its options and its routes, from `alerts.yml` and `governance.yml`; needs no cluster or credential. A project with no `alerts.yml` prints that nothing alerts. Exits 1 for an invalid policy or an unknown product, and 2 for an unknown stage or unless exactly one of `--product` and `--job` is given |
-| `olf check contracts` | `governance.yml`, every `source.yaml`, and the Floe project's namespaces. Every `olf check` target, and `olf check all`, takes `--json`; see [JSON reports](#json-reports) |
+| `olf check contracts` | `governance.yml`, every `source.yaml`, and the Floe project's namespaces |
 | `olf project migrate [--dry-run]` | Rewrites `openlakeforge.yaml` from `v1alpha1` to `v1beta1` (`spec.access.issuer` becomes `tls`), `governance.yml` from `v1beta1` to `v1beta2` and each `source.yaml` from `v1alpha3` to `v1beta1`; `--dry-run` prints the diff and changes nothing. See [Migrate from v0.5 alpha](../guides/migrate-from-v0-5-alpha.md) |
 | `olf project graph --project .` | Prints the Source → Domain → Product → Dashboard lineage as Mermaid text |
 | `olf check dbt` | The Gold dbt project parses and compiles, each product's models sit in its `<product>_gold` and read only its own domain's Silver, and every source sits in its domain's schema. Incremental models are parsed (refs, sources, Jinja) but not compiled: `is_incremental()` needs a warehouse connection, so their rendered SQL is not checked |
@@ -101,41 +101,6 @@ All `new` commands validate the result before writing and accept
 | `olf infra e2e secret-scan --path <file or dir>` | Fails if a platform Secret's value appears in Terraform state, ConfigMaps, the diagnostics bundle or a pod log (what `olf infra e2e run` checks), or in a file under any `--path` (repeatable; `--exclude <name>` skips a file name such as `secrets.enc`; `--also-env <NAME>` adds an environment variable's value). It launches no pipeline, reads files as bytes so binary dumps are covered, and names the file and the Secret, never the value. The restore drill runs it over the backup and the drill logs. |
 | `olf infra e2e stage-drill crawl\|namespaces\|principals` | Checks, between the deploys of the stage drill (`stage_drill` in `local-full-e2e.yml`, dispatch only), what each stage holds. Name stages with `--present <stage>` and `--absent <stage>` (repeatable; `--stage` and `-f <profile>` select the deployment to read). `crawl` is the Trino crawl's `polaris-om-creds` copy and its CronJob and Jobs: a stage with governance on must hold the Secret and the CronJob, one with it off none of the three kinds. `namespaces` is the stage namespace. `principals` is `olf-<stage>-processing`, `deployer-<stage>` and `trino-catalog-<stage>` in Polaris, listed as root; a stage removed with `--allow-stage-removal` must have none. Reports every violation, never a Secret value. |
 | `olf infra e2e registry-pull` | Proves a local stage's user-code pods pull the project image through its `spec.project.image.pull_secret_ref` Secret. It reads the image from the stage's active revision, checks that every workload running it and the `dagster` ServiceAccount list the Secret, and fails for an image that answers an anonymous pull (`--allow-public` to run anyway). Unless `--static-only`, it removes the image from every kind node with no host Docker credentials, restarts the code locations, launches one run and reschedules the code locations off one node, requiring a `Successfully pulled` event from a pod on each node each time. It launches a run, so it is not for a stage mid-restore. `--stage` and `-f <profile>` select the stage. |
-
-### JSON reports
-
-`olf infra doctor`, `olf infra plan` and every `olf check` target take `--json`.
-The report is the only thing on stdout; progress, Terraform's plan and the
-checks' own output go to stderr. Exit codes are the same as without `--json`.
-When a command stops on an error before it has a result (an unknown `--phase`,
-a failed `terraform plan`), stdout is empty, the error is on stderr and the exit
-code is 1.
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `command` | string | `infra doctor`, `infra plan`, `check <target>` or `check all` |
-| `ok` | boolean | `false` when any check failed. A plan with pending changes is still `true` |
-| `changes` | boolean | `infra plan` only: Terraform found changes to apply |
-| `checks[].id` | string | The check: a doctor item such as `project` or `terraform`, `terraform-plan:<phase>`, or the `olf check` target name |
-| `checks[].status` | string | `pass` or `fail`; `changes` for a plan with pending changes; `skipped` for a target `olf check all` did not run after an earlier one failed |
-| `checks[].message` | string | The check's result line, or its error when it failed |
-| `checks[].remedy` | string or null | What to run next; `null` when the check names nothing |
-
-```json
-{
-  "command": "infra plan",
-  "ok": true,
-  "changes": true,
-  "checks": [
-    {
-      "id": "terraform-plan:platform",
-      "status": "changes",
-      "message": "Terraform changes are pending.",
-      "remedy": "Apply with `olf infra deploy --phase platform` and the same options."
-    }
-  ]
-}
-```
 
 ## Stages and revisions
 
@@ -224,7 +189,7 @@ what it may launch.
 | `olf runs show <run-id>` | One run's status, times and tags | `data-engineer` |
 | `olf runs launch <job>` | Launches the job as you, on `dev` only; the API stores an audit record first and launches nothing if it cannot | `data-engineer` |
 | `olf logs` | The stage's archived pod log lines for a day (`--date`, default today in UTC) or one `--hour`; `--pod`, `--container`, `--run-id`, `--product`, `--component`, `--severity`, `--since`, `--until`, `--limit` 1 to 5000 (default 500) | `data-engineer` on `dev`; `platform-admin` on every stage |
-| `olf health <stage>` | The stage's health: its state, then its service rows grouped by service under the service's worst state, each with its component key and display name, state, when it was observed, until when that answer is usable, its last durable write where the API reports one (`—` otherwise) and why; then each pipeline's state; `unknown` and `disabled` print as themselves, never as healthy | `data-engineer` |
+| `olf health <stage>` | The stage's health: its state, each service's state, when it was observed, until when that answer is usable and why, each pipeline's state; `unknown` and `disabled` print as themselves, never as healthy | `data-engineer` |
 | `olf pipelines health <stage>` | Each pipeline's state and the reason behind it | `data-engineer` |
 | `olf domain list` | Governance domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |
 | `olf product list` | Data products and their domains, as OpenMetadata shows them to you | `viewer`, then your OpenMetadata roles |

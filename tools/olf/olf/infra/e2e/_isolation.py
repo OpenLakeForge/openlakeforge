@@ -66,10 +66,14 @@ class IsolationReport:
     results: list[ProbeResult] = field(default_factory=list)
 
     def run(self, other: str, probe: str, call: Callable[[], NotCompared | None]) -> None:
+        from botocore.exceptions import BotoCoreError, ClientError
+
         log.step(f"Checking {probe} isolation ({self.stage} -> {other})...")
         try:
             outcome = call()
-        except E2EError as exc:
+        # Not only E2EError: a port-forward to a stage whose service has no Ready endpoint raises KubectlError, and
+        # letting it escape would skip the remaining pairs and leave this probe out of the report.
+        except (E2EError, k8s.KubectlError, ServiceClientError, BotoCoreError, ClientError, OSError) as exc:
             log.error(f"{probe} isolation ({self.stage} -> {other}): {exc}")
             self.results.append(ProbeResult(self.stage, other, probe, "failed", str(exc)))
             return

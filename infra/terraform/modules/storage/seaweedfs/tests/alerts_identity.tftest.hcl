@@ -80,11 +80,8 @@ run "no_receiver_means_no_key" {
     error_message = "without a receiver the Job mints no alerts Secret or identity"
   }
 
-  # RBAC cannot scope `create` by name, so that rule sets no resource_names, and
-  # from hashicorp/kubernetes 3.x an unset resource_names is unknown at plan:
-  # left in, it makes the whole condition unknown. Every other rule is checked.
   assert {
-    condition     = !anytrue([for rule in kubernetes_role_v1.credentials["olf-system"].rule : contains(coalesce(rule.resource_names, []), "alert-evaluator-s3-creds") if !(length(rule.verbs) == 1 && contains(rule.verbs, "create"))])
+    condition     = !anytrue([for rule in kubernetes_role_v1.credentials["olf-system"].rule : contains(coalesce(rule.resource_names, []), "alert-evaluator-s3-creds")])
     error_message = "without a receiver the Job may not read it"
   }
 
