@@ -41,6 +41,7 @@ from olf.infra.e2e._network import check_network_and_rbac
 from olf.infra.e2e._perimeter import check_perimeter
 from olf.infra.e2e._perimeter_latency import check_perimeter_latency
 from olf.infra.e2e._preflight import check_aws_provider_contracts, check_aws_storage_and_glue
+from olf.infra.e2e._quality_evidence import check_real_quality_evidence
 from olf.infra.e2e._quality_publication import check_quality_publication
 from olf.infra.e2e._quality_writer import check_quality_writer_permissions
 from olf.infra.e2e._rotation import check_secret_rotation
@@ -336,6 +337,7 @@ def run_smoke(cfg: E2EConfig) -> None:
         log.step(f"Running smoke path for descriptor-selected product {product.id}...")
         launch_and_poll_dagster_jobs(cfg, products=(product,))
         check_trino_product_tables_and_marts(cfg, product)
+        check_real_quality_evidence(cfg, product)
         # Slim is the profile that turns metrics off (ADR 0024); it does nothing on a deployment that has them.
         check_metrics_off(cfg)
 
@@ -401,6 +403,9 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
             FullAssertion(
                 "OpenMetadata quality writer permissions", check_quality_writer_permissions, layer="governance"
             ),
+            # Before the alert drill, which overwrites the latest run's manifest with synthetic outcomes. Not gated
+            # on governance: the Dagster and manifest evidence must hold without OpenMetadata too.
+            FullAssertion("real run quality evidence", check_real_quality_evidence),
             FullAssertion("ops bucket artifacts", check_ops_artifacts),
         ]
     )
