@@ -107,11 +107,20 @@ class QualityEvidence:
 
 @dataclass(frozen=True)
 class RunWindow:
-    """A job's runs created after `since`, counted. `covered_from` is set when the bounded reads stopped short of
-    `since`: only runs created from then on were seen, so `failed_runs` is a count over that shorter span."""
+    """A job's failed runs created after `since`. `covered_from` is set when the bounded reads stopped short of
+    `since`: only runs created from then on were seen, so the count is over that shorter span. `failed` is None when
+    the read the count needed failed: an unknown count, never 0."""
 
-    failed_runs: int
+    # Creation times, so a caller can count again over a shorter span shared by several jobs.
+    failed: tuple[datetime, ...] | None
     covered_from: datetime | None
+
+    @property
+    def failed_runs(self) -> int | None:
+        return None if self.failed is None else len(self.failed)
+
+    def failed_since(self, start: datetime) -> int | None:
+        return None if self.failed is None else sum(created >= start for created in self.failed)
 
 
 @dataclass(frozen=True)
@@ -347,14 +356,29 @@ def _window(job: str, runs: list[DagsterRun], stage_runs: list[DagsterRun] | Non
     """
     seen = {run.run_id: run for run in runs}
     covered_from: datetime | None = None
-    # `read_stage_pipelines` reads the stage's runs whenever a job's own read stops short, so None means it reaches.
-    if stage_runs is not None and not _reaches(runs, since):
+    if not _reaches(runs, since):
+        # `read_stage_pipelines` reads the stage's runs whenever a job's own read stops short, so None here is that
+        # read having failed.
+        if stage_runs is None:
+            return RunWindow(None, None)
         seen.update((run.run_id, run) for run in stage_runs if run.job_name == job)
         if len(stage_runs) >= RUN_CAP:
             oldest = at(min(run.created_at for run in [*runs, *stage_runs]))
             covered_from = oldest if oldest > since else None
-    failed = sum(run.status == "FAILURE" and run.created_at > since.timestamp() for run in seen.values())
+    failed = tuple(
+        at(run.created_at) for run in seen.values() if run.status == "FAILURE" and run.created_at > since.timestamp()
+    )
     return RunWindow(failed, covered_from)
+
+
+def _stage_runs(client: DagsterClient, stage: str, since: datetime) -> list[DagsterRun] | None:
+    """The stage's runs created after `since`, or None when they cannot be read. Only counts depend on this read, so
+    its failure must not discard the jobs, schedules and runs already read: a wider range would hide a known signal."""
+    try:
+        return client.list_runs_created_after(since.timestamp(), limit=RUN_CAP)
+    except ServiceClientError as exc:
+        log.warning("Dagster for stage %s could not be read for the health window: %s", stage, exc)
+        return None
 
 
 def read_stage_pipelines(
@@ -373,7 +397,8 @@ def read_stage_pipelines(
 
     With `since` each pipeline also carries its `window`, counted from the same reads plus, only when some job's own
     read does not reach back to `since`, one stage-wide read of the runs created after it, capped at RUN_CAP. The
-    signals are evaluated from the job's RUN_WINDOW runs either way, so the window never changes a state.
+    signals are evaluated from the job's RUN_WINDOW runs either way, so the window never changes a state, and a failed
+    stage-wide read leaves the pipelines and their signals as read, with no count where it was needed.
     """
     if client is None:
         absent = IntegrationStatus(name="dagster", status="disabled", reason="no Dagster is configured for this stage")
@@ -384,11 +409,6 @@ def read_stage_pipelines(
         tags = {job.name: job.tags for job in listed}
         schedules = client.list_schedules()
         runs = {job: client.list_runs(job_name=job, limit=RUN_WINDOW) for job in jobs}
-        stage_runs = (
-            client.list_runs_created_after(since.timestamp(), limit=RUN_CAP)
-            if since is not None and not all(_reaches(runs[job], since) for job in jobs)
-            else None
-        )
     except ServiceClientError as exc:
         # The service's own message goes to the log, not the caller: a Dagster PythonError can carry a stack trace.
         log.warning("Dagster for stage %s could not be read for health: %s", stage, exc)
@@ -404,6 +424,7 @@ def read_stage_pipelines(
         for job in jobs
     ]
     if since is not None:
+        stage_runs = _stage_runs(client, stage, since) if not all(_reaches(runs[job], since) for job in jobs) else None
         pipelines = [
             replace(pipeline, window=_window(pipeline.job, runs[pipeline.job], stage_runs, since))
             for pipeline in pipelines

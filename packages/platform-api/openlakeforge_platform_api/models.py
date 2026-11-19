@@ -239,8 +239,8 @@ class StagePipelineState(BaseModel):
     domain: str | None
     product: str | None
     state: HealthStateName
-    # Failed runs created in the window.
-    failed_runs: int
+    # Failed runs created in the window; None when the read the count needed failed, never 0.
+    failed_runs: int | None
 
 
 # The services the probes belong to, so a client can group rows (worst state per `service`) without parsing ids.
@@ -279,8 +279,8 @@ class StageHealth(BaseModel):
     state: HealthStateName
     evaluated_at: datetime
     window: HealthWindow
-    # Failed runs created in the window over every pipeline; None when Dagster is not configured or cannot be read,
-    # never 0.
+    # Failed runs over every pipeline, created from `window.covered_from` when that is set and from `window.from`
+    # otherwise; None when Dagster is not configured or cannot be read, or any pipeline's count is None, never 0.
     failed_runs: int | None
     pipelines: list[StagePipelineState]
     services: list[ServiceHealth]
@@ -313,8 +313,9 @@ class PipelineHealth(BaseModel):
     state: HealthStateName
     latest_run: Run | None
     last_success: Run | None
-    # Failed runs created in the window; a missed run is the `expected_run` signal.
-    failed_runs: int
+    # Failed runs created in the window; a missed run is the `expected_run` signal. None when the read the count
+    # needed failed, never 0; the state and signals are read either way.
+    failed_runs: int | None
     # Set when this job's bounded reads did not reach back to the window's `from`: `failed_runs` counts from here on.
     covered_from: datetime | None
     schedule: PipelineSchedule

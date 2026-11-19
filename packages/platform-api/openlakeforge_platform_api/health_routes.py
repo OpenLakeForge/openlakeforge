@@ -111,11 +111,16 @@ def _window(range_name: str, now: datetime, since: datetime, pipelines: list[Pip
     )
 
 
-def _failed_runs(dagster: IntegrationStatus, pipelines: list[PipelineEvaluation]) -> int | None:
-    # No read is no count: a Dagster that is absent or unreadable has no pipelines, which must not read as 0 failures.
+def _failed_runs(dagster: IntegrationStatus, pipelines: list[PipelineEvaluation], window: HealthWindow) -> int | None:
+    """The stage's failed runs over the window it advertises: from `covered_from` when that is set, the span every
+    job's count is complete over, so one busy job's capped count is not added to another's whole-window one."""
+    # No read is no count: a Dagster that is absent or unreadable has no pipelines, which must not read as 0 failures,
+    # and one job's unknown count makes the sum unknown.
     if dagster.status != "available":
         return None
-    return sum(_windowed(pipeline).failed_runs for pipeline in pipelines)
+    start = window.covered_from or window.from_
+    counts = [_windowed(pipeline).failed_since(start) for pipeline in pipelines]
+    return None if None in counts else sum(count for count in counts if count is not None)
 
 
 def _windowed(pipeline: PipelineEvaluation) -> RunWindow:
@@ -241,12 +246,13 @@ async def get_stage_health(request: Request, stage: str, range_name: str = _RANG
                 max_age=SERVICE_MAX_AGE,
             )
         )
+    window = _window(range_name, now, since, pipelines)
     return StageHealth(
         stage=stage,
         state=rollup(signals).value,
         evaluated_at=now,
-        window=_window(range_name, now, since, pipelines),
-        failed_runs=_failed_runs(dagster, pipelines),
+        window=window,
+        failed_runs=_failed_runs(dagster, pipelines, window),
         pipelines=[
             StagePipelineState(
                 job=pipeline.job,
@@ -286,11 +292,12 @@ def list_pipeline_health(request: Request, stage: str, range_name: str = _RANGE)
     dagster, pipelines = _read(request, stage, now, since)
     if dagster.status == "disabled":
         raise HTTPException(status_code=404, detail=f"no Dagster is configured for stage {stage!r}")
+    window = _window(range_name, now, since, pipelines)
     return PipelinesHealth(
         stage=stage,
         evaluated_at=now,
-        window=_window(range_name, now, since, pipelines),
-        failed_runs=_failed_runs(dagster, pipelines),
+        window=window,
+        failed_runs=_failed_runs(dagster, pipelines, window),
         thresholds=HealthThresholds(
             run_max_age_seconds=int(RUN_MAX_AGE.total_seconds()),
             schedule_max_age_seconds=int(SCHEDULE_MAX_AGE.total_seconds()),

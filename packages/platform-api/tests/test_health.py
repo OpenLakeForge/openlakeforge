@@ -41,12 +41,15 @@ class ScheduledDagster(FakeDagster):
     def __init__(self) -> None:
         super().__init__()
         self.schedules: list[dict[str, Any]] = []
+        self.fail_runs_created_after = False
 
     def answer(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         if "query Schedules" in query:
             repository = {"schedules": self.schedules}
             return {"repositoriesOrError": {"__typename": "RepositoryConnection", "nodes": [repository]}}
         created_after = variables.get("filter", {}).get("createdAfter")
+        if "query Runs" in query and created_after is not None and self.fail_runs_created_after:
+            return {"runsOrError": {"__typename": "PythonError", "message": "Traceback: the run storage is down"}}
         if "query Runs" in query and created_after is not None:
             runs = [run for run in self.runs if run["creationTime"] > created_after][: variables["limit"]]
             return {"runsOrError": {"__typename": "Runs", "results": runs}}
@@ -587,3 +590,45 @@ def test_a_range_outside_the_vocabulary_is_a_400(
 
 def test_the_health_window_takes_the_metrics_routes_range_vocabulary() -> None:
     assert get_args(MetricRangeName) == tuple(RANGES)
+
+
+def test_the_stage_count_covers_the_span_every_jobs_count_is_complete_over(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    # orders_job fills the read cap within minutes; billing_job failed once two hours ago, before that span starts.
+    dagster.jobs = [{"name": "orders_job", "description": None}, {"name": "billing_job", "description": None}]
+    recent = [_run(f"f{index}", "FAILURE", 60 + index) for index in range(RUN_CAP)]
+    dagster.runs = [*recent, _run("b1", "FAILURE", 2 * HOUR, job="billing_job")]
+    covered_from = datetime.fromtimestamp(NOW - 60 - (RUN_CAP - 1), UTC)
+
+    stage = _window_of(api, mint, STAGE, "24h")
+    body = _window_of(api, mint, PIPELINES, "24h")
+
+    counts = {pipeline["job"]: pipeline["failed_runs"] for pipeline in body["pipelines"]}
+    assert counts == {"orders_job": RUN_CAP, "billing_job": 1}
+    assert {pipeline["job"]: pipeline["failed_runs"] for pipeline in stage["pipelines"]} == counts
+    for answer in (stage, body):
+        assert datetime.fromisoformat(answer["window"]["covered_from"]) == covered_from
+        assert answer["failed_runs"] == RUN_CAP
+
+
+def test_a_failed_count_read_leaves_the_state_and_signals_and_gives_no_count(
+    api: TestClient, mint: Mint, dagster: ScheduledDagster
+) -> None:
+    # More failures in the last hour than a job's own read holds, so every range needs the stage-wide count read.
+    dagster.runs = [_run(f"f{index}", "FAILURE", 60 + index) for index in range(RUN_WINDOW + 5)]
+    dagster.fail_runs_created_after = True
+    answers = []
+
+    for range_name in ("1h", "7d"):
+        stage = _window_of(api, mint, STAGE, range_name)
+        body = _window_of(api, mint, PIPELINES, range_name)
+        (pipeline,) = body["pipelines"]
+        assert stage["state"] == pipeline["state"] == "critical"
+        assert stage["integrations"][0]["status"] == body["integrations"][0]["status"] == "available"
+        assert stage["failed_runs"] is body["failed_runs"] is None
+        assert stage["pipelines"][0]["failed_runs"] is pipeline["failed_runs"] is None
+        assert "Traceback" not in str(body) + str(stage)
+        answers.append((stage["state"], [(signal["kind"], signal["state"]) for signal in pipeline["signals"]]))
+
+    assert answers[0] == answers[1]

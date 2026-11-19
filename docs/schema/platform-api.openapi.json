@@ -1508,8 +1508,15 @@
             "title": "Domain"
           },
           "failed_runs": {
-            "title": "Failed Runs",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Runs"
           },
           "freshness": {
             "$ref": "#/components/schemas/PipelineFreshness"
@@ -2470,8 +2477,15 @@
             "title": "Domain"
           },
           "failed_runs": {
-            "title": "Failed Runs",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Runs"
           },
           "job": {
             "title": "Job",
