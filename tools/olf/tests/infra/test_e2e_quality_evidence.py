@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from openlakeforge_core import Product
 from openlakeforge_core.quality import PipelineOutcome, QualityManifest, QualityOutcome, QualityResult
+from openlakeforge_core.quality_sync import OmStatus
 
 from olf.infra.e2e import _quality_evidence as evidence
 from olf.infra.e2e._quality_evidence import CaseTarget, CheckEvaluation
@@ -249,9 +250,14 @@ def test_case_targets_are_a_floe_case_on_silver_and_a_table_level_dbt_case_on_go
     )
 
     stamp = int(AT.timestamp() * 1000)
-    assert floe == CaseTarget('lakehouse.lakehouse_dev.sales_silver.accounts."olf.floe.floe_not_null"', stamp, RUN)
+    assert floe == CaseTarget(
+        'lakehouse.lakehouse_dev.sales_silver.accounts."olf.floe.floe_not_null"', stamp, RUN, OmStatus.SUCCESS
+    )
     assert dbt == CaseTarget(
-        f'lakehouse.lakehouse_dev.order_revenue_gold.mart_order_revenue_by_day."olf.dbt.{DBT_TABLE_TEST}"', stamp, RUN
+        f'lakehouse.lakehouse_dev.order_revenue_gold.mart_order_revenue_by_day."olf.dbt.{DBT_TABLE_TEST}"',
+        stamp,
+        RUN,
+        OmStatus.SUCCESS,
     )
 
 
@@ -271,18 +277,43 @@ def test_a_column_dbt_case_is_named_under_its_column() -> None:
         "lakehouse.lakehouse_dev.dev_order_revenue_gold.mart_order_revenue_by_day.order_date"
         f'."olf.dbt.{DBT_COLUMN_TEST}"'
     )
+    # The column test warned: the publisher's default and a configured warn status each name its expected status.
+    assert dbt.status is OmStatus.ABORTED
+    _, failed = evidence.case_targets(
+        only_column,
+        database_fqn="lakehouse.lakehouse_dev",
+        silver_schemas=None,
+        gold_schemas=None,
+        warn_status=OmStatus.FAILED,
+    )
+    assert failed.status is OmStatus.FAILED
 
 
-def om_result(run: str, timestamp: int) -> dict[str, Any]:
+def cronjob_with(env: list[dict[str, str]]) -> dict[str, Any]:
+    return {"spec": {"jobTemplate": {"spec": {"template": {"spec": {"containers": [{"name": "r", "env": env}]}}}}}}
+
+
+def test_the_warn_status_is_the_reconcilers_own_or_the_publishers_default() -> None:
+    configured = cronjob_with([{"name": "OPENLAKEFORGE_QUALITY_WARN_STATUS", "value": "Failed"}])
+    invalid = cronjob_with([{"name": "OPENLAKEFORGE_QUALITY_WARN_STATUS", "value": "Warn"}])
+
+    assert evidence.reconciler_warn_status(configured) is OmStatus.FAILED
+    assert evidence.reconciler_warn_status(cronjob_with([])) is OmStatus.ABORTED
+    assert evidence.reconciler_warn_status(None) is OmStatus.ABORTED
+    with pytest.raises(E2EError, match="not an OpenMetadata status"):
+        evidence.reconciler_warn_status(invalid)
+
+
+def om_result(run: str, timestamp: int, status: str = "Success") -> dict[str, Any]:
     return {
         "timestamp": timestamp,
-        "testCaseStatus": "Success",
+        "testCaseStatus": status,
         "testResultValue": [{"name": "dagster_run_id", "value": run}],
     }
 
 
 def test_only_the_runs_own_results_count() -> None:
-    target = CaseTarget('t."olf.floe.floe_not_null"', 1000, RUN)
+    target = CaseTarget('t."olf.floe.floe_not_null"', 1000, RUN, OmStatus.SUCCESS)
     found = evidence.run_results([om_result("other-run", 1000), om_result(RUN, 1000)], RUN)
 
     assert evidence.assert_one_result(target, found, "now") == om_result(RUN, 1000)
@@ -292,13 +323,36 @@ def test_only_the_runs_own_results_count() -> None:
         evidence.assert_one_result(target, [om_result(RUN, 2000)], "now")
 
 
+def test_a_result_under_another_status_than_the_outcome_publishes_as_fails() -> None:
+    passed = CaseTarget('t."olf.floe.floe_not_null"', 1000, RUN, OmStatus.SUCCESS)
+    warned = CaseTarget('t."olf.dbt.t"', 1000, RUN, OmStatus.ABORTED)
+
+    with pytest.raises(E2EError, match="is Failed now, but its manifest outcome publishes as Success"):
+        evidence.assert_one_result(passed, [om_result(RUN, 1000, "Failed")], "now")
+    with pytest.raises(E2EError, match="publishes as Aborted"):
+        evidence.assert_one_result(warned, [om_result(RUN, 1000, "Success")], "now")
+    assert evidence.assert_one_result(passed, [om_result(RUN, 1000, "Success")], "now")["testCaseStatus"] == "Success"
+    assert evidence.assert_one_result(warned, [om_result(RUN, 1000, "Aborted")], "now")["testCaseStatus"] == "Aborted"
+
+
 class Catalog:
     """OpenMetadata as the reconciler leaves it: a pass publishes each target once, or every time if `duplicates`."""
 
-    def __init__(self, targets: list[CaseTarget], *, backlog: int = 0, duplicates: bool = False) -> None:
+    def __init__(
+        self,
+        targets: list[CaseTarget],
+        *,
+        backlog: int = 0,
+        duplicates: bool = False,
+        status: str | None = None,
+        restatus: str | None = None,
+    ) -> None:
         self.targets = targets
         self.backlog = backlog
         self.duplicates = duplicates
+        # `status` publishes every result under it; `restatus` overwrites the stored status on a later pass.
+        self.status = status
+        self.restatus = restatus
         self.passes = 0
         self.stored: dict[str, list[dict[str, Any]]] = {t.fqn: [] for t in targets}
 
@@ -307,14 +361,20 @@ class Catalog:
         if self.passes <= self.backlog:
             return
         for target in self.targets:
-            if self.duplicates or not self.stored[target.fqn]:
-                self.stored[target.fqn].append(om_result(target.run_id, target.timestamp))
+            stored = self.stored[target.fqn]
+            if self.duplicates or not stored:
+                stored.append(om_result(target.run_id, target.timestamp, self.status or target.status.value))
+            elif self.restatus:
+                stored[0] = om_result(target.run_id, target.timestamp, self.restatus)
 
     def results(self, target: CaseTarget) -> list[dict[str, Any]]:
         return list(self.stored[target.fqn])
 
 
-TARGETS = [CaseTarget('silver."olf.floe.floe_not_null"', 1000, RUN), CaseTarget('gold."olf.dbt.t"', 1000, RUN)]
+TARGETS = [
+    CaseTarget('silver."olf.floe.floe_not_null"', 1000, RUN, OmStatus.SUCCESS),
+    CaseTarget('gold."olf.dbt.t"', 1000, RUN, OmStatus.ABORTED),
+]
 
 
 def test_passes_continue_through_a_backlog_and_a_second_pass_adds_nothing() -> None:
@@ -339,3 +399,17 @@ def test_a_result_never_published_fails_after_the_bounded_passes() -> None:
     with pytest.raises(E2EError, match="after a reconciler pass"):
         evidence._publish_and_replay(TARGETS, catalog.reconcile, catalog.results)
     assert catalog.passes == evidence.MAX_RECONCILER_PASSES
+
+
+def test_a_run_published_under_the_wrong_status_fails() -> None:
+    catalog = Catalog(TARGETS, status="Failed")
+
+    with pytest.raises(E2EError, match="is Failed after a reconciler pass, but its manifest outcome publishes as"):
+        evidence._publish_and_replay(TARGETS, catalog.reconcile, catalog.results)
+
+
+def test_a_second_pass_that_changes_the_status_fails() -> None:
+    catalog = Catalog(TARGETS, restatus="Failed")
+
+    with pytest.raises(E2EError, match="is Failed after a second reconciler pass"):
+        evidence._publish_and_replay(TARGETS, catalog.reconcile, catalog.results)

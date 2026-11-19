@@ -24,7 +24,7 @@ from openlakeforge_core.quality import (
     QualityResult,
     manifest_key,
 )
-from openlakeforge_core.quality_sync import case_name, epoch_millis, om_status
+from openlakeforge_core.quality_sync import OmStatus, case_name, epoch_millis, om_status
 from openlakeforge_runtime.floe_quality import FLOE_CHECK_IDS
 from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.quality_publisher import QualityCatalog, QualityPublisher
@@ -345,6 +345,8 @@ class CaseTarget:
     fqn: str
     timestamp: int
     run_id: str
+    # What the publisher maps the record's outcome to: a result under any other status misreports the run.
+    status: OmStatus
 
 
 def case_targets(
@@ -353,6 +355,7 @@ def case_targets(
     database_fqn: str,
     silver_schemas: Mapping[str, str] | None,
     gold_schemas: Mapping[str, str] | None,
+    warn_status: OmStatus = OmStatus.ABORTED,
 ) -> list[CaseTarget]:
     """One Floe case on its Silver table and one dbt case on its Gold table, table-level when the run has one.
     The table FQNs are the provider contract's, built here independently of the publisher's own mapping."""
@@ -370,8 +373,13 @@ def case_targets(
         table = f"{schema}.{(record.table or '').rsplit('.', 1)[-1]}"
         # OpenMetadata names a column case after the column's FQN (`EntityLink.getFullyQualifiedFieldValue`).
         parent = f"{table}.{record.column}" if record.column else table
+        status = om_status(record.outcome, warn_status=warn_status)
+        if status is None:  # unreachable: `publishable` holds only records with a status
+            raise E2EError(f"{record.check_id} has no OpenMetadata status")
         targets.append(
-            CaseTarget(case_fqn(parent, case_name(record)), epoch_millis(record.observed_at), record.dagster_run_id)
+            CaseTarget(
+                case_fqn(parent, case_name(record)), epoch_millis(record.observed_at), record.dagster_run_id, status
+            )
         )
     return targets
 
@@ -395,6 +403,11 @@ def assert_one_result(target: CaseTarget, found: Sequence[Mapping[str, Any]], wh
             f"{target.fqn}: the run's result is stamped {found[0].get('timestamp')}, "
             f"not the run's observation time {target.timestamp}"
         )
+    if found[0].get("testCaseStatus") != target.status.value:
+        raise E2EError(
+            f"{target.fqn}: the run's result is {found[0].get('testCaseStatus')} {when}, "
+            f"but its manifest outcome publishes as {target.status.value}"
+        )
     return found[0]
 
 
@@ -405,10 +418,15 @@ def _check_openmetadata_results(cfg: E2EConfig, stage: str, product: Product, ma
         raise E2EError("OPENLAKEFORGE_CATALOG_DATABASE_FQN is unset; cannot locate this stage's database root.")
     silver_schemas = schema_map("OPENLAKEFORGE_CATALOG_SILVER_SCHEMA_FQNS_JSON", environ)
     gold_schemas = schema_map("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", environ)
-    targets = case_targets(
-        manifest, database_fqn=database_fqn, silver_schemas=silver_schemas, gold_schemas=gold_schemas
-    )
     cronjob = _reconciler_cronjob(cfg, stage)
+    warn_status = reconciler_warn_status(cronjob)
+    targets = case_targets(
+        manifest,
+        database_fqn=database_fqn,
+        silver_schemas=silver_schemas,
+        gold_schemas=gold_schemas,
+        warn_status=warn_status,
+    )
     with ops_bucket_client(cfg) as (s3, bucket), openmetadata_client(cfg) as (client, token):
         password = (
             "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ)
@@ -442,6 +460,7 @@ def _check_openmetadata_results(cfg: E2EConfig, stage: str, product: Product, ma
             database_fqn=database_fqn,
             silver_schemas=silver_schemas,
             gold_schemas=gold_schemas,
+            warn_status=warn_status,
         )
         _publish_and_replay(targets, lambda: publisher.reconcile(run_id=manifest.dagster_run_id), results)
 
@@ -461,11 +480,27 @@ def _publish_and_replay(
     reconcile()
     for target in targets:
         assert_one_result(target, results(target), "after a second reconciler pass")
-        result = first[target.fqn]
         log.info(
             f"  OpenMetadata case {target.fqn}: 1 result for run {target.run_id} "
-            f"({result.get('testCaseStatus')}, timestamp {target.timestamp}), still 1 after a second pass"
+            f"(status {first[target.fqn].get('testCaseStatus')}, expected {target.status.value}, "
+            f"timestamp {target.timestamp}), still 1 after a second pass"
         )
+
+
+def reconciler_warn_status(cronjob: Mapping[str, Any] | None) -> OmStatus:
+    """The status the reconciler publishes a WARN as: its `OPENLAKEFORGE_QUALITY_WARN_STATUS`, else the publisher's
+    default, which is also what a root without the CronJob uses."""
+    pod = ((((cronjob or {}).get("spec") or {}).get("jobTemplate") or {}).get("spec") or {}).get("template") or {}
+    for container in (pod.get("spec") or {}).get("containers") or []:
+        for env in container.get("env") or []:
+            if env.get("name") == "OPENLAKEFORGE_QUALITY_WARN_STATUS" and env.get("value"):
+                try:
+                    return OmStatus(env["value"])
+                except ValueError as exc:
+                    raise E2EError(
+                        f"the reconciler's warn status {env['value']!r} is not an OpenMetadata status"
+                    ) from exc
+    return OmStatus.ABORTED
 
 
 def _is_silver(asset: tuple[str, ...], domain: str) -> bool:
