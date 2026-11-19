@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,9 @@ class _FakeEngine:
         self.destroy_calls: list = []
         self.forward_called = False
         self.raise_on_deploy: Exception | None = None
+        self.raise_on_plan: Exception | None = None
+        self.plan_changes = False
+        self.doctor_items: tuple = ()
 
     def deploy(self, phase):  # noqa: ANN001
         self.deploy_calls.append(phase)
@@ -34,6 +38,18 @@ class _FakeEngine:
 
     def forward(self) -> None:
         self.forward_called = True
+
+    def doctor(self, phase):  # noqa: ANN001, ANN202
+        from olf.common.deployment.inspection import DoctorReport
+
+        print("==> provisioning terraform")  # noqa: T201 - stands in for toolchain progress on stdout
+        return DoctorReport(items=self.doctor_items)
+
+    def plan(self, phase) -> bool:  # noqa: ANN001
+        print("Terraform will perform the following actions:")  # noqa: T201 - stands in for streamed plan output
+        if self.raise_on_plan is not None:
+            raise self.raise_on_plan
+        return self.plan_changes
 
 
 _EXTERNAL_IDENTITY_YAML = (
@@ -201,6 +217,90 @@ def test_forward_delegates_to_engine(fake_engine: _FakeEngine) -> None:
 
     assert result.exit_code == 0
     assert fake_engine.forward_called is True
+
+
+def test_doctor_json_holds_every_item_and_keeps_progress_off_stdout(fake_engine: _FakeEngine) -> None:
+    from olf.common.deployment.inspection import DoctorItem
+
+    fake_engine.doctor_items = (
+        DoctorItem("project", True, "/work/acme"),
+        DoctorItem("helm", False, "not found on PATH"),
+    )
+
+    result = runner.invoke(app, ["infra", "doctor", "--json"])
+
+    assert result.exit_code == 1
+    assert json.loads(result.stdout) == {
+        "command": "infra doctor",
+        "ok": False,
+        "checks": [
+            {"id": "project", "status": "pass", "message": "/work/acme", "remedy": None},
+            {"id": "helm", "status": "fail", "message": "not found on PATH", "remedy": None},
+        ],
+    }
+    assert "==> provisioning terraform" in result.stderr
+
+
+def test_doctor_json_exits_0_when_every_item_passes(fake_engine: _FakeEngine) -> None:
+    from olf.common.deployment.inspection import DoctorItem
+
+    fake_engine.doctor_items = (DoctorItem("project", True, "/work/acme"),)
+
+    result = runner.invoke(app, ["infra", "doctor", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["ok"] is True
+
+
+def test_doctor_without_json_prints_the_text_report(fake_engine: _FakeEngine) -> None:
+    from olf.common.deployment.inspection import DoctorItem
+
+    fake_engine.doctor_items = (DoctorItem("helm", False, "not found on PATH"),)
+
+    result = runner.invoke(app, ["infra", "doctor"])
+
+    assert result.exit_code == 1
+    assert "FAIL helm: not found on PATH" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("args", "changes", "exit_code", "remedy"),
+    [
+        ([], False, 0, None),
+        ([], True, 0, "Apply with `olf infra deploy` and the same options."),
+        (["--detailed-exitcode"], True, 2, "Apply with `olf infra deploy` and the same options."),
+        (["--phase", "platform"], True, 0, "Apply with `olf infra deploy --phase platform` and the same options."),
+    ],
+)
+def test_plan_json_reports_pending_changes_with_unchanged_exit_codes(
+    fake_engine: _FakeEngine, args: list[str], changes: bool, exit_code: int, remedy: str | None
+) -> None:
+    fake_engine.plan_changes = changes
+
+    result = runner.invoke(app, ["infra", "plan", "--json", *args])
+
+    assert result.exit_code == exit_code
+    document = json.loads(result.stdout)
+    assert document["command"] == "infra plan"
+    assert document["ok"] is True
+    assert document["changes"] is changes
+    (check,) = document["checks"]
+    assert set(check) == {"id", "status", "message", "remedy"}
+    assert check["status"] == ("changes" if changes else "pass")
+    assert check["remedy"] == remedy
+    assert "Terraform will perform" in result.stderr
+
+
+def test_plan_json_failure_exits_1_with_nothing_on_stdout(fake_engine: _FakeEngine) -> None:
+    from olf.common.deployment.errors import DeploymentPreconditionError
+
+    fake_engine.raise_on_plan = DeploymentPreconditionError("foundation state is required")
+
+    result = runner.invoke(app, ["infra", "plan", "--json"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "foundation state is required" in result.stderr
 
 
 def test_profile_full_and_slim_are_accepted(fake_engine: _FakeEngine) -> None:

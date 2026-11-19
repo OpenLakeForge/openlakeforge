@@ -271,6 +271,27 @@ def test_metrics_query_endpoint_is_null_in_the_local_contract_and_accepted_when_
     assert parsed.shared.values["observability"]["metrics"]["query_url"] == _METRICS_ENDPOINT["query_url"]
 
 
+def test_fixtures_declare_metrics_support_as_each_root_renders_it() -> None:
+    """The local root implements metrics with Prometheus (ADR 0024) and
+    publishes its query endpoint only when the profile enables them; aws-poc
+    has no metrics adapter yet, so its contract keeps metrics unsupported
+    even though the profile asks for them (#1300)."""
+    conformance = _fixture("conformance-provider-contracts.json")["shared"]["observability"]["metrics"]
+    assert conformance["enabled"] and conformance["supported"]
+    assert (conformance["query_api"], conformance["query_url"]) == (
+        _METRICS_ENDPOINT["query_api"],
+        _METRICS_ENDPOINT["query_url"],
+    )
+
+    metrics_off = _fixture("local-provider-contracts-v3.json")["shared"]["observability"]["metrics"]
+    assert not metrics_off["enabled"] and metrics_off["supported"]
+    assert metrics_off["query_api"] is None and metrics_off["query_url"] is None
+
+    aws = _fixture("aws-provider-contracts-v3.json")["shared"]["observability"]["metrics"]
+    assert aws["enabled"] and not aws["supported"] and not aws["retention_supported"]
+    assert aws["query_api"] is None and aws["query_url"] is None
+
+
 def test_metrics_query_endpoint_is_optional_for_a_contract_already_in_state() -> None:
     contract = _fixture("local-provider-contracts-v3.json")
     metrics = contract["shared"]["observability"]["metrics"]
