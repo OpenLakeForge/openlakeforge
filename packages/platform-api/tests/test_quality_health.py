@@ -519,7 +519,7 @@ def test_the_pipeline_route_carries_the_quality_signal_and_the_integration_is_av
 
     (pipeline,) = body["pipelines"]
     quality = next(signal for signal in pipeline["signals"] if signal["kind"] == "quality")
-    assert (quality["state"], quality["run"]) == ("critical", "run-1")
+    assert (quality["state"], quality["run"], quality["due"]) == ("critical", "run-1", None)
     assert {item["name"]: item["status"] for item in body["integrations"]}["quality"] == "available"
     assert {item["name"]: item["status"] for item in stage["integrations"]}["quality"] == "available"
     assert stage["state"] == "critical"

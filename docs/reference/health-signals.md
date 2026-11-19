@@ -22,6 +22,14 @@ A signal has a kind, a state, a stage, optional domain, product, table and
 run, `observed_at`, `expires_at`, a short `reason` and an opaque `evidence_uri`
 that points at the retained evidence rather than carrying log text.
 
+An `expected_run` signal also carries `due`, the cron occurrence it judged, when
+a run was actually expected at it. The pipeline health route returns it on each
+signal: null on every other kind, and null on an `expected_run` that judged no
+occurrence (an `unknown` signal, a stopped or absent schedule, or a schedule
+switched on after the occurrence). It is never filled from the schedule's
+`last_expected_at`, which is the cron's latest occurrence whether or not a run
+was expected at it.
+
 | Kind | Computed from |
 | --- | --- |
 | `execution` | Status of the latest run |
