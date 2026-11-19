@@ -34,6 +34,7 @@ from olf.common.tooling.retry import RetryPolicy, run_with_retry
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.deployment import kube_ops
 from olf.infra.deployment.engine import DeploymentConfig
+from olf.infra.deployment.local.reachability import unreachable_context_message
 from olf.infra.deployment.storage_resize import grow_seaweedfs_volumes, plan_storage_resize
 from olf.infra.github_app import GitHubApp, store_app
 
@@ -790,10 +791,7 @@ def platform_up(
     try:
         tools.kubectl.require_context_reachable(config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env)
     except KubeContextUnreachableError as exc:
-        raise DeploymentPreconditionError(
-            f"Kubernetes context '{config.kube_context}' is not reachable. "
-            "Run the foundation phase before applying the local platform."
-        ) from exc
+        raise DeploymentPreconditionError(unreachable_context_message(config, tools, action="deploy", env=env)) from exc
 
     superset_tag = None
     if config.platform_features.analytics_enabled:
