@@ -141,7 +141,7 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
                 "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
                 "perimeter", "break-glass", "latency", "outage",
                 "superset", "openmetadata", "quality", "artifacts", "metrics-reads", "metrics-labels",
-                "short-lived", "collector-restart",
+                "metrics-footprint", "metrics-outage", "short-lived", "collector-restart",
                 "retention", "footprint", "delivery", "spool-limit",
                 "alerts", "isolation",
                 "exposure", "rotation",
@@ -193,6 +193,8 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "check_alert_delivery", lambda _cfg: calls.append("alerts"))
     monkeypatch.setattr(_runner, "check_metrics_reads", lambda _cfg: calls.append("metrics-reads"))
     monkeypatch.setattr(_runner, "check_metrics_cardinality", lambda _cfg: calls.append("metrics-labels"))
+    monkeypatch.setattr(_runner, "check_metrics_footprint", lambda _cfg: calls.append("metrics-footprint"))
+    monkeypatch.setattr(_runner, "check_metrics_outage", lambda _cfg: calls.append("metrics-outage"))
     monkeypatch.setattr(_runner, "check_stage_isolation", lambda _cfg: calls.append("isolation"))
     monkeypatch.setattr(_runner, "check_secret_exposure", lambda _cfg: calls.append("exposure"))
     monkeypatch.setattr(_runner, "configured_layers", lambda _cfg: {"governance": True, "analytics": True})
@@ -206,7 +208,7 @@ def test_core_checks_skip_every_drill_and_keep_exposure_before_rotation(tmp_path
     cfg = e2e_cfg(tmp_path)
     labels = [a.label for a in _runner.full_assertions(cfg)]
     drills = [a.label for a in _runner.full_assertions(cfg) if a.tier == "drill"]
-    assert len(drills) == 15
+    assert len(drills) == 17
     assert labels.index("identity credential exposure") < labels.index("credential preservation across a redeploy")
     assert labels.index("identity credential exposure") < labels.index("workload secret rotation")
     assert [a.label for a in _runner.full_assertions(e2e_cfg(tmp_path, env="aws")) if a.tier == "drill"] == []
@@ -293,6 +295,8 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "check_alert_delivery", lambda _cfg: calls.append("alerts"))
     monkeypatch.setattr(_runner, "check_metrics_reads", lambda _cfg: calls.append("metrics-reads"))
     monkeypatch.setattr(_runner, "check_metrics_cardinality", lambda _cfg: calls.append("metrics-labels"))
+    monkeypatch.setattr(_runner, "check_metrics_footprint", lambda _cfg: calls.append("metrics-footprint"))
+    monkeypatch.setattr(_runner, "check_metrics_outage", lambda _cfg: calls.append("metrics-outage"))
     monkeypatch.setattr(_runner, "check_stage_isolation", lambda _cfg: calls.append("isolation"))
     monkeypatch.setattr(_runner, "check_secret_exposure", lambda _cfg: calls.append("exposure"))
     monkeypatch.setattr(_runner, "configured_layers", lambda _cfg: {"governance": False, "analytics": False})
@@ -304,7 +308,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
         "namespaces", "jobs", "tables", "serial", "maintenance",
         "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
         "perimeter", "break-glass", "outage",
-        "artifacts", "metrics-reads", "metrics-labels",
+        "artifacts", "metrics-reads", "metrics-labels", "metrics-footprint", "metrics-outage",
         "short-lived", "collector-restart", "retention", "footprint", "delivery", "spool-limit",
         "alerts", "isolation", "exposure", "rotation",
     ]
