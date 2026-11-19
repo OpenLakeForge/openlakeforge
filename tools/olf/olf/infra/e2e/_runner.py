@@ -35,6 +35,7 @@ from olf.infra.e2e._log_delivery import check_delivery_signals_follow_an_outage,
 from olf.infra.e2e._log_footprint import check_collection_footprint
 from olf.infra.e2e._log_retention import check_archive_retention
 from olf.infra.e2e._maintenance import check_iceberg_maintenance
+from olf.infra.e2e._metrics import check_metrics_cardinality, check_metrics_off, check_metrics_reads
 from olf.infra.e2e._network import check_network_and_rbac
 from olf.infra.e2e._perimeter import check_perimeter
 from olf.infra.e2e._perimeter_latency import check_perimeter_latency
@@ -333,6 +334,8 @@ def run_smoke(cfg: E2EConfig) -> None:
         log.step(f"Running smoke path for descriptor-selected product {product.id}...")
         launch_and_poll_dagster_jobs(cfg, products=(product,))
         check_trino_product_tables_and_marts(cfg, product)
+        # Slim is the profile that turns metrics off (ADR 0024); it does nothing on a deployment that has them.
+        check_metrics_off(cfg)
 
 
 def run_full(cfg: E2EConfig) -> None:
@@ -397,6 +400,9 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         ]
     )
     if cfg.env == "local":
+        # After the pipelines ran, so the run series have points; each skips when metrics are off.
+        assertions.append(FullAssertion("metrics series through the platform API", check_metrics_reads))
+        assertions.append(FullAssertion("metrics labels and series budget", check_metrics_cardinality))
         # Each waits out the collector's 5m upload_timeout, so they are drills.
         assertions.append(
             FullAssertion("short-lived pod output in the log archive", check_short_lived_pod_output, tier="drill")
