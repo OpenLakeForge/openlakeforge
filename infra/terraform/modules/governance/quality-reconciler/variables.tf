@@ -1,5 +1,5 @@
 variable "namespace" {
-  description = "Namespace of the reconciler CronJobs (the platform namespace, olf-system). The stages' key Secrets and the ingestion bot's Secret are read from here."
+  description = "Namespace of the reconciler CronJobs (the platform namespace, olf-system). The stages' key and quality-writer Secrets are read from here."
   type        = string
 }
 
@@ -53,14 +53,16 @@ variable "openmetadata_url" {
   type        = string
 }
 
-variable "ingestion_bot_secret_name" {
-  description = "Secret in `namespace` holding the ingestion bot's JWT, written by `olf infra openmetadata bootstrap` after the apply (the governance module's contract). Passed by reference: until the bootstrap writes it a run stays in CreateContainerConfigError."
+variable "writer_secret_prefix" {
+  description = "Prefix of each stage's quality-writer Secret in `namespace`, `<prefix><stage>`, holding the JWT of that stage's olf-quality-writer-<stage> OpenMetadata bot (ADR 0007, Identity). `olf infra openmetadata bootstrap` writes it after the apply (olf.infra.openmetadata._quality_writer); until then a run stays in CreateContainerConfigError."
   type        = string
+  default     = "openmetadata-quality-writer-"
 }
 
-variable "ingestion_bot_jwt_key" {
-  description = "Key within the ingestion bot's Secret that holds the token."
+variable "writer_jwt_key" {
+  description = "Key within each quality-writer Secret that holds the token."
   type        = string
+  default     = "OPENMETADATA_QUALITY_WRITER_JWT"
 }
 
 variable "s3_endpoint_url" {

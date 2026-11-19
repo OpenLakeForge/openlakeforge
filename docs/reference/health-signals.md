@@ -252,10 +252,13 @@ Each stage's pass is confined to that stage:
   before any request, so a DEV pass cannot write PROD tables or PROD state.
 - Its egress is DNS, OpenMetadata on 8585 and the object store on 8333.
   Nothing can connect to its pods, and it holds no Kubernetes API token.
-- OpenMetadata's ingestion bot is one identity for every stage; its token is
-  read from the `openmetadata-ingestion-bot` Secret and is never an argument, a
-  literal environment value or a log line. The stage boundary above is
-  enforced by the key and the pass's configuration, not by the token.
+- It publishes as the stage's own OpenMetadata bot, `olf-quality-writer-<stage>`,
+  which may read tables and write test definitions, cases and results, and
+  nothing else (ADR 0007, Identity). Its token is read from the
+  `openmetadata-quality-writer-<stage>` Secret and is never an argument, a
+  literal environment value or a log line. OpenMetadata cannot scope a role
+  to one stage's tables, so the stage boundary above is enforced by the key
+  and the pass's configuration, not by the token.
 
 Inspect or trigger a pass:
 

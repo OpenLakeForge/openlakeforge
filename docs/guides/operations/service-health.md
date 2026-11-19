@@ -84,8 +84,8 @@ the `quality-sync` integration as `not_provided`. The thresholds are in
    kubectl -n olf-system logs job/<latest-job>
    ```
 
-   A pod in `CreateContainerConfigError` means `olf infra openmetadata bootstrap` has not written the ingestion bot's
-   Secret yet. A Job that exits 1 lost OpenMetadata or the bucket mid-pass.
+   A pod in `CreateContainerConfigError` means `olf infra openmetadata bootstrap` has not written the stage's
+   `openmetadata-quality-writer-<stage>` Secret yet. A Job that exits 1 lost OpenMetadata or the bucket mid-pass.
 2. Run a pass now instead of waiting for the schedule:
 
    ```bash

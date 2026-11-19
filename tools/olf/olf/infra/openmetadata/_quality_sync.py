@@ -37,13 +37,13 @@ def run_quality_sync(
     environ: Mapping[str, str],
     *,
     open_store: Callable[[str], AbstractContextManager[Any]],
-    open_catalog: Callable[[], AbstractContextManager[OpenMetadataClient]],
+    open_catalog: Callable[[str], AbstractContextManager[OpenMetadataClient]],
     limit: int = DEFAULT_LIMIT,
     run_id: str | None = None,
     retry_failed: bool = False,
     warn_status: OmStatus = OmStatus.ABORTED,
 ) -> QualitySyncOutcome:
-    """`open_store(bucket)` and `open_catalog()` are entered only once governance is known to be enabled."""
+    """`open_store(bucket)` and `open_catalog(stage)` are entered only once governance is known to be enabled."""
     if not 1 <= limit <= MAX_LIMIT:
         raise QualitySyncError(f"--limit must be between 1 and {MAX_LIMIT}")
     catalog_name = config.env("OPENLAKEFORGE_CATALOG_NAME", environ=environ)
@@ -61,7 +61,7 @@ def run_quality_sync(
     if not (base_uri and bucket and service):
         raise QualitySyncError("the contract environment has no artifact base URI, ops bucket or catalog service")
     database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", environ=environ) or f"{service}.{catalog_name}"
-    with open_store(bucket) as store, open_catalog() as client:
+    with open_store(bucket) as store, open_catalog(stage) as client:
         publisher = QualityPublisher(
             store=store,
             base_uri=base_uri,

@@ -383,11 +383,9 @@ module "quality_reconciler" {
       credentials_secret_name = module.seaweedfs.quality_sync_secret_names[name]
     }
   }
-  openmetadata_url          = "http://${local.openmetadata_service.name}.${kubernetes_namespace_v1.shared.metadata[0].name}:${local.openmetadata_service.port}"
-  ingestion_bot_secret_name = local.governance_enabled ? module.openmetadata[0].contract.ingestion_bot_secret_name : ""
-  ingestion_bot_jwt_key     = local.governance_enabled ? module.openmetadata[0].contract.ingestion_bot_jwt_key : ""
-  s3_endpoint_url           = module.seaweedfs.contract.endpoint
-  s3_region                 = module.seaweedfs.contract.region
+  openmetadata_url = "http://${local.openmetadata_service.name}.${kubernetes_namespace_v1.shared.metadata[0].name}:${local.openmetadata_service.port}"
+  s3_endpoint_url  = module.seaweedfs.contract.endpoint
+  s3_region        = module.seaweedfs.contract.region
 }
 
 # ADR 0024: the metrics reference, in olf-system. Its targets are static except
