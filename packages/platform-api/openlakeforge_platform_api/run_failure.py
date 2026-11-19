@@ -55,9 +55,12 @@ def _within[T](expires: float, read: Callable[[], T]) -> T:
 
 
 def _bounded(text: str) -> tuple[str, bool]:
-    """The first line of `text`, redacted and then cut, and whether anything of `text` was left out."""
-    lines = text.strip().splitlines()
-    first = redact(lines[0].strip()) if lines else ""
+    """The first line of `text` after the whole of it is redacted, then cut, and whether anything was left out.
+
+    Redaction runs before the split: a quoted secret that spans lines is only recognised whole, and cutting first
+    would serve its first line."""
+    lines = redact(text.strip()).splitlines()
+    first = lines[0].strip() if lines else ""
     return first[:MESSAGE_MAX_CHARS], len(first) > MESSAGE_MAX_CHARS or len(lines) > 1
 
 

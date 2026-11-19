@@ -222,6 +222,17 @@ def test_secrets_are_redacted_and_a_stack_is_never_fetched(api: TestClient, mint
     assert "stack" not in failure_read
 
 
+def test_a_quoted_secret_spanning_lines_is_redacted_before_the_first_line_is_kept(
+    api: TestClient, mint: Mint, dagster: Dagster
+) -> None:
+    dagster.events = [_step("connect", ("OperationalError", 'Connection failed with password="first-secret\nsecond"'))]
+
+    step = _get(api, mint)["steps"][0]
+
+    assert "first-secret" not in step["message"]
+    assert step["message"].startswith("Connection failed with password=<redacted>")
+
+
 def test_a_successful_run_has_no_steps_and_no_message(api: TestClient, mint: Mint, dagster: Dagster) -> None:
     dagster.runs = [{**FAILED, "status": "SUCCESS"}]
     # A step that failed once and was retried to success leaves its failure in the event log.
