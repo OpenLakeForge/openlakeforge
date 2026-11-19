@@ -50,6 +50,32 @@ def test_list_jobs_names_each_jobs_location_and_leaves_out_dagsters_own() -> Non
     ]
 
 
+def test_list_jobs_reads_each_jobs_definition_tags() -> None:
+    tags = [{"key": "openlakeforge/silver-domain", "value": "sales"}, {"key": "openlakeforge/product", "value": "x"}]
+    client = _client(
+        {
+            "repositoriesOrError": {
+                "__typename": "RepositoryConnection",
+                "nodes": [
+                    {
+                        "name": "__repository__",
+                        "location": {"name": "sales-dagster"},
+                        "jobs": [
+                            {"name": "x_pipeline", "description": None, "tags": tags},
+                            {"name": "gold_maintenance", "description": None, "tags": []},
+                        ],
+                    }
+                ],
+            }
+        }
+    )
+
+    assert [job.tags for job in client.list_jobs()] == [
+        {"openlakeforge/silver-domain": "sales", "openlakeforge/product": "x"},
+        {},
+    ]
+
+
 def test_list_schedules_reads_state_cron_timezone_start_and_the_latest_run_requesting_tick() -> None:
     schedule = {
         "name": "sales_daily",

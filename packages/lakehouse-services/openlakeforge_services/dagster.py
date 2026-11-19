@@ -49,6 +49,8 @@ class DagsterJob:
     repository: str
     name: str
     description: str
+    # The job definition's tags, not a run's: a job that has never run has them too.
+    tags: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -211,7 +213,7 @@ class DagsterClient:
               repositoriesOrError {
                 __typename
                 ... on RepositoryConnection {
-                  nodes { name location { name } jobs { name description } }
+                  nodes { name location { name } jobs { name description tags { key value } } }
                 }
                 ... on PythonError { message }
               }
@@ -226,6 +228,7 @@ class DagsterClient:
                 repository=repository["name"],
                 name=job["name"],
                 description=job.get("description") or "",
+                tags={tag["key"]: tag["value"] for tag in job.get("tags") or []},
             )
             for repository in result.get("nodes", [])
             for job in repository.get("jobs", [])

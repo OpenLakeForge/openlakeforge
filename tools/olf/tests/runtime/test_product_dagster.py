@@ -828,6 +828,17 @@ def test_a_product_run_carries_its_silver_domain_for_the_run_queue(
     assert job.tags[product_dagster.SILVER_DOMAIN_TAG] == domain
 
 
+@pytest.mark.parametrize(("domain", "product"), sorted(_EXAMPLES))
+def test_a_product_job_names_its_product_beside_its_domain(
+    domain: str, product: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENLAKEFORGE_DBT_PROFILES_DIR", str(tmp_path))
+
+    (job,) = product_dagster.build_product_definitions(ProductDefinitionSpec(domain=domain, product=product)).jobs
+
+    assert job.tags[product_dagster.PRODUCT_TAG] == product
+
+
 def test_the_run_queue_admits_one_run_per_silver_domain() -> None:
     repo_root = Path(__file__).resolve().parents[4]
     values = yaml.safe_load((repo_root / "infra/helm/values/local/dagster.yaml").read_text(encoding="utf-8"))
