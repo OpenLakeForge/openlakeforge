@@ -566,3 +566,29 @@ def test_the_openmetadata_targets_are_the_dbt_case_alone_without_silver() -> Non
     )
     with pytest.raises(E2EError, match="no publishable dbt result"):
         evidence.case_targets(without_dbt, floe=False, **schemas)
+
+
+SALES = Product(domain_name="sales", id="sales", display_name="Sales")
+ENTITIES = frozenset({"orders", "accounts"})
+
+
+def test_a_product_named_like_its_domain_keeps_its_gold_models_out_of_silver() -> None:
+    # A product may share its domain's name, so its Gold models are keyed `["sales", model]` like the Silver tables.
+    assets = [("sales", "orders"), ("sales", "accounts"), ("sales", "mart_order_revenue_by_day"), ("crm", "leads")]
+
+    assert evidence.job_silver_tables(assets, "sales", ENTITIES) == ("accounts", "orders")
+    assert evidence.job_silver_tables(assets, "sales") == ("accounts", "mart_order_revenue_by_day", "orders")
+    gold_only = [{"status": "SUCCESS", "runId": "gold", "assetSelection": [{"path": ["sales", "mart_x"]}]}]
+    assert evidence.pick_full_run(gold_only, "sales", entities=ENTITIES) is None
+
+
+def test_the_gold_dbt_checks_of_a_product_named_like_its_domain_are_not_taken_for_silver() -> None:
+    found = [
+        dataclasses.replace(e, asset=("sales", e.asset[1])) if e.asset[0] == "order_revenue" else e
+        for e in run_checks()
+    ]
+
+    checks = evidence.assert_run_checks(found, SALES, SILVER)
+
+    assert sorted(checks.silver) == ["accounts", "orders"]
+    assert sorted(checks.dbt) == sorted([DBT_TABLE_TEST, DBT_COLUMN_TEST])

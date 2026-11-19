@@ -145,14 +145,17 @@ def check_real_quality_evidence(cfg: E2EConfig, product: Product | None = None) 
     product = product or cfg.inventory.default_product
     stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
     log.step(f"Checking the quality evidence of a real {product.job_name} run...")
+    # The domain's Floe entities name its Silver tables: a product may share its domain's name, so the asset key's
+    # first part alone cannot tell a domain Silver table from one of the product's Gold models.
+    entities = frozenset(e.name for e in cfg.inventory.floe_entities(cfg.inventory.domain_for_product(product)))
     with dagster_client(cfg) as client:
-        silver_tables = product_silver_tables(client, product)
+        silver_tables = product_silver_tables(client, product, entities)
         if not silver_tables:
             log.info(
                 f"{product.id} reads no {product.domain_name} Silver table, only other products' public marts: "
                 "its runs have no Floe checks, so the Floe evidence is skipped."
             )
-        run_id = latest_full_run(client, product, needs_silver=bool(silver_tables))
+        run_id = latest_full_run(client, product, needs_silver=bool(silver_tables), entities=entities)
         checks = assert_run_checks(read_check_evaluations(client, run_id), product, silver_tables)
     with ops_bucket_client(cfg) as (s3, bucket):
         key = f"activations/{stage}/{manifest_key(product.domain_name, product.id, run_id)}"
@@ -182,7 +185,9 @@ def check_real_quality_evidence(cfg: E2EConfig, product: Product | None = None) 
     _check_openmetadata_results(cfg, stage, product, manifest, floe=bool(silver_tables))
 
 
-def product_silver_tables(client: DagsterClient, product: Product) -> tuple[str, ...]:
+def product_silver_tables(
+    client: DagsterClient, product: Product, entities: frozenset[str] | None = None
+) -> tuple[str, ...]:
     """The domain Silver tables the deployed job selects: none for a product reading only other products' marts."""
     try:
         location, repository = client.discover_repository(product.job_name)
@@ -192,14 +197,18 @@ def product_silver_tables(client: DagsterClient, product: Product) -> tuple[str,
     nodes = client.graphql(_JOB_ASSETS, {"selector": selector}).get("assetNodes") or []
     if not nodes:
         raise E2EError(f"Dagster lists no assets for {product.job_name}")
-    return job_silver_tables([tuple(node["assetKey"]["path"]) for node in nodes], product.domain_name)
+    return job_silver_tables([tuple(node["assetKey"]["path"]) for node in nodes], product.domain_name, entities)
 
 
-def job_silver_tables(assets: Iterable[tuple[str, ...]], domain: str) -> tuple[str, ...]:
-    return tuple(sorted({asset[1] for asset in assets if _is_silver(asset, domain)}))
+def job_silver_tables(
+    assets: Iterable[tuple[str, ...]], domain: str, entities: frozenset[str] | None = None
+) -> tuple[str, ...]:
+    return tuple(sorted({asset[1] for asset in assets if _is_silver(asset, domain, entities)}))
 
 
-def latest_full_run(client: DagsterClient, product: Product, *, needs_silver: bool = True) -> str:
+def latest_full_run(
+    client: DagsterClient, product: Product, *, needs_silver: bool = True, entities: frozenset[str] | None = None
+) -> str:
     """The newest successful run of the job, one that selected Silver when the product reads any: a Gold-only
     selection has no Floe checks."""
     result = client.graphql(
@@ -207,19 +216,31 @@ def latest_full_run(client: DagsterClient, product: Product, *, needs_silver: bo
     )["runsOrError"]
     if result.get("__typename") != "Runs":
         raise E2EError(f"Dagster could not list {product.job_name} runs: {result.get('message', result)}")
-    run_id = pick_full_run(result.get("results") or [], product.domain_name, needs_silver=needs_silver)
+    run_id = pick_full_run(
+        result.get("results") or [], product.domain_name, needs_silver=needs_silver, entities=entities
+    )
     if run_id is None:
         wanted = "that selected its Silver tables" if needs_silver else "at all"
         raise E2EError(f"{product.job_name} has no successful run {wanted}")
     return run_id
 
 
-def pick_full_run(runs: Sequence[Mapping[str, Any]], domain: str, *, needs_silver: bool = True) -> str | None:
+def pick_full_run(
+    runs: Sequence[Mapping[str, Any]],
+    domain: str,
+    *,
+    needs_silver: bool = True,
+    entities: frozenset[str] | None = None,
+) -> str | None:
     for run in runs:
         if run.get("status") != "SUCCESS":
             continue
         selection = run.get("assetSelection")
-        if not needs_silver or selection is None or any(_is_silver(tuple(key["path"]), domain) for key in selection):
+        if (
+            not needs_silver
+            or selection is None
+            or any(_is_silver(tuple(key["path"]), domain, entities) for key in selection)
+        ):
             return str(run["runId"])
     return None
 
@@ -275,7 +296,9 @@ def assert_run_checks(
     problems: list[str] = []
     for evaluation in evaluations:
         key = "/".join(evaluation.asset)
-        if _is_silver(evaluation.asset, domain):
+        # A product named like its domain keys its Gold models under the same first part as the Silver tables;
+        # only Floe checks run on Silver, so the check type settles which layer such an asset is.
+        if _is_silver(evaluation.asset, domain) and (domain != product.id or evaluation.name in FLOE_CHECK_IDS):
             silver.setdefault(evaluation.asset[1], {})[evaluation.name] = evaluation
         elif evaluation.name in FLOE_CHECK_IDS:
             problems.append(f"Floe check {evaluation.name} on {key}, which is not a {domain} Silver table")
@@ -609,8 +632,10 @@ def reconciler_warn_status(cronjob: Mapping[str, Any] | None) -> OmStatus:
     return OmStatus.ABORTED
 
 
-def _is_silver(asset: tuple[str, ...], domain: str) -> bool:
-    return len(asset) == 2 and asset[0] == domain
+def _is_silver(asset: tuple[str, ...], domain: str, entities: frozenset[str] | None = None) -> bool:
+    """A domain Silver table: keyed `[domain, entity]`, and, when the domain's Floe entities are known, one of
+    them, so a Gold model of a product that shares the domain's name is not taken for Silver."""
+    return len(asset) == 2 and asset[0] == domain and (entities is None or asset[1] in entities)
 
 
 def _is_count(value: Any) -> bool:
