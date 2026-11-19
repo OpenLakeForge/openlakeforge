@@ -432,6 +432,42 @@
         "title": "Domains",
         "type": "object"
       },
+      "FailedStep": {
+        "description": "One failed step of a run: its Dagster step key and the innermost cause of its error.",
+        "properties": {
+          "error_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Class"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "message_truncated": {
+            "title": "Message Truncated",
+            "type": "boolean"
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "error_class",
+          "message",
+          "message_truncated"
+        ],
+        "title": "FailedStep",
+        "type": "object"
+      },
       "FileCapabilities": {
         "properties": {
           "max_upload_bytes": {
@@ -1920,6 +1956,105 @@
           "tags"
         ],
         "title": "Run",
+        "type": "object"
+      },
+      "RunFailure": {
+        "description": "What went wrong in one run, bounded and redacted; a run that did not fail has no steps and no message.",
+        "properties": {
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRows"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "run_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Message"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationStatus"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "steps": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FailedStep"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steps"
+          },
+          "steps_truncated": {
+            "title": "Steps Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "run_id",
+          "job",
+          "status",
+          "steps",
+          "run_message",
+          "steps_truncated",
+          "rows",
+          "sources"
+        ],
+        "title": "RunFailure",
+        "type": "object"
+      },
+      "RunRows": {
+        "description": "Rows Floe rejected and accepted in a run, summed over its tables from the run's quality manifest.",
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "rejected": {
+            "title": "Rejected",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rejected",
+          "accepted",
+          "complete"
+        ],
+        "title": "RunRows",
         "type": "object"
       },
       "Runs": {
@@ -4061,6 +4196,55 @@
           }
         },
         "summary": "Get Run"
+      }
+    },
+    "/api/v1/stages/{stage}/runs/{run_id}/failure": {
+      "get": {
+        "description": "The run's failed steps, its own failure message and its rejected rows, each bounded and redacted.",
+        "operationId": "get_run_failure_api_v1_stages__stage__runs__run_id__failure_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFailure"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Failure"
       }
     },
     "/api/v1/stages/{stage}/schemas": {
