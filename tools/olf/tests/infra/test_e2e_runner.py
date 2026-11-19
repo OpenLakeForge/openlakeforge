@@ -118,6 +118,7 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
         "check_trino_product_tables_and_marts",
         lambda _cfg, product: calls.append(("tables", product.id)),
     )
+    monkeypatch.setattr(_runner, "check_metrics_off", lambda _cfg: calls.append("metrics-off"))
 
     _runner.run_smoke(local_cfg)
 
@@ -126,6 +127,7 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
         "namespaces",
         (E2E_INVENTORY.default_product.id,),
         ("tables", E2E_INVENTORY.default_product.id),
+        "metrics-off",
     ]
 
 
@@ -138,7 +140,8 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
                 "namespaces", "jobs", "tables", "serial", "maintenance",
                 "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
                 "perimeter", "break-glass", "latency", "outage",
-                "superset", "openmetadata", "quality", "artifacts", "short-lived", "collector-restart",
+                "superset", "openmetadata", "quality", "artifacts", "metrics-reads", "metrics-labels",
+                "short-lived", "collector-restart",
                 "retention", "footprint", "delivery", "spool-limit",
                 "alerts", "isolation",
                 "exposure", "rotation",
@@ -188,6 +191,8 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "check_quality_publication", lambda _cfg: calls.append("quality"))
     monkeypatch.setattr(_runner, "check_ops_artifacts", lambda _cfg: calls.append("artifacts"))
     monkeypatch.setattr(_runner, "check_alert_delivery", lambda _cfg: calls.append("alerts"))
+    monkeypatch.setattr(_runner, "check_metrics_reads", lambda _cfg: calls.append("metrics-reads"))
+    monkeypatch.setattr(_runner, "check_metrics_cardinality", lambda _cfg: calls.append("metrics-labels"))
     monkeypatch.setattr(_runner, "check_stage_isolation", lambda _cfg: calls.append("isolation"))
     monkeypatch.setattr(_runner, "check_secret_exposure", lambda _cfg: calls.append("exposure"))
     monkeypatch.setattr(_runner, "configured_layers", lambda _cfg: {"governance": True, "analytics": True})
@@ -286,6 +291,8 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "check_delivery_signals_follow_an_outage", lambda _cfg: calls.append("delivery"))
     monkeypatch.setattr(_runner, "check_spool_limit_is_the_loss_point", lambda _cfg: calls.append("spool-limit"))
     monkeypatch.setattr(_runner, "check_alert_delivery", lambda _cfg: calls.append("alerts"))
+    monkeypatch.setattr(_runner, "check_metrics_reads", lambda _cfg: calls.append("metrics-reads"))
+    monkeypatch.setattr(_runner, "check_metrics_cardinality", lambda _cfg: calls.append("metrics-labels"))
     monkeypatch.setattr(_runner, "check_stage_isolation", lambda _cfg: calls.append("isolation"))
     monkeypatch.setattr(_runner, "check_secret_exposure", lambda _cfg: calls.append("exposure"))
     monkeypatch.setattr(_runner, "configured_layers", lambda _cfg: {"governance": False, "analytics": False})
@@ -297,7 +304,8 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
         "namespaces", "jobs", "tables", "serial", "maintenance",
         "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
         "perimeter", "break-glass", "outage",
-        "artifacts", "short-lived", "collector-restart", "retention", "footprint", "delivery", "spool-limit",
+        "artifacts", "metrics-reads", "metrics-labels",
+        "short-lived", "collector-restart", "retention", "footprint", "delivery", "spool-limit",
         "alerts", "isolation", "exposure", "rotation",
     ]
     skipped = (
