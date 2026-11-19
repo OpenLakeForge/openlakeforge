@@ -21,7 +21,7 @@ from typing import Literal
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Query, Request
 from openlakeforge_services.base import ServiceClientError, TransientServiceError
-from openlakeforge_services.dagster import DagsterClient
+from openlakeforge_services.dagster import DagsterClient, DagsterJob
 from openlakeforge_services.logs import LogArchive
 from openlakeforge_services.openmetadata import OpenMetadataClient
 
@@ -37,6 +37,7 @@ from openlakeforge_platform_api.models import (
     Run,
     Runs,
 )
+from openlakeforge_platform_api.pipeline_health import job_scope
 from openlakeforge_platform_api.tokens import Principal
 
 log = logging.getLogger(__name__)
@@ -69,7 +70,20 @@ def _dagster_errors(stage: str) -> Iterator[None]:
 def list_jobs(request: Request, stage: str) -> Jobs:
     with _dagster_errors(stage):
         jobs = _dagster(request, stage).list_jobs()
-    return Jobs(jobs=[Job(**asdict(job)) for job in jobs])
+    return Jobs(jobs=[_job(job) for job in jobs])
+
+
+def _job(job: DagsterJob) -> Job:
+    # The tags themselves are not answered: a job's tags include its sources' stage bindings.
+    scope = job_scope(job.tags)
+    return Job(
+        location=job.location,
+        repository=job.repository,
+        name=job.name,
+        description=job.description,
+        domain=scope.domain,
+        product=scope.product,
+    )
 
 
 def list_runs(

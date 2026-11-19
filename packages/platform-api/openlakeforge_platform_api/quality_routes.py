@@ -19,7 +19,6 @@ from openlakeforge_core.quality import PipelineOutcome, QualityManifest, Quality
 from openlakeforge_platform_api import health_routes
 from openlakeforge_platform_api.models import IntegrationStatus, PipelineQuality, QualityCounts, StageQualityHealth
 from openlakeforge_platform_api.pipeline_health import PipelineEvaluation
-from openlakeforge_platform_api.quality_health import PIPELINE_JOB_SUFFIX
 
 # The whole read, Dagster and every manifest, is held to this. Each Dagster call and manifest read has its own
 # timeout, but a stage has many of them, so without a deadline a hung Dagster or store would hold the request for
@@ -81,8 +80,8 @@ def _pipeline(pipeline: PipelineEvaluation) -> PipelineQuality | None:
     manifest, signal = evidence.manifest, evidence.signal
     return PipelineQuality(
         job=pipeline.job,
-        domain=evidence.domain,
-        product=pipeline.job.removesuffix(PIPELINE_JOB_SUFFIX),
+        domain=pipeline.domain,
+        product=pipeline.product,
         run_id=evidence.run_id,
         observed_at=max((result.observed_at for result in manifest.results), default=None) if manifest else None,
         complete=manifest.complete if manifest else None,

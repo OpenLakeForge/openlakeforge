@@ -21,7 +21,8 @@ from openlakeforge_services.dagster import DagsterClient, DagsterFailure, Dagste
 from openlakeforge_services.redact import redact
 
 from openlakeforge_platform_api.models import FailedStep, IntegrationStatus, RunFailure, RunRows
-from openlakeforge_platform_api.quality_health import DOMAIN_TAG, PIPELINE_JOB_SUFFIX, QualityReadError
+from openlakeforge_platform_api.pipeline_health import DOMAIN_TAG, PRODUCT_TAG
+from openlakeforge_platform_api.quality_health import QualityReadError
 from openlakeforge_platform_api.reads import _dagster, _dagster_errors
 
 log = logging.getLogger(__name__)
@@ -115,18 +116,29 @@ def _sum_rows(manifest: QualityManifest) -> RunRows | None:
     )
 
 
-def _rows(request: Request, stage: str, run: DagsterRun, expires: float) -> tuple[RunRows | None, IntegrationStatus]:
+def _rows(
+    request: Request, client: DagsterClient, stage: str, run: DagsterRun, expires: float
+) -> tuple[RunRows | None, IntegrationStatus]:
     reader = request.app.state.quality_readers.get(stage)
     if reader is None:
         return None, IntegrationStatus(
             name="quality", status="not_provided", reason="no quality manifest reader is configured for this stage"
         )
-    domain = run.tags.get(DOMAIN_TAG)
-    if domain is None or not run.job_name.endswith(PIPELINE_JOB_SUFFIX):
+    # The job definition's tags name its domain and product (#1272); the job name is never parsed for them. The raw
+    # values go to the reader, whose `manifest_key` refuses one that is not a plain name.
+    try:
+        jobs = _within(expires, client.list_jobs)
+    except (ServiceClientError, _Deadline) as exc:
+        log.warning("the jobs of stage %s could not be read for run %s: %r", stage, run.run_id, exc)
+        return None, IntegrationStatus(
+            name="quality", status="unavailable", reason="the run's job definition could not be read"
+        )
+    tags = next((job.tags for job in jobs if job.name == run.job_name), {})
+    domain, product = tags.get(DOMAIN_TAG), tags.get(PRODUCT_TAG)
+    if domain is None or product is None:
         return None, IntegrationStatus(
             name="quality", status="not_provided", reason="only a product pipeline's run writes a quality manifest"
         )
-    product = run.job_name.removesuffix(PIPELINE_JOB_SUFFIX)
     try:
         manifest = _within(expires, lambda: reader.read(stage, domain, product, run.run_id))
     except (QualityReadError, _Deadline) as exc:
@@ -158,7 +170,7 @@ def get_run_failure(request: Request, stage: str, run_id: str) -> RunFailure:
     if run is None:
         raise HTTPException(status_code=404, detail=f"no run {run_id!r} in stage {stage!r}")
     steps, run_message, steps_truncated, dagster = _failures(client, run, expires)
-    rows, quality = _rows(request, stage, run, expires)
+    rows, quality = _rows(request, client, stage, run, expires)
     return RunFailure(
         run_id=run.run_id,
         job=run.job_name,

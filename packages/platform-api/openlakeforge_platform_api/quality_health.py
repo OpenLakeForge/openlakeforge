@@ -36,12 +36,6 @@ from openlakeforge_core.quality import (
 
 log = logging.getLogger(__name__)
 
-# `ProductDefinitionSpec.job_name` and `SILVER_DOMAIN_TAG` in packages/runtime/openlakeforge_runtime/product_dagster.py:
-# the only jobs that write a quality manifest are product pipelines, and they name their domain on every run. Any
-# other job (maintenance) has none, so it gets no quality signal rather than a permanent `unknown`.
-PIPELINE_JOB_SUFFIX = "_pipeline"
-DOMAIN_TAG = "openlakeforge/silver-domain"
-
 _MISSING = frozenset({"NoSuchKey", "404"})
 
 
@@ -93,7 +87,7 @@ class QualityReader:
     def read(self, stage: str, domain: str, product: str, run_id: str) -> QualityManifest | None:
         """The run's manifest, or None when the run wrote none.
 
-        Domain, product and run id become key segments, and the run's tags are not trusted: `manifest_key` refuses
+        Domain, product and run id become key segments, and the job's tags are not trusted: `manifest_key` refuses
         a segment that is not a plain name.
         """
         try:
@@ -128,20 +122,19 @@ def quality_signal(
     scope: Scope,
     job: str,
     run_id: str,
-    tags: Mapping[str, str],
+    domain: str,
+    product: str,
     *,
     now: datetime,
     max_age: timedelta,
     level: str = "warn",
-) -> QualityRead | None:
-    """The quality signal of `job`'s run, or None for a job that is not a product pipeline.
+) -> QualityRead:
+    """The quality signal of a run of `job`, the product pipeline whose definition names `domain` and `product`.
 
+    Only product pipelines write a quality manifest, so the caller asks for no other job: a maintenance job gets no
+    quality signal rather than a permanent `unknown`.
     `level` is the alert policy's quality level: with `error`, a WARN reads as a pass, so it neither alerts nor hides a
     failure in the same manifest or in an older run."""
-    domain = tags.get(DOMAIN_TAG)
-    if domain is None or not job.endswith(PIPELINE_JOB_SUFFIX):
-        return None
-    product = job.removesuffix(PIPELINE_JOB_SUFFIX)
     unreadable = False
     try:
         manifest = reader.read(scope.stage, domain, product, run_id)

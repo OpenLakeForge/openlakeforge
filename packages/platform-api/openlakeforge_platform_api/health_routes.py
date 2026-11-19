@@ -192,7 +192,12 @@ async def get_stage_health(request: Request, stage: str) -> StageHealth:
         stage=stage,
         state=rollup(signals).value,
         evaluated_at=now,
-        pipelines=[StagePipelineState(job=pipeline.job, state=pipeline.state.value) for pipeline in pipelines],
+        pipelines=[
+            StagePipelineState(
+                job=pipeline.job, domain=pipeline.domain, product=pipeline.product, state=pipeline.state.value
+            )
+            for pipeline in pipelines
+        ],
         services=[_service(signal) for signal in service_signals],
         integrations=[
             dagster,
@@ -241,6 +246,8 @@ def _pipeline(pipeline: PipelineEvaluation, now: datetime) -> PipelineHealth:
     schedule = pipeline.schedule
     return PipelineHealth(
         job=pipeline.job,
+        domain=pipeline.domain,
+        product=pipeline.product,
         state=pipeline.state.value,
         latest_run=_run(pipeline.runs[0]) if pipeline.runs else None,
         last_success=_run(success) if success else None,

@@ -34,12 +34,12 @@ from openlakeforge_core.health import (
     evaluate_quality,
     rollup,
 )
-from openlakeforge_core.quality import QualityManifest
+from openlakeforge_core.quality import QualityManifest, is_plain_name
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient, DagsterRun, DagsterSchedule
 
 from openlakeforge_platform_api.models import IntegrationStatus
-from openlakeforge_platform_api.quality_health import DOMAIN_TAG, QualityReader, quality_signal
+from openlakeforge_platform_api.quality_health import QualityReader, quality_signal
 from openlakeforge_platform_api.schedules import latest_due, next_due
 
 log = logging.getLogger(__name__)
@@ -61,6 +61,31 @@ RUN_STATUS = {
     "CANCELING": RunStatus.CANCELED,
 }
 
+# The definition tags of a product job, `SILVER_DOMAIN_TAG` and `PRODUCT_TAG` in
+# packages/runtime/openlakeforge_runtime/product_dagster.py. A job carrying neither belongs to no product.
+DOMAIN_TAG = "openlakeforge/silver-domain"
+PRODUCT_TAG = "openlakeforge/product"
+
+
+@dataclass(frozen=True)
+class JobScope:
+    """The domain and data product a Dagster job loads, as plain names; both None for a job of no product."""
+
+    domain: str | None = None
+    product: str | None = None
+
+
+def job_scope(tags: Mapping[str, str]) -> JobScope:
+    """The domain and product a job's definition tags name. A value that is not a plain name (the `manifest_key`
+    segment rule) reads None rather than being passed on. A job deployed before the product tag existed has its domain
+    and no product: the name is never parsed for one."""
+
+    def plain(key: str) -> str | None:
+        value = tags.get(key)
+        return value if value is not None and is_plain_name(value) else None
+
+    return JobScope(domain=plain(DOMAIN_TAG), product=plain(PRODUCT_TAG))
+
 
 @dataclass(frozen=True)
 class QualityEvidence:
@@ -73,7 +98,6 @@ class QualityEvidence:
 
     signal: Signal | None
     run_id: str | None
-    domain: str | None
     manifest: QualityManifest | None
 
 
@@ -87,6 +111,9 @@ class PipelineEvaluation:
     signals: list[Signal]
     # Set for a product pipeline with a run when the stage has a quality reader; None otherwise.
     quality: QualityEvidence | None = None
+    # From the job definition's tags (`job_scope`); not part of the signals' scope, which stays keyed by job.
+    domain: str | None = None
+    product: str | None = None
 
     @property
     def state(self) -> HealthState:
@@ -179,13 +206,18 @@ def _quality(
     quality: QualityReader,
     scope: Scope,
     job: str,
+    tags: Mapping[str, str],
     runs: list[DagsterRun],
     now: datetime,
     max_age: timedelta,
     level: str = "warn",
 ) -> QualityEvidence | None:
     """The quality signal of the latest run's manifest, where a failed run's blocking errors are, or None for a job
-    that is not a product pipeline.
+    that is not a product pipeline: one whose definition does not name both its domain and its product.
+
+    The tag values go to the reader as they are, not through `job_scope`: a tag that is not a plain name is refused
+    by `manifest_key` there and reads `unknown`, where `job_scope` would make it a job of no product and drop the
+    signal.
 
     The manifest is published after every step and omits dbt's results until dbt's evidence is read, so one from a
     run that did not succeed (in progress, canceled, or failed before dbt reported) may lack the checks still to
@@ -198,26 +230,22 @@ def _quality(
     so a success after it cannot answer `healthy`: it answers `unknown`, and that run is the evidence named. A run
     with no manifest hides nothing.
     """
+    domain, product = tags.get(DOMAIN_TAG), tags.get(PRODUCT_TAG)
+    if domain is None or product is None:
+        return None
     unreadable: DagsterRun | None = None
     for run in runs:
-        read = quality_signal(quality, scope, job, run.run_id, run.tags, now=now, max_age=max_age, level=level)
-        if read is None:
-            return None
+        read = quality_signal(quality, scope, job, run.run_id, domain, product, now=now, max_age=max_age, level=level)
         found = read.signal
         if run.status == "SUCCESS":
             if unreadable is not None and found.state is HealthState.HEALTHY:
-                return QualityEvidence(
-                    evaluate_quality(scope, None, now=now, max_age=max_age),
-                    unreadable.run_id,
-                    unreadable.tags.get(DOMAIN_TAG),
-                    None,
-                )
-            return QualityEvidence(found, run.run_id, run.tags.get(DOMAIN_TAG), read.manifest)
+                return QualityEvidence(evaluate_quality(scope, None, now=now, max_age=max_age), unreadable.run_id, None)
+            return QualityEvidence(found, run.run_id, read.manifest)
         if found.state in (HealthState.WARNING, HealthState.CRITICAL):
-            return QualityEvidence(found, run.run_id, run.tags.get(DOMAIN_TAG), read.manifest)
+            return QualityEvidence(found, run.run_id, read.manifest)
         if read.unreadable and unreadable is None:
             unreadable = run
-    return QualityEvidence(None, None, runs[0].tags.get(DOMAIN_TAG), None)
+    return QualityEvidence(None, None, None)
 
 
 def _freshness(
@@ -247,7 +275,11 @@ def _evaluate(
     now: datetime,
     quality: QualityReader | None = None,
     conditions: Mapping[str, ResolvedCondition] | None = None,
+    tags: Mapping[str, str] | None = None,
 ) -> PipelineEvaluation:
+    """`tags` are the job definition's. The signals stay scoped by job name: the alert policy matches rules on it and
+    incident fingerprints include it (ADR 0023), so the job's domain and product are carried beside the scope."""
+    tags = tags or {}
     scope = Scope(stage=stage, product=job)
     missed_options = (conditions or {}).get("missed_run")
     fresh_options = (conditions or {}).get("freshness")
@@ -280,10 +312,11 @@ def _evaluate(
         evaluate_expected_run(scope, expected, now=now, max_age=SCHEDULE_MAX_AGE, grace=grace),
         _freshness(scope, schedule, runs, success, state, now, freshness, fresh_grace),
     ]
-    evidence = _quality(quality, scope, job, runs, now, max_age, level) if quality is not None and runs else None
+    evidence = _quality(quality, scope, job, tags, runs, now, max_age, level) if quality is not None and runs else None
     if evidence is not None and evidence.signal is not None:
         signals.append(evidence.signal)
-    return PipelineEvaluation(job, runs, schedule, due, signals, evidence)
+    mapped = job_scope(tags)
+    return PipelineEvaluation(job, runs, schedule, due, signals, evidence, domain=mapped.domain, product=mapped.product)
 
 
 def read_stage_pipelines(
@@ -303,7 +336,9 @@ def read_stage_pipelines(
         absent = IntegrationStatus(name="dagster", status="disabled", reason="no Dagster is configured for this stage")
         return absent, []
     try:
-        jobs = [job.name for job in client.list_jobs()]
+        listed = client.list_jobs()
+        jobs = [job.name for job in listed]
+        tags = {job.name: job.tags for job in listed}
         schedules = client.list_schedules()
         runs = {job: client.list_runs(job_name=job, limit=RUN_WINDOW) for job in jobs}
     except ServiceClientError as exc:
@@ -315,7 +350,9 @@ def read_stage_pipelines(
     for schedule in sorted(schedules, key=lambda item: item.status == "RUNNING"):
         by_job[schedule.job_name] = schedule
     pipelines = [
-        _evaluate(stage, job, runs[job], by_job.get(job), now, quality, policy.for_job(job) if policy else None)
+        _evaluate(
+            stage, job, runs[job], by_job.get(job), now, quality, policy.for_job(job) if policy else None, tags[job]
+        )
         for job in jobs
     ]
     return IntegrationStatus(name="dagster", status="available", reason="read from Dagster"), pipelines

@@ -17,7 +17,8 @@ from test_reads import _settings as _api_settings
 
 from openlakeforge_platform_api import run_failure
 from openlakeforge_platform_api.app import create_app
-from openlakeforge_platform_api.quality_health import DOMAIN_TAG, QualityReader
+from openlakeforge_platform_api.pipeline_health import DOMAIN_TAG, PRODUCT_TAG
+from openlakeforge_platform_api.quality_health import QualityReader
 from openlakeforge_platform_api.settings import Settings
 
 BASE = "s3://ops/activations/dev/"
@@ -38,6 +39,15 @@ class Dagster(FakeDagster):
     def __init__(self) -> None:
         super().__init__()
         self.runs = [FAILED]
+        # The product job's definition tags name its domain and product (#1272).
+        self.jobs = [
+            {
+                "name": "orders_pipeline",
+                "description": "Orders",
+                "tags": [{"key": DOMAIN_TAG, "value": "sales"}, {"key": PRODUCT_TAG, "value": "orders"}],
+            },
+            {"name": "gold_maintenance", "description": None},
+        ]
         self.events: list[dict[str, Any]] = []
         self.event_log: dict[str, Any] | None = None
         self.event_log_delay = 0.0
@@ -329,6 +339,19 @@ def test_a_job_that_is_not_a_product_pipeline_reads_no_manifest(
     api: TestClient, mint: Mint, dagster: Dagster, bucket: FakeBucket
 ) -> None:
     dagster.runs = [{**FAILED, "jobName": "maintenance_job"}]
+
+    body = _get(api, mint)
+
+    assert body["rows"] is None
+    assert _sources(body)["quality"] == "not_provided"
+
+
+def test_a_job_deployed_before_the_product_tag_reads_no_manifest(
+    api: TestClient, mint: Mint, dagster: Dagster, bucket: FakeBucket
+) -> None:
+    # The domain tag alone: the name is never parsed for the product (#1272).
+    dagster.jobs[0]["tags"] = [{"key": DOMAIN_TAG, "value": "sales"}]
+    _store(bucket, _floe("orders", "not_null", rejected_rows=2, accepted_rows=8))
 
     body = _get(api, mint)
 

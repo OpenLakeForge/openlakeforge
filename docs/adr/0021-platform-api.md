@@ -853,3 +853,14 @@ unreadable event log gives `steps: null` and an absent or unreadable manifest `r
 zeros. The Dagster read never selects `stack` and is the one `poll` uses for CI diagnostics; the redactor
 (`openlakeforge_services.redact`) removes URL userinfo and queries, Bearer and Basic credentials, `key=value` secrets
 and access-key lookalikes. The read is held to a 20-second deadline. The health routes still carry no error text.
+
+2026-11-19: #1272. Each Dagster job maps to the domain and data product it loads, from its job definition's tags: a
+product job declares `openlakeforge/product` beside `openlakeforge/silver-domain`, and the Dagster job read selects
+definition tags, so a job that has never run is mapped. `Job`, `StagePipelineState` and `PipelineHealth` gain
+`domain` and `product`, plain names (the quality manifest key's segment rule) and `null` for a job of no product, for
+a tag that is not a plain name, and for the product of a job deployed before the product tag; the job is listed
+either way and its tags are never answered. The quality signal and `get_stage_quality_health` read the same tags, so
+`PipelineQuality.product` is nullable and the `_pipeline` suffix rule is gone. `AlertIncident` gains `job`, the job
+the incident is scoped to, and its `domain` and `product` are now that job's, read from the stage's Dagster job list
+when the route answers, `null` when Dagster cannot be read in 10 seconds. The core `Scope`, whose `product` holds the
+job name, and ADR 0023's incident fingerprints and notification payload are unchanged; ADR 0004 is unchanged.
