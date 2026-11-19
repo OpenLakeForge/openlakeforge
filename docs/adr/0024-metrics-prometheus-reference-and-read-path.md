@@ -282,11 +282,11 @@ The same four ranges are the `range` of the stage health routes,
 `get_stage_health` and `list_pipeline_health`
 ([ADR 0021](0021-platform-api.md), History, #1260), so a page has one window
 selector: one list in code, `RANGES` in `openlakeforge_core.metrics`, which the
-API's `MetricRangeName` is tested against. A change to the list changes both. There a range scopes the failed-run
-counts only, never a state or a signal; the step column does not apply; and,
-since the counts come from Dagster, the retention does not bound it. The counts
-carry `covered_from` when Decision 2's 500-run read stops short of the range,
-as a Dagster series does.
+API's `MetricRangeName` is tested against. A change to the list changes both.
+There a range scopes the failed-run counts only, never a state or a signal; the
+step column does not apply; and, since the counts come from Dagster, the
+retention does not bound it. The counts carry `covered_from` when Decision 2's
+500-run read stops short of the range, as a Dagster series does.
 
 The first catalog, mapped to #333's chart list:
 
