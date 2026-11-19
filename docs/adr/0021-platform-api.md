@@ -837,3 +837,13 @@ floor, read-only and not audited, with no acknowledgement: the stage's open inci
 object-store identity, the alert state key (`Read` and `List` on `alerts/state/*`), joins decision 3's list and the
 service table. A missing, unreadable or unparsable state is `unavailable` with no incidents, and a state older than two
 evaluator runs is `stale`. The read is held to a 10-second deadline, and the API never writes the state.
+
+2026-11-19: #1271. `GET /api/v1/stages/{stage}/runs/{run_id}/failure` (`get_run_failure`) added beside `get_run`, at
+its floor, read-only and not audited. It answers at most five failed steps in event order (`steps_truncated` past
+them), each with its step key, the innermost cause's class and the first line of its message, redacted and then cut to
+300 characters; the run's own failure message when no step failed; and the rejected and accepted rows from the run's
+ADR 0023 quality manifest, taken once per table and summed. A successful run has no steps and no message; an
+unreadable event log gives `steps: null` and an absent or unreadable manifest `rows: null`, never an empty list or
+zeros. The Dagster read never selects `stack` and is the one `poll` uses for CI diagnostics; the redactor
+(`openlakeforge_services.redact`) removes URL userinfo and queries, Bearer and Basic credentials, `key=value` secrets
+and access-key lookalikes. The read is held to a 20-second deadline. The health routes still carry no error text.
