@@ -6,7 +6,7 @@ import pytest
 from _tooling_support import RecordedCall, RecordingRunner
 
 from olf.common.deployment.context import DeploymentContext, Profile
-from olf.common.deployment.errors import DeploymentPreconditionError, ExecutableNotFoundError
+from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError, ExecutableNotFoundError
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.tooling.process import CommandResult
 from olf.common.tooling.resolver import PathExecutableResolver
@@ -79,6 +79,8 @@ class _UnreachableRunner(RecordingRunner):
     def run(self, command, **kwargs):  # type: ignore[override]
         argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
         self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+        if argv[:3] == ["kind", "get", "clusters"]:
+            return _ok("" if self._live_port is None else "openlakeforge-local\n")
         if argv[:3] == ["kind", "get", "kubeconfig"]:
             if self._live_port is None:
                 return _fail()
@@ -390,5 +392,21 @@ def test_platform_down_keeps_state_when_the_cluster_runs_but_the_kubeconfig_is_a
 
     with pytest.raises(DeploymentPreconditionError, match="belongs to another deployment"):
         teardown.platform_down(config, _toolkit(_UnreachableRunner(live_port=43175)), env={})
+
+    assert config.paths.foundation_state_path.exists()
+
+
+def test_platform_down_keeps_state_when_kind_cannot_list_clusters(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+
+    class _KindDown(_UnreachableRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = [str(part) for part in (command.argv if hasattr(command, "argv") else command)]
+            if argv[:3] == ["kind", "get", "clusters"]:
+                raise CommandExecutionError(argv, 1, stderr="Cannot connect to the Docker daemon")
+            return super().run(command, **kwargs)
+
+    with pytest.raises(CommandExecutionError):
+        teardown.platform_down(config, _toolkit(_KindDown(live_port=None)), env={})
 
     assert config.paths.foundation_state_path.exists()

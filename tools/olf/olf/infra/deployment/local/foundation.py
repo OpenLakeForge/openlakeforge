@@ -59,7 +59,8 @@ def discard_state_of_missing_cluster(config: LocalDeploymentConfig, tools: Toolk
     (#1350). Returns whether anything was removed.
     """
     paths = config.paths
-    if not paths.foundation_state_path.is_file() or tools.kind.get_kubeconfig(config.cluster.name, env=env).ok:
+    # get_clusters raises when kind or Docker cannot answer: only a successful listing proves absence.
+    if not paths.foundation_state_path.is_file() or config.cluster.name in tools.kind.get_clusters(env=env):
         return False
     removed = [
         file

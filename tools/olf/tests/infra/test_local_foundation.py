@@ -437,7 +437,6 @@ def test_foundation_up_discards_state_of_a_cluster_deleted_outside_olf(tmp_path:
     files = _stale_state(config)
     runner = _ScriptedRunner(
         rules=[
-            (lambda argv: argv[:3] == ["kind", "get", "kubeconfig"], _fail()),
             (lambda argv: "get-contexts" in argv, _ok("kind-openlakeforge-local\n")),
         ],
         default=_ok(),
@@ -454,7 +453,11 @@ def test_foundation_up_keeps_state_of_a_running_cluster(tmp_path: Path) -> None:
     files = _stale_state(config)
 
     runner = _ScriptedRunner(
-        rules=[(lambda argv: "get-contexts" in argv, _ok("kind-openlakeforge-local\n"))], default=_ok()
+        rules=[
+            (lambda argv: argv[:3] == ["kind", "get", "clusters"], _ok("openlakeforge-local\n")),
+            (lambda argv: "get-contexts" in argv, _ok("kind-openlakeforge-local\n")),
+        ],
+        default=_ok(),
     )
     foundation.foundation_up(config, _toolkit_with_runner(runner), env={})
 
