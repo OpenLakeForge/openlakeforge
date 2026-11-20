@@ -38,7 +38,6 @@ lakehouse_code/
 │       └── campaign_performance/
 │           ├── mart_campaign_performance.sql
 │           └── schema.yml
-└── pipelines/dagster/campaign_performance.py
 ```
 
 ## 2. Know the generated dbt project
@@ -181,8 +180,8 @@ refused the Silver tables beneath it
 
 ## What you learned
 
-- `olf product new` creates a product-owned dbt project and a Dagster module
-  and registers the product in `governance.yml`.
+- `olf product new` creates a product-owned dbt project and registers the
+  product in `governance.yml`; Dagster builds its job from that entry.
 - `olf infra query` reads any Silver or Gold table of a stage from your machine;
   `olf query` runs SQL as yourself, limited to what your role reads.
 - Gold is plain SQL over declared Silver sources; tests run as part of the

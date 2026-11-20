@@ -144,10 +144,6 @@ class Product:
         return f"{self.id}_gold"
 
     @property
-    def definitions_module(self) -> str:
-        return f"lakehouse_code.pipelines.dagster.{self.id}"
-
-    @property
     def dbt_artifact_prefix(self) -> str:
         return f"run-artifacts/dbt/{self.domain_name}/{self.id}/"
 

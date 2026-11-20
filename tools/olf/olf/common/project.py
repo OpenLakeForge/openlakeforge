@@ -66,7 +66,7 @@ class ProjectSpec:
 
     @property
     def pipelines_root(self) -> Path:
-        return self.code_root / "pipelines" / "dagster"
+        return self.code_root / "pipelines"
 
     @property
     def schema_root(self) -> Path:
@@ -144,7 +144,7 @@ def _canonical_layout_check(project: ProjectSpec) -> ProjectCheck:
         "lakehouse_code/silver/": project.silver_root,
         "lakehouse_code/gold/": project.gold_root,
         "lakehouse_code/dashboards/superset/": project.dashboards_root,
-        "lakehouse_code/pipelines/dagster/": project.pipelines_root,
+        "lakehouse_code/pipelines/": project.pipelines_root,
     }
     missing = [name for name, path in required_files.items() if not path.is_file()]
     missing.extend(name for name, path in required_directories.items() if not path.is_dir())
@@ -184,9 +184,9 @@ def _project_assets_check(project: ProjectSpec, inventory: LakehouseInventory | 
         models_dir = project.gold_root / "models" / product.id
         if not models_dir.is_dir():
             missing.append(models_dir.relative_to(project.root).as_posix() + "/")
-        pipeline_path = project.pipelines_root / f"{product.id}.py"
-        if not pipeline_path.is_file():
-            missing.append(pipeline_path.relative_to(project.root).as_posix())
+    for entry_point in (project.pipelines_root / "definitions.py", project.pipelines_root / "products.py"):
+        if not entry_point.is_file():
+            missing.append(entry_point.relative_to(project.root).as_posix())
     for dashboard in inventory.dashboards:
         path = project.root / dashboard.report_source_dir / "metadata.yaml"
         if not path.is_file():

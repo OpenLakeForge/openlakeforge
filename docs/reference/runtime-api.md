@@ -13,6 +13,7 @@ of a module or name outside this page.
 
 | Module | Public names |
 | --- | --- |
+| `openlakeforge_runtime.code_location` | `ProductOverrides`, `build_code_location`, `product_specs` |
 | `openlakeforge_runtime.product_dagster` | `ProductDefinitionSpec`, `ProductCadence`, `ResolvedProductInputs`, `build_product_definitions`, `SourceDefinitionSpec`, `build_source_definitions`, `build_silver_definitions`, `build_maintenance_definitions`, `build_gold_maintenance_definitions`, `build_stage_schedules` |
 | `openlakeforge_runtime.bronze_csv` | `BronzeLoadResult`, `load_entities_to_bronze`, `load_entity_to_bronze` |
 | `openlakeforge_runtime.bronze_dlt` | `load_dlt_source` |
@@ -34,9 +35,28 @@ While the project is in beta (`v1beta1`):
   names, so removing one fails the build.
 - New public names and new optional arguments can appear in any release.
 
+## `build_code_location` and `ProductOverrides`
+
+`lakehouse_code/pipelines/definitions.py` is the code location. It calls
+`build_code_location(PRODUCTS)`, which builds the Bronze, Silver and
+maintenance definitions and one job per product in `governance.yml`.
+`PRODUCTS` in `pipelines/products.py` maps a product id to a
+`ProductOverrides(silver_inputs, bronze_inputs, gold_assets, cadence)` and
+needs an entry only for a product that departs from the defaults below. An
+entry for a product `governance.yml` does not declare raises `ValueError`.
+
+```python
+PRODUCTS = {
+    "order_revenue": ProductOverrides(cadence=ProductCadence("0 2 * * *", enabled_in_prod=True)),
+}
+```
+
 ## `ProductDefinitionSpec`
 
-`domain` and `product` are required. The three lists default to what the
+`build_code_location` builds one spec per product from its descriptor entry
+and its overrides; you write one yourself only to call
+`build_product_definitions` directly. `domain` and `product` are required. The
+three lists default to what the
 project declares, and a list you pass wins over its default:
 
 | Field | Default |
@@ -45,11 +65,6 @@ project declares, and a list you pass wins over its default:
 | `silver_inputs` | The domain's Silver tables those models read; a source of another domain is refused |
 | `bronze_inputs` | The Bronze resource each of `silver_inputs` reads, from the domain's Floe entities |
 | `cadence` | Daily at 03:00 UTC, stopped, as `<product>_daily` |
-
-```python
-spec = ProductDefinitionSpec(domain="sales", product="order_revenue")
-defs = build_product_definitions(spec)
-```
 
 `cadence` is a `ProductCadence(cron, timezone="UTC", enabled_in_prod=False)`
 and sets the PROD schedule, named `<product>_schedule`.
@@ -67,8 +82,7 @@ UI stays off when `enabled_in_prod=True` is deployed later. The health
 `expected_run` signal flags the second case as a `warning` (a `schedule_mismatch`);
 see [health signals](health-signals.md). The first case is not flagged.
 
-Keep the spec in a module-level `spec` name: `olf check project-code` fails a
-product module that calls `build_product_definitions` without one. It loads the
+`olf check project-code` builds the specs from `PRODUCTS`, loads the
 code location's schedules for each stage and fails on any in DEV, UAT or an
 unset stage, and on any in PROD other than the product's cadence schedule (job,
 cron and default status as the cadence declares) and the maintenance
@@ -80,15 +94,6 @@ runs. Dagster's implicit `default_automation_condition_sensor` is added when
 the repository is built, not defined in the code, so assets with automation
 conditions do not trip it; an `AutomationConditionSensorDefinition` you define
 yourself does.
-
-```python
-spec = ProductDefinitionSpec(
-    domain="sales",
-    product="order_revenue",
-    cadence=ProductCadence("0 * * * *", enabled_in_prod=True),
-)
-defs = build_product_definitions(spec)
-```
 
 ## Retries
 

@@ -108,7 +108,7 @@ def _check_yaml_well_formed(files: tuple[ScaffoldFile, ...]) -> None:
 
 
 def _check_asset_key_collisions(inventory: LakehouseInventory) -> None:
-    """Dagster's `lakehouse_code/definitions.py` merges every source's Bronze
+    """Dagster's `lakehouse_code/pipelines/definitions.py` merges every source's Bronze
     assets (keyed `[source, resource]`), every domain's Silver assets (keyed
     `[domain, silver_table]`), and every product's Gold assets (keyed
     `[product, gold_table]`) into one code location. Two of those three key

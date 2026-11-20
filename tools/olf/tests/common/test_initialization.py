@@ -28,15 +28,15 @@ def _layout(tmp_path: Path) -> RuntimeLayout:
         "apiVersion: openlakeforge.io/v1beta1\nkind: DeploymentProfile\n",
         encoding="utf-8",
     )
-    definitions = distribution / "lakehouse_code" / "definitions.py"
-    definitions.parent.mkdir(parents=True)
-    definitions.write_text("defs = object()\n", encoding="utf-8")
-    (definitions.parent / "__init__.py").write_text("", encoding="utf-8")
-    (definitions.parent / "silver").mkdir()
-    (definitions.parent / "silver" / "floe.yml").write_text('version: "0.8"\n', encoding="utf-8")
-    (definitions.parent / "demo.txt").write_text("demo\n", encoding="utf-8")
-    (definitions.parent / "__pycache__").mkdir()
-    (definitions.parent / "__pycache__" / "definitions.pyc").write_bytes(b"stale")
+    code = distribution / "lakehouse_code"
+    (code / "pipelines").mkdir(parents=True)
+    (code / "pipelines" / "definitions.py").write_text("defs = object()\n", encoding="utf-8")
+    (code / "__init__.py").write_text("", encoding="utf-8")
+    (code / "silver").mkdir()
+    (code / "silver" / "floe.yml").write_text('version: "0.8"\n', encoding="utf-8")
+    (code / "demo.txt").write_text("demo\n", encoding="utf-8")
+    (code / "__pycache__").mkdir()
+    (code / "__pycache__" / "definitions.pyc").write_bytes(b"stale")
     schema = distribution / "docs" / "schema"
     schema.mkdir(parents=True)
     root = Path(__file__).resolve().parents[4]
@@ -188,14 +188,14 @@ def test_init_rejects_an_invalid_topology_before_touching_the_project(tmp_path: 
 def test_profile_only_adds_a_profile_to_an_existing_project_without_tools(tmp_path: Path) -> None:
     layout = _layout(tmp_path)
     (layout.project_root / "lakehouse_code").mkdir()
-    (layout.project_root / "lakehouse_code" / "definitions.py").write_text("mine\n", encoding="utf-8")
+    (layout.project_root / "lakehouse_code" / "__init__.py").write_text("mine\n", encoding="utf-8")
     manager = _Manager()
 
     result = _initializer(layout, manager).initialize(profile_only=True, stages=(StageName.DEV, StageName.PROD))
 
     assert result.profile_only
     assert manager.calls == 0
-    assert (layout.project_root / "lakehouse_code" / "definitions.py").read_text(encoding="utf-8") == "mine\n"
+    assert (layout.project_root / "lakehouse_code" / "__init__.py").read_text(encoding="utf-8") == "mine\n"
     profile = validate_deployment_profile(yaml.safe_load((layout.project_root / "openlakeforge.yaml").read_text()))
     assert {stage.name.value for stage in profile.stages if stage.enabled} == {"dev", "prod"}
 
@@ -382,13 +382,12 @@ def test_empty_init_writes_only_the_canonical_package_skeleton(tmp_path: Path) -
         "dashboards/__init__.py",
         "dashboards/superset",
         "dashboards/superset/__init__.py",
-        "definitions.py",
         "gold",
         "gold/__init__.py",
         "pipelines",
         "pipelines/__init__.py",
-        "pipelines/dagster",
-        "pipelines/dagster/__init__.py",
+        "pipelines/definitions.py",
+        "pipelines/products.py",
         "silver",
         "silver/__init__.py",
         "silver/floe.yml",

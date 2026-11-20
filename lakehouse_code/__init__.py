@@ -12,9 +12,10 @@ data teams and the OpenLakeForge platform:
 - ``gold/`` — the Gold dbt project, with a folder of models per product
   under ``gold/models/<product>/``.
 - ``dashboards/superset/<product>/`` — Superset report bundles.
-- ``pipelines/dagster/<product>.py`` — user-authored Dagster pipeline modules.
-- ``definitions.py`` — aggregates every product pipeline module into one
-  Dagster code location.
+- ``pipelines/definitions.py`` — the Dagster code location, built from the
+  descriptors above.
+- ``pipelines/products.py`` — per-product overrides (a cadence, say); a
+  product needs an entry only to depart from its defaults.
 
 The canonical inventory loader is ``openlakeforge_core.load_lakehouse_inventory``.
 """

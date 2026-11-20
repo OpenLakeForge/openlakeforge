@@ -494,23 +494,6 @@ _GOLD_GRAIN_TEST_BLOCK = (
 )
 
 
-def render_dagster_product_module(*, domain: str, product: str) -> str:
-    return f'''from __future__ import annotations
-
-from openlakeforge_runtime.product_dagster import ProductDefinitionSpec, build_product_definitions
-
-# No input lists: the dbt and Floe projects already declare them, and a second copy drifts.
-# Pass gold_assets, silver_inputs or bronze_inputs only to override what they declare.
-# Without a cadence the PROD schedule is daily at 03:00 UTC and ships STOPPED. Set
-# cadence=ProductCadence(cron, timezone) to change the time, and enabled_in_prod=True to have PROD run it on deploy.
-# Silver and Gold never retry. A Bronze source retries a transient network error 3 times by default; set
-# bronze_retry_attempts (0 turns it off) on its SourceDefinitionSpec.
-# Keep the spec a module-level name: `olf check project-code` reads it.
-spec = ProductDefinitionSpec(domain="{domain}", product="{product}")
-defs = build_product_definitions(spec)
-'''
-
-
 # --------------------------------------------------------------------------
 # Dashboards / Superset (--with-report)
 # --------------------------------------------------------------------------

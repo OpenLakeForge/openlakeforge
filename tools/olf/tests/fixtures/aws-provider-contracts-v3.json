@@ -109,7 +109,7 @@
         "service_ref": "stage/dev/orchestration",
         "endpoint_ref": "stage/dev/endpoints/orchestration",
         "code_locations": [
-          {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"}
+          {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.pipelines.definitions"}
         ]
       },
       "reporting": {
@@ -186,7 +186,7 @@
         "service_ref": "stage/uat/orchestration",
         "endpoint_ref": "stage/uat/endpoints/orchestration",
         "code_locations": [
-          {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"}
+          {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.pipelines.definitions"}
         ]
       },
       "reporting": {
@@ -263,7 +263,7 @@
         "service_ref": "stage/prod/orchestration",
         "endpoint_ref": "stage/prod/endpoints/orchestration",
         "code_locations": [
-          {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"}
+          {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.pipelines.definitions"}
         ]
       },
       "reporting": {

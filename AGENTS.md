@@ -63,7 +63,7 @@ labels expressing intended sequence within a milestone.
 | `lakehouse_code/silver/<domain>/` | Domain-owned: Floe `domain.yml` defaults and one file per entity in `contracts/` |
 | `lakehouse_code/gold/` | The Gold dbt project: shared config, packages and macros, `models/_sources/<domain>.yml`, and a product-owned `models/<product>/` folder per product |
 | `lakehouse_code/dashboards/superset/<dashboard>/` | Consumption-owned: Superset reports |
-| `lakehouse_code/pipelines/dagster/` | User-maintained Dagster orchestration code |
+| `lakehouse_code/pipelines/` | The Dagster code location (`definitions.py`) and per-product overrides such as cadences (`products.py`) |
 | `lakehouse_code/governance.yml` | Canonical domain/product business metadata descriptor; tables belong to a domain or product by schema, not by a list |
 | `openlakeforge.yaml` | Project-root Deployment Profile v1; parsed and resolved by `olf profile validate`/`resolve` (ADR 0011) |
 | `openlakeforge.conformance.yaml` | Local DEV+PROD conformance profile (#155); the nightly applies it verbatim (#220) |
