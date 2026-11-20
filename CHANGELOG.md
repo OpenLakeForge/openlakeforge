@@ -72,13 +72,18 @@ for how a release is cut and verified.
   schedule mismatches alerted. The first evaluation after an upgrade resolves,
   without a notification, every firing product incident that no rule covers.
   The health routes are unchanged and still show everything.
-- The portal is 0.7.1: a Monitoring page second in the navigation, with stage
+- The portal is 0.7.2: a Monitoring page second in the navigation, with stage
   health, pipelines and needs-attention, services grouped by service, data
   quality counts and open alert incidents, all read through the platform API
   (openlakeforge-portal#6, slices 1 to 3b), a Failed-run screen with incident
   detail (slice 4), and a Files explorer under Queries
   (openlakeforge-portal#23). It reads the health routes' `range` window and a
-  `failed_runs` that can be unknown (#1260).
+  `failed_runs` that can be unknown (#1260). A Metrics tab charts stage and
+  cluster resources, Trino load and errors, and pipeline runs and duration
+  when metrics are enabled (slice 5). The Failed-run screen lists the run's
+  quality checks with links to its reports (#1325), reads the run's logs
+  across UTC days with each line's time and level (#1326), and shows the log
+  archive's retention and the run's domain and product (#1327, #1328).
 
 ### Migration
 
