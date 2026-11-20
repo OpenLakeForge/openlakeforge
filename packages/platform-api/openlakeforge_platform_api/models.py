@@ -412,6 +412,62 @@ class RunFailure(BaseModel):
     sources: list[IntegrationStatus]
 
 
+class QualityCheck(BaseModel):
+    """One check result of a run's quality manifest (ADR 0023), as the engine adapter recorded it."""
+
+    # `floe` or `dbt`: the adapter's engine name, verbatim.
+    engine: str
+    check_id: str
+    # Null where the adapter could not name it, such as a dbt test read from the baked dbt manifest (#1166).
+    table: str | None
+    column: str | None
+    # The engine's own severity or policy (`reject`, `warn`, `error`...), never normalized.
+    engine_severity: str
+    outcome: Literal["passed", "warn", "error", "not_run", "unknown"]
+    # What a failed check did to the pipeline: an ERROR that quarantined rows is not one that blocked the run.
+    pipeline_outcome: Literal["continued", "quarantined", "blocked", "unknown"]
+    observed_at: datetime
+    # Aggregates from the manifest's metrics, each null where the engine reports none: Floe gives rows, accepted,
+    # rejected and violations per table, dbt `failures` per test. Never zeros in place of a missing count.
+    rows: int | None
+    accepted_rows: int | None
+    rejected_rows: int | None
+    violations: int | None
+    failures: int | None
+    # The `id` of the entry in `reports` holding this check's evidence; null when the manifest names none.
+    report_id: str | None
+
+
+class QualityReport(BaseModel):
+    """A report a run retained as evidence: a Floe entity's run report, or the dbt build's run results."""
+
+    id: str
+    engine: str
+    # The Floe entity the report covers; null for dbt, whose one report covers every test of the run.
+    table: str | None
+    # The platform API route that streams it, for this caller. Null when the caller's role may not download it on
+    # this stage or the API holds no key to read it. Never an object-store URL.
+    href: str | None
+
+
+class RunQuality(BaseModel):
+    """Every quality check of one run, from its quality manifest; nothing is re-run or re-evaluated."""
+
+    run_id: str
+    job: str
+    status: str
+    # The manifest's own flag; null without a usable manifest.
+    complete: bool | None
+    # As on `PipelineQuality`: null without a usable manifest, never zeros.
+    counts: QualityCounts | None
+    # Ordered by engine, table, column and check id. Null when there is no usable manifest, never an empty list.
+    checks: list[QualityCheck] | None
+    reports: list[QualityReport]
+    # A runbook page for the run's quality condition, from the health-signal catalog; null while none is catalogued.
+    runbook: str | None
+    sources: list[IntegrationStatus]
+
+
 class AlertStateStatus(BaseModel):
     """Whether the evaluator's state could be read. `stale` is None unless it was, and an old state is never current."""
 
