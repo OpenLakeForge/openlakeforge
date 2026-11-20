@@ -32,7 +32,14 @@ spec:
 olf infra deploy
 ```
 
-The walkthrough needs a failed run that has written its quality checks. Make one in Dagster
+Load the example data once, so Bronze holds files for Silver to rebuild from. A fresh deployment registers the jobs
+but runs none, and DEV has no schedules:
+
+```bash
+olf infra product run <product> --stage dev
+```
+
+It waits for the run and should end in success. Then make a failed run that has written its quality checks, in Dagster
 (`http://dagster-dev.olf.localhost`): open a product's job, select its Silver and Gold assets only, and in the
 launchpad add two run tags:
 
@@ -52,6 +59,10 @@ the e2e sign-in stub (its `failed run drill-down through the platform API` check
 Open the Portal at `http://olf.localhost`. With sign-in off, the Portal and the API serve you as `platform-admin`.
 With sign-in on, a `data-engineer` sees all of this on DEV, and needs a higher role for PROD's logs and reports
 ([roles](../../reference/roles-and-permissions.md)).
+
+Alert incidents and notifications (steps 1, 2 and 5) exist only when the profile declares a receiver: see
+[Configure a receiver](alerts.md#configure-a-receiver). Without one, the alert evaluator does not run, the Portal
+shows alerts as not provided, and everything else in this walkthrough is the same.
 
 ## 1. See that something needs attention
 
@@ -143,7 +154,7 @@ olf runs launch <job> --stage dev
 ```
 
 When the run succeeds, the pipeline returns to `healthy` on the overview and in `olf pipelines health dev`, and the
-alert incident resolves; a receiver gets the resolution.
+alert incident, if a receiver is configured, resolves and the receiver gets the resolution.
 
 Proven by: the alert drill, which raises a Floe warning, escalates it to an error, resolves it on a passing run, and
 checks the notification's runbook link.
