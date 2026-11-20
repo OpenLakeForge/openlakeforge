@@ -81,7 +81,7 @@ for how a release is cut and verified.
   schedule mismatches alerted. The first evaluation after an upgrade resolves,
   without a notification, every firing product incident that no rule covers.
   The health routes are unchanged and still show everything.
-- The portal is 0.7.2: a Monitoring page second in the navigation, with stage
+- The portal is 0.7.3: a Monitoring page second in the navigation, with stage
   health, pipelines and needs-attention, services grouped by service, data
   quality counts and open alert incidents, all read through the platform API
   (openlakeforge-portal#6, slices 1 to 3b), a Failed-run screen with incident
@@ -93,6 +93,13 @@ for how a release is cut and verified.
   quality checks with links to its reports (#1325), reads the run's logs
   across UTC days with each line's time and level (#1326), and shows the log
   archive's retention and the run's domain and product (#1327, #1328).
+  Monitoring opens on one list of what needs attention, with count-only
+  cards and healthy services collapsed; a Runs page browses and filters a
+  stage's runs; the Failed-run screen leads with the failure and shows only
+  the checks that did not pass; a Logs page browses the archive by UTC day
+  and hour or by one run's window and searches it through the API (#1347);
+  and every Monitoring time is in one labelled zone, UTC or the browser's
+  (openlakeforge-portal#36 to #40).
 
 ### Migration
 
