@@ -57,6 +57,15 @@ is `kind-openlakeforge-local`.
 create the cluster or build images. Start your Docker engine, check that
 `docker ps` works, and run `olf` from that same shell.
 
+## The kind cluster was deleted outside olf
+
+After `kind delete cluster`, a Docker data reset or a machine rebuild, the
+Terraform state `olf` kept still records a cluster that is gone. `olf infra
+deploy` notices that no kind cluster of that name is running, deletes the
+foundation and platform state files it names, and creates the cluster again.
+`olf infra destroy` does the same and stops, because nothing is left to
+destroy. Either way, no manual state cleanup is needed.
+
 ## A tool is missing
 
 `olf` provisions Terraform, Helm, kubectl and kind itself, so a missing tool is

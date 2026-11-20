@@ -418,3 +418,47 @@ def test_foundation_up_gives_up_after_the_retry_window(tmp_path: Path, monkeypat
         foundation.foundation_up(_config(tmp_path), _toolkit_with_runner(runner), env={})
 
     assert sum("cluster-info" in c.argv for c in runner.calls) == 21
+
+
+def _stale_state(config: LocalDeploymentConfig) -> list[Path]:
+    files = [
+        config.paths.foundation_state_path,
+        config.paths.foundation_state_path.with_name("terraform.tfstate.backup"),
+        config.paths.platform_state_path,
+    ]
+    for file in files:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text("{}")
+    return files
+
+
+def test_foundation_up_discards_state_of_a_cluster_deleted_outside_olf(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    files = _stale_state(config)
+    runner = _ScriptedRunner(
+        rules=[
+            (lambda argv: "get-contexts" in argv, _ok("kind-openlakeforge-local\n")),
+        ],
+        default=_ok(),
+    )
+
+    foundation.foundation_up(config, _toolkit_with_runner(runner), env={})
+
+    assert not any(file.exists() for file in files)
+    assert any(c.argv[2:3] == ["apply"] for c in runner.calls if c.argv[0] == "terraform")
+
+
+def test_foundation_up_keeps_state_of_a_running_cluster(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    files = _stale_state(config)
+
+    runner = _ScriptedRunner(
+        rules=[
+            (lambda argv: argv[:3] == ["kind", "get", "clusters"], _ok("openlakeforge-local\n")),
+            (lambda argv: "get-contexts" in argv, _ok("kind-openlakeforge-local\n")),
+        ],
+        default=_ok(),
+    )
+    foundation.foundation_up(config, _toolkit_with_runner(runner), env={})
+
+    assert all(file.exists() for file in files)
