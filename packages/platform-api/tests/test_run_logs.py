@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -230,6 +230,31 @@ def test_lines_that_share_one_timestamp_are_paged_through_without_loss_or_repeat
 
     assert sorted(seen) == ["first", "second", "third"]
     assert len(seen) == 3
+
+
+def test_a_short_run_after_a_busy_day_opens_only_the_objects_uploaded_since_it_started(
+    api: TestClient, dagster: FakeDagster, store: ObjectStore, mint: Mint
+) -> None:
+    # The e2e drill-down of #1326: hours of the stage's objects before a run of a few minutes.
+    dagster.runs = [_run("2026-10-31T10:00:00+00:00", "2026-10-31T10:04:00+00:00")]
+    store.objects.clear()
+    earlier = datetime(2026, 10, 31, 8, 0, tzinfo=UTC)
+    for n in range(120):
+        at = earlier + timedelta(minutes=n)
+        store.archive(_v2_key("2026-10-31", f"dev-{n:03d}"), [_v2(f"{at:%Y-%m-%dT%H:%M:%S}Z", "earlier")], at)
+    for n in range(4):
+        at = datetime(2026, 10, 31, 10, n, 30, tzinfo=UTC)
+        store.archive(
+            _v2_key("2026-10-31", f"run-{n}"),
+            [_v2(f"{at:%Y-%m-%dT%H:%M:%S}Z", f"run line {n}", run_id=RUN_ID)],
+            at + timedelta(seconds=5),
+        )
+
+    body = _get(api, mint, "?match_run=true&limit=200")
+
+    assert [line["line"] for line in body["lines"]] == [f"run line {n}" for n in range(4)]
+    # Of 124 objects listed, the run's four and the fifteen uploaded from 09:45 on: the clock slack before 10:00.
+    assert len(store.opened) == 4 + 15
 
 
 @pytest.mark.parametrize("cursor", ["nope", "W10", "WzEsMiwzXQ"])
