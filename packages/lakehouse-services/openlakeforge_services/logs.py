@@ -16,6 +16,7 @@ import gzip
 import hashlib
 import heapq
 import json
+import logging
 import re
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -51,6 +52,14 @@ _LOGFMT_KEYS = ("level", "lvl")
 _JSON_KEYS = ("level", "severity", "levelname", "log.level", "lvl")
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _FRACTION = re.compile(r"\.(\d+)")
+# An object holds only lines written before it was uploaded, so one whose LastModified is before a window's start is
+# not read. The line times come from the node's clock (v2's CRI `time`, v1's kubelet timestamp or archive time) and
+# LastModified from the store's, truncated to the second; this much disagreement still reads the object. No upper
+# bound is taken: during a store outage the collector spools for as long as `store_dir_limit_size` lasts, sized in
+# hours, and uploads old files after new ones (ADR 0022, decisions 2 and 5), so a late object can hold early lines.
+UPLOAD_CLOCK_SLACK = timedelta(minutes=15)
+
+log = logging.getLogger(__name__)
 
 # Event time in nanoseconds, layout (0 is v2, 1 is v1), archive day, object key digest, record index in it.
 Position = tuple[int, int, str, str, int]
@@ -236,6 +245,15 @@ def position_before(at: datetime) -> Position:
     return (_nanoseconds(at.isoformat(), at), -1, "", "", 0)
 
 
+@dataclass
+class _Scan:
+    """One read's object bound and its counts; kept per read, so an archive shared by two reads cannot mix them."""
+
+    not_before: datetime | None
+    listed: int = 0
+    opened: int = 0
+
+
 class ArchiveDeadline(Exception):
     """The read passed its deadline and stopped; what it had found is not answered, as it may not be the earliest."""
 
@@ -282,6 +300,7 @@ class LogArchive:
         errors) on the line's `level`, so a line with no level is left out by it; `since` and `until` bound the
         record time. `component`, `product` and `run_id` exist only in v2, so setting one leaves v1 out.
         `deadline`, on the archive's clock, stops the scan with ArchiveDeadline between pages, objects and records.
+        With `since`, an object uploaded before it (less UPLOAD_CLOCK_SLACK) is not read: it holds no line it selects.
         """
         return self.read_days(
             namespace,
@@ -325,7 +344,8 @@ class LogArchive:
         earlier read with the same filters) continues exactly past it, ties included. A v1 object is partitioned
         by when it was archived, up to `v1_lookback` after its lines were written: with it, v1 is also listed on
         the days that reach past the window's end (`until`, or the end of the last day). The event-time filters
-        still apply, so those days add no line outside the window.
+        still apply, so those days add no line outside the window. With `since`, an object uploaded more than
+        UPLOAD_CLOCK_SLACK before it is skipped unread, from the LastModified the listing returns.
         """
         # A slash would move the listing to another partition, such as another stage's namespace.
         if not _NAMESPACE.fullmatch(namespace):
@@ -361,19 +381,31 @@ class LogArchive:
             )
 
         self._deadline = deadline
-        v2 = _Best(limit, after)
-        for day in event_days:
-            self._v2(namespace, day, hour, wanted, v2)
-        retained = v2.sorted()
-        # ADR 0022, decision 5: a v1 line is dropped only when v2 holds the same line of the same container.
-        overlap = {
-            (line.pod, line.container, line.archived_at, line.line)
-            for line in chain((line for _, line in retained), v2.at_cursor)
-        }
-        v1 = _Best(limit, after)
-        if not (component or product or run_id):
-            for day in v1_days:
-                self._v1(namespace, day, hour, wanted, overlap, v1)
+        # Every line `wanted` keeps is at or after `since`, so a skipped object held none of them: the ordering, the
+        # dedup and a cursor's page are those of a read of every object.
+        scan = _Scan(None if since is None else since - UPLOAD_CLOCK_SLACK)
+        try:
+            v2 = _Best(limit, after)
+            for day in event_days:
+                self._v2(namespace, day, hour, wanted, v2, scan)
+            retained = v2.sorted()
+            # ADR 0022, decision 5: a v1 line is dropped only when v2 holds the same line of the same container.
+            overlap = {
+                (line.pod, line.container, line.archived_at, line.line)
+                for line in chain((line for _, line in retained), v2.at_cursor)
+            }
+            v1 = _Best(limit, after)
+            if not (component or product or run_id):
+                for day in v1_days:
+                    self._v1(namespace, day, hour, wanted, overlap, v1, scan)
+        finally:
+            log.info(
+                "log archive read of %s over %d day(s): %d objects listed, %d read",
+                namespace,
+                len(event_days),
+                scan.listed,
+                scan.opened,
+            )
         merged = heapq.nsmallest(limit, chain(retained, v1.sorted()), key=lambda item: item[0])
         return ArchiveRead(lines=[line for _, line in merged], last=merged[-1][0] if merged else None)
 
@@ -388,9 +420,10 @@ class LogArchive:
         hour: int | None,
         wanted: Callable[[ArchivedLogLine, datetime | None], bool],
         best: _Best,
+        scan: _Scan,
     ) -> None:
-        for digest, key in self._ordered(self._partition("v2", namespace, day, None)):
-            for index, record in enumerate(self._records(key)):
+        for digest, key in self._ordered(self._partition("v2", namespace, day, None), scan):
+            for index, record in enumerate(self._records(key, scan)):
                 if record.get("schema") != SCHEMA_V2 or record["namespace"] != namespace:
                     continue
                 stamp = record["time"]
@@ -428,9 +461,10 @@ class LogArchive:
         wanted: Callable[[ArchivedLogLine, datetime | None], bool],
         overlap: set[tuple[str, str, str, str | None]],
         best: _Best,
+        scan: _Scan,
     ) -> None:
-        for digest, key in self._ordered(self._partition("k8s", namespace, day, hour)):
-            for index, record in enumerate(self._records(key)):
+        for digest, key in self._ordered(self._partition("k8s", namespace, day, hour), scan):
+            for index, record in enumerate(self._records(key, scan)):
                 # A run with no pods leaves one marker record naming no pod; it is not a log line.
                 if record.get("schema") != SCHEMA or "pod" not in record:
                     continue
@@ -463,11 +497,11 @@ class LogArchive:
             parts.append(f"hour={hour:02d}")
         return "/".join(part for part in parts if part) + "/"
 
-    def _ordered(self, prefix: str) -> list[tuple[str, str]]:
+    def _ordered(self, prefix: str, scan: _Scan) -> list[tuple[str, str]]:
         # Scanned in the order positions sort in, so the first copy of a replayed record is always met first.
-        return sorted((_digest(key), key) for key in self._keys(prefix))
+        return sorted((_digest(key), key) for key in self._keys(prefix, scan))
 
-    def _keys(self, prefix: str) -> Iterator[str]:
+    def _keys(self, prefix: str, scan: _Scan) -> Iterator[str]:
         token = ""
         while True:
             self._check()
@@ -477,14 +511,22 @@ class LogArchive:
                 else self._store.list_objects_v2(Bucket=self._bucket, Prefix=prefix)
             )
             for item in page.get("Contents", []):
-                if item["Key"].endswith(".ndjson.gz"):
-                    yield item["Key"]
+                if not item["Key"].endswith(".ndjson.gz"):
+                    continue
+                scan.listed += 1
+                # A listing without a datetime LastModified cannot rule the object out, so it is read.
+                modified = item.get("LastModified")
+                if scan.not_before is not None and isinstance(modified, datetime):
+                    if (modified if modified.tzinfo else modified.replace(tzinfo=UTC)) < scan.not_before:
+                        continue
+                yield item["Key"]
             token = page.get("NextContinuationToken") or ""
             if not page.get("IsTruncated") or not token:
                 return
 
-    def _records(self, key: str) -> Iterator[dict[str, Any]]:
+    def _records(self, key: str, scan: _Scan) -> Iterator[dict[str, Any]]:
         self._check()
+        scan.opened += 1
         body = self._store.get_object(Bucket=self._bucket, Key=key)["Body"].read()
         for raw in gzip.decompress(body).decode("utf-8").splitlines():
             self._check()
