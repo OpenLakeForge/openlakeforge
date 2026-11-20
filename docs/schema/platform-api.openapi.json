@@ -1795,6 +1795,155 @@
         "title": "PipelinesHealth",
         "type": "object"
       },
+      "QualityCheck": {
+        "description": "One check result of a run's quality manifest (ADR 0023), as the engine adapter recorded it.",
+        "properties": {
+          "accepted_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Rows"
+          },
+          "check_id": {
+            "title": "Check Id",
+            "type": "string"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "engine_severity": {
+            "title": "Engine Severity",
+            "type": "string"
+          },
+          "failures": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failures"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "warn",
+              "error",
+              "not_run",
+              "unknown"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "pipeline_outcome": {
+            "enum": [
+              "continued",
+              "quarantined",
+              "blocked",
+              "unknown"
+            ],
+            "title": "Pipeline Outcome",
+            "type": "string"
+          },
+          "rejected_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected Rows"
+          },
+          "report_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Id"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows"
+          },
+          "table": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table"
+          },
+          "violations": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Violations"
+          }
+        },
+        "required": [
+          "engine",
+          "check_id",
+          "table",
+          "column",
+          "engine_severity",
+          "outcome",
+          "pipeline_outcome",
+          "observed_at",
+          "rows",
+          "accepted_rows",
+          "rejected_rows",
+          "violations",
+          "failures",
+          "report_id"
+        ],
+        "title": "QualityCheck",
+        "type": "object"
+      },
       "QualityCounts": {
         "description": "Results of one quality manifest, or a sum of them, by `QualityOutcome`.",
         "properties": {
@@ -1832,6 +1981,49 @@
           "blocking"
         ],
         "title": "QualityCounts",
+        "type": "object"
+      },
+      "QualityReport": {
+        "description": "A report a run retained as evidence: a Floe entity's run report, or the dbt build's run results.",
+        "properties": {
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "href": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Href"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "table": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table"
+          }
+        },
+        "required": [
+          "id",
+          "engine",
+          "table",
+          "href"
+        ],
+        "title": "QualityReport",
         "type": "object"
       },
       "QueryCapabilities": {
@@ -2179,6 +2371,96 @@
           "sources"
         ],
         "title": "RunFailure",
+        "type": "object"
+      },
+      "RunQuality": {
+        "description": "Every quality check of one run, from its quality manifest; nothing is re-run or re-evaluated.",
+        "properties": {
+          "checks": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/QualityCheck"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checks"
+          },
+          "complete": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Complete"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QualityCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "reports": {
+            "items": {
+              "$ref": "#/components/schemas/QualityReport"
+            },
+            "title": "Reports",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "runbook": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runbook"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationStatus"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "job",
+          "status",
+          "complete",
+          "counts",
+          "checks",
+          "reports",
+          "runbook",
+          "sources"
+        ],
+        "title": "RunQuality",
         "type": "object"
       },
       "RunRows": {
@@ -4481,6 +4763,114 @@
           }
         },
         "summary": "Get Run Failure"
+      }
+    },
+    "/api/v1/stages/{stage}/runs/{run_id}/quality": {
+      "get": {
+        "description": "Each check of the run's quality manifest, its outcome counts, and the reports the run retained.",
+        "operationId": "get_run_quality_api_v1_stages__stage__runs__run_id__quality_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunQuality"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Quality"
+      }
+    },
+    "/api/v1/stages/{stage}/runs/{run_id}/quality/reports/{report_id}": {
+      "get": {
+        "description": "One report the run's quality manifest names, streamed through the API and never read whole.",
+        "operationId": "get_run_quality_report_api_v1_stages__stage__runs__run_id__quality_reports__report_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The report the run's quality manifest names, as an attachment."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Quality Report"
       }
     },
     "/api/v1/stages/{stage}/schemas": {
