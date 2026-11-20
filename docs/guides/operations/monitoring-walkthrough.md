@@ -89,12 +89,15 @@ crosses midnight UTC is read across both days. Each line shows its time and leve
 leaves them empty otherwise. **Match this run only** drops other workloads' lines from the same window, and **Load
 more** pages on. The footer gives the window read and how long the archive keeps logs (**Kept N days**).
 
-```bash
-olf logs --stage dev --run-id <run-id> --severity error
-```
+The API read is `GET /api/v1/stages/dev/runs/<run-id>/logs?match_run=true`. It covers the run's whole window, across
+UTC days. A cut-off answer carries `next`; pass it back as `after` for the next page.
 
-The API read is `GET /api/v1/stages/dev/runs/<run-id>/logs?match_run=true`. A cut-off answer carries `next`; pass it
-back as `after` for the next page. How the archive works, and what to do when delivery stops, is in
+`olf logs` reads one UTC day at a time, today by default. For a run from another day, give its date, and repeat
+the read for each day a run crosses:
+
+```bash
+olf logs --stage dev --run-id <run-id> --date <YYYY-MM-DD> --severity error
+``` How the archive works, and what to do when delivery stops, is in
 [Log archive](log-archive.md).
 
 Proven by: `short-lived pod output in the log archive`, `log collector restart mid-stream` and the failed-run
