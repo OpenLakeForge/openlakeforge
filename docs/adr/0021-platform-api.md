@@ -877,3 +877,11 @@ and a read that reaches the cap sets `covered_from` to where the count starts ra
 window. A Dagster that is absent or cannot be read gives `failed_runs: null`, never 0; a failed stage-wide read gives
 `null` counts where it was needed and leaves the pipelines, state and signals as read. `get_stage_service_health`, the
 alert evaluator's reads and the permission rows are unchanged.
+
+2026-11-20: #1324, #1327, #1328. `monitoring_capabilities` lists `get_run` and `get_run_failure` among a stage's
+operations, by their existing rows. `MonitoringStage` gains `log_retention_days`, additive and nullable: the provider
+contract's `logs.archive.retention_days` when `retention_supported` is true, rendered into the settings as
+`log_archive_retention_days`, and null on a stage with no archive or a provider that applies none. It is still built
+from settings alone. `RunFailure` gains `domain` and `product`, additive and nullable, as on `Job`, from the run's job
+definition tags. The job list is now read once per request, whether or not the stage has a quality reader, within the
+same 20-second deadline; null when it cannot be read in time.
