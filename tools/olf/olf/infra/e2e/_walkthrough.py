@@ -103,17 +103,38 @@ class Shooter:
         self.secrets = secrets_by_label
         self.saved: list[Path] = []
 
+    def exposure(self, page: Any, name: str) -> str | None:
+        """Why `page` must not be captured: a Secret value in its URL or HTML, or a scan that could not complete.
+
+        The answer names Secret labels only, never a value. The screenshots are uploaded as an artifact, so a page
+        that cannot be shown clean is not captured at all.
+        """
+        try:
+            exposures = find_exposures(self.secrets, {f"the {name} page": f"{page.url}\n{page.content()}"})
+        except Exception as exc:
+            return f"the secret scan of the page could not complete ({type(exc).__name__})"
+        return "; ".join(exposures) or None
+
     def shot(self, page: Any, name: str, reach: Callable[[], Any]) -> None:
         """`reach` drives `page` and asserts its state; it returns the element to capture, or None for the page."""
         try:
             target = reach()
         except Exception as exc:
-            # Best effort: what the page showed instead helps the reader, and must not replace the reason.
-            with contextlib.suppress(Exception):
-                page.screenshot(path=str(self.directory / f"{name}.FAILED.png"), full_page=True)
-            raise E2EError(f"walkthrough {name}: the page did not reach its expected state: {exc}") from exc
-        if exposures := find_exposures(self.secrets, {f"the {name} page": f"{page.url}\n{page.content()}"}):
-            raise E2EError(f"walkthrough {name}: {'; '.join(exposures)}; no screenshot saved")
+            # What the page showed instead helps the reader, once it is shown to hold no Secret value; a capture that
+            # fails must not replace the reason.
+            if (unsafe := self.exposure(page, name)) is None:
+                with contextlib.suppress(Exception):
+                    page.screenshot(path=str(self.directory / f"{name}.FAILED.png"), full_page=True)
+                raise E2EError(
+                    f"walkthrough {name}: the page did not reach its expected state (kept as FAILED): {exc}"
+                ) from exc
+            # Playwright's assertion text quotes what the page showed, which may be the value itself: only its type.
+            raise E2EError(
+                f"walkthrough {name}: the page did not reach its expected state ({type(exc).__name__}); "
+                f"no screenshot saved: {unsafe}"
+            ) from None
+        if unsafe := self.exposure(page, name):
+            raise E2EError(f"walkthrough {name}: {unsafe}; no screenshot saved")
         path = self.directory / f"{name}.png"
         if target is None:
             page.screenshot(path=str(path), full_page=True)

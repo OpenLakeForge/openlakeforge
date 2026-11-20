@@ -196,7 +196,7 @@ def test_every_page_that_reached_its_state_is_saved_in_order(tmp_path: Path) -> 
 
 def test_a_page_that_missed_its_state_is_kept_as_failed_and_fails_the_walk(tmp_path: Path) -> None:
     page = FakePage({"Quality check results"})
-    with pytest.raises(E2EError, match="04-run-quality: the page did not reach its expected state"):
+    with pytest.raises(E2EError, match=r"04-run-quality: the page did not reach its expected state \(kept as FAILED\)"):
         _walk(tmp_path, page)
     assert page.saved == [
         "01-monitoring-overview.png",
@@ -204,6 +204,43 @@ def test_a_page_that_missed_its_state_is_kept_as_failed_and_fails_the_walk(tmp_p
         "03-run-logs.png",
         "04-run-quality.FAILED.png",
     ]
+
+
+SECRET = "s3cr3t-value-0123456789"
+
+
+def _miss() -> None:
+    raise AssertionError("heading not visible")
+
+
+def test_a_failing_clean_page_is_kept_as_failed(tmp_path: Path) -> None:
+    page = FakePage(set())
+    with pytest.raises(E2EError, match=r"02-failed-run: .*\(kept as FAILED\)"):
+        walkthrough.Shooter(tmp_path, {"a client secret": SECRET}).shot(page, "02-failed-run", _miss)
+    assert page.saved == ["02-failed-run.FAILED.png"]
+
+
+def test_a_failing_page_showing_a_secret_is_not_captured_and_the_value_is_not_reported(tmp_path: Path) -> None:
+    page = FakePage(set(), shown=f"error: {SECRET}")
+    with pytest.raises(E2EError) as raised:
+        walkthrough.Shooter(tmp_path, {"a client secret": SECRET}).shot(page, "02-failed-run", _miss)
+    assert page.saved == []
+    assert "no screenshot saved" in str(raised.value) and "Secret a client secret" in str(raised.value)
+    assert SECRET not in str(raised.value)
+
+
+def test_a_failing_page_whose_scan_cannot_complete_is_not_captured(tmp_path: Path) -> None:
+    page = FakePage(set())
+
+    def unreadable() -> str:
+        raise RuntimeError(f"target closed {SECRET}")
+
+    page.content = unreadable  # type: ignore[method-assign]
+    with pytest.raises(E2EError) as raised:
+        walkthrough.Shooter(tmp_path, {"a client secret": SECRET}).shot(page, "02-failed-run", _miss)
+    assert page.saved == []
+    assert "secret scan of the page could not complete (RuntimeError)" in str(raised.value)
+    assert SECRET not in str(raised.value)
 
 
 def test_a_page_showing_a_secret_value_is_not_saved(tmp_path: Path) -> None:

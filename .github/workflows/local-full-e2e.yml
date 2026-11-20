@@ -699,7 +699,8 @@ jobs:
 
       - name: Upload the walkthrough screenshots
         # The operator journey drill's PNGs, one directory per stage; a page that missed its state is kept as
-        # <name>.FAILED.png, so a failed run uploads what the browser showed instead.
+        # <name>.FAILED.png when its secret scan is clean, so a failed run uploads what the browser showed instead.
+        # Kept as long as the diagnostics, not the 90 days of the evidence above: a page is a picture of live data.
         if: always() && (inputs.suite || 'full') != 'smoke'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -707,7 +708,7 @@ jobs:
           path: .tmp/walkthrough-screenshots
           include-hidden-files: true
           if-no-files-found: warn
-          retention-days: 90
+          retention-days: 14
 
       - name: Collect kind diagnostics (smoke)
         if: failure() && (inputs.suite || 'full') == 'smoke'
