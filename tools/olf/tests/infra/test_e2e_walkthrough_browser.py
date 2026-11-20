@@ -50,7 +50,8 @@ class _PerimeterHandler(BaseHTTPRequestHandler):
         if host == PORTAL_HOST and url.path == "/monitoring" and SESSION not in (self.headers["Cookie"] or ""):
             return self._redirect(f"{dex}/auth?{urllib.parse.urlencode({'rd': self.path})}")
         if host == DEX_HOST and url.path == "/auth":
-            return self._redirect(f"{dex}/auth/github?{url.query}")
+            # Re-encoded from the parsed query, so no raw request text reaches a header.
+            return self._redirect(f"{dex}/auth/github?{urllib.parse.urlencode(query, doseq=True)}")
         if host == DEX_HOST and url.path == "/auth/github":
             back = urllib.parse.urlencode({"redirect_uri": f"{dex}/callback", "state": STATE, "scope": "read:org"})
             return self._redirect(f"{self.server.origin(STUB)}/login/oauth/authorize?{back}")
