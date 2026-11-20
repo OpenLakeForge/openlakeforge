@@ -50,12 +50,40 @@ def foundation_destroy_variables(config: LocalDeploymentConfig, tools: Toolkit) 
     }
 
 
+def discard_state_of_missing_cluster(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> bool:
+    """Delete the foundation and platform state when the cluster they record is gone.
+
+    A `kind delete cluster` or Docker reset outside olf leaves state that only
+    describes resources that no longer exist; applying it updates the cluster
+    in place instead of recreating it, and destroying it needs the cluster
+    (#1350). Returns whether anything was removed.
+    """
+    paths = config.paths
+    if not paths.foundation_state_path.is_file() or tools.kind.get_kubeconfig(config.cluster.name, env=env).ok:
+        return False
+    removed = [
+        file
+        for state in (paths.foundation_state_path, paths.platform_state_path)
+        for file in sorted(state.parent.glob(f"{state.name}*"))
+    ]
+    for file in removed:
+        file.unlink()
+    log.warn(
+        f"kind cluster '{config.cluster.name}' is not running, so the Terraform state that recorded it is stale. "
+        f"Removed: {', '.join(map(str, removed))}"
+    )
+    return True
+
+
 def foundation_up(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> None:
     foundation_dir = config.paths.foundation_terraform_dir
     config.context.prepare_directories()
 
     _require_docker_reachable(tools, env=env)
     _require_ingress_preconditions(config, tools, env=env)
+
+    if discard_state_of_missing_cluster(config, tools, env=env):
+        log.step(f"Recreating kind cluster '{config.cluster.name}'.")
 
     log.step("Initializing Terraform local kind foundation...")
     tools.terraform.init(foundation_dir, env=env)

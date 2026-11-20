@@ -53,8 +53,7 @@ def _fail() -> CommandResult:
 
 def test_platform_down_raises_when_context_unreachable(tmp_path: Path) -> None:
     config = _config(tmp_path)
-    runner = RecordingRunner(_fail())
-    tools = _toolkit(runner)
+    tools = _toolkit(_UnreachableRunner(live_port=43175))
 
     with pytest.raises(DeploymentPreconditionError, match="not reachable"):
         teardown.platform_down(config, tools, env={})
@@ -96,12 +95,11 @@ def _unreachable_message(config: LocalDeploymentConfig, runner: RecordingRunner)
 def test_unreachable_context_names_the_kubeconfig_and_state_root_it_read(tmp_path: Path) -> None:
     config = _config(tmp_path)
 
-    message = _unreachable_message(config, _UnreachableRunner(live_port=None))
+    message = _unreachable_message(config, _UnreachableRunner(live_port=43175))
 
     assert str(config.paths.kubeconfig_path) in message
     assert str(tmp_path / ".tmp") in message
     assert str(config.paths.foundation_state_path) in message
-    assert "No kind cluster named 'openlakeforge-local' is running" in message
 
 
 def test_source_teardown_points_at_the_installed_state_that_owns_the_cluster(
@@ -370,3 +368,27 @@ def test_namespace_discovery_asks_kubectl_for_a_newline_separated_list(tmp_path:
     expression = call.argv[call.argv.index("-o") + 1]
     assert expression == 'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}'
     assert "\n" not in expression
+
+
+def test_platform_down_clears_state_of_a_cluster_deleted_outside_olf(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.paths.platform_state_path.parent.mkdir(parents=True, exist_ok=True)
+    config.paths.platform_state_path.write_text("{}")
+    runner = _UnreachableRunner(live_port=None)
+
+    teardown.platform_down(config, _toolkit(runner), env={})
+
+    assert not config.paths.foundation_state_path.exists()
+    assert not config.paths.platform_state_path.exists()
+    assert not any(call.argv[0] == "terraform" for call in runner.calls)
+
+
+def test_platform_down_keeps_state_when_the_cluster_runs_but_the_kubeconfig_is_another_deployments(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+
+    with pytest.raises(DeploymentPreconditionError, match="belongs to another deployment"):
+        teardown.platform_down(config, _toolkit(_UnreachableRunner(live_port=43175)), env={})
+
+    assert config.paths.foundation_state_path.exists()

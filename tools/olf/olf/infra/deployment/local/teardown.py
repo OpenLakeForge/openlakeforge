@@ -14,6 +14,7 @@ from olf.common.deployment.errors import DeploymentPreconditionError, Executable
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.deployment import kube_ops
+from olf.infra.deployment.local import foundation
 from olf.infra.deployment.local.platform import platform_destroy_variables, platform_var_files, restore_stock_corefile
 from olf.infra.deployment.local.reachability import unreachable_context_message
 
@@ -64,6 +65,8 @@ def platform_down(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping
         context=config.kube_context, kubeconfig=config.paths.kubeconfig_path, env=env, check=False
     ).ok
     if not cluster_reachable:
+        if foundation.discard_state_of_missing_cluster(config, tools, env=env):
+            return
         raise DeploymentPreconditionError(unreachable_context_message(config, tools, action="destroy", env=env))
     if not config.paths.foundation_state_path.is_file():
         raise DeploymentPreconditionError(
