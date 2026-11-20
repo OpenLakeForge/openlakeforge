@@ -11,17 +11,21 @@ import asyncio
 import logging
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from openlakeforge_core.health import HealthState, Scope, Signal, rollup, service_signal
+from openlakeforge_core.metrics import RANGES
 from openlakeforge_services.dagster import DagsterRun
 
 from openlakeforge_platform_api.metrics_routes import metrics_integration
 from openlakeforge_platform_api.models import (
     HealthSignal,
     HealthThresholds,
+    HealthWindow,
     IntegrationStatus,
+    MetricRangeName,
     PipelineFreshness,
     PipelineHealth,
     PipelineSchedule,
@@ -38,6 +42,7 @@ from openlakeforge_platform_api.pipeline_health import (
     SCHEDULE_GRACE,
     SCHEDULE_MAX_AGE,
     PipelineEvaluation,
+    RunWindow,
     at,
     read_stage_pipelines,
 )
@@ -80,10 +85,60 @@ def _quality_sync(request: Request, stage: str) -> IntegrationStatus:
     )
 
 
-def _read(request: Request, stage: str, now: datetime) -> tuple[IntegrationStatus, list[PipelineEvaluation]]:
+# The metrics routes' vocabulary (ADR 0024, decision 4), so a page has one window selector. A str rather than the
+# Literal those routes take, so that a value outside it is a 400 like the metrics routes' retention refusal, not
+# FastAPI's 422; the schema still lists the values.
+_RANGE = Query(
+    "24h",
+    alias="range",
+    description="The window the counts cover, ending now. The state and its signals are never windowed.",
+    json_schema_extra={"enum": list(RANGES)},
+)
+
+
+def _since(range_name: str, now: datetime) -> datetime:
+    metric_range = RANGES.get(range_name)
+    if metric_range is None:
+        raise HTTPException(status_code=400, detail=f"range must be one of {', '.join(RANGES)}")
+    return now - metric_range.duration
+
+
+def _window(range_name: str, now: datetime, since: datetime, pipelines: list[PipelineEvaluation]) -> HealthWindow:
+    # The latest of the jobs' own: the time from which every job's count is complete.
+    covered = [window.covered_from for window in map(_windowed, pipelines) if window.covered_from]
+    return HealthWindow(
+        range=cast(MetricRangeName, range_name), from_=since, to=now, covered_from=max(covered, default=None)
+    )
+
+
+def _failed_runs(dagster: IntegrationStatus, pipelines: list[PipelineEvaluation], window: HealthWindow) -> int | None:
+    """The stage's failed runs over the window it advertises: from `covered_from` when that is set, the span every
+    job's count is complete over, so one busy job's capped count is not added to another's whole-window one."""
+    # No read is no count: a Dagster that is absent or unreadable has no pipelines, which must not read as 0 failures,
+    # and one job's unknown count makes the sum unknown.
+    if dagster.status != "available":
+        return None
+    start = window.covered_from or window.from_
+    counts = [_windowed(pipeline).failed_since(start) for pipeline in pipelines]
+    return None if None in counts else sum(count for count in counts if count is not None)
+
+
+def _windowed(pipeline: PipelineEvaluation) -> RunWindow:
+    # `_read` is always given `since` on these routes, and `read_stage_pipelines` then sets every pipeline's window.
+    assert pipeline.window is not None
+    return pipeline.window
+
+
+def _read(
+    request: Request, stage: str, now: datetime, since: datetime | None = None
+) -> tuple[IntegrationStatus, list[PipelineEvaluation]]:
     configured = request.app.state.settings.dagster_graphql_urls.get(stage)
     return read_stage_pipelines(
-        _dagster(request, stage) if configured else None, stage, now, request.app.state.quality_readers.get(stage)
+        _dagster(request, stage) if configured else None,
+        stage,
+        now,
+        request.app.state.quality_readers.get(stage),
+        since=since,
     )
 
 
@@ -161,16 +216,19 @@ def _service(signal: Signal) -> ServiceHealth:
     )
 
 
-async def get_stage_health(request: Request, stage: str) -> StageHealth:
+async def get_stage_health(request: Request, stage: str, range_name: str = _RANGE) -> StageHealth:
     """A rollup of the stage's pipeline and service signals. Integrations that give none are never healthy.
+
+    `range` scopes the failed-run counts only; the state is the current evaluation at every range.
 
     Every read blocks (Dagster's HTTP, the probes and the metrics backend for up to their timeout), so each runs on a
     worker thread, together: the event loop keeps serving other requests, and the stage answers in the slowest read's
     time. The metrics integration is reported, never folded into the state.
     """
     now = datetime.now(UTC)
+    since = _since(range_name, now)
     (dagster, pipelines), (services, service_signals), metrics = await asyncio.gather(
-        run_in_threadpool(_read, request, stage, now),
+        run_in_threadpool(_read, request, stage, now, since),
         run_in_threadpool(_probe, request, stage, now),
         run_in_threadpool(metrics_integration, request),
     )
@@ -188,13 +246,20 @@ async def get_stage_health(request: Request, stage: str) -> StageHealth:
                 max_age=SERVICE_MAX_AGE,
             )
         )
+    window = _window(range_name, now, since, pipelines)
     return StageHealth(
         stage=stage,
         state=rollup(signals).value,
         evaluated_at=now,
+        window=window,
+        failed_runs=_failed_runs(dagster, pipelines, window),
         pipelines=[
             StagePipelineState(
-                job=pipeline.job, domain=pipeline.domain, product=pipeline.product, state=pipeline.state.value
+                job=pipeline.job,
+                domain=pipeline.domain,
+                product=pipeline.product,
+                state=pipeline.state.value,
+                failed_runs=_windowed(pipeline).failed_runs,
             )
             for pipeline in pipelines
         ],
@@ -220,15 +285,19 @@ async def get_stage_service_health(request: Request, stage: str) -> StageService
     return StageServiceHealth(stage=stage, services=[_service(signal) for signal in signals])
 
 
-def list_pipeline_health(request: Request, stage: str) -> PipelinesHealth:
-    """Each Dagster job's latest run, last success, failed runs, schedule and freshness."""
+def list_pipeline_health(request: Request, stage: str, range_name: str = _RANGE) -> PipelinesHealth:
+    """Each Dagster job's latest run, last success, failed runs in the window, schedule and freshness."""
     now = datetime.now(UTC)
-    dagster, pipelines = _read(request, stage, now)
+    since = _since(range_name, now)
+    dagster, pipelines = _read(request, stage, now, since)
     if dagster.status == "disabled":
         raise HTTPException(status_code=404, detail=f"no Dagster is configured for stage {stage!r}")
+    window = _window(range_name, now, since, pipelines)
     return PipelinesHealth(
         stage=stage,
         evaluated_at=now,
+        window=window,
+        failed_runs=_failed_runs(dagster, pipelines, window),
         thresholds=HealthThresholds(
             run_max_age_seconds=int(RUN_MAX_AGE.total_seconds()),
             schedule_max_age_seconds=int(SCHEDULE_MAX_AGE.total_seconds()),
@@ -241,6 +310,7 @@ def list_pipeline_health(request: Request, stage: str) -> PipelinesHealth:
 
 
 def _pipeline(pipeline: PipelineEvaluation, now: datetime) -> PipelineHealth:
+    window = _windowed(pipeline)
     success = next((run for run in pipeline.runs if run.status == "SUCCESS"), None)
     success_at = at(success.ended_at or success.created_at) if success else None
     schedule = pipeline.schedule
@@ -251,7 +321,8 @@ def _pipeline(pipeline: PipelineEvaluation, now: datetime) -> PipelineHealth:
         state=pipeline.state.value,
         latest_run=_run(pipeline.runs[0]) if pipeline.runs else None,
         last_success=_run(success) if success else None,
-        failed_runs=sum(run.status == "FAILURE" for run in pipeline.runs),
+        failed_runs=window.failed_runs,
+        covered_from=window.covered_from,
         schedule=PipelineSchedule(
             name=schedule.name if schedule else None,
             status="absent" if schedule is None else ("running" if schedule.status == "RUNNING" else "stopped"),

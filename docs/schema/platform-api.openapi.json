@@ -702,6 +702,51 @@
         "title": "HealthThresholds",
         "type": "object"
       },
+      "HealthWindow": {
+        "description": "The span the health routes' counts cover: runs created after `from`, up to `to`, the evaluation time.\n\n`covered_from` is set when the bounded Dagster reads stopped short of `from`: the counts cover runs created from\nthen on only, and are never served as the whole window. A state and its signals are never windowed.",
+        "properties": {
+          "covered_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Covered From"
+          },
+          "from": {
+            "format": "date-time",
+            "title": "From",
+            "type": "string"
+          },
+          "range": {
+            "enum": [
+              "1h",
+              "6h",
+              "24h",
+              "7d"
+            ],
+            "title": "Range",
+            "type": "string"
+          },
+          "to": {
+            "format": "date-time",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "range",
+          "from",
+          "to",
+          "covered_from"
+        ],
+        "title": "HealthWindow",
+        "type": "object"
+      },
       "ImportedReports": {
         "properties": {
           "dashboards": {
@@ -1439,6 +1484,18 @@
       },
       "PipelineHealth": {
         "properties": {
+          "covered_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Covered From"
+          },
           "domain": {
             "anyOf": [
               {
@@ -1451,8 +1508,15 @@
             "title": "Domain"
           },
           "failed_runs": {
-            "title": "Failed Runs",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Runs"
           },
           "freshness": {
             "$ref": "#/components/schemas/PipelineFreshness"
@@ -1522,6 +1586,7 @@
           "latest_run",
           "last_success",
           "failed_runs",
+          "covered_from",
           "schedule",
           "freshness",
           "signals"
@@ -1682,6 +1747,17 @@
             "title": "Evaluated At",
             "type": "string"
           },
+          "failed_runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Runs"
+          },
           "integrations": {
             "items": {
               "$ref": "#/components/schemas/IntegrationStatus"
@@ -1702,11 +1778,16 @@
           },
           "thresholds": {
             "$ref": "#/components/schemas/HealthThresholds"
+          },
+          "window": {
+            "$ref": "#/components/schemas/HealthWindow"
           }
         },
         "required": [
           "stage",
           "evaluated_at",
+          "window",
+          "failed_runs",
           "thresholds",
           "integrations",
           "pipelines"
@@ -2318,6 +2399,17 @@
             "title": "Evaluated At",
             "type": "string"
           },
+          "failed_runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Runs"
+          },
           "integrations": {
             "items": {
               "$ref": "#/components/schemas/IntegrationStatus"
@@ -2353,12 +2445,17 @@
             ],
             "title": "State",
             "type": "string"
+          },
+          "window": {
+            "$ref": "#/components/schemas/HealthWindow"
           }
         },
         "required": [
           "stage",
           "state",
           "evaluated_at",
+          "window",
+          "failed_runs",
           "pipelines",
           "services",
           "integrations"
@@ -2378,6 +2475,17 @@
               }
             ],
             "title": "Domain"
+          },
+          "failed_runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Runs"
           },
           "job": {
             "title": "Job",
@@ -2410,7 +2518,8 @@
           "job",
           "domain",
           "product",
-          "state"
+          "state",
+          "failed_runs"
         ],
         "title": "StagePipelineState",
         "type": "object"
@@ -3300,7 +3409,7 @@
     },
     "/api/v1/stages/{stage}/health": {
       "get": {
-        "description": "A rollup of the stage's pipeline and service signals. Integrations that give none are never healthy.\n\nEvery read blocks (Dagster's HTTP, the probes and the metrics backend for up to their timeout), so each runs on a\nworker thread, together: the event loop keeps serving other requests, and the stage answers in the slowest read's\ntime. The metrics integration is reported, never folded into the state.",
+        "description": "A rollup of the stage's pipeline and service signals. Integrations that give none are never healthy.\n\n`range` scopes the failed-run counts only; the state is the current evaluation at every range.\n\nEvery read blocks (Dagster's HTTP, the probes and the metrics backend for up to their timeout), so each runs on a\nworker thread, together: the event loop keeps serving other requests, and the stage answers in the slowest read's\ntime. The metrics integration is reported, never folded into the state.",
         "operationId": "get_stage_health_api_v1_stages__stage__health_get",
         "parameters": [
           {
@@ -3309,6 +3418,24 @@
             "required": true,
             "schema": {
               "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The window the counts cover, ending now. The state and its signals are never windowed.",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "default": "24h",
+              "description": "The window the counts cover, ending now. The state and its signals are never windowed.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "title": "Range",
               "type": "string"
             }
           }
@@ -3340,7 +3467,7 @@
     },
     "/api/v1/stages/{stage}/health/pipelines": {
       "get": {
-        "description": "Each Dagster job's latest run, last success, failed runs, schedule and freshness.",
+        "description": "Each Dagster job's latest run, last success, failed runs in the window, schedule and freshness.",
         "operationId": "list_pipeline_health_api_v1_stages__stage__health_pipelines_get",
         "parameters": [
           {
@@ -3349,6 +3476,24 @@
             "required": true,
             "schema": {
               "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The window the counts cover, ending now. The state and its signals are never windowed.",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "default": "24h",
+              "description": "The window the counts cover, ending now. The state and its signals are never windowed.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "title": "Range",
               "type": "string"
             }
           }

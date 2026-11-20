@@ -202,6 +202,24 @@ class HealthSignal(BaseModel):
     due: datetime | None
 
 
+# One range vocabulary for the metrics routes and the health window (ADR 0024, decision 4): the keys of
+# `openlakeforge_core.metrics.RANGES`, which a test holds this to.
+MetricRangeName = Literal["1h", "6h", "24h", "7d"]
+
+
+class HealthWindow(BaseModel):
+    """The span the health routes' counts cover: runs created after `from`, up to `to`, the evaluation time.
+
+    `covered_from` is set when the bounded Dagster reads stopped short of `from`: the counts cover runs created from
+    then on only, and are never served as the whole window. A state and its signals are never windowed.
+    """
+
+    range: MetricRangeName
+    from_: datetime = Field(serialization_alias="from")
+    to: datetime
+    covered_from: datetime | None
+
+
 class HealthThresholds(BaseModel):
     """The `max_age` and `grace` values the signals were evaluated with, in seconds. Provisional.
 
@@ -211,6 +229,7 @@ class HealthThresholds(BaseModel):
     run_max_age_seconds: int
     schedule_max_age_seconds: int
     schedule_grace_seconds: int
+    # Runs read per pipeline for its signals, whatever the window.
     run_window: int
 
 
@@ -220,6 +239,8 @@ class StagePipelineState(BaseModel):
     domain: str | None
     product: str | None
     state: HealthStateName
+    # Failed runs created in the window; None when the read the count needed failed, never 0.
+    failed_runs: int | None
 
 
 # The services the probes belong to, so a client can group rows (worst state per `service`) without parsing ids.
@@ -257,6 +278,10 @@ class StageHealth(BaseModel):
     stage: str
     state: HealthStateName
     evaluated_at: datetime
+    window: HealthWindow
+    # Failed runs over every pipeline, created from `window.covered_from` when that is set and from `window.from`
+    # otherwise; None when Dagster is not configured or cannot be read, or any pipeline's count is None, never 0.
+    failed_runs: int | None
     pipelines: list[StagePipelineState]
     services: list[ServiceHealth]
     integrations: list[IntegrationStatus]
@@ -288,8 +313,11 @@ class PipelineHealth(BaseModel):
     state: HealthStateName
     latest_run: Run | None
     last_success: Run | None
-    # Failed runs among the `run_window` most recent; a missed run is the `expected_run` signal.
-    failed_runs: int
+    # Failed runs created in the window; a missed run is the `expected_run` signal. None when the read the count
+    # needed failed, never 0; the state and signals are read either way.
+    failed_runs: int | None
+    # Set when this job's bounded reads did not reach back to the window's `from`: `failed_runs` counts from here on.
+    covered_from: datetime | None
     schedule: PipelineSchedule
     freshness: PipelineFreshness
     signals: list[HealthSignal]
@@ -298,6 +326,9 @@ class PipelineHealth(BaseModel):
 class PipelinesHealth(BaseModel):
     stage: str
     evaluated_at: datetime
+    window: HealthWindow
+    # As on `StageHealth`.
+    failed_runs: int | None
     thresholds: HealthThresholds
     integrations: list[IntegrationStatus]
     pipelines: list[PipelineHealth]
@@ -433,7 +464,6 @@ class StageAlertIncidents(BaseModel):
 
 # The IntegrationStatus vocabulary: a metric's state is never a health state, and an absent series is not a zero one.
 MetricState = Literal["available", "disabled", "unavailable", "not_provided"]
-MetricRangeName = Literal["1h", "6h", "24h", "7d"]
 
 
 class MetricSeriesInfo(BaseModel):

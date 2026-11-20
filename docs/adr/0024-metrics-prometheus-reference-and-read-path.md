@@ -278,6 +278,16 @@ attempt with a 5 s deadline across the whole read, as the service probes have
 (`PROBE_TIMEOUT` in `service_probes.py` **[V]**): no retry after a 429, and past
 the deadline the answer is `unavailable` with that reason.
 
+The same four ranges are the `range` of the stage health routes,
+`get_stage_health` and `list_pipeline_health`
+([ADR 0021](0021-platform-api.md), History, #1260), so a page has one window
+selector: one list in code, `RANGES` in `openlakeforge_core.metrics`, which the
+API's `MetricRangeName` is tested against. A change to the list changes both.
+There a range scopes the failed-run counts only, never a state or a signal; the
+step column does not apply; and, since the counts come from Dagster, the
+retention does not bound it. The counts carry `covered_from` when Decision 2's
+500-run read stops short of the range, as a Dagster series does.
+
 The first catalog, mapped to #333's chart list:
 
 | Series | Scope | Labels | Source | #333 chart |
@@ -550,3 +560,7 @@ counter summed across pods reads as a reset when a pod goes.
 2026-11-18: `trino_failed_queries` is also recorded as per-minute increments and
 read as their sum over each step. A rule recorded once a minute holds one sample
 in a 60 s step, too few for `increase()`, so the 1h and 6h charts were empty.
+
+2026-11-19: decision 4 names the stage health routes' `range` (#1260) as the
+same list as the metrics routes' ranges, one `RANGES` in code. Nothing about the
+metrics routes changed.

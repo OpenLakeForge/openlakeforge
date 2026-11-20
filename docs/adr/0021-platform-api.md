@@ -864,3 +864,16 @@ either way and its tags are never answered. The quality signal and `get_stage_qu
 the incident is scoped to, and its `domain` and `product` are now that job's, read from the stage's Dagster job list
 when the route answers, `null` when Dagster cannot be read in 10 seconds. The core `Scope`, whose `product` holds the
 job name, and ADR 0023's incident fingerprints and notification payload are unchanged; ADR 0004 is unchanged.
+
+2026-11-19: #1260. `get_stage_health` and `list_pipeline_health` take `range`, one of `1h`, `6h`, `24h` and `7d`
+(default `24h`), the list of [ADR 0024](0024-metrics-prometheus-reference-and-read-path.md)'s decision 4 and the same
+`RANGES` in code; any other value is a 400. The range scopes counts only: `failed_runs`, now the failed runs created
+in the window, on each pipeline of both routes and summed on each answer, from `window.covered_from` when that is set,
+so the sum covers the span every job's count is complete over. `state`, the signals and `services` stay the current
+evaluation, read from each job's 25 newest runs at every range. Both answers gain `window` (`range`, `from`, `to`,
+`covered_from`), and each pipeline of `list_pipeline_health` its own `covered_from`: where a job's 25 runs do not
+reach back to `from`, one stage-wide read of the runs created since then fills the count, held to ADR 0024's 500 runs,
+and a read that reaches the cap sets `covered_from` to where the count starts rather than answering it as the whole
+window. A Dagster that is absent or cannot be read gives `failed_runs: null`, never 0; a failed stage-wide read gives
+`null` counts where it was needed and leaves the pipelines, state and signals as read. `get_stage_service_health`, the
+alert evaluator's reads and the permission rows are unchanged.
