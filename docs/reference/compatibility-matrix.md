@@ -101,7 +101,7 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 | opensearch | `opensearchproject/opensearch:3.3.2@sha256:798cf28e226a32f5c928dd1ed9478dd3a33d2212176aad3679020088ad3afa1a` |
 | polaris | `apache/polaris:1.8.0@sha256:347615e736cab2c9be0d8c464552ac930be4755302bb0aeb745216bbae99ba5b` |
 | polaris_admin_tool | `apache/polaris-admin-tool:1.8.0@sha256:34dde19bb321aef5925a14ba90b69e26e982a5dcbda76a9d0cfc1aac1534ba4e` |
-| portal | `ghcr.io/openlakeforge/openlakeforge-portal:0.7.2@sha256:ab499fbf7f8cc4eb437c769d4f44869de2602071118cf6ed29fa5885a28b9cda` |
+| portal | `ghcr.io/openlakeforge/openlakeforge-portal:0.7.3@sha256:3ece1e82dc039608771bf6e137c8e4df7b65dbcbe2615877503e0c4fae35be7f` |
 | postgres | `postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777` |
 | project_code_base | `python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de` |
 | prometheus | `prom/prometheus:v3.13.5@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9` |
