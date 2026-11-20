@@ -35,7 +35,7 @@ from olf.infra.e2e import _metrics as metrics
 from olf.infra.e2e._dagster import dagster_client
 from olf.infra.e2e._log_collector import ARCHIVE_POLL_SECONDS, ARCHIVE_TIMEOUT_SECONDS, RUN_ID_LABEL
 from olf.infra.e2e._perimeter_bearer import LOGS_FLOOR, logs_admits
-from olf.infra.e2e._quality_evidence import _JOB_ASSETS
+from olf.infra.e2e._quality_evidence import _JOB_ASSETS, job_silver_tables
 from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl
 
 # No runtime accepts this scope (openlakeforge_core.FULL_REFRESH_SCOPES), so the first step that reads it fails.
@@ -239,13 +239,17 @@ class DrillTarget:
 def drill_target(cfg: E2EConfig, client: DagsterClient) -> DrillTarget | None:
     """The first product, the default one first, whose job selects a Silver table of its own domain, and that
     selection without Bronze; None when every product reads only other products' marts."""
-    sources = [source.name for source in cfg.inventory.sources]
-    for product in cfg.inventory.products:
+    inventory = cfg.inventory
+    sources = [source.name for source in inventory.sources]
+    for product in inventory.products:
         location, repository = client.discover_repository(product.job_name)
         selector = {"pipelineName": product.job_name, "repositoryName": repository, "repositoryLocationName": location}
         nodes = client.graphql(_JOB_ASSETS, {"selector": selector}).get("assetNodes") or []
         selection = drilldown_selection((node["assetKey"]["path"] for node in nodes), sources)
-        if any(key[0] == product.domain_name for key in selection):
+        # A product may share its domain's name, so its Gold models are keyed like Silver tables: only the domain's
+        # Floe entities are Silver.
+        entities = frozenset(entity.name for entity in inventory.floe_entities(inventory.domain_for_product(product)))
+        if job_silver_tables((tuple(key) for key in selection), product.domain_name, entities):
             return DrillTarget(product, selection)
     return None
 

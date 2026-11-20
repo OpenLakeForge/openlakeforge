@@ -354,3 +354,15 @@ def test_with_no_product_selecting_its_own_silver_the_drill_skips(
         "Skipping the failed-run drill-down: no product's job selects a Silver table of its own domain, "
         "so no Floe Job would run."
     ]
+
+
+def test_a_product_named_like_its_domain_with_only_gold_models_is_not_taken_for_silver(
+    tmp_path: Path, api: FakeApi, deployed: tuple[FakeDagster, list[str], list[str]]
+) -> None:
+    # A product sharing its domain's name keys its Gold models `[domain, model]`, like the domain's Silver tables.
+    dagster, _, _ = deployed
+    api.failure.update(job=SECOND.job_name, domain=SECOND.domain_name, product=SECOND.id)
+    dagster.assets[PRODUCT.job_name] = [["crm", "customers"], [PRODUCT.domain_name, "mart_x"]]
+    drill.check_failed_run_drilldown(e2e_cfg(tmp_path))
+
+    assert dagster.launched["job"] == SECOND.job_name
