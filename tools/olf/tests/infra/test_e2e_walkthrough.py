@@ -49,7 +49,6 @@ def test_chromium_resolves_hosts_as_the_requests_routes_do() -> None:
 
 
 STUB = "olf-e2e-github.olf-system.svc"
-AUTHORIZE = f"https://{STUB}/login/oauth/authorize?redirect_uri=https%3A%2F%2Fdex%2Fcallback&state=s1"
 
 
 class FakeNavigationError(Exception):
@@ -57,11 +56,14 @@ class FakeNavigationError(Exception):
 
 
 class SignInPage:
-    """Each `goto` walks `hops`' next chain of requested URLs; one that ends at the stub fails, as Chromium does."""
+    """A page whose one navigation lands on `url`, or fails with `refusal` without leaving for the stub.
 
-    def __init__(self, *hops: list[str]) -> None:
-        self.hops, self.listeners, self.visited = list(hops), [], []  # type: ignore[var-annotated]
-        self.url = "about:blank"
+    How the hop to the stub fails, and what Chromium does after it, is a browser's to show:
+    `test_e2e_walkthrough_browser.py` drives the real one.
+    """
+
+    def __init__(self, refusal: str | None = None) -> None:
+        self.refusal, self.visited, self.listeners = refusal, [], []  # type: ignore[var-annotated]
 
     def on(self, _event: str, listener: Any) -> None:
         self.listeners.append(listener)
@@ -71,39 +73,20 @@ class SignInPage:
 
     def goto(self, url: str) -> None:
         self.visited.append(url)
-        chain = self.hops.pop(0)
-        for hop in chain:
-            for listener in self.listeners:
-                listener(type("Request", (), {"url": hop})())
-        if STUB in chain[-1]:
-            raise FakeNavigationError(f"net::ERR_NAME_NOT_RESOLVED at {url}")
-        self.url = chain[-1]
-
-    def wait_for_url(self, matches: Any) -> None:
-        self.url = "chrome-error://chromewebdata/"
-        assert matches(self.url)
-
-
-def test_sign_in_sends_the_browser_where_the_stub_would_once_the_hop_to_it_fails() -> None:
-    overview = f"{PORTAL}/monitoring?stage=dev"
-    page = SignInPage([overview, "https://dex/auth/github", AUTHORIZE], ["https://dex/callback", overview])
-    walkthrough.sign_in(page, overview, "olf-e2e-x", STUB, FakeNavigationError)
-    assert page.visited == [overview, "https://dex/callback?code=olf-e2e-x&state=s1"]
-    assert page.url == overview and page.listeners == []
+        if self.refusal:
+            raise FakeNavigationError(self.refusal)
 
 
 def test_sign_in_is_one_navigation_once_signed_in_and_any_other_failure_is_raised() -> None:
     overview = f"{PORTAL}/monitoring?stage=dev"
-    page = SignInPage([overview])
+    page = SignInPage()
     walkthrough.sign_in(page, overview, "olf-e2e-x", STUB, FakeNavigationError)
-    assert page.visited == [overview]
+    assert page.visited == [overview] and page.listeners == []
 
-    class Refused(SignInPage):
-        def goto(self, url: str) -> None:
-            raise FakeNavigationError("net::ERR_CERT_AUTHORITY_INVALID")
-
+    refused = SignInPage("net::ERR_CERT_AUTHORITY_INVALID")
     with pytest.raises(FakeNavigationError, match="CERT"):
-        walkthrough.sign_in(Refused(), overview, "olf-e2e-x", STUB, FakeNavigationError)
+        walkthrough.sign_in(refused, overview, "olf-e2e-x", STUB, FakeNavigationError)
+    assert refused.listeners == []
 
 
 def test_the_journey_needs_the_drill_downs_failed_run_as_the_latest() -> None:

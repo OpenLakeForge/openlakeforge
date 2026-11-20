@@ -26,11 +26,15 @@ from openlakeforge_core import inventory_for
 from olf.common.profile import StageName
 from olf.infra.e2e._shell import E2EConfig, Environment, Suite
 
-# The runtime tests `importorskip` the Dagster stack, which only the `dagster` dependency group installs. A CI
-# job that installs the group sets this so a package missing from it is an import error rather than a skipped
-# module that reads as green. The other `importorskip` calls (kubernetes, sqlalchemy, ...) stay skips.
-_REQUIRED_MODULES = ("dagster", "dagster_dbt", "floe_dagster", "dlt")
-if os.environ.get("OLF_REQUIRE_DAGSTER") == "1":
+# The runtime tests `importorskip` the Dagster stack, which only the `dagster` dependency group installs, and the
+# walkthrough's browser test Playwright, which only the `browser` group does. A CI job that installs a group sets its
+# variable so a package missing from it is an import error rather than a skipped module that reads as green. The
+# other `importorskip` calls (kubernetes, sqlalchemy, ...) stay skips.
+_REQUIRED_MODULES = (
+    *(("dagster", "dagster_dbt", "floe_dagster", "dlt") if os.environ.get("OLF_REQUIRE_DAGSTER") == "1" else ()),
+    *(("playwright.sync_api",) if os.environ.get("OLF_REQUIRE_PLAYWRIGHT") == "1" else ()),
+)
+if _REQUIRED_MODULES:
     _importorskip = pytest.importorskip
 
     def _import_required(modname: str, *args: object, **kwargs: object) -> object:
