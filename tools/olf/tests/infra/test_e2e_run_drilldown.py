@@ -18,6 +18,7 @@ from olf.infra.e2e._metrics import ApiSession
 from olf.infra.e2e._shell import E2EError
 
 PRODUCT = E2E_INVENTORY.default_product
+SECOND = E2E_INVENTORY.products[1]
 RUN_ID = "0f6c3a52-8d3e-4c4f-9a65-2b7f1c9d0e11"
 STAGE = "lakehouse"
 START, END = 1_763_000_000.0, 1_763_000_600.0
@@ -230,12 +231,16 @@ def test_the_evidence_line_holds_counts_and_no_text(api: FakeApi) -> None:
 class FakeDagster:
     def __init__(self) -> None:
         self.launched: dict[str, Any] = {}
+        self.assets: dict[str, list[list[str]]] = {
+            product.job_name: [["crm", "customers"], [product.domain_name, "orders"], [product.id, "daily_revenue"]]
+            for product in E2E_INVENTORY.products
+        }
 
     def discover_repository(self, job: str) -> tuple[str, str]:
         return "location", "repository"
 
     def graphql(self, query: str, variables: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        paths = [["crm", "customers"], [PRODUCT.domain_name, "orders"], [PRODUCT.id, "daily_revenue"]]
+        paths = self.assets[(variables or {})["selector"]["pipelineName"]]
         return {"assetNodes": [{"assetKey": {"path": p}} for p in paths]}
 
     def launch(self, job: str, **kwargs: Any) -> str:
@@ -282,6 +287,7 @@ def test_the_drill_fails_a_run_after_floe_deletes_its_jobs_and_reads_it_back(
     dagster, kubectl_calls, logged = deployed
     drill.check_failed_run_drilldown(e2e_cfg(tmp_path))
 
+    assert dagster.launched["job"] == PRODUCT.job_name
     assert dagster.launched["asset_selection"] == [[PRODUCT.domain_name, "orders"], [PRODUCT.id, "daily_revenue"]]
     assert dagster.launched["tags"]["openlakeforge/full_refresh"] == drill.REFUSED_SCOPE
     assert dagster.launched["tags"]["floe/full_refresh"] == "true"
@@ -321,3 +327,30 @@ def test_a_deleted_pod_whose_lines_never_arrive_fails_after_the_deadline(
     monkeypatch.setattr(drill.time, "monotonic", lambda: float(next(clock)))
     with pytest.raises(E2EError, match=re.escape(f"no line of the deleted pod(s) ['{PODS[1]}']")):
         drill.check_failed_run_drilldown(e2e_cfg(tmp_path))
+
+
+def test_a_default_product_reading_only_other_marts_leaves_the_drill_to_the_next_product(
+    tmp_path: Path, api: FakeApi, deployed: tuple[FakeDagster, list[str], list[str]]
+) -> None:
+    dagster, _, _ = deployed
+    api.failure.update(job=SECOND.job_name, domain=SECOND.domain_name, product=SECOND.id)
+    dagster.assets[PRODUCT.job_name] = [["crm", "customers"], ["other_product", "mart"], [PRODUCT.id, "daily_revenue"]]
+    drill.check_failed_run_drilldown(e2e_cfg(tmp_path))
+
+    assert dagster.launched["job"] == SECOND.job_name
+    assert [SECOND.domain_name, "orders"] in dagster.launched["asset_selection"]
+
+
+def test_with_no_product_selecting_its_own_silver_the_drill_skips(
+    tmp_path: Path, deployed: tuple[FakeDagster, list[str], list[str]]
+) -> None:
+    dagster, kubectl_calls, logged = deployed
+    for product in E2E_INVENTORY.products:
+        dagster.assets[product.job_name] = [["crm", "customers"], [product.id, "daily_revenue"]]
+    drill.check_failed_run_drilldown(e2e_cfg(tmp_path))
+
+    assert dagster.launched == {} and kubectl_calls == []
+    assert logged == [
+        "Skipping the failed-run drill-down: no product's job selects a Silver table of its own domain, "
+        "so no Floe Job would run."
+    ]

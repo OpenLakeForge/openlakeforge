@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import sys
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import e2e_cfg
+from conftest import E2E_INVENTORY, e2e_cfg
 from openlakeforge_services.dagster import DagsterRun
 
 from olf.infra.e2e import _walkthrough as walkthrough
@@ -44,13 +46,14 @@ def test_chromium_resolves_hosts_as_the_requests_routes_do() -> None:
 
 
 def test_the_journey_needs_the_drill_downs_failed_run_as_the_latest() -> None:
-    assert walkthrough.journey_failed_run([_run()]).run_id == RUN_ID
+    job = "order_revenue_pipeline"
+    assert walkthrough.journey_failed_run(job, [_run()]).run_id == RUN_ID
     with pytest.raises(E2EError, match="runs before this check"):
-        walkthrough.journey_failed_run([])
+        walkthrough.journey_failed_run(job, [])
     with pytest.raises(E2EError, match="is SUCCESS"):
-        walkthrough.journey_failed_run([_run("SUCCESS")])
+        walkthrough.journey_failed_run(job, [_run("SUCCESS")])
     with pytest.raises(E2EError, match="not the drill-down's failed run"):
-        walkthrough.journey_failed_run([_run(tags={})])
+        walkthrough.journey_failed_run(job, [_run(tags={})])
 
 
 def test_the_metrics_shot_is_named_for_what_it_shows() -> None:
@@ -271,3 +274,68 @@ def test_a_deployment_without_a_perimeter_skips_the_walk(monkeypatch: pytest.Mon
     monkeypatch.setattr(walkthrough, "_playwright", lambda: pytest.fail("no browser is needed to skip"))
     walkthrough.check_operator_journey_screenshots(e2e_cfg(tmp_path))
     assert messages == ["Skipping the operator journey screenshots: the contract declares no enabled perimeter."]
+
+
+class FakeDagster:
+    """Each job selects its domain's Silver unless `gold_only` names it; every job's latest run succeeded."""
+
+    def __init__(self, gold_only: set[str]) -> None:
+        self.gold_only = gold_only
+
+    def discover_repository(self, job: str) -> tuple[str, str]:
+        return "location", "repository"
+
+    def graphql(self, query: str, variables: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        job = (variables or {})["selector"]["pipelineName"]
+        product = next(p for p in E2E_INVENTORY.products if p.job_name == job)
+        paths = (
+            [[product.id, "mart"]] if job in self.gold_only else [[product.domain_name, "orders"], [product.id, "mart"]]
+        )
+        return {"assetNodes": [{"assetKey": {"path": p}} for p in paths]}
+
+    def list_runs(self, *, job_name: str = "", limit: int = 20) -> list[DagsterRun]:
+        return [DagsterRun(RUN_ID, job_name, "SUCCESS", 1.0, 2.0, 3.0, {})]
+
+
+@pytest.fixture
+def perimeter(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    messages: list[str] = []
+    contracts = {
+        "shared": {
+            "access": {"routes": {"shared/portal": {"url": PORTAL}}, "perimeter": {"enabled": True}},
+            "identity": {"adapter": "dex"},
+        }
+    }
+    monkeypatch.setattr(walkthrough, "load_provider_contracts_or_raise", lambda _cfg: contracts)
+    monkeypatch.setattr(walkthrough.log, "info", messages.append)
+    monkeypatch.setattr(walkthrough, "_playwright", lambda: object())
+    monkeypatch.delenv(walkthrough.access.PORT_FORWARD_ENV, raising=False)
+    return messages
+
+
+def _dagster(monkeypatch: pytest.MonkeyPatch, gold_only: set[str]) -> None:
+    @contextlib.contextmanager
+    def client(_cfg: Any) -> Iterator[FakeDagster]:
+        yield FakeDagster(gold_only)
+
+    monkeypatch.setattr(walkthrough, "dagster_client", client)
+
+
+def test_the_walk_looks_for_the_failed_run_of_the_product_the_drill_down_chose(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, perimeter: list[str]
+) -> None:
+    default, second = E2E_INVENTORY.products[0], E2E_INVENTORY.products[1]
+    _dagster(monkeypatch, {default.job_name})
+    with pytest.raises(E2EError, match=f"^{second.job_name}'s latest run {RUN_ID} is SUCCESS"):
+        walkthrough.check_operator_journey_screenshots(e2e_cfg(tmp_path))
+
+
+def test_with_no_product_selecting_its_own_silver_the_walk_skips(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, perimeter: list[str]
+) -> None:
+    _dagster(monkeypatch, {product.job_name for product in E2E_INVENTORY.products})
+    walkthrough.check_operator_journey_screenshots(e2e_cfg(tmp_path))
+    assert perimeter == [
+        "Skipping the operator journey screenshots: no product's job selects a Silver table of its own domain, "
+        "so no Floe Job would run."
+    ]

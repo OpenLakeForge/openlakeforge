@@ -5,7 +5,8 @@ against the e2e stub, whose authorize page the browser cannot reach, so the cont
 stub would (`authorize_redirect`, as `_identity_github.StubAuthorize` does for requests). The role is the lowest one
 the logs row admits on this stage, so the run's logs and reports are on the page rather than refused.
 
-The failed run is the one `_run_drilldown` left as the default product's latest run. Each page must reach the
+The failed run is the one `_run_drilldown` left as the latest run of its product, found the same way
+(`drill_target`), so the walk skips where the drill-down did. Each page must reach the
 state its screenshot is meant to show (a heading, a region, the run's own error text) before it is saved, and must
 hold no Secret value; a page that does not is saved as `<name>.FAILED.png` beside the others and fails the check.
 
@@ -34,7 +35,7 @@ from olf.infra.e2e._dagster import dagster_client
 from olf.infra.e2e._identity_github import dex_points_at_stub, github_stub, log_skip, stub_host
 from olf.infra.e2e._perimeter import PORTAL_REF
 from olf.infra.e2e._perimeter_bearer import LOGS_FLOOR, logs_admits
-from olf.infra.e2e._run_drilldown import DRILL_TAG, REFUSED_SCOPE
+from olf.infra.e2e._run_drilldown import DRILL_TAG, REFUSED_SCOPE, drill_target, log_no_target
 from olf.infra.e2e._secret_exposure import find_exposures, secret_values
 from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, load_provider_contracts_or_raise
 
@@ -71,14 +72,14 @@ def resolver_rules(urls: Sequence[str], environ: Mapping[str, str]) -> list[str]
     return [f"--host-resolver-rules={','.join(dict.fromkeys(rules))}"] if rules else []
 
 
-def journey_failed_run(runs: Sequence[DagsterRun]) -> DagsterRun:
+def journey_failed_run(job: str, runs: Sequence[DagsterRun]) -> DagsterRun:
     """The drill-down's failed run, which must be the job's latest: the overview shows only the latest run's state."""
     if not runs:
-        raise E2EError("the default product's job has no run; the failed-run drill-down runs before this check")
+        raise E2EError(f"{job} has no run; the failed-run drill-down runs before this check")
     latest = runs[0]
     if latest.status != "FAILURE" or DRILL_TAG not in latest.tags:
         raise E2EError(
-            f"the default product's latest run {latest.run_id} is {latest.status}, not the drill-down's failed run; "
+            f"{job}'s latest run {latest.run_id} is {latest.status}, not the drill-down's failed run; "
             "the failed-run drill-down runs right before this check"
         )
     return latest
@@ -275,9 +276,12 @@ def check_operator_journey_screenshots(cfg: E2EConfig) -> None:
         log.info(f"Skipping the operator journey screenshots: {reason}.")
         return
     pw = _playwright()
-    product = cfg.inventory.default_product
     with dagster_client(cfg) as client:
-        run = journey_failed_run(client.list_runs(job_name=product.job_name, limit=1))
+        if (target := drill_target(cfg, client)) is None:
+            log_no_target("the operator journey screenshots")
+            return
+        job = target.product.job_name
+        run = journey_failed_run(job, client.list_runs(job_name=job, limit=1))
     metrics_served = metrics.metrics_on(metrics.metrics_contract(cfg))
     directory = cfg.repo_root / SCREENSHOT_DIR / cfg.namespace
     directory.mkdir(parents=True, exist_ok=True)

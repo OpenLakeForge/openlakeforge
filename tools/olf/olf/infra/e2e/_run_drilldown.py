@@ -1,10 +1,13 @@
 """A failed product run read back through the platform API after its pods are gone (#794, scenario 2).
 
-The drill makes the run itself. It launches the default product's job over its Silver and Gold assets with Floe's
+The drill makes the run itself. It launches a product's job over its Silver and Gold assets with Floe's
 full refresh, so the Floe Job reads every landed Bronze file and records its checks and reports, and with an
 `openlakeforge/full_refresh` scope no runtime accepts, which the dbt step refuses before it builds anything. The run
 fails after Floe, its failure hook publishes the quality manifest, and the failure is a plain one-line `ValueError`.
 Bronze is left out of the selection: the Bronze step reads the same tag first and would fail the run before Floe.
+The product is the first in inventory order whose job selects a Silver table of its own domain (`drill_target`): one
+reading only other products' marts runs no Floe Job, so it has no Floe evidence to read back. With none, both this
+drill and the walkthrough skip.
 
 Once the run has ended its Jobs are deleted, which is what their `ttlSecondsAfterFinished` does an hour later, so
 every read below comes from the run's durable evidence: Dagster's event log, the quality manifest, the retained
@@ -227,15 +230,32 @@ def evidence(
     return f"{EVIDENCE_PREFIX} {json.dumps(record, sort_keys=True)}"
 
 
-def _fail_a_product_run(cfg: E2EConfig, client: DagsterClient, product: Product) -> DagsterRun:
-    location, repository = client.discover_repository(product.job_name)
-    selector = {"pipelineName": product.job_name, "repositoryName": repository, "repositoryLocationName": location}
-    nodes = client.graphql(_JOB_ASSETS, {"selector": selector}).get("assetNodes") or []
-    selection = drilldown_selection(
-        (node["assetKey"]["path"] for node in nodes), (source.name for source in cfg.inventory.sources)
-    )
-    if not any(key[0] == product.domain_name for key in selection):
-        raise E2EError(f"{product.job_name} selects no {product.domain_name} Silver table; no Floe Job would run")
+@dataclass(frozen=True)
+class DrillTarget:
+    product: Product
+    selection: list[list[str]]
+
+
+def drill_target(cfg: E2EConfig, client: DagsterClient) -> DrillTarget | None:
+    """The first product, the default one first, whose job selects a Silver table of its own domain, and that
+    selection without Bronze; None when every product reads only other products' marts."""
+    sources = [source.name for source in cfg.inventory.sources]
+    for product in cfg.inventory.products:
+        location, repository = client.discover_repository(product.job_name)
+        selector = {"pipelineName": product.job_name, "repositoryName": repository, "repositoryLocationName": location}
+        nodes = client.graphql(_JOB_ASSETS, {"selector": selector}).get("assetNodes") or []
+        selection = drilldown_selection((node["assetKey"]["path"] for node in nodes), sources)
+        if any(key[0] == product.domain_name for key in selection):
+            return DrillTarget(product, selection)
+    return None
+
+
+def log_no_target(what: str) -> None:
+    log.info(f"Skipping {what}: no product's job selects a Silver table of its own domain, so no Floe Job would run.")
+
+
+def _fail_a_product_run(client: DagsterClient, target: DrillTarget) -> DagsterRun:
+    product, selection = target.product, target.selection
     tags = {FULL_REFRESH_TAG: REFUSED_SCOPE, FLOE_FULL_REFRESH_TAG: "true", DRILL_TAG: "failed-run"}
     run_id = client.launch(product.job_name, tags=tags, asset_selection=selection)
     log.info(f"{product.job_name}: launched {run_id} to fail at its dbt step, after Floe.")
@@ -316,7 +336,6 @@ def _check_refused(api: metrics.ApiSession, stage: str, run_id: str, href: str) 
 def check_failed_run_drilldown(cfg: E2EConfig) -> None:
     """A failed run whose pods are deleted: its failure, checks, a report and its whole log window, through the API."""
     stage = cfg.namespace.removeprefix("olf-")
-    product = cfg.inventory.default_product
     with metrics.api_session(
         cfg,
         floor=LOGS_FLOOR,
@@ -325,9 +344,15 @@ def check_failed_run_drilldown(cfg: E2EConfig) -> None:
     ) as api:
         if api is None:
             return
-        log.step(f"Failing a {product.job_name} run after Floe and reading it back through the API as {api.reader}...")
         with dagster_client(cfg) as client:
-            run = _fail_a_product_run(cfg, client, product)
+            if (target := drill_target(cfg, client)) is None:
+                log_no_target("the failed-run drill-down")
+                return
+            product = target.product
+            log.step(
+                f"Failing a {product.job_name} run after Floe and reading it back through the API as {api.reader}..."
+            )
+            run = _fail_a_product_run(client, target)
         pods = _delete_run_jobs(cfg, run.run_id)
         log.info(f"Deleted the Jobs of run {run.run_id}; its {len(pods)} pod(s) are gone.")
         failure = api.read(run_path(stage, run.run_id, "/failure"))
