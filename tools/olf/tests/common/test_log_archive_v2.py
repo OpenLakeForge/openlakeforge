@@ -327,3 +327,15 @@ def test_a_scan_past_its_deadline_stops_before_reading_the_rest(store: _Store) -
         archive.read("olf-dev", DAY, deadline=5.0)
 
     assert len(fetched) <= 3
+
+
+def test_a_line_in_both_layouts_is_answered_once_when_a_page_ends_on_its_v2_record(store: _Store) -> None:
+    store.put(_v2_key("dev-a"), [_v2("2026-11-16T09:00:01Z", "seen twice", pod="run-1")])
+    store.put(_v1_key(), [_v1("2026-11-16T09:00:01Z seen twice")])
+    archive = LogArchive(store, BASE)
+
+    first = archive.read_days("olf-dev", [DAY], limit=1)
+    second = archive.read_days("olf-dev", [DAY], limit=1, after=first.last)
+
+    assert [line.source for line in first.lines] == ["v2"]
+    assert second.lines == []

@@ -182,13 +182,18 @@ class _Best:
         self._items: list[tuple[Position, str | None, ArchivedLogLine]] = []
         self._dedup: set[str] = set()
         self._answered: set[str] = set()
+        # Answered lines at the cursor's own time. A v1 copy of one sorts after its v2 record at the same time, so
+        # it can fall past the cursor while the v2 record does not; these keep it out (ADR 0022, decision 5).
+        self.at_cursor: list[ArchivedLogLine] = []
 
     def offer(self, position: Position, dedup: str | None, line: ArchivedLogLine) -> None:
         if dedup is not None and (dedup in self._dedup or dedup in self._answered):
             return
         if self._after is not None and position <= self._after:
-            if dedup is not None and position[0] == self._after[0]:
-                self._answered.add(dedup)
+            if position[0] == self._after[0]:
+                self.at_cursor.append(line)
+                if dedup is not None:
+                    self._answered.add(dedup)
             return
         if len(self._items) >= self._limit:
             if position >= self._items[-1][0]:
@@ -361,7 +366,10 @@ class LogArchive:
             self._v2(namespace, day, hour, wanted, v2)
         retained = v2.sorted()
         # ADR 0022, decision 5: a v1 line is dropped only when v2 holds the same line of the same container.
-        overlap = {(line.pod, line.container, line.archived_at, line.line) for _, line in retained}
+        overlap = {
+            (line.pod, line.container, line.archived_at, line.line)
+            for line in chain((line for _, line in retained), v2.at_cursor)
+        }
         v1 = _Best(limit, after)
         if not (component or product or run_id):
             for day in v1_days:
