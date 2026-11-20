@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -15,6 +16,7 @@ from openlakeforge_services.openmetadata import OpenMetadataClient
 
 from olf.infra import access, k8s
 from olf.infra.openmetadata import _platform, _quality_writer
+from olf.infra.openmetadata._auth import AUTOMATION_BOT, AUTOMATION_JWT_KEY, INGESTION_BOT_SECRET
 from olf.infra.openmetadata._quality_writer import (
     JWT_KEY,
     POLICY,
@@ -245,6 +247,65 @@ def test_the_bootstrap_reconciles_writers_for_its_stages_only_when_it_has_stages
     assert calls == []
     _platform.run_bootstrap(route, NS, email="a@b", sso=False, seed=None, stages=stages, environ={})
     assert calls == [("client", route, NS, ["dev", "prod"], {})]
+
+
+def _governed_then_retired(
+    om: FakeServer,
+    store: dict[tuple[str, str], dict[str, str]],
+    reach: Callable[[], AbstractContextManager[access.Route]] | None,
+) -> dict[tuple[str, str], dict[str, str]]:
+    """DEV and PROD governed, then governance off for both: what the platform phase does with no governed stage."""
+    _reconcile(om, "dev", "prod")
+    store[(NS, AUTOMATION_BOT)] = {AUTOMATION_JWT_KEY: "admin-jwt"}
+    for namespace in (NS, "olf-dev", "olf-prod"):
+        store[(namespace, INGESTION_BOT_SECRET)] = {"OPENMETADATA_INGESTION_BOT_JWT": "ingestion-jwt"}
+    unrelated = {
+        (NS, "openmetadata-admin"): {"admin-password": "kept"},
+        (NS, "openmetadata-quality-writer-dev-notes"): {"note": "not a writer's"},
+        ("olf-dev", writer_credentials("dev")): {JWT_KEY: "another namespace's"},
+    }
+    store.update(unrelated)
+
+    _platform.retire_governance(NS, ["olf-dev", "olf-prod"], reach=reach, email="a@b")
+
+    for stage in ("dev", "uat", "prod"):
+        assert (NS, writer_credentials(stage)) not in store
+    assert not [key for key in store if key[1] == INGESTION_BOT_SECRET]
+    return unrelated
+
+
+def test_governance_off_for_every_stage_deletes_the_writers_bots_and_secrets_while_openmetadata_answers(
+    om: FakeServer, store: dict[tuple[str, str], dict[str, str]]
+) -> None:
+    unrelated = _governed_then_retired(om, store, lambda: nullcontext(access.Route(om.url)))
+
+    assert not om.bots and writer_bot("dev") not in om.users and writer_bot("prod") not in om.users
+    # Only the Secrets the bootstrap owns, by exact name in the platform namespace, are deleted.
+    assert {key: store[key] for key in unrelated} == unrelated and (NS, AUTOMATION_BOT) in store
+
+
+def test_governance_off_for_every_stage_deletes_the_secrets_when_openmetadata_is_gone(
+    om: FakeServer, store: dict[tuple[str, str], dict[str, str]]
+) -> None:
+    unrelated = _governed_then_retired(om, store, None)
+
+    # The apply removed OpenMetadata; the bots stay in its database for the next governed bootstrap to reconcile.
+    assert om.bots == {writer_bot("dev"), writer_bot("prod")}
+    assert {key: store[key] for key in unrelated} == unrelated
+
+
+def test_an_openmetadata_that_cannot_be_reached_only_warns_and_the_secrets_still_go(
+    om: FakeServer, store: dict[tuple[str, str], dict[str, str]], capsys: pytest.CaptureFixture[str]
+) -> None:
+    @contextmanager
+    def unreachable() -> Iterator[access.Route]:
+        raise k8s.KubectlError("no Ready pod backs Service olf-system/openmetadata after 300s")
+        yield access.Route(om.url)
+
+    _governed_then_retired(om, store, unreachable)
+
+    assert "Could not reach OpenMetadata" in capsys.readouterr().err
+    assert om.bots == {writer_bot("dev"), writer_bot("prod")}
 
 
 def test_the_reconciler_module_reads_the_secret_and_key_the_bootstrap_writes() -> None:

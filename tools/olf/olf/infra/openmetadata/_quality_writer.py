@@ -161,19 +161,29 @@ def ensure_writer(
     log.info(f"Stored the {name} token in Secret '{writer_credentials(stage)}'.")
 
 
-def remove_writer(
-    client: OpenMetadataClient, namespace: str, stage: str, environ: Mapping[str, str] | None = None
-) -> None:
-    """A stage that is no longer governed loses its bot, and with it every token the bot was issued, and its Secret."""
+def remove_writer_bot(client: OpenMetadataClient, stage: str) -> None:
+    """Delete the stage's bot, and with it every token the bot was issued."""
     name = writer_bot(stage)
     if _find_user(client, name) is not None:
         hard = {"hardDelete": "true", "recursive": "true"}
         client.request("DELETE", f"/api/v1/bots/name/{name}", params=hard, ok_statuses=(200, 404))
         client.request("DELETE", f"/api/v1/users/name/{name}", params=hard, ok_statuses=(200, 404))
         log.info(f"Removed the OpenMetadata bot {name}.")
+
+
+def remove_writer_secret(namespace: str, stage: str, environ: Mapping[str, str] | None = None) -> None:
+    """Delete the stage's Secret, by its exact name, so it can be done without OpenMetadata."""
     if k8s.secret_data(writer_credentials(stage), namespace, environ=environ) is not None:
         k8s.delete_secret(writer_credentials(stage), namespace, environ=environ)
         log.info(f"Revoked Secret '{writer_credentials(stage)}' from '{namespace}'.")
+
+
+def remove_writer(
+    client: OpenMetadataClient, namespace: str, stage: str, environ: Mapping[str, str] | None = None
+) -> None:
+    """A stage that is no longer governed loses its bot and its Secret."""
+    remove_writer_bot(client, stage)
+    remove_writer_secret(namespace, stage, environ)
 
 
 def ensure_quality_writers(

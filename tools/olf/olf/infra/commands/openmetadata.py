@@ -377,7 +377,8 @@ def openmetadata_bootstrap(
 
 def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[str, str]) -> None:
     """Run the bootstrap with inputs read from the applied contract, then copy the ingestion-bot Secret
-    into the governed stages' namespaces. With no governed stage there is no OpenMetadata to bootstrap.
+    into the governed stages' namespaces. With no governed stage there is no OpenMetadata to bootstrap,
+    and the stages' OpenMetadata credentials are retired instead.
 
     A stage that is not governed loses the Trino crawl and its Polaris credential either way: the
     `openmetadata` principal outlives the last governed stage, so its copies must not.
@@ -386,7 +387,7 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
     """
     from olf.infra import k8s
     from olf.infra import openmetadata as om
-    from olf.infra.openmetadata._platform import bootstrap_inputs, run_bootstrap
+    from olf.infra.openmetadata._platform import bootstrap_inputs, retire_governance, run_bootstrap
     from olf.infra.openmetadata._replication import (
         replicate_ingestion_bot,
         replication_namespaces,
@@ -400,10 +401,22 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
     except k8s.KubectlError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     inputs = bootstrap_inputs(contracts)
+    governance = _governance_service(environ)
+    email = config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org", environ=environ)
     if inputs is None:
+        try:
+            present = k8s.resource_exists("service", governance.service, governance.namespace, environ=environ)
+            retire_governance(
+                governance.namespace,
+                revoked,
+                reach=(lambda: governance.url(environ)) if present else None,
+                email=email,
+                environ=environ,
+            )
+        except k8s.KubectlError as exc:
+            raise typer.Exit(code=fail(str(exc))) from exc
         return
     seed, stages = inputs
-    governance = _governance_service(environ)
     log.step("Bootstrapping OpenMetadata...")
     try:
         sso = k8s.configmap_data(CONFIGMAP, governance.namespace, environ=environ) is not None
@@ -411,7 +424,7 @@ def bootstrap_from_contract(contracts: ProviderContracts, *, environ: Mapping[st
             run_bootstrap(
                 route,
                 governance.namespace,
-                email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org", environ=environ),
+                email=email,
                 sso=sso,
                 seed=seed,
                 stages=stages,
