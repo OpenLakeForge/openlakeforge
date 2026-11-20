@@ -28,6 +28,7 @@ from openlakeforge_core.alerts import (
     HistoryEvent,
     Incident,
     evaluate,
+    runbook_link,
 )
 from openlakeforge_core.alerts_state import drop_notification, expire_outbox, record_attempt, record_delivery
 from openlakeforge_core.health import HealthState, Scope, Signal, service_signal
@@ -312,7 +313,7 @@ def _links(links: LinkSettings, incident: Incident) -> dict[str, str]:
         host = links.dagster_host_template.format(stage=incident.scope.stage)
         found["run"] = f"{links.dagster_scheme}://{host}/runs/{incident.run_ids[-1]}"
     if links.runbook_base_url:
-        found["runbook"] = f"{links.runbook_base_url}#{incident.kind.value}"
+        found["runbook"] = runbook_link(links.runbook_base_url, incident.kind)
     return found
 
 

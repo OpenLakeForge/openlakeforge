@@ -207,7 +207,11 @@ dbt's run results, is listed once with an `href` to
 `.../quality/reports/{report_id}`, which streams it through the platform API
 with the files key; a presigned object-store URL is never handed out. The
 download route's floor is the logs route's, so a `data-engineer` gets `href`
-`null` outside DEV. `runbook` is `null`: this catalog names no runbook yet.
+`null` outside DEV. `runbook` links the alert runbook's section for the
+condition the run would alert on: [`quality`](../guides/operations/alerts.md#quality)
+when a check ended in `error`, else [`run_failed`](../guides/operations/alerts.md#run_failed)
+for a failed run. It is `null` for a run that passed or only warned, and
+where the deployment sets no runbook page.
 
 ## Quality publication to OpenMetadata
 

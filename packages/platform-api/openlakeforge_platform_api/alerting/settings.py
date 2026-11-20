@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from openlakeforge_platform_api.settings import SettingsError
+from openlakeforge_platform_api.settings import SettingsError, check_runbook_base_url
 
 
 @dataclass(frozen=True)
@@ -128,6 +128,4 @@ class EvaluatorSettings:
         template = self.links.dagster_host_template
         if template is not None and "{stage}" not in template:
             raise SettingsError("links.dagster_host_template must contain {stage}")
-        runbook = self.links.runbook_base_url
-        if runbook is not None and urlsplit(runbook).scheme not in ("http", "https"):
-            raise SettingsError("links.runbook_base_url must be an http(s) URL")
+        check_runbook_base_url(self.links.runbook_base_url, "links.runbook_base_url")

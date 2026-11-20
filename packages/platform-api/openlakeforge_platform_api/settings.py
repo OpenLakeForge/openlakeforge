@@ -147,6 +147,9 @@ class Settings:
     # (OPENLAKEFORGE_ALERTS_ACCESS_KEY_ID, OPENLAKEFORGE_ALERTS_SECRET_ACCESS_KEY). Without both the route answers
     # `not_provided`.
     alerts_state_base_uri: str | None = None
+    # The alert runbook page a run quality answer links to, anchored by condition; the alert evaluator is given the same
+    # URL. None: the answer names no runbook.
+    runbook_base_url: str | None = None
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Settings:
@@ -216,6 +219,7 @@ class Settings:
                 metrics_url=data.get("metrics_url") or None,
                 metrics_retention_days=int(data.get("metrics_retention_days", 7)),
                 alerts_state_base_uri=data.get("alerts_state_base_uri") or None,
+                runbook_base_url=data.get("runbook_base_url") or None,
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise SettingsError(f"platform API settings are incomplete: {exc!r}") from exc
@@ -330,6 +334,7 @@ class Settings:
             and self.alerts_state_base_uri.endswith("/")
         ):
             raise SettingsError("alerts_state_base_uri must be s3://<bucket>/<prefix>/, ending in /")
+        check_runbook_base_url(self.runbook_base_url, "runbook_base_url")
         if self.log_archive_retention_days is not None and self.log_archive_retention_days < 1:
             raise SettingsError("log_archive_retention_days must be positive")
         for stage, archive in self.log_archives.items():
@@ -346,6 +351,15 @@ class Settings:
         host = urlsplit(self.public_origin or "").hostname or ""
         if host != "localhost" and not host.endswith(".localhost"):
             raise SettingsError("anonymous_role needs a public_origin on *.localhost: authentication is off only there")
+
+
+def check_runbook_base_url(url: str | None, name: str) -> None:
+    """A runbook base is an https page the link appends `#<condition>` to, so it cannot carry a fragment of its own."""
+    if url is None:
+        return
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not parts.netloc or "#" in url:
+        raise SettingsError(f"{name} must be an https URL without a fragment")
 
 
 # The key that signs query ids and cursors, mounted from a Secret like the audit key and never read from the settings

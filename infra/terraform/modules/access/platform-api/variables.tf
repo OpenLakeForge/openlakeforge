@@ -184,6 +184,17 @@ variable "alerts_state_base_uri" {
   }
 }
 
+variable "runbook_base_url" {
+  description = "The alert runbook page the run quality answer links to with #<condition>, the evaluator's own runbook_base_url. Null: the answer names no runbook."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.runbook_base_url == null || can(regex("^https://[^/#\\s]+[^#\\s]*$", coalesce(var.runbook_base_url, "x")))
+    error_message = "runbook_base_url is an https URL without a fragment: the link appends #<condition>."
+  }
+}
+
 variable "alert_state_reader_secret_name" {
   description = "Secret in `namespace` holding the read-only key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) for the alert evaluator's state prefix. Null leaves the alert incidents route without a key."
   type        = string

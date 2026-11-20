@@ -19,7 +19,8 @@ from urllib.parse import quote, urlsplit
 
 from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
-from openlakeforge_core.quality import QualityManifest, QualityResult
+from openlakeforge_core.alerts import AlertKind, runbook_link
+from openlakeforge_core.quality import QualityManifest, QualityOutcome, QualityResult
 
 from openlakeforge_platform_api import files, run_failure
 from openlakeforge_platform_api.models import QualityCheck, QualityReport, RunQuality
@@ -103,8 +104,21 @@ def _reports(request: Request, stage: str, run_id: str, manifest: QualityManifes
     return sorted(reports.values(), key=lambda report: (report.engine, report.table or "", report.id))
 
 
+def _runbook(base_url: str | None, status: str, results: list[QualityResult]) -> str | None:
+    """The runbook section of the alert this run would raise: `quality` for an error check, which may be what failed
+    the run, else `run_failed` for a failed run. A run that passed, or only warned, links none."""
+    if base_url is None:
+        return None
+    if any(result.outcome is QualityOutcome.ERROR for result in results):
+        return runbook_link(base_url, AlertKind.QUALITY)
+    if status == "FAILURE":
+        return runbook_link(base_url, AlertKind.RUN_FAILED)
+    return None
+
+
 def get_run_quality(request: Request, stage: str, run_id: str) -> RunQuality:
     """Each check of the run's quality manifest, its outcome counts, and the reports the run retained."""
+    settings: Settings = request.app.state.settings
     client = _dagster(request, stage)
     expires = time.monotonic() + run_failure.READ_DEADLINE_SECONDS
     run = run_failure.fetch_run(client, stage, run_id, expires)
@@ -121,8 +135,7 @@ def get_run_quality(request: Request, stage: str, run_id: str) -> RunQuality:
         counts=_counts(manifest) if manifest else None,
         checks=[_check(result) for result in results] if manifest else None,
         reports=_reports(request, stage, run.run_id, manifest) if manifest else [],
-        # The health-signal catalog (docs/reference/health-signals.md) has no runbook for the quality condition yet.
-        runbook=None,
+        runbook=_runbook(settings.runbook_base_url, run.status, results),
         sources=[quality],
     )
 
