@@ -23,7 +23,7 @@ from openlakeforge_platform_api import run_failure
 from openlakeforge_platform_api.app import create_app
 from openlakeforge_platform_api.permissions import PermissionMatrix
 from openlakeforge_platform_api.quality_health import QualityReader
-from openlakeforge_platform_api.settings import Settings
+from openlakeforge_platform_api.settings import Settings, SettingsError
 
 OPS = "ops"
 BASES = {stage: f"s3://{OPS}/activations/{stage}/" for stage in ("dev", "prod")}
@@ -118,10 +118,11 @@ def _app(
     bucket: FakeBucket,
     s3: FakeS3 | None,
     permissions: PermissionMatrix | None = None,
+    **services: Any,
 ) -> TestClient:
     graphql = f"{dagster.url}/graphql"
     configured = _api_settings(
-        settings, dagster_graphql_urls={"dev": graphql, "prod": graphql}, quality_manifests=BASES
+        settings, dagster_graphql_urls={"dev": graphql, "prod": graphql}, quality_manifests=BASES, **services
     )
     readers = {stage: QualityReader(bucket, base) for stage, base in BASES.items()}
     return TestClient(create_app(configured, quality_readers=readers, files_store=s3, permissions=permissions))
@@ -261,6 +262,44 @@ def test_a_run_with_floe_and_dbt_outcomes_lists_every_check_with_its_counts(
     ]
     assert body["runbook"] is None
     assert _quality(body)["status"] == "available"
+
+
+RUNBOOK = "https://github.com/OpenLakeForge/openlakeforge/blob/v1.2.3/docs/guides/operations/alerts.md"
+
+
+def _with_runbook(settings: Settings, dagster: Dagster, bucket: FakeBucket, s3: FakeS3) -> TestClient:
+    return _app(settings, dagster, bucket, s3, runbook_base_url=RUNBOOK)
+
+
+def test_an_error_check_links_the_quality_runbook(
+    settings: Settings, dagster: Dagster, bucket: FakeBucket, s3: FakeS3, mint: Mint
+) -> None:
+    _store(bucket, *MIXED)
+
+    assert _get(_with_runbook(settings, dagster, bucket, s3), mint)["runbook"] == f"{RUNBOOK}#quality"
+
+
+def test_a_failed_run_without_an_error_check_links_the_run_failed_runbook(
+    settings: Settings, dagster: Dagster, bucket: FakeBucket, s3: FakeS3, mint: Mint
+) -> None:
+    _store(bucket, MIXED[0])
+
+    assert _get(_with_runbook(settings, dagster, bucket, s3), mint)["runbook"] == f"{RUNBOOK}#run_failed"
+
+
+def test_a_run_that_only_warned_links_no_runbook(
+    settings: Settings, dagster: Dagster, bucket: FakeBucket, s3: FakeS3, mint: Mint
+) -> None:
+    dagster.runs = [{**FAILED, "status": "SUCCESS"}]
+    _store(bucket, MIXED[0])
+
+    assert _get(_with_runbook(settings, dagster, bucket, s3), mint)["runbook"] is None
+
+
+@pytest.mark.parametrize("url", ["http://docs.example.test/alerts.md", "https://docs.example.test/a.md#quality"])
+def test_a_runbook_base_must_be_https_without_a_fragment(settings: Settings, url: str) -> None:
+    with pytest.raises(SettingsError, match="runbook_base_url"):
+        _api_settings(settings, runbook_base_url=url)
 
 
 def test_each_report_is_listed_once_with_a_link_through_the_api(

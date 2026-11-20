@@ -901,3 +901,13 @@ contract's `logs.archive.retention_days` when `retention_supported` is true, ren
 from settings alone. `RunFailure` gains `domain` and `product`, additive and nullable, as on `Job`, from the run's job
 definition tags. The job list is now read once per request, whether or not the stage has a quality reader, within the
 same 20-second deadline; null when it cannot be read in time.
+
+2026-11-20: #794. `get_run_quality.runbook` is populated from the new `runbook_base_url` setting: the alert runbook
+section for the condition the run would alert on, `#quality` when a check ended in `error`, else `#run_failed` for a
+failed run, `null` for a run that passed or only warned or where the deployment sets no `runbook_base_url` (the same
+page the alert evaluator links, ADR 0023). The response shape is unchanged.
+
+2026-11-20: #1326. `GET /api/v1/stages/{stage}/runs/{run_id}/logs` (`list_run_logs`) reads the archived lines of a run's
+start-to-end window across at most three UTC days of event time (v1 also one day past the cut, by the archiver's
+lookback), paged by an opaque `next` cursor passed back as `after`, within a 20 s deadline that the archive read itself
+checks between pages, objects and records, with `list_logs`'s matrix row.

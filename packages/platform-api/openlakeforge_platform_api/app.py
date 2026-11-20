@@ -31,6 +31,7 @@ from openlakeforge_platform_api import (
     reads,
     report_routes,
     run_failure,
+    run_logs,
     run_quality,
     writes,
 )
@@ -433,6 +434,9 @@ def create_app(
         run_failure.get_run_failure,
         methods=["GET"],
         name="get_run_failure",
+    )
+    app.add_api_route(
+        "/api/v1/stages/{stage}/runs/{run_id}/logs", run_logs.list_run_logs, methods=["GET"], name="list_run_logs"
     )
     app.add_api_route(
         "/api/v1/stages/{stage}/runs/{run_id}/quality",

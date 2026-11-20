@@ -134,6 +134,13 @@ role = "data-engineer"
 stages = ["*"]
 role_stages = { data-engineer = ["dev"] }
 
+# The same archive and lines as list_logs over one run's window (#1326), so the
+# same row: the stage in the path still picks the prefix.
+[operations.list_run_logs]
+role = "data-engineer"
+stages = ["*"]
+role_stages = { data-engineer = ["dev"] }
+
 # The first operation that changes state. Dagster checks nothing, so this row is
 # the only control on who launches what. DEV only (#670): a run on another stage
 # goes through Dagster's own UI and schedules until a per-stage floor is decided.

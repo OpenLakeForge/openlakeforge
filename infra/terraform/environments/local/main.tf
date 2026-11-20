@@ -78,6 +78,9 @@ locals {
   alerts_enabled = length(var.observability.alert_receivers) > 0
   # Shared by the alerts identity's grant and the evaluator's state_base_uri, which must agree.
   alerts_prefix = "alerts/"
+  # The guide at the release tag, not at main: a notification links the runbook of the evaluator that sent it.
+  distribution_version = yamldecode(file("${path.root}/../../../../release/component-catalog.yaml")).distribution.version
+  runbook_base_url     = coalesce(var.runbook_base_url, "https://github.com/OpenLakeForge/openlakeforge/blob/v${local.distribution_version}/docs/guides/operations/alerts.md")
   # ADR 0007: a quality reconciler per governed stage and only then, so Slim renders no CronJob, Secret or key. The
   # platform phase cannot know the descriptors' schema FQNs (ADR 0002), so none is passed: Polaris's physical schema
   # is `<domain>_silver`, which the publisher derives under the stage's own database root.
@@ -366,6 +369,7 @@ module "alerts" {
   # Flow F44. Built from the module's defaults, never from module.platform_api, so the evaluator does not order after
   # the API and the API's service caller below needs only this module's ServiceAccount name.
   platform_api_url = local.platform_api_enabled && local.alerts_enabled ? "http://platform-api.${kubernetes_namespace_v1.shared.metadata[0].name}:8080" : null
+  runbook_base_url = local.runbook_base_url
 }
 
 # ADR 0007: publishes each governed stage's quality results to OpenMetadata. It runs the platform API image, which
@@ -503,6 +507,8 @@ module "platform_api" {
   # Open alert incidents (#1258): the evaluator's state, read with its own read-only key.
   alerts_state_base_uri          = local.alerts_enabled ? "${local.artifact_base_uri}/${local.alerts_prefix}" : null
   alert_state_reader_secret_name = module.seaweedfs.alert_state_reader_secret_name
+  # The run quality answer links the same runbook page as the alert evaluator's notifications.
+  runbook_base_url = local.runbook_base_url
   # Publication lag (#798): the summary each governed stage's reconciler writes, read with the files key below,
   # which already holds Read on the ops bucket. Slim has no reconciler and no entry.
   quality_sync_summaries = { for name in keys(local.governed_stages) : name => "${local.artifact_base_uri}/activations/${name}/quality-sync/summary.json" }

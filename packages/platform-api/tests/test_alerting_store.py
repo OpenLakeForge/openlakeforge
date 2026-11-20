@@ -143,6 +143,8 @@ def test_settings_route_a_receiver_by_its_stages() -> None:
         {"receivers": [{"name": "ops", "url_env": "X"}, {"name": "ops", "url_env": "Y"}]},
         {"links": {"dagster_scheme": "ftp"}},
         {"links": {"dagster_host_template": "dagster.example.test"}},
+        {"links": {"runbook_base_url": "http://docs.example.test/alerts.md"}},
+        {"links": {"runbook_base_url": "https://docs.example.test/alerts.md#run_failed"}},
     ],
 )
 def test_settings_refuse_a_contradiction(change: dict[str, Any]) -> None:
