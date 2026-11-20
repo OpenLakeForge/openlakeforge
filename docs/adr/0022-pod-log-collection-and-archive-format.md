@@ -306,7 +306,7 @@ second layout.
 | --- | --- |
 | v1 stays | `<base>/k8s/...` is read exactly as today. v1 objects are never rewritten; the reader keeps the v1 path as long as any can exist, which is at least `retention_days` after the CronJob is removed |
 | v2 added | `<base>/v2/...` is listed in the same call. The v1 reader never lists `v2/`, so an old API or CLI keeps working while v2 objects accumulate |
-| Same response | `ArchivedLogLine` keeps `archived_at`, `namespace`, `pod`, `container`, `line`, `error`; for v2, `line` is `message` and `archived_at` is `time`. New fields (`stage`, `component`, `domain`, `product`, `run_id`, `stream`, `missing`, `source`) are additive and optional, so `olf logs` output and the API's OpenAPI document change only by additions |
+| Same response | `ArchivedLogLine` keeps `archived_at`, `namespace`, `pod`, `container`, `line`, `error`; for v2, `line` is `message` and `archived_at` is `time`. New fields (`stage`, `component`, `domain`, `product`, `run_id`, `stream`, `missing`, `source`) are additive and optional, so `olf logs` output and the API's OpenAPI document change only by additions. `timestamp` (v2 `time`, or the kubelet timestamp a v1 line opens with) and `level` (read by `level_of` from a bounded set of message shapes) are additive and null when the source recorded none |
 | Overlap | While the CronJob and the collector both run, a v1 line is dropped only when v2 holds a record with the same namespace, pod, container, timestamp and text; every unmatched v1 line is kept, including a container's history from before the collector's first record. The v1 `line` begins with the kubelet timestamp (`timestamps=True` in `k8s_log_archive.py` [V]); that it equals the CRI `time` byte for byte is [T], and where it does not the line is shown from both sources, with `source` (`v1` or `v2`) set on each so a duplicate is visible, never a loss. The CronJob is removed by its own change once the failed-Floe-pod acceptance of #22 passes on v2 |
 | Duplicates | Within v2, a record whose `dedup_key` was already returned is dropped |
 | Authorization | Unchanged: `stage` stays the path segment the permission matrix checks. The read key widens from `logs/k8s/` to `logs/` of each stage, which changes ADR 0017 F33 and ADR 0021 build step 3 in the same slice |
@@ -432,3 +432,5 @@ collector that never spooled it; no threshold or setting changed.
 2026-11-18: Decision 2 states that the newest archive object's write time is
 exposed, as `last_success_at` on the `log-archive.newest-object` service row
 of the platform API (#798); no threshold or setting changed.
+
+2026-11-20: #1326. Each line carries `timestamp` and `level`; `severity` filters on that `level`, which is read only from a JSON level key, a leading level word, Python logging's format or logfmt `level=`, not from a level word anywhere in the line. `LogArchive.read_days` reads a run's window across UTC days. The archive format is unchanged.

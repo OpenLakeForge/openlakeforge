@@ -877,3 +877,6 @@ and a read that reaches the cap sets `covered_from` to where the count starts ra
 window. A Dagster that is absent or cannot be read gives `failed_runs: null`, never 0; a failed stage-wide read gives
 `null` counts where it was needed and leaves the pipelines, state and signals as read. `get_stage_service_health`, the
 alert evaluator's reads and the permission rows are unchanged.
+
+2026-11-20: #1326. `GET /api/v1/stages/{stage}/runs/{run_id}/logs` (`list_run_logs`) reads the archived lines of a run's
+start-to-end window across at most three UTC days within a 20 s deadline, with `list_logs`'s matrix row.
