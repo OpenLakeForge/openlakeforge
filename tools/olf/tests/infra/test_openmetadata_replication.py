@@ -59,7 +59,9 @@ class _Cluster:
         argv = [str(part) for part in command][3:]  # drop kubectl --context kind-test
         self.argv.append(argv)
         stdout, returncode = "", 0
-        if argv[:2] == ["get", "secret"]:
+        if argv[:2] == ["get", "service"]:
+            pass  # the apply that turned the last stage's governance off removed OpenMetadata
+        elif argv[:2] == ["get", "secret"]:
             found = self.secrets.get((argv[4], argv[2]))
             stdout = json.dumps(found) if found else ""
         elif argv[:2] == ["delete", "secret"]:
@@ -202,14 +204,25 @@ def test_the_shared_namespace_keeps_the_crawl_credential_the_governed_stages_cop
     assert cluster.writes() == []
 
 
-def test_with_no_governed_stage_the_crawl_is_revoked_and_nothing_else_changes(cluster: _Cluster) -> None:
+def test_with_no_governed_stage_the_crawl_and_every_stage_credential_are_revoked(cluster: _Cluster) -> None:
     # The `openmetadata` principal outlives the last governed stage, so its copy must go even though
-    # there is no OpenMetadata left to bootstrap; the ingestion-bot copy names a service that is gone.
+    # there is no OpenMetadata left to bootstrap; so must the bot tokens it issued (#1323).
     cluster.secrets[("olf-prod", _SECRET)] = _secret("olf-prod", {"OPENMETADATA_INGESTION_BOT_JWT": _JWT})
+    for name in ("openmetadata-quality-writer-dev", "openmetadata-quality-writer-prod", "openmetadata-admin"):
+        cluster.secrets[("olf-system", name)] = {**_secret("olf-system", {}), "metadata": {"name": name}}
     _with_crawl(cluster, "olf-prod")
 
-    bootstrap_from_contract(_contracts(dev=False, prod=False), environ=_ENVIRON)
+    bootstrap_from_contract(
+        _contracts(dev=False, prod=False), environ={**_ENVIRON, "OPENLAKEFORGE_SHARED_NAMESPACE": "olf-system"}
+    )
 
-    assert ("olf-prod", _OM_CREDS) not in cluster.secrets
     assert ("olf-prod", "cronjob") not in cluster.crawls
-    assert ("olf-prod", _SECRET) in cluster.secrets and ("olf-system", _SECRET) in cluster.secrets
+    # Deleted by exact name only: the admin password stays, since OpenMetadata's database outlives the release.
+    assert set(cluster.secrets) == {("olf-system", "openmetadata-admin")}
+    assert {(argv[4], argv[2]) for argv in cluster.writes() if argv[1] == "secret"} == {
+        ("olf-prod", _OM_CREDS),
+        ("olf-prod", _SECRET),
+        ("olf-system", _SECRET),
+        ("olf-system", "openmetadata-quality-writer-dev"),
+        ("olf-system", "openmetadata-quality-writer-prod"),
+    }

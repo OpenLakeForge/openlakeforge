@@ -75,9 +75,12 @@ def replicate_ingestion_bot(
         log.info(f"Replicated Secret 'openmetadata-ingestion-bot' into '{target}'.")
     # A stage that turns governance off keeps its namespace, and the copy there stays a valid
     # credential until the bootstrap next rotates the token, which a topology change does not do.
-    for namespace in revoked:
-        if namespace == shared_namespace:
-            continue
+    revoke_ingestion_bot([namespace for namespace in revoked if namespace != shared_namespace], environ=environ)
+
+
+def revoke_ingestion_bot(namespaces: Sequence[str], *, environ: Mapping[str, str] | None = None) -> None:
+    """Delete the Secret, by its exact name, from each namespace that has it."""
+    for namespace in dict.fromkeys(namespaces):
         if k8s.secret_data(INGESTION_BOT_SECRET, namespace, environ=environ) is not None:
             k8s.delete_secret(INGESTION_BOT_SECRET, namespace, environ=environ)
             log.info(f"Revoked Secret 'openmetadata-ingestion-bot' from '{namespace}'.")

@@ -127,9 +127,18 @@ def _job_tags(client: DagsterClient, stage: str, run: DagsterRun, expires: float
     return next((job.tags for job in jobs if job.name == run.job_name), {})
 
 
-def _rows(
+def run_manifest(
+    request: Request, client: DagsterClient, stage: str, run: DagsterRun, expires: float
+) -> tuple[QualityManifest | None, IntegrationStatus]:
+    """The run's quality manifest and the `quality` source that says why there is none. Never written to."""
+    if request.app.state.quality_readers.get(stage) is None:
+        return _manifest(request, stage, run, {}, expires)
+    return _manifest(request, stage, run, _job_tags(client, stage, run, expires), expires)
+
+
+def _manifest(
     request: Request, stage: str, run: DagsterRun, tags: Mapping[str, str] | None, expires: float
-) -> tuple[RunRows | None, IntegrationStatus]:
+) -> tuple[QualityManifest | None, IntegrationStatus]:
     reader = request.app.state.quality_readers.get(stage)
     if reader is None:
         return None, IntegrationStatus(
@@ -157,15 +166,13 @@ def _rows(
         return None, IntegrationStatus(
             name="quality", status="not_provided", reason="the run wrote no quality manifest"
         )
-    return _sum_rows(manifest), IntegrationStatus(
+    return manifest, IntegrationStatus(
         name="quality", status="available", reason="read from the run's quality manifest"
     )
 
 
-def get_run_failure(request: Request, stage: str, run_id: str) -> RunFailure:
-    """The run's failed steps, its own failure message and its rejected rows, each bounded and redacted."""
-    client = _dagster(request, stage)
-    expires = time.monotonic() + READ_DEADLINE_SECONDS
+def fetch_run(client: DagsterClient, stage: str, run_id: str, expires: float) -> DagsterRun:
+    """The run, read within the deadline; 404 when Dagster has no such run, 502 when it does not answer."""
     with _dagster_errors(stage):
         try:
             run = _within(expires, lambda: client.get_run(run_id))
@@ -175,9 +182,18 @@ def get_run_failure(request: Request, stage: str, run_id: str) -> RunFailure:
             ) from exc
     if run is None:
         raise HTTPException(status_code=404, detail=f"no run {run_id!r} in stage {stage!r}")
+    return run
+
+
+def get_run_failure(request: Request, stage: str, run_id: str) -> RunFailure:
+    """The run's failed steps, its own failure message and its rejected rows, each bounded and redacted."""
+    client = _dagster(request, stage)
+    expires = time.monotonic() + READ_DEADLINE_SECONDS
+    run = fetch_run(client, stage, run_id, expires)
     steps, run_message, steps_truncated, dagster = _failures(client, run, expires)
     tags = _job_tags(client, stage, run, expires)
-    rows, quality = _rows(request, stage, run, tags, expires)
+    manifest, quality = _manifest(request, stage, run, tags, expires)
+    rows = _sum_rows(manifest) if manifest else None
     scope = job_scope(tags or {})
     return RunFailure(
         run_id=run.run_id,

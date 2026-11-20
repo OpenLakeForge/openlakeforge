@@ -28,6 +28,7 @@ MONITORING_OPERATIONS = (
     "get_run",
     "get_run_failure",
     "get_stage_quality_health",
+    "get_run_quality",
     "list_logs",
     "list_stage_metrics",
     "get_stage_metric",

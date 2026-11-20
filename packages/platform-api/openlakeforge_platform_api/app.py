@@ -31,6 +31,7 @@ from openlakeforge_platform_api import (
     reads,
     report_routes,
     run_failure,
+    run_quality,
     writes,
 )
 from openlakeforge_platform_api.audit import AuditLog, ObjectWriter
@@ -432,6 +433,25 @@ def create_app(
         run_failure.get_run_failure,
         methods=["GET"],
         name="get_run_failure",
+    )
+    app.add_api_route(
+        "/api/v1/stages/{stage}/runs/{run_id}/quality",
+        run_quality.get_run_quality,
+        methods=["GET"],
+        name="get_run_quality",
+    )
+    app.add_api_route(
+        "/api/v1/stages/{stage}/runs/{run_id}/quality/reports/{report_id}",
+        run_quality.get_run_quality_report,
+        methods=["GET"],
+        name="get_run_quality_report",
+        response_class=StreamingResponse,
+        responses={
+            200: {
+                "description": "The report the run's quality manifest names, as an attachment.",
+                "content": {"application/json": {"schema": {"type": "string", "format": "binary"}}},
+            }
+        },
     )
     app.add_api_route(
         "/api/v1/stages/{stage}/health", health_routes.get_stage_health, methods=["GET"], name="get_stage_health"

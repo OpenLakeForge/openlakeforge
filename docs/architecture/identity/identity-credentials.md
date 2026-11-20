@@ -102,13 +102,25 @@ here, not migrated. All are in the debt register
 | Polaris token-signing key | Polaris module Job, in-cluster, create-if-absent | `<release>-token-broker` (`symmetric.key`) | No |
 | OpenMetadata Fernet key (encrypts stored credentials, ADR 0016) | OpenMetadata module Job, in-cluster, create-if-absent | `<release>-fernet-key` (`fernet-key`) | No |
 | Polaris per-stage principals (processing, OpenMetadata, deployer) | Polaris, written by its bootstrap Job | `trino_credentials_secret_name` and siblings in the catalog contract | No |
-| OpenMetadata ingestion-bot JWT | OpenMetadata, written by `olf`'s bootstrap after the platform apply | `openmetadata-ingestion-bot`, copied by `olf` to governed stage namespaces and deleted from the others (`tools/olf/olf/infra/openmetadata/_replication.py`) | No |
+| OpenMetadata ingestion-bot JWT | OpenMetadata, written by `olf`'s bootstrap after the platform apply | `openmetadata-ingestion-bot`, copied by `olf` to governed stage namespaces and deleted from the others (`tools/olf/olf/infra/openmetadata/_replication.py`); with no governed stage, deleted from the OpenMetadata namespace too | No |
 
 `olf`'s bootstrap keeps a stored ingestion-bot token that OpenMetadata still
 accepts, because running Dagster pods read their copy at start; it mints a new
 one only when the Secret is missing or the token no longer verifies. A redeploy
 is therefore not a rotation. A copy in a stage namespace is replaced only when
 it differs from the source.
+
+With governance off for every stage the bootstrap does not run, and the apply
+has removed OpenMetadata. `olf infra deploy` then deletes, by exact name, the
+ingestion-bot Secret and its stage copies and every
+`openmetadata-quality-writer-<stage>` Secret
+(`retire_governance` in `tools/olf/olf/infra/openmetadata/_platform.py`). If
+the OpenMetadata Service still exists, it also tries to delete the
+`olf-quality-writer-<stage>` bots; when OpenMetadata does not answer, it warns
+and the deploy goes on. A bot that OpenMetadata comes back with has no Secret,
+so the next governed bootstrap mints it a new token, which replaces the old
+one, or deletes it. The admin-password and automation-bot Secrets are not
+touched.
 
 ## Exposure scan
 

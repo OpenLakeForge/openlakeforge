@@ -117,6 +117,7 @@ cannot accept the person's token. Per service:
 | Object store | Archived log reads | The platform API's read-only key for the log prefix | **The platform API** |
 | Object store | Open alert incidents and their delivery | The platform API's read-only alert state key | **The platform API** |
 | Object store | The files explorer: list, download, upload, create folders, rename and delete, in the enabled stages' layer buckets and the ops bucket | The platform API's files key | **The platform API** |
+| Object store | A run's retained quality reports, the ones its quality manifest names under the stage's activation prefix | The platform API's files key | **The platform API** |
 
 A call that carries the person's token takes one of two routes. A CLI command
 may call the service's public route directly, as `olf query` reaches Trino's
@@ -877,6 +878,21 @@ and a read that reaches the cap sets `covered_from` to where the count starts ra
 window. A Dagster that is absent or cannot be read gives `failed_runs: null`, never 0; a failed stage-wide read gives
 `null` counts where it was needed and leaves the pipelines, state and signals as read. `get_stage_service_health`, the
 alert evaluator's reads and the permission rows are unchanged.
+
+2026-11-20: #1325. `GET /api/v1/stages/{stage}/runs/{run_id}/quality` (`get_run_quality`) added beside `get_run`, at
+its floor, read-only and not audited: every check of the run's ADR 0023 quality manifest (engine, check id, table,
+column, engine severity, outcome, pipeline outcome, and the rows, accepted, rejected, violations or failures the engine
+recorded, `null` where it recorded none), the manifest's `complete` flag and outcome counts, the reports it names, and a
+`runbook` that stays `null` until the health-signal catalog names one. A separate route, not fields on `get_run_failure`:
+a run that passed has checks too, and the failure answer stays a bounded summary. The manifest is read as
+`get_run_failure` reads it and never re-run; without a usable one `checks` and `counts` are `null`, never an empty
+list or passes. `GET .../runs/{run_id}/quality/reports/{report_id}` (`get_run_quality_report`) streams a report the
+manifest names, with the files key, as a JSON attachment: the id is derived from the manifest's `artifact_uri`, never
+an object key from the client, and a URI outside the stage's activation prefix is a 404, since the files key reaches
+every stage. Its row is `list_logs`'s (`data-engineer` on DEV only), because a Floe run report or dbt's run results can
+quote values the run read; `href` is `null` where the caller may not download or the API holds no files key. No
+presigned URL is handed out. Both reads are held to `get_run_failure`'s 20-second deadline. `get_run_quality` joins the
+operations `monitoring_capabilities` lists.
 
 2026-11-20: #1324, #1327, #1328. `monitoring_capabilities` lists `get_run` and `get_run_failure` among a stage's
 operations, by their existing rows. `MonitoringStage` gains `log_retention_days`, additive and nullable: the provider

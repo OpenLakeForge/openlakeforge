@@ -197,6 +197,18 @@ and a pipeline the walk above reached no run for reads `unknown` with no run.
 Counts are `null` where the manifest is absent or unusable, never zeros, and an
 incomplete manifest keeps its counts with `complete: false`.
 
+`GET /api/v1/stages/{stage}/runs/{run_id}/quality` lists every check of one
+run's manifest, which is never re-run: engine, check id, table, column,
+outcome, what it did to the pipeline, and the counts the engine recorded, `null`
+where it recorded none. A run without a usable manifest has `checks: null` and
+`counts: null`, with the `quality` source saying why; never an empty list or
+invented passes. Each report the run retained, a Floe entity's run report or
+dbt's run results, is listed once with an `href` to
+`.../quality/reports/{report_id}`, which streams it through the platform API
+with the files key; a presigned object-store URL is never handed out. The
+download route's floor is the logs route's, so a `data-engineer` gets `href`
+`null` outside DEV. `runbook` is `null`: this catalog names no runbook yet.
+
 ## Quality publication to OpenMetadata
 
 Publishing a run's quality manifest to OpenMetadata is separate from the
@@ -256,9 +268,10 @@ Each stage's pass is confined to that stage:
   which may read tables and write test definitions, cases and results, and
   nothing else (ADR 0007, Identity). Its token is read from the
   `openmetadata-quality-writer-<stage>` Secret and is never an argument, a
-  literal environment value or a log line. OpenMetadata cannot scope a role
-  to one stage's tables, so the stage boundary above is enforced by the key
-  and the pass's configuration, not by the token.
+  literal environment value or a log line. The Secret is deleted when the
+  stage loses governance, including when every stage does. OpenMetadata
+  cannot scope a role to one stage's tables, so the stage boundary above is
+  enforced by the key and the pass's configuration, not by the token.
 
 Inspect or trigger a pass:
 
