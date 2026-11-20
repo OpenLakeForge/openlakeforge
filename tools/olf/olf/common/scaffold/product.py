@@ -233,10 +233,6 @@ def plan_product_new(
             f"{models_dir}/schema.yml",
             _templates.render_gold_schema_yml(product=product, gold_tables=gold_schema),
         ),
-        ScaffoldFile(
-            f"lakehouse_code/pipelines/dagster/{product}.py",
-            _templates.render_dagster_product_module(domain=domain, product=product),
-        ),
     ]
     for mart in gold_tables:
         product_files.append(

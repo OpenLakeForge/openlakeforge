@@ -187,7 +187,7 @@ kind and nothing is pushed):
    installs `requirements.txt` against the platform lock, and activate the
    revision.
 4. Assert the build log names `psycopg2-binary`, the code-location pod imports
-   `lakehouse_code.definitions` and `openlakeforge_runtime` and has no `libs`
+   `lakehouse_code.pipelines.definitions` and `openlakeforge_runtime` and has no `libs`
    package, and `grep -rn "sys.path.insert"` finds nothing in `tools/olf/olf` or
    acme.
 5. `olf infra product run food_quality --stage dev`, then `olf infra query` on

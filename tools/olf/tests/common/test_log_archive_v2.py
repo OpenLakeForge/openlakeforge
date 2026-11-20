@@ -5,13 +5,14 @@ from __future__ import annotations
 import gzip
 import io
 import json
+import logging
 import weakref
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
 from openlakeforge_core.log_archive import V1_LOOKBACK_SECONDS
-from openlakeforge_services.logs import ArchiveDeadline, LogArchive, level_of
+from openlakeforge_services.logs import UPLOAD_CLOCK_SLACK, ArchiveDeadline, LogArchive, level_of
 
 BASE = "s3://ops/activations/dev/logs"
 DAY = date(2026, 11, 16)
@@ -20,16 +21,28 @@ DAY = date(2026, 11, 16)
 class _Store:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        # LastModified as boto3 lists it, for the objects given one; the others are listed without it.
+        self.modified: dict[str, datetime] = {}
         self.listed: list[str] = []
+        self.opened: list[str] = []
 
-    def put(self, key: str, records: list[dict[str, Any]]) -> None:
+    def put(self, key: str, records: list[dict[str, Any]], modified: datetime | None = None) -> None:
         self.objects[key] = gzip.compress("".join(json.dumps(record) + "\n" for record in records).encode())
+        if modified is not None:
+            self.modified[key] = modified
 
     def list_objects_v2(self, *, Bucket: str, Prefix: str, ContinuationToken: str = "") -> dict[str, Any]:  # noqa: N803
         self.listed.append(Prefix)
-        return {"Contents": [{"Key": key} for key in sorted(self.objects) if key.startswith(Prefix)]}
+        return {
+            "Contents": [
+                {"Key": key, **({"LastModified": self.modified[key]} if key in self.modified else {})}
+                for key in sorted(self.objects)
+                if key.startswith(Prefix)
+            ]
+        }
 
     def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        self.opened.append(Key)
         return {"Body": io.BytesIO(self.objects[Key])}
 
 
@@ -339,3 +352,127 @@ def test_a_line_in_both_layouts_is_answered_once_when_a_page_ends_on_its_v2_reco
 
     assert [line.source for line in first.lines] == ["v2"]
     assert second.lines == []
+
+
+def _at(stamp: str) -> datetime:
+    return datetime.fromisoformat(stamp).replace(tzinfo=UTC)
+
+
+def test_an_object_uploaded_before_the_window_is_not_opened_and_the_edges_and_late_uploads_are(
+    store: _Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    since = _at("2026-11-16T10:00:00")
+    # Uploaded a second before the slack ends: everything in it was written before the window.
+    store.put(
+        _v2_key("dev-old"),
+        [_v2("2026-11-16T09:40:00Z", "old")],
+        modified=since - UPLOAD_CLOCK_SLACK - timedelta(seconds=1),
+    )
+    # The store's clock runs the whole slack behind the node's: the object is still read.
+    store.put(_v2_key("dev-edge"), [_v2("2026-11-16T10:00:00Z", "at the start")], modified=since - UPLOAD_CLOCK_SLACK)
+    # Spooled through an outage and uploaded hours after the window: no upper bound drops it.
+    store.put(_v2_key("dev-late"), [_v2("2026-11-16T10:30:00Z", "spooled")], modified=_at("2026-11-16T14:00:00"))
+    store.put(_v2_key("dev-unknown"), [_v2("2026-11-16T10:01:00Z", "no LastModified")])
+    store.put(_v1_key("09"), [_v1("2026-11-16T09:30:00Z old v1")], modified=_at("2026-11-16T09:31:00"))
+    store.put(_v1_key("10"), [_v1("2026-11-16T10:02:00Z v1")], modified=_at("2026-11-16T10:03:00"))
+    archive = LogArchive(store, BASE)
+
+    with caplog.at_level(logging.INFO, logger="openlakeforge_services.logs"):
+        found = archive.read_days("olf-dev", [DAY], since=since, until=_at("2026-11-16T11:00:00"))
+
+    assert [line.line for line in found.lines] == [
+        "at the start",
+        "no LastModified",
+        "2026-11-16T10:02:00Z v1",
+        "spooled",
+    ]
+    assert sorted(store.opened) == sorted(
+        [_v2_key("dev-edge"), _v2_key("dev-late"), _v2_key("dev-unknown"), _v1_key("10")]
+    )
+    assert "6 objects listed, 4 read" in caplog.text
+    assert "old" not in caplog.text
+
+
+def test_without_a_start_every_object_is_still_read(store: _Store) -> None:
+    store.put(_v2_key("dev-old"), [_v2("2026-11-16T09:40:00Z", "old")], modified=_at("2026-11-16T09:41:00"))
+
+    assert _read(store) == ["old"]
+    assert store.opened == [_v2_key("dev-old")]
+
+
+def test_a_window_across_midnight_reads_the_run_on_both_days_and_skips_the_day_before_it(store: _Store) -> None:
+    store.put(_v2_key("dev-a"), [_v2("2026-11-16T20:00:00Z", "evening")], modified=_at("2026-11-16T20:01:00"))
+    store.put(_v2_key("dev-b"), [_v2("2026-11-16T23:58:30Z", "before midnight")], modified=_at("2026-11-16T23:59:30"))
+    store.put(
+        _v2_key("dev-c", day="2026-11-17"),
+        [_v2("2026-11-17T00:01:00Z", "after midnight")],
+        modified=_at("2026-11-17T00:04:00"),
+    )
+    archive = LogArchive(store, BASE)
+
+    found = archive.read_days(
+        "olf-dev", [DAY, date(2026, 11, 17)], since=_at("2026-11-16T23:58:00"), until=_at("2026-11-17T00:03:00")
+    )
+
+    assert [line.line for line in found.lines] == ["before midnight", "after midnight"]
+    assert _v2_key("dev-a") not in store.opened
+
+
+def test_paging_with_a_start_that_follows_the_cursor_returns_every_line_once(store: _Store) -> None:
+    tie = "2026-11-16T10:05:00Z"
+    replayed = _v2(tie, "tied b")
+    store.put(_v2_key("dev-old"), [_v2("2026-11-16T08:00:00Z", "old")], modified=_at("2026-11-16T08:01:00"))
+    store.put(
+        _v2_key("dev-a"),
+        [_v2("2026-11-16T10:01:00Z", "first"), _v2(tie, "tied a"), replayed],
+        modified=_at("2026-11-16T10:06:00"),
+    )
+    # A collector replay of a record in another object, and a v1 copy of a v2 line.
+    store.put(_v2_key("dev-b"), [replayed, _v2(tie, "tied c")], modified=_at("2026-11-16T10:06:00"))
+    store.put(_v2_key("dev-c"), [_v2("2026-11-16T10:40:00Z", "late", pod="run-1")], modified=_at("2026-11-16T10:41:00"))
+    store.put(
+        _v1_key("10"),
+        [_v1("2026-11-16T10:40:00Z late"), _v1("2026-11-16T10:20:00Z v1 only")],
+        modified=_at("2026-11-16T11:00:00"),
+    )
+    archive = LogArchive(store, BASE)
+    start, until = _at("2026-11-16T10:00:00"), _at("2026-11-16T11:00:00")
+
+    seen: list[str] = []
+    after = None
+    for _ in range(20):
+        # As the run logs route does: the window starts at the cursor's microsecond, so the bound moves with it.
+        since = (
+            start
+            if after is None
+            else max(start, datetime(1970, 1, 1, tzinfo=UTC) + timedelta(microseconds=after[0] // 1000))
+        )
+        page = archive.read_days("olf-dev", [DAY], since=since, until=until, limit=1, after=after)
+        seen += [line.line or "" for line in page.lines]
+        if not page.lines:
+            break
+        after = page.last
+
+    # Ties sort by object, which is a digest of its key, so only their set is fixed.
+    assert (seen[0], sorted(seen[1:4]), seen[4:]) == (
+        "first",
+        ["tied a", "tied b", "tied c"],
+        ["2026-11-16T10:20:00Z v1 only", "late"],
+    )
+    assert _v2_key("dev-old") not in store.opened
+
+
+def test_the_deadline_still_stops_a_long_scan_of_objects_inside_the_window(store: _Store) -> None:
+    for n in range(20):
+        store.put(
+            _v2_key(f"dev-{n:02d}"),
+            [_v2(f"2026-11-16T10:00:{n:02d}Z", f"line {n}")],
+            modified=_at("2026-11-16T10:01:00"),
+        )
+    ticks = iter(range(1000))
+    archive = LogArchive(store, BASE, clock=lambda: float(next(ticks)))
+
+    with pytest.raises(ArchiveDeadline):
+        archive.read_days("olf-dev", [DAY], since=_at("2026-11-16T10:00:00"), deadline=5.0)
+
+    assert len(store.opened) <= 3

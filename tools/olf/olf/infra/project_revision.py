@@ -407,8 +407,7 @@ def _dbt_component(project: ProjectSpec) -> ComponentEntries:
 
 def _dagster_component(project: ProjectSpec, inventory: Any) -> ComponentEntries:
     paths: list[Path] = []
-    for product in inventory.products:
-        paths.append(project.pipelines_root / f"{product.id}.py")
+    paths.extend(project.pipelines_root / name for name in ("definitions.py", "products.py"))
     for source in inventory.sources:
         paths.append(project.bronze_root / source.name / "dlt" / f"{source.name}.py")
     entries: dict[str, str] = {}

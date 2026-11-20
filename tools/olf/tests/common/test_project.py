@@ -25,7 +25,7 @@ def test_project_spec_resolves_canonical_paths_for_a_split_root(tmp_path: Path) 
     assert project.silver_root == tmp_path / "project/lakehouse_code/silver"
     assert project.gold_root == tmp_path / "project/lakehouse_code/gold"
     assert project.dashboards_root == tmp_path / "project/lakehouse_code/dashboards/superset"
-    assert project.pipelines_root == tmp_path / "project/lakehouse_code/pipelines/dagster"
+    assert project.pipelines_root == tmp_path / "project/lakehouse_code/pipelines"
     assert project.schema_root == tmp_path / "distribution/docs/schema"
 
 
@@ -92,15 +92,15 @@ def test_project_validation_reports_missing_plural_path(external_project: Path) 
     assert report.checks[0].detail == "missing: lakehouse_code/dashboards/superset/"
 
 
-def test_project_validation_reports_missing_declared_asset(external_project: Path) -> None:
-    (external_project / "lakehouse_code/pipelines/dagster/order_revenue.py").unlink()
+def test_project_validation_reports_a_missing_code_location_entry_point(external_project: Path) -> None:
+    (external_project / "lakehouse_code/pipelines/definitions.py").unlink()
     distribution = Path(__file__).resolve().parents[4]
 
     report = validate_project(ProjectSpec(root=external_project, distribution_root=distribution))
 
     assert not report.ok
     assert report.checks[-1].name == "project_assets"
-    assert "lakehouse_code/pipelines/dagster/order_revenue.py" in report.checks[-1].detail
+    assert "lakehouse_code/pipelines/definitions.py" in report.checks[-1].detail
 
 
 def test_project_validation_reports_a_product_without_its_folder_of_gold_models(external_project: Path) -> None:

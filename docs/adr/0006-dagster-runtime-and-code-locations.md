@@ -109,8 +109,9 @@ parse of the Gold project per run, which takes seconds.
 ### One merged code location by default
 
 The deployed configuration is a single location named `openlakeforge-dagster`,
-loading `lakehouse_code.definitions`, which aggregates every product's Dagster
-definitions from `lakehouse_code/pipelines/dagster/`.
+loading `lakehouse_code.pipelines.definitions`, which builds the Bronze, Silver
+and maintenance definitions and one job per product in `governance.yml`
+(`openlakeforge_runtime.code_location.build_code_location`).
 
 An earlier design deployed one location per domain. Every location used the same
 image and image tag, so they were always rebuilt and redeployed together: the
@@ -245,3 +246,10 @@ whatever its connector could still fetch, which was nothing in a quiet week.
 
 2026-11-02 (#325): run pods get default requests and limits through the
 launcher's `runK8sConfig.containerConfig.resources`; they had none.
+
+2026-11-20: the code location's entry point moved from
+`lakehouse_code.definitions` to `lakehouse_code.pipelines.definitions`, and the
+per-product modules under `pipelines/dagster/` were replaced by
+`pipelines/products.py`. `lakehouse_code.definitions` no longer exists: a
+project that sets `definitions_module` explicitly keeps working, one that
+relied on the default must point at the new module.

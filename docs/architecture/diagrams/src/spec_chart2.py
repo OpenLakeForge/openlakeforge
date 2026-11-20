@@ -21,7 +21,7 @@ c.box(52, 150, 400, 240, "Dagster", color="platform", fill="#FFFFFF")
 svc_tag(52, 150, 400, "dagster-dagster-webserver.olf-<stage>:80")
 c.icon(130, 210, "deploy", "webserver", size=46)
 c.icon(240, 210, "deploy", "daemon", size=46, label2="K8sRunLauncher")
-c.icon(185, 300, "deploy", "code server", size=46, label2="lakehouse_code.definitions")
+c.icon(185, 300, "deploy", "code server", size=46, label2="pipelines.definitions")
 
 c.box(472, 150, 280, 240, "Per run", color="ephemeral", fill="#FAF6FC", dashed=True)
 c.icon(545, 225, "job", "run pod", size=50, variant="ephemeral", label2="dlt + dbt-trino")

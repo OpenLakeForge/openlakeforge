@@ -6,6 +6,7 @@ import gzip
 import io
 import json
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -24,12 +25,17 @@ class ObjectStore:
 
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
+        # LastModified of the objects given one; the others are listed without it.
+        self.modified: dict[str, datetime] = {}
         self.listed: list[str] = []
+        self.opened: list[str] = []
         self.fail: Callable[[], Exception] | None = None
 
-    def archive(self, key: str, records: list[dict[str, Any]]) -> None:
+    def archive(self, key: str, records: list[dict[str, Any]], modified: datetime | None = None) -> None:
         body = gzip.compress("".join(json.dumps(record) + "\n" for record in records).encode())
         self.objects[("ops", key)] = body
+        if modified is not None:
+            self.modified[key] = modified
 
     def list_objects_v2(  # noqa: N803 - boto3's names
         self, *, Bucket: str, Prefix: str = "", ContinuationToken: str = ""
@@ -38,9 +44,13 @@ class ObjectStore:
             raise self.fail()
         self.listed.append(Prefix)
         keys = sorted(key for bucket, key in self.objects if bucket == Bucket and key.startswith(Prefix))
-        return {"Contents": [{"Key": key} for key in keys], "IsTruncated": False}
+        contents = [
+            {"Key": key, **({"LastModified": self.modified[key]} if key in self.modified else {})} for key in keys
+        ]
+        return {"Contents": contents, "IsTruncated": False}
 
     def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        self.opened.append(Key)
         return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
 
 

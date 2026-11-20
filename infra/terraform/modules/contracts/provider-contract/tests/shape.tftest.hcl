@@ -40,7 +40,7 @@ variables {
   }
   identity       = { implementation = "identity.aws_pod_identity", roles = { precedence = ["admin"] } }
   access         = { implementation = "access.kubectl_port_forward" }
-  code_locations = [{ name = "openlakeforge-dagster", definitions_module = "lakehouse_code.definitions" }]
+  code_locations = [{ name = "openlakeforge-dagster", definitions_module = "lakehouse_code.pipelines.definitions" }]
   metadata_database = {
     host = "db"
     port = 5432

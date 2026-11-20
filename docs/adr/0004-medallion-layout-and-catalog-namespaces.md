@@ -39,7 +39,7 @@ lakehouse_code/
 ├── gold/models/_sources/<domain>.yml   each domain's Silver tables, declared once
 ├── gold/models/<product>/    product-owned: dbt models and their schema.yml
 ├── dashboards/superset/<dashboard>/   consumption-owned: exported report bundles
-├── pipelines/dagster/        user-maintained orchestration
+├── pipelines/                user-maintained orchestration: definitions.py, products.py
 └── governance.yml            the descriptor (ADR 0005)
 ```
 
@@ -190,8 +190,9 @@ observability adapter, not a replacement for this baseline.
 ## Consequences
 
 Adding a product that reuses an existing source touches
-`lakehouse_code/gold/models/<product>/`, `governance.yml`, and one Dagster module at
-`lakehouse_code/pipelines/dagster/<product>.py`; no Bronze or Silver work is
+`lakehouse_code/gold/models/<product>/` and `governance.yml`; its Dagster job
+is derived from them, and `lakehouse_code/pipelines/products.py` gains an entry
+only to change its cadence or inputs. No Bronze or Silver work is
 duplicated, and no dbt project configuration is copied.
 
 A single Gold project costs some isolation. A model that fails to parse fails
@@ -248,3 +249,9 @@ the Silver tables it read under a source named `silver`, so a table two
 products read was declared twice. The Gold schema used to come from each
 product's dbt profile. It now comes from the model's folder, and products are
 dbt groups whose models are private by default.
+
+2026-11-20: a product no longer has a Dagster module at
+`pipelines/dagster/<product>.py`. `pipelines/definitions.py` builds every
+product's job from `governance.yml`, and `pipelines/products.py` holds the
+overrides. The modules differed only in a domain and product name that
+`governance.yml` already declares.
