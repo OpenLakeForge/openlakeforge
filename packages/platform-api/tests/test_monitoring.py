@@ -6,11 +6,12 @@ from typing import Any
 
 import pytest
 from conftest import ROLE_MAPPING, Mint, bearer
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from openlakeforge_platform_api.app import create_app
 from openlakeforge_platform_api.monitoring import MONITORING_OPERATIONS
-from openlakeforge_platform_api.settings import Settings
+from openlakeforge_platform_api.settings import Settings, SettingsError
 
 PATH = "/api/v1/monitoring-capabilities"
 STAGES = ["dev", "uat", "prod"]
@@ -93,6 +94,33 @@ def test_stages_and_operations_follow_the_shipped_matrix(
 
     assert response.status_code == 200
     assert {entry["stage"]: entry["operations"] for entry in response.json()["stages"]} == expected
+
+
+@pytest.mark.parametrize("role", ["platform-admin", "data-engineer", "analyst", "viewer"])
+def test_an_operation_is_offered_exactly_where_its_route_admits_the_caller(
+    settings: Settings, mint: Mint, role: str
+) -> None:
+    # No source is configured, so an admitted call ends in a 404, 502 or 503 of its own: only the matrix answers 403.
+    app = create_app(_settings(settings), quality_readers={})
+    api = TestClient(app)
+    paths = {route.name: route.path for route in app.routes if isinstance(route, APIRoute)}
+    body = api.get(PATH, headers=_as(mint, role)).json()
+    offered = {entry["stage"]: set(entry["operations"]) for entry in body["stages"]}
+
+    for stage in STAGES:
+        for name in MONITORING_OPERATIONS:
+            path = paths[name].format(stage=stage, run_id="run-1", series="cpu")
+            admitted = api.get(path, headers=_as(mint, role)).status_code != 403
+            assert admitted == (name in offered.get(stage, set())), (role, stage, name)
+
+
+def test_the_failed_run_reads_are_offered_where_a_run_may_be_opened(settings: Settings, mint: Mint) -> None:
+    # The Portal's Failed-run screen (#1324) learns from this answer whether it may open a run and its failure.
+    body = _api(_configured(settings)).get(PATH, headers=_as(mint, "data-engineer")).json()
+
+    assert [entry["stage"] for entry in body["stages"]] == STAGES
+    for entry in body["stages"]:
+        assert {"get_run", "get_run_failure"} <= set(entry["operations"]), entry["stage"]
 
 
 def test_only_enabled_stages_are_listed_in_their_order(settings: Settings, mint: Mint) -> None:
@@ -211,3 +239,33 @@ def test_alerts_are_not_provided_without_a_state_uri_or_a_key(
     body = api.get(PATH, headers=_as(mint, "platform-admin")).json()
 
     assert _sources(body, "dev")["alerts"] == "not_provided"
+
+
+def _retention(body: dict[str, Any]) -> dict[str, int | None]:
+    return {entry["stage"]: entry["log_retention_days"] for entry in body["stages"]}
+
+
+def test_the_log_retention_is_stated_on_each_stage_with_an_archive(settings: Settings, mint: Mint) -> None:
+    configured = _settings(
+        settings,
+        log_archives={
+            "dev": {"base_uri": "s3://olf-ops/logs/dev/", "namespace": "lakehouse-dev"},
+            "prod": {"base_uri": "s3://olf-ops/logs/prod/", "namespace": "lakehouse-prod"},
+        },
+        log_archive_retention_days=30,
+    )
+
+    body = _api(configured).get(PATH, headers=_as(mint, "platform-admin")).json()
+
+    assert _retention(body) == {"dev": 30, "uat": None, "prod": 30}
+
+
+def test_a_provider_that_applies_no_retention_states_none(settings: Settings, mint: Mint) -> None:
+    body = _api(_configured(settings)).get(PATH, headers=_as(mint, "platform-admin")).json()
+
+    assert _retention(body) == {"dev": None, "uat": None, "prod": None}
+
+
+def test_a_retention_that_is_not_positive_refuses_the_start(settings: Settings) -> None:
+    with pytest.raises(SettingsError, match="log_archive_retention_days must be positive"):
+        _settings(settings, log_archive_retention_days=0)

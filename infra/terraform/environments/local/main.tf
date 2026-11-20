@@ -495,6 +495,8 @@ module "platform_api" {
   s3_endpoint_url        = module.seaweedfs.contract.endpoint
   s3_region              = module.seaweedfs.contract.region
   log_reader_secret_name = module.seaweedfs.log_reader_secret_name
+  # The retention the contract reports as applied, and none where it is not (#1327).
+  log_archive_retention_days = local.provider_contracts.shared.observability.logs.archive.retention_supported ? local.provider_contracts.shared.observability.logs.archive.retention_days : null
   # Quality summaries (#1186): each stage's manifests, read with its own key.
   quality_manifests           = { for name in keys(local.enabled_stages) : name => "${local.artifact_base_uri}/activations/${name}/" }
   quality_reader_secret_names = module.seaweedfs.quality_reader_secret_names

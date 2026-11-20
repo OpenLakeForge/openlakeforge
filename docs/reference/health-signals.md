@@ -402,6 +402,13 @@ with no probe or read, so `available` means the source is configured, not that
 it answers; the health routes say whether it does. Each entry carries a
 `reason`, which names no host, URI or bucket.
 
+`operations` includes the run reads `get_run` and `get_run_failure`, so a
+client can tell whether a role may open a failed run before it calls them.
+Each stage also carries `log_retention_days`: how many days its log archive
+keeps a line, the provider contract's `logs.archive.retention_days` when its
+`retention_supported` is true. It is `null` on a stage with no archive and on a
+provider that applies no retention.
+
 | Source | `available` when | Otherwise |
 | --- | --- | --- |
 | `dagster` | The stage has a Dagster GraphQL URL | `disabled` |

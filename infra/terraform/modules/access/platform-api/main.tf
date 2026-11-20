@@ -35,6 +35,8 @@ locals {
     # Read with the key in log_reader_secret_name, which never enters this file.
     log_archives    = var.log_archives
     s3_endpoint_url = var.s3_endpoint_url
+    # Stated by the monitoring capabilities, never applied here: the object store applies it (ADR 0022, decision 6).
+    log_archive_retention_days = var.log_archive_retention_days
     # Read per stage with the key in quality_reader_secret_names.
     quality_manifests = var.quality_manifests
     s3_region         = var.s3_region

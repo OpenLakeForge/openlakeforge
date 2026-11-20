@@ -893,3 +893,11 @@ every stage. Its row is `list_logs`'s (`data-engineer` on DEV only), because a F
 quote values the run read; `href` is `null` where the caller may not download or the API holds no files key. No
 presigned URL is handed out. Both reads are held to `get_run_failure`'s 20-second deadline. `get_run_quality` joins the
 operations `monitoring_capabilities` lists.
+
+2026-11-20: #1324, #1327, #1328. `monitoring_capabilities` lists `get_run` and `get_run_failure` among a stage's
+operations, by their existing rows. `MonitoringStage` gains `log_retention_days`, additive and nullable: the provider
+contract's `logs.archive.retention_days` when `retention_supported` is true, rendered into the settings as
+`log_archive_retention_days`, and null on a stage with no archive or a provider that applies none. It is still built
+from settings alone. `RunFailure` gains `domain` and `product`, additive and nullable, as on `Job`, from the run's job
+definition tags. The job list is now read once per request, whether or not the stage has a quality reader, within the
+same 20-second deadline; null when it cannot be read in time.

@@ -1388,6 +1388,17 @@
             "title": "Capabilities",
             "type": "array"
           },
+          "log_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log Retention Days"
+          },
           "operations": {
             "items": {
               "type": "string"
@@ -1403,7 +1414,8 @@
         "required": [
           "stage",
           "operations",
-          "capabilities"
+          "capabilities",
+          "log_retention_days"
         ],
         "title": "MonitoringStage",
         "type": "object"
@@ -2301,9 +2313,31 @@
       "RunFailure": {
         "description": "What went wrong in one run, bounded and redacted; a run that did not fail has no steps and no message.",
         "properties": {
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
           "job": {
             "title": "Job",
             "type": "string"
+          },
+          "product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product"
           },
           "rows": {
             "anyOf": [
@@ -2363,6 +2397,8 @@
         "required": [
           "run_id",
           "job",
+          "domain",
+          "product",
           "status",
           "steps",
           "run_message",

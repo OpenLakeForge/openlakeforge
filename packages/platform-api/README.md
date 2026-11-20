@@ -57,6 +57,7 @@ One JSON file, at `$OPENLAKEFORGE_PLATFORM_API_SETTINGS` (default
 | `polaris_health_url` | Optional; Polaris's management base URL. The probe reads `/q/health/ready` with no credential; absent, the Polaris signal is `disabled` |
 | `openmetadata_url` | Optional; OpenMetadata's in-cluster base URL. Without it the OpenMetadata routes answer 404 |
 | `log_archives` | Optional; each enabled stage's archive, `{"base_uri": "s3://…", "namespace": "…"}`: where its archiver writes and the namespace it archives. A stage without one answers 404 on the logs route; the namespace is never taken from a request |
+| `log_archive_retention_days` | Optional; the contract's `logs.archive.retention_days` when its `retention_supported` is true, else null. The monitoring capabilities state it on each stage with an archive; a value below 1 refuses the start |
 | `person_query`, `query_endpoints` | Per-person SQL: the switch, and each stage's Trino `{"statement_url", "catalog"}` |
 | `query_page_rows`, `query_export_max_rows`, `query_timeout_seconds`, `query_wait_seconds` | Optional bounds on SQL: rows per response (1000), rows per export (100000), seconds per Trino call (30) and per request's wait for a first result (5) |
 | `metrics_enabled`, `metrics_url`, `metrics_retention_days` | Optional; the profile's resolved `metrics.enabled`, the contract's `metrics.query_url` (a `prometheus-http-v1` base URL) and `retention_days` (default 7). A URL without `metrics_enabled` refuses the start ([ADR 0024](../../docs/adr/0024-metrics-prometheus-reference-and-read-path.md)) |

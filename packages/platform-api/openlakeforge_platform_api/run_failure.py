@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 
@@ -21,7 +21,7 @@ from openlakeforge_services.dagster import DagsterClient, DagsterFailure, Dagste
 from openlakeforge_services.redact import redact
 
 from openlakeforge_platform_api.models import FailedStep, IntegrationStatus, RunFailure, RunRows
-from openlakeforge_platform_api.pipeline_health import DOMAIN_TAG, PRODUCT_TAG
+from openlakeforge_platform_api.pipeline_health import DOMAIN_TAG, PRODUCT_TAG, job_scope
 from openlakeforge_platform_api.quality_health import QualityReadError
 from openlakeforge_platform_api.reads import _dagster, _dagster_errors
 
@@ -116,25 +116,39 @@ def _sum_rows(manifest: QualityManifest) -> RunRows | None:
     )
 
 
+def _job_tags(client: DagsterClient, stage: str, run: DagsterRun, expires: float) -> Mapping[str, str] | None:
+    """The definition tags of the run's job, which name its domain and product (#1272); the job name is never parsed
+    for them. Empty for a job no longer listed, None when the jobs cannot be read in time."""
+    try:
+        jobs = _within(expires, client.list_jobs)
+    except (ServiceClientError, _Deadline) as exc:
+        log.warning("the jobs of stage %s could not be read for run %s: %r", stage, run.run_id, exc)
+        return None
+    return next((job.tags for job in jobs if job.name == run.job_name), {})
+
+
 def run_manifest(
     request: Request, client: DagsterClient, stage: str, run: DagsterRun, expires: float
 ) -> tuple[QualityManifest | None, IntegrationStatus]:
     """The run's quality manifest and the `quality` source that says why there is none. Never written to."""
+    if request.app.state.quality_readers.get(stage) is None:
+        return _manifest(request, stage, run, {}, expires)
+    return _manifest(request, stage, run, _job_tags(client, stage, run, expires), expires)
+
+
+def _manifest(
+    request: Request, stage: str, run: DagsterRun, tags: Mapping[str, str] | None, expires: float
+) -> tuple[QualityManifest | None, IntegrationStatus]:
     reader = request.app.state.quality_readers.get(stage)
     if reader is None:
         return None, IntegrationStatus(
             name="quality", status="not_provided", reason="no quality manifest reader is configured for this stage"
         )
-    # The job definition's tags name its domain and product (#1272); the job name is never parsed for them. The raw
-    # values go to the reader, whose `manifest_key` refuses one that is not a plain name.
-    try:
-        jobs = _within(expires, client.list_jobs)
-    except (ServiceClientError, _Deadline) as exc:
-        log.warning("the jobs of stage %s could not be read for run %s: %r", stage, run.run_id, exc)
+    if tags is None:
         return None, IntegrationStatus(
             name="quality", status="unavailable", reason="the run's job definition could not be read"
         )
-    tags = next((job.tags for job in jobs if job.name == run.job_name), {})
+    # The raw values go to the reader, whose `manifest_key` refuses one that is not a plain name.
     domain, product = tags.get(DOMAIN_TAG), tags.get(PRODUCT_TAG)
     if domain is None or product is None:
         return None, IntegrationStatus(
@@ -177,11 +191,15 @@ def get_run_failure(request: Request, stage: str, run_id: str) -> RunFailure:
     expires = time.monotonic() + READ_DEADLINE_SECONDS
     run = fetch_run(client, stage, run_id, expires)
     steps, run_message, steps_truncated, dagster = _failures(client, run, expires)
-    manifest, quality = run_manifest(request, client, stage, run, expires)
+    tags = _job_tags(client, stage, run, expires)
+    manifest, quality = _manifest(request, stage, run, tags, expires)
     rows = _sum_rows(manifest) if manifest else None
+    scope = job_scope(tags or {})
     return RunFailure(
         run_id=run.run_id,
         job=run.job_name,
+        domain=scope.domain,
+        product=scope.product,
         status=run.status,
         steps=steps,
         run_message=run_message,
