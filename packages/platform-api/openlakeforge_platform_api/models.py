@@ -184,6 +184,9 @@ class MonitoringStage(BaseModel):
     stage: str
     operations: list[str]
     capabilities: list[MonitoringCapability]
+    # How many days the stage's log archive keeps a line (#1327), as the provider applies it; null when the stage has
+    # no archive or the provider applies no retention, never a default.
+    log_retention_days: int | None
 
 
 class MonitoringCapabilities(BaseModel):
@@ -401,6 +404,10 @@ class RunFailure(BaseModel):
 
     run_id: str
     job: str
+    # The job's domain and data product as on `Job`, from its definition tags (#1328); null for a job of no product,
+    # one no longer listed, and when Dagster's job list cannot be read within the route's deadline.
+    domain: str | None
+    product: str | None
     status: str
     # At most a few failed steps, in event order. None when the event log could not be read, never an empty list.
     steps: list[FailedStep] | None

@@ -419,3 +419,20 @@ run "a_profile_with_metrics_deploys_prometheus_and_publishes_it" {
     error_message = "the contract names the Prometheus Service, and retention is enforced"
   }
 }
+
+# #1327: the API states the archive retention the contract reports as applied.
+run "the_log_archive_retention_reaches_the_api" {
+  command = plan
+
+  variables {
+    observability = { archive_retention_days = 14 }
+  }
+
+  assert {
+    condition = (
+      output.provider_contracts.shared.observability.logs.archive.retention_supported
+      && jsondecode(module.platform_api[0].settings_json).log_archive_retention_days == 14
+    )
+    error_message = "the platform API must state the archive retention the local provider applies"
+  }
+}

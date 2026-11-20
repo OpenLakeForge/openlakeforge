@@ -51,6 +51,7 @@ class Dagster(FakeDagster):
         self.events: list[dict[str, Any]] = []
         self.event_log: dict[str, Any] | None = None
         self.event_log_delay = 0.0
+        self.jobs_error: str | None = None
         self.queries: list[str] = []
 
     def answer(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
@@ -58,6 +59,8 @@ class Dagster(FakeDagster):
         if "logsForRun" in query:
             time.sleep(self.event_log_delay)
             return {"logsForRun": self.event_log or {"__typename": "EventConnection", "events": self.events}}
+        if "query Jobs" in query and self.jobs_error:
+            return {"repositoriesOrError": {"__typename": "PythonError", "message": self.jobs_error}}
         return super().answer(query, variables)
 
 
@@ -357,3 +360,74 @@ def test_a_job_deployed_before_the_product_tag_reads_no_manifest(
 
     assert body["rows"] is None
     assert _sources(body)["quality"] == "not_provided"
+
+
+def _scope(body: dict[str, Any]) -> tuple[str | None, str | None]:
+    return body["domain"], body["product"]
+
+
+def test_the_answer_names_the_jobs_domain_and_product(api: TestClient, mint: Mint) -> None:
+    assert _scope(_get(api, mint)) == ("sales", "orders")
+
+
+@pytest.mark.parametrize(
+    ("job", "tags", "scope"),
+    [
+        ("gold_maintenance", None, (None, None)),
+        ("no_longer_listed", None, (None, None)),
+        # Deployed before the product tag (#1272): the domain is known, the name is never parsed for the product.
+        ("orders_pipeline", [{"key": DOMAIN_TAG, "value": "sales"}], ("sales", None)),
+        (
+            "orders_pipeline",
+            [{"key": DOMAIN_TAG, "value": "sales/../x"}, {"key": PRODUCT_TAG, "value": "orders"}],
+            (None, "orders"),
+        ),
+    ],
+    ids=["no-product", "not-listed", "domain-only", "not-a-plain-name"],
+)
+def test_a_job_without_both_tags_answers_null_for_what_it_does_not_name(
+    api: TestClient, mint: Mint, dagster: Dagster, job: str, tags: list[dict[str, str]] | None, scope: tuple[Any, Any]
+) -> None:
+    dagster.runs = [{**FAILED, "jobName": job}]
+    if tags is not None:
+        dagster.jobs[0]["tags"] = tags
+
+    assert _scope(_get(api, mint)) == scope
+
+
+def test_the_scope_is_read_on_a_stage_with_no_quality_reader(settings: Settings, mint: Mint, dagster: Dagster) -> None:
+    configured = _api_settings(settings, dagster_graphql_urls={"dev": f"{dagster.url}/graphql"})
+    api = TestClient(create_app(configured, quality_readers={}))
+
+    body = _get(api, mint)
+
+    assert _scope(body) == ("sales", "orders")
+    assert _sources(body)["quality"] == "not_provided"
+
+
+def test_an_unreadable_job_list_answers_a_null_scope_and_still_the_failure(
+    api: TestClient, mint: Mint, dagster: Dagster
+) -> None:
+    dagster.jobs_error = "repository location failed to load"
+    dagster.events = [_step("silver_sales", ("ValueError", "bad"))]
+
+    body = _get(api, mint)
+
+    assert _scope(body) == (None, None)
+    assert [step["step"] for step in body["steps"]] == ["silver_sales"]
+    assert _sources(body)["quality"] == "unavailable"
+
+
+def test_a_job_list_past_the_deadline_is_not_waited_for(
+    api: TestClient, mint: Mint, dagster: Dagster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The event log spends the whole deadline, so the job list is never sent and the answer comes back regardless.
+    monkeypatch.setattr(run_failure, "READ_DEADLINE_SECONDS", 0.3)
+    dagster.event_log_delay = 1.0
+    started = time.monotonic()
+
+    body = _get(api, mint)
+
+    assert time.monotonic() - started < 1.0
+    assert _scope(body) == (None, None)
+    assert not [query for query in dagster.queries if "query Jobs" in query]

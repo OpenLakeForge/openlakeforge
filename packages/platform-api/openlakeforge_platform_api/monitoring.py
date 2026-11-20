@@ -25,6 +25,8 @@ MONITORING_OPERATIONS = (
     "get_stage_health",
     "get_stage_service_health",
     "list_pipeline_health",
+    "get_run",
+    "get_run_failure",
     "get_stage_quality_health",
     "list_logs",
     "list_stage_metrics",
@@ -101,7 +103,13 @@ def monitoring_capabilities(request: Request) -> MonitoringCapabilities:
     for stage in settings.stages:
         operations = [name for name in MONITORING_OPERATIONS if matrix.allows(name, role, stage)]
         if operations:
+            retention = settings.log_archive_retention_days if stage in settings.log_archives else None
             stages.append(
-                MonitoringStage(stage=stage, operations=operations, capabilities=_capabilities(request, stage))
+                MonitoringStage(
+                    stage=stage,
+                    operations=operations,
+                    capabilities=_capabilities(request, stage),
+                    log_retention_days=retention,
+                )
             )
     return MonitoringCapabilities(stages=stages)
