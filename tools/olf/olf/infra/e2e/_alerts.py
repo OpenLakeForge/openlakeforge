@@ -202,14 +202,28 @@ def expected_run_link(routes: Mapping[str, str], stage: str, run_id: str) -> str
     return f"{base.rstrip('/')}/runs/{run_id}" if base else None
 
 
-def payload_problems(payload: Mapping[str, Any], *, link: str | None, secrets: Mapping[str, str]) -> list[str]:
-    """Why a payload breaks the contract: a field off the allowlist, a wrong or missing link, or a Secret value."""
+def runbook_base(settings_json: str) -> str | None:
+    """The runbook page the deployed evaluator links to: the local root always sets one, an evaluator deployed before
+    it did has none."""
+    return json.loads(settings_json).get("links", {}).get("runbook_base_url") or None
+
+
+def payload_problems(
+    payload: Mapping[str, Any], *, link: str | None, secrets: Mapping[str, str], runbook: str | None = None
+) -> list[str]:
+    """Why a payload breaks the contract: a field off the allowlist, a wrong or missing link, or a Secret value.
+
+    With a `runbook` page the runbook link must be that page anchored at the payload's condition; without one, absent.
+    """
     body = {key: value for key, value in payload.items() if key != HARNESS_FIELD}
     problems = [f"unlisted field {key!r}" for key in sorted(set(body) - PAYLOAD_FIELDS)]
     links = body.get("links", {})
     problems += [f"unlisted link {key!r}" for key in sorted(set(links) - LINK_FIELDS)]
     if body.get("run_id") and links.get("run") != link:
         problems.append(f"run link is {links.get('run')!r}, expected {link!r}")
+    expected = f"{runbook}#{body.get('condition')}" if runbook else None
+    if links.get("runbook") != expected:
+        problems.append(f"runbook link is {links.get('runbook')!r}, expected {expected!r}")
     problems += find_exposures(secrets, {"the payload": json.dumps(body)})
     return problems
 
@@ -290,6 +304,7 @@ class Harness:
     cronjob: dict[str, Any]
     routes: dict[str, str]
     secrets: dict[str, str]
+    runbook: str | None = None
     jobs: int = 0
 
     def stub(self, method: str, path: str) -> str:
@@ -332,7 +347,7 @@ class Harness:
     def verify(self, found: list[dict[str, Any]]) -> None:
         for item in found:
             link = expected_run_link(self.routes, self.stage, item.get("run_id", ""))
-            problems = payload_problems(item, link=link, secrets=self.secrets)
+            problems = payload_problems(item, link=link, secrets=self.secrets, runbook=self.runbook)
             if problems:
                 raise E2EError(f"alert payload {item.get('incident_id')}: " + "; ".join(problems))
 
@@ -655,6 +670,8 @@ def check_alert_delivery(cfg: E2EConfig) -> None:
         )
         return
     log.step("Checking alert notifications reach a receiver once per incident...")
+    live_settings = kubectl(cfg, ["get", "configmap", EVALUATOR, "-n", namespace, "-o", "json"], capture=True)
+    runbook = runbook_base(json.loads(live_settings)["data"]["alerts.json"])
     stage = cfg.namespace.removeprefix("olf-")
     token = uuid.uuid4().hex
     url = k8s.secret_value(
@@ -668,7 +685,7 @@ def check_alert_delivery(cfg: E2EConfig) -> None:
         _ops_bucket(cfg) as (s3, bucket),
         dagster_client(cfg) as client,
     ):
-        h = Harness(cfg, client, s3, bucket, stage, pod, cronjob, routes, secrets)
+        h = Harness(cfg, client, s3, bucket, stage, pod, cronjob, routes, secrets, runbook)
         h.clear_state()
         try:
             # A real failure of the job as its latest run would hold its run_failed incident open, and the cases'

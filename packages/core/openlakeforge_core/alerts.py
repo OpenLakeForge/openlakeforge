@@ -78,6 +78,12 @@ class AlertKind(StrEnum):
     HEALTH_UNREADABLE = "health_unreadable"
 
 
+def runbook_link(base_url: str, kind: AlertKind) -> str:
+    """The runbook section for `kind`: docs/guides/operations/alerts.md titles each condition's section with its value,
+    so the value is the anchor, and a test holds every kind to having one."""
+    return f"{base_url}#{kind.value}"
+
+
 # Conditions about the platform, not a product: no rule in alerts.yml governs them and they go to the profile's platform
 # receivers (ADR 0023, decision 11).
 PLATFORM_KINDS = frozenset(

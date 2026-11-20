@@ -217,3 +217,52 @@ run "without_the_api_url_no_token_is_projected" {
     error_message = "no URL, no token"
   }
 }
+
+run "a_runbook_base_reaches_the_settings" {
+  command = plan
+
+  variables {
+    receivers        = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" }]
+    runbook_base_url = "https://docs.example.test/alerts.md"
+  }
+
+  assert {
+    condition     = jsondecode(output.settings_json).links.runbook_base_url == "https://docs.example.test/alerts.md"
+    error_message = "the evaluator anchors its runbook links into the given page"
+  }
+}
+
+run "without_a_runbook_base_no_link_is_configured" {
+  command = plan
+
+  variables {
+    receivers = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" }]
+  }
+
+  assert {
+    condition     = jsondecode(output.settings_json).links.runbook_base_url == null
+    error_message = "null leaves the runbook link out"
+  }
+}
+
+run "a_runbook_base_with_a_fragment_is_refused" {
+  command = plan
+
+  variables {
+    receivers        = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" }]
+    runbook_base_url = "https://docs.example.test/alerts.md#run_failed"
+  }
+
+  expect_failures = [var.runbook_base_url]
+}
+
+run "a_plain_http_runbook_base_is_refused" {
+  command = plan
+
+  variables {
+    receivers        = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" }]
+    runbook_base_url = "http://docs.example.test/alerts.md"
+  }
+
+  expect_failures = [var.runbook_base_url]
+}

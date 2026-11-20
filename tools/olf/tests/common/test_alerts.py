@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from _alerts_support import evaluate
@@ -31,6 +32,9 @@ from openlakeforge_core import (
     fingerprint,
     service_signal,
 )
+from openlakeforge_core.alerts import runbook_link
+
+from olf.common.commands.checks import _docs
 
 T0 = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
 MAX_AGE = timedelta(hours=1)
@@ -517,3 +521,14 @@ def test_incident_ids_stay_unique_when_the_state_is_lost() -> None:
     _, (again,) = _run(AlertState(), [_failed()], 5)
     assert first.incident_id != again.incident_id
     assert first.incident_id == f"{fingerprint(DEV, AlertKind.RUN_FAILED)}-{int(T0.timestamp())}-1"
+
+
+def test_every_condition_has_a_runbook_section_its_link_anchors_at() -> None:
+    guide = Path(__file__).resolve().parents[4] / "docs/guides/operations/alerts.md"
+    anchors = _docs._anchors(guide)
+
+    missing = [
+        kind.value for kind in AlertKind if runbook_link("https://x/alerts.md", kind).split("#")[1] not in anchors
+    ]
+
+    assert missing == [], f"{guide.name} has no runbook section for: {', '.join(missing)}"

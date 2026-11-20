@@ -217,6 +217,32 @@ def test_payload_problems_name_each_breach(change: dict, expected: str) -> None:
     assert any(expected in problem for problem in problems)
 
 
+RUNBOOK = "https://github.com/OpenLakeForge/openlakeforge/blob/v1.2.3/docs/guides/operations/alerts.md"
+
+
+def test_with_a_runbook_page_the_link_must_anchor_at_the_condition() -> None:
+    good = {**GOOD, "condition": "run_failed", "links": {**GOOD["links"], "runbook": f"{RUNBOOK}#run_failed"}}
+    assert _alerts.payload_problems(good, link="https://d/runs/r1", secrets={}, runbook=RUNBOOK) == []
+
+    missing = {**GOOD, "condition": "run_failed"}
+    wrong = {**good, "condition": "quality"}
+    for payload in (missing, wrong):
+        problems = _alerts.payload_problems(payload, link="https://d/runs/r1", secrets={}, runbook=RUNBOOK)
+        assert any("runbook link is" in problem for problem in problems)
+
+
+def test_without_a_runbook_page_no_runbook_link_is_sent() -> None:
+    sent = {**GOOD, "condition": "run_failed", "links": {**GOOD["links"], "runbook": f"{RUNBOOK}#run_failed"}}
+    problems = _alerts.payload_problems(sent, link="https://d/runs/r1", secrets={})
+    assert any("runbook link is" in problem for problem in problems)
+
+
+def test_the_runbook_page_is_read_from_the_deployed_settings() -> None:
+    assert _alerts.runbook_base(json.dumps({"links": {"runbook_base_url": RUNBOOK}})) == RUNBOOK
+    assert _alerts.runbook_base(json.dumps({"links": {"runbook_base_url": None}})) is None
+    assert _alerts.runbook_base(json.dumps({})) is None
+
+
 def test_the_quality_manifest_is_complete_and_names_the_floe_outcome() -> None:
     base = QualityManifest("dev", "sales", "orders", "run-1")
     manifest = _alerts.quality_manifest(base, QualityOutcome.ERROR, "error", PipelineOutcome.BLOCKED)
