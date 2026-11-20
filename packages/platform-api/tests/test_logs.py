@@ -140,6 +140,9 @@ def test_lines_are_filtered_by_pod_and_limited(api: TestClient, mint: Mint) -> N
                 "stream": None,
                 "missing": None,
                 "source": "v1",
+                # The archiver wrote this line without the kubelet's timestamp, and the archive time is not one.
+                "timestamp": None,
+                "level": None,
             }
         ],
         "truncated": True,
@@ -333,3 +336,54 @@ def test_each_line_says_which_archive_layout_it_came_from(api: TestClient, store
 
     assert [line["source"] for line in lines] == ["v2"]
     assert {line["source"] for line in both} == {"v1", "v2"}
+
+
+def test_each_line_carries_the_time_and_level_its_source_recorded_and_null_otherwise(
+    api: TestClient, store: ObjectStore, mint: Mint
+) -> None:
+    # A v1 object as the polling archiver has always written it: the kubelet timestamp opens the line.
+    store.archive(
+        KEY,
+        [
+            _line("run-1", "2026-10-30T09:00:00.123456789Z ERROR contract violated"),
+            _line("run-1", "2026-10-30T09:00:01.000000001Z plain text"),
+            {**_line("run-1", ""), "line": None, "archive_error": "container not found"},
+        ],
+    )
+    store.archive(
+        V2_DEV,
+        [
+            _v2("2026-10-30T09:00:02.5Z", '{"level": "warn", "msg": "slow"}'),
+            _v2("2026-10-30T09:00:03Z", "Error occurred while executing"),
+        ],
+    )
+
+    lines = api.get(LOGS + "&pod=run-1", headers=_as(mint, "data-engineer")).json()["lines"]
+    lines += api.get(LOGS + "&pod=dagster-run-8f1c2d4e-x7k2p", headers=_as(mint, "data-engineer")).json()["lines"]
+
+    assert [(line["source"], line["timestamp"], line["level"]) for line in lines] == [
+        ("v1", None, None),
+        ("v1", "2026-10-30T09:00:00.123456789Z", "error"),
+        ("v1", "2026-10-30T09:00:01.000000001Z", None),
+        ("v2", "2026-10-30T09:00:02.5Z", "warning"),
+        # Prose that opens with the word is not a level.
+        ("v2", "2026-10-30T09:00:03Z", None),
+    ]
+
+
+def test_the_severity_floor_reads_the_same_level_the_line_carries(
+    api: TestClient, store: ObjectStore, mint: Mint
+) -> None:
+    store.archive(
+        V2_DEV,
+        [
+            _v2("2026-10-30T09:00:01Z", "2026-10-30 09:00:01 +0000 - dagster - ERROR - orders - failed"),
+            _v2("2026-10-30T09:00:02Z", "retrying after error"),
+        ],
+    )
+
+    body = api.get(LOGS + "&severity=error", headers=_as(mint, "data-engineer")).json()
+
+    assert [(line["line"], line["level"]) for line in body["lines"]] == [
+        ("2026-10-30 09:00:01 +0000 - dagster - ERROR - orders - failed", "error")
+    ]

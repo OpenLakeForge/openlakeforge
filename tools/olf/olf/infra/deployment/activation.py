@@ -18,6 +18,7 @@ import yaml
 from openlakeforge_core import load_lakehouse_inventory
 from openlakeforge_core.alert_policy import parse_alert_policy
 from openlakeforge_core.descriptors import LakehouseDescriptorError
+from openlakeforge_core.log_archive import V1_LOOKBACK_SECONDS
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
 
@@ -190,7 +191,7 @@ def _image_parts(image: str) -> tuple[str, str]:
 def _archive_env(contract_environ: Mapping[str, str], *, namespace: str) -> list[dict[str, str]]:
     env = [{"name": name, "value": contract_environ[name]} for name in _ARCHIVE_ENV if contract_environ.get(name)]
     env.append({"name": "OPENLAKEFORGE_KUBE_NAMESPACE", "value": namespace})
-    env.append({"name": "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS", "value": "3600"})
+    env.append({"name": "OPENLAKEFORGE_LOG_ARCHIVE_SINCE_SECONDS", "value": str(V1_LOOKBACK_SECONDS)})
     return env
 
 

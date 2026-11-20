@@ -22,7 +22,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Query, Request
 from openlakeforge_services.base import ServiceClientError, TransientServiceError
 from openlakeforge_services.dagster import DagsterClient, DagsterJob
-from openlakeforge_services.logs import LogArchive
+from openlakeforge_services.logs import ArchivedLogLine, LogArchive
 from openlakeforge_services.openmetadata import OpenMetadataClient
 
 from openlakeforge_platform_api.models import (
@@ -122,21 +122,13 @@ def list_logs(
 ) -> Logs:
     """The stage's archived pod log lines for a UTC day or one hour of it, oldest first.
 
-    The stage picks the archive, so no filter can reach another stage's. `severity` is a floor read from the
-    line's level token; `component`, `product` and `run_id` match v2 records only.
+    The stage picks the archive, so no filter can reach another stage's. `severity` is a floor on each line's
+    `level`; `component`, `product` and `run_id` match v2 records only.
     """
-    archive = request.app.state.settings.log_archives.get(stage)
-    if archive is None:
-        raise HTTPException(status_code=404, detail=f"no log archive is configured for stage {stage!r}")
-    store = request.app.state.object_store
-    if store is None:
-        raise HTTPException(status_code=503, detail="the platform API holds no object-store key for the log archive")
-    reader = LogArchive(store, archive.base_uri)
-    # The store's own message goes to the log: it can name the bucket, the key
-    # or the endpoint, none of which the caller needs.
-    try:
+    reader, namespace = _log_archive(request, stage)
+    with _archive_errors(stage):
         lines = reader.read(
-            archive.namespace,
+            namespace,
             day,
             hour=hour,
             pod=pod,
@@ -149,6 +141,30 @@ def list_logs(
             until=until,
             limit=limit,
         )
+    # `truncated` tells a client that a narrower window or a higher limit would show more.
+    return Logs(lines=[log_line(line) for line in lines], truncated=len(lines) >= limit)
+
+
+def log_line(line: ArchivedLogLine) -> LogLine:
+    return LogLine(**asdict(line))
+
+
+def _log_archive(request: Request, stage: str) -> tuple[LogArchive, str]:
+    archive = request.app.state.settings.log_archives.get(stage)
+    if archive is None:
+        raise HTTPException(status_code=404, detail=f"no log archive is configured for stage {stage!r}")
+    store = request.app.state.object_store
+    if store is None:
+        raise HTTPException(status_code=503, detail="the platform API holds no object-store key for the log archive")
+    return LogArchive(store, archive.base_uri), archive.namespace
+
+
+@contextmanager
+def _archive_errors(stage: str) -> Iterator[None]:
+    # The store's own message goes to the log: it can name the bucket, the key
+    # or the endpoint, none of which the caller needs.
+    try:
+        yield
     except ClientError as exc:
         log.warning("the object store refused the log archive read for stage %s: %s", stage, exc)
         raise HTTPException(status_code=502, detail=f"the object store refused stage {stage!r}'s log archive") from exc
@@ -159,8 +175,6 @@ def list_logs(
     except (OSError, EOFError, zlib.error, ValueError, KeyError, TypeError) as exc:
         log.warning("stage %s's log archive is unreadable: %s", stage, exc)
         raise HTTPException(status_code=502, detail=f"stage {stage!r}'s log archive is unreadable") from exc
-    # `truncated` tells a client that a narrower window or a higher limit would show more.
-    return Logs(lines=[LogLine(**asdict(line)) for line in lines], truncated=len(lines) >= limit)
 
 
 def _openmetadata(request: Request) -> OpenMetadataClient:

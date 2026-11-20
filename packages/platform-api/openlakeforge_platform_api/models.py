@@ -78,11 +78,30 @@ class LogLine(BaseModel):
     stream: str | None = None
     missing: list[str] | None = None
     source: str | None = None
+    # When the line was written, as the source recorded it (v2's CRI time, the kubelet timestamp a v1 line starts
+    # with); null when it recorded none. `level` is one of debug, info, warning, error, critical when the message
+    # states it in a recognised shape (`openlakeforge_services.logs.level_of`), else null. Neither is ever guessed.
+    timestamp: str | None = None
+    level: Literal["debug", "info", "warning", "error", "critical"] | None = None
 
 
 class Logs(BaseModel):
     lines: list[LogLine]
     truncated: bool
+
+
+class RunLogs(BaseModel):
+    lines: list[LogLine]
+    # More lines may lie in the run's window than were answered: past `limit`, or past the days one read covers.
+    truncated: bool
+    # The window that was read, ISO 8601 UTC: the run's start to its end (now, for a run still going), narrowed by
+    # the request's `since` and `until`, and cut after MAX_RUN_LOG_DAYS UTC days. Empty when `since` is not before
+    # `until`, as for a `since` past the run's end.
+    since: str
+    until: str
+    # Set exactly when `truncated` is: an opaque cursor to pass back as `after`, with the same filters, to read on
+    # past the last line answered, lines that share its timestamp included.
+    next: str | None = Field(default=None, description="Pass back as `after` to continue past the last line.")
 
 
 class ImportedReports(BaseModel):
