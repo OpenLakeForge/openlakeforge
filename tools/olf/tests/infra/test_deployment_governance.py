@@ -56,6 +56,14 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         seen["calls"].append("replicate")
         seen["replicated"] = (shared, tuple(governed), tuple(revoked))
 
+    def retire(namespace: str, stage_namespaces: Any, *, reach: Any, **kwargs: Any) -> None:
+        seen["calls"].append("retire")
+        reached = None
+        if reach is not None:
+            with reach() as route:
+                reached = route.url
+        seen["retired"] = (namespace, tuple(stage_namespaces), reached)
+
     def revoke_crawl(shared: str, revoked: Any, **_: Any) -> None:
         seen["crawl_revoked"] = (shared, tuple(revoked))
 
@@ -67,6 +75,8 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr("olf.infra.k8s.configmap_data", lambda *_a, **_k: seen["configmap"])
     monkeypatch.setattr("olf.infra.k8s.port_forward", port_forward)
     monkeypatch.setattr(_platform, "run_bootstrap", run_bootstrap)
+    monkeypatch.setattr(_platform, "retire_governance", retire)
+    monkeypatch.setattr("olf.infra.k8s.resource_exists", lambda *_a, **_k: seen.get("openmetadata_service", False))
     monkeypatch.setattr(_replication, "replicate_ingestion_bot", replicate)
     monkeypatch.setattr(_replication, "revoke_trino_crawl", revoke_crawl)
     monkeypatch.setattr("olf.infra.polaris_bootstrap.bootstrap_from_contract", bootstrap_polaris)
@@ -132,15 +142,41 @@ def test_a_stage_without_governance_is_left_out_and_the_next_one_is_canonical() 
     assert stages == (StageServices("prod", "http://dagster-dagster-webserver.olf-prod:80"),)
 
 
-def test_nothing_is_bootstrapped_when_no_stage_is_governed_but_the_crawl_is_revoked(cluster: dict) -> None:
+def test_nothing_is_bootstrapped_when_no_stage_is_governed_but_the_crawl_and_credentials_are_revoked(
+    cluster: dict,
+) -> None:
     cluster["calls"] = []
     contracts = _with(_parsed(), dev={"governance": None}, prod={"governance": None})
 
     bootstrap_from_contract(contracts, environ={"OPENLAKEFORGE_SHARED_NAMESPACE": "olf-system"})
 
-    assert cluster["calls"] == [] and "forwarded" not in cluster
+    # The apply removed OpenMetadata: its Service is gone, so nothing is forwarded and the Secrets go alone (#1323).
+    assert cluster["calls"] == ["retire"] and "forwarded" not in cluster
+    assert cluster["retired"] == ("olf-system", ("olf-dev", "olf-prod"), None)
     # The `openmetadata` Polaris principal outlives the last governed stage, so its copies must not (#1049).
     assert cluster["crawl_revoked"] == ("olf-system", ("olf-dev", "olf-prod"))
+
+
+def test_with_no_stage_governed_an_openmetadata_still_serving_is_reached_to_retire_the_bots(cluster: dict) -> None:
+    cluster.update(calls=[], openmetadata_service=True)
+    contracts = _with(_parsed(), dev={"governance": None}, prod={"governance": None})
+
+    bootstrap_from_contract(contracts, environ={"OPENLAKEFORGE_SHARED_NAMESPACE": "olf-system"})
+
+    assert cluster["calls"] == ["retire"]
+    assert cluster["retired"] == ("olf-system", ("olf-dev", "olf-prod"), "http://127.0.0.1:18585")
+    assert cluster["forwarded"] == ("openmetadata", 8585, "olf-system")
+
+
+def test_a_stage_that_keeps_governance_is_bootstrapped_and_nothing_is_retired(cluster: dict) -> None:
+    cluster["calls"] = []
+    contracts = _with(_parsed(), prod={"governance": None})
+
+    bootstrap_from_contract(contracts, environ={"OPENLAKEFORGE_SHARED_NAMESPACE": "olf-system"})
+
+    assert cluster["calls"] == ["bootstrap", "replicate"]
+    assert [stage.stage for stage in cluster["bootstrap"]["stages"]] == ["dev"]
+    assert cluster["replicated"] == ("olf-system", ("olf-dev",), ("olf-prod",))
 
 
 def test_the_platform_phase_fails_when_the_apply_left_no_contract(monkeypatch: pytest.MonkeyPatch) -> None:

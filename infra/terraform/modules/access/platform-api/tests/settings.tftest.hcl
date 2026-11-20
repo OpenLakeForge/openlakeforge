@@ -253,3 +253,36 @@ run "a_metrics_url_without_metrics_enabled_is_refused" {
 
   expect_failures = [var.metrics]
 }
+
+# #1327: the log archive's retention is stated only where the provider applies one.
+run "no_log_retention_by_default" {
+  command = plan
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).log_archive_retention_days == null
+    error_message = "a deployment that passes no retention must state none"
+  }
+}
+
+run "the_log_retention_reaches_the_settings" {
+  command = plan
+
+  variables {
+    log_archive_retention_days = 30
+  }
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).log_archive_retention_days == 30
+    error_message = "the log archive's retention must reach settings.json"
+  }
+}
+
+run "a_fractional_log_retention_is_refused" {
+  command = plan
+
+  variables {
+    log_archive_retention_days = 0.5
+  }
+
+  expect_failures = [var.log_archive_retention_days]
+}

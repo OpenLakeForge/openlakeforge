@@ -132,6 +132,17 @@ variable "log_archives" {
   default = {}
 }
 
+variable "log_archive_retention_days" {
+  description = "How many days the log archive keeps a line: the provider contract's logs.archive.retention_days when its retention_supported is true, else null. The monitoring capabilities state it per stage with an archive (#1327); null states none."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.log_archive_retention_days == null || try(var.log_archive_retention_days >= 1 && floor(var.log_archive_retention_days) == var.log_archive_retention_days, false)
+    error_message = "log_archive_retention_days is a whole number of days, at least 1, or null."
+  }
+}
+
 variable "s3_endpoint_url" {
   description = "The object store the log archives are read from; null for AWS S3."
   type        = string

@@ -159,6 +159,11 @@ OpenMetadata is a consumer of that record and never reruns Floe or dbt.
   separate credential to revoke and a separate author in a result's
   history. The DEV/PROD boundary is still the stage's ops-bucket key and
   its pass's database root, as described above.
+  With governance off for every stage the bootstrap does not run;
+  `olf infra deploy` then deletes every stage's quality-writer Secret and
+  the ingestion-bot Secret and its copies, and deletes the bots only while
+  OpenMetadata still answers. A bot OpenMetadata comes back with has no
+  Secret, so the next governed bootstrap rotates its token or deletes it.
 
 #### OpenMetadata 1.13.6 compatibility limits
 

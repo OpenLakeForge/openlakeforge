@@ -6,23 +6,31 @@ the inputs given as flags. Every step is idempotent, so a rerun converges.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from typing import Any
 
+from openlakeforge_services.base import ServiceClientError
+from openlakeforge_services.openmetadata import OpenMetadataClient
+
+from olf.common import log
 from olf.common.profile import StageName
 from olf.common.provider_contracts import ProviderContracts
+from olf.infra import k8s
 from olf.infra.access import Route
 from olf.infra.openmetadata import (
+    _auth,
     _bootstrap,
     _catalog_seed,
     _quality_writer,
+    _replication,
     _search_reindex,
     _signup_baseline,
     _stage_services,
     _stale_services,
 )
 from olf.infra.openmetadata._catalog_seed import CatalogSeed
-from olf.infra.openmetadata._stage_services import StageServices
+from olf.infra.openmetadata._stage_services import STAGES, StageServices
 
 CATALOG_DISPLAY = "Lakehouse catalogs (Trino)"
 # Each stage's in-cluster Services, as the dagster and superset modules name them; OpenMetadata
@@ -53,6 +61,47 @@ def run_bootstrap(
         _signup_baseline.restrict_signup_defaults(client)
     if seed:
         _search_reindex.ensure_search_indexed(client, seed)
+
+
+def _stored_admin(route: Route, namespace: str, email: str, environ: Mapping[str, str] | None) -> OpenMetadataClient:
+    """An administrator from the stored credentials only: a teardown never resets the built-in admin's password."""
+    token = _auth.automation_token(namespace, environ=environ)
+    if token:
+        return route.client(OpenMetadataClient, token=token)
+    client = route.client(OpenMetadataClient)
+    client.login(email, _auth.admin_password(namespace, environ=environ))
+    return client
+
+
+def retire_governance(
+    namespace: str,
+    stage_namespaces: Sequence[str],
+    *,
+    reach: Callable[[], AbstractContextManager[Route]] | None,
+    email: str,
+    environ: Mapping[str, str] | None = None,
+) -> None:
+    """No stage is governed: remove every credential the bootstrap issued to the stages (#1323).
+
+    The bootstrap does not run then, so it cannot retire them a stage at a time. The roots remove
+    OpenMetadata in the same apply, so `reach` is normally None and the bots are left: one that
+    OpenMetadata comes back with has no Secret, so the next governed bootstrap rotates or deletes it.
+    The Secrets go regardless, by exact name. When OpenMetadata still answers, the quality-writer
+    bots go too, and a failure there only warns: it must not keep the Secrets alive or fail a
+    deploy that is removing OpenMetadata.
+    The ingestion bot is OpenMetadata's own, so only its Secret and the stages' copies go.
+    """
+    if reach is not None:
+        try:
+            with reach() as route:
+                client = _stored_admin(route, namespace, email, environ)
+                for stage in STAGES:
+                    _quality_writer.remove_writer_bot(client, stage)
+        except (ServiceClientError, k8s.KubectlError) as exc:
+            log.warn(f"Could not reach OpenMetadata to delete the quality-writer bots; removing their Secrets: {exc}")
+    for stage in STAGES:
+        _quality_writer.remove_writer_secret(namespace, stage, environ)
+    _replication.revoke_ingestion_bot([namespace, *stage_namespaces], environ=environ)
 
 
 def _trino_namespaces(query: Mapping[str, Any]) -> list[str]:

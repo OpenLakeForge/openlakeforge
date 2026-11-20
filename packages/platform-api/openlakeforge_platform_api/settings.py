@@ -75,6 +75,9 @@ class Settings:
     dagster_graphql_urls: Mapping[str, str] = field(default_factory=dict)
     openmetadata_url: str | None = None
     log_archives: Mapping[str, LogArchiveSetting] = field(default_factory=dict)
+    # The contract's logs.archive.retention_days when its `retention_supported` is true (ADR 0022, decision 6);
+    # platform-wide, as in the profile. None: the provider applies no retention, so the API states none.
+    log_archive_retention_days: int | None = None
     # Each stage's activation prefix, s3://<ops bucket>/activations/<stage>/, where its quality manifests are written
     # under run-artifacts/quality/. The key that reads them is per stage and comes from the environment.
     quality_manifests: Mapping[str, str] = field(default_factory=dict)
@@ -168,6 +171,9 @@ class Settings:
                     str(stage): LogArchiveSetting(str(archive["base_uri"]), str(archive["namespace"]))
                     for stage, archive in (data.get("log_archives") or {}).items()
                 },
+                log_archive_retention_days=(
+                    None if data.get("log_archive_retention_days") is None else int(data["log_archive_retention_days"])
+                ),
                 quality_manifests={str(s): str(uri) for s, uri in (data.get("quality_manifests") or {}).items()},
                 quality_sync_summaries={
                     str(s): str(uri) for s, uri in (data.get("quality_sync_summaries") or {}).items()
@@ -324,6 +330,8 @@ class Settings:
             and self.alerts_state_base_uri.endswith("/")
         ):
             raise SettingsError("alerts_state_base_uri must be s3://<bucket>/<prefix>/, ending in /")
+        if self.log_archive_retention_days is not None and self.log_archive_retention_days < 1:
+            raise SettingsError("log_archive_retention_days must be positive")
         for stage, archive in self.log_archives.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
                 raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")
