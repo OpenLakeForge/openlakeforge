@@ -22,12 +22,14 @@ from openlakeforge_services.logs import ArchiveDeadline, decode_position, encode
 
 from openlakeforge_platform_api.models import RunLogs
 from openlakeforge_platform_api.reads import (
+    LOG_SEARCH,
     MAX_LOG_LINES,
     _archive_errors,
     _dagster,
     _dagster_errors,
     _log_archive,
     log_line,
+    search_text,
 )
 
 # A run of up to two whole days spans three UTC days. Each day lists the v2 hour partitions the window touches (and a
@@ -94,6 +96,7 @@ def list_run_logs(
     container: str = "",
     component: str = "",
     severity: Literal["debug", "info", "warning", "error", "critical"] | None = None,
+    q: str | None = LOG_SEARCH,
     match_run: bool = False,
     since: datetime | None = None,
     until: datetime | None = None,
@@ -107,7 +110,12 @@ def list_run_logs(
     `since` and `until` narrow the run's window, never widen it. `match_run` keeps only v2 records tagged with the
     run's id, which leaves v1 out. The other filters are `list_logs`'s. A truncated answer carries `next`; pass it
     back as `after` to read on, past lines that share one timestamp included.
+
+    With `q`, the limit and the cursor count matching lines only, so paging neither skips nor repeats a match. A page
+    stops at the days one read covers whatever it found, so a sparse search can answer fewer than `limit` lines, or
+    none, with `next` set: read on until `next` is null.
     """
+    text = search_text(q)
     try:
         cursor = decode_position(after) if after else None
     except ValueError as exc:
@@ -149,6 +157,7 @@ def list_run_logs(
                     component=component,
                     run_id=run.run_id if match_run else "",
                     severity=severity or "",
+                    text=text,
                     since=start,
                     until=cut,
                     limit=limit,

@@ -321,3 +321,50 @@ def test_a_stage_without_dagster_is_not_found(api: TestClient, mint: Mint) -> No
 
     assert response.status_code == 404
     assert "no Dagster" in response.json()["detail"]
+
+
+def test_a_sparse_search_pages_through_the_day_cap_and_returns_every_match_once(
+    api: TestClient, dagster: FakeDagster, store: ObjectStore, mint: Mint
+) -> None:
+    # Five days of a run, one read covering three: matches on the first and the last day only, and two that tie.
+    dagster.runs = [_run("2026-10-28T12:00:00+00:00", "2026-11-02T12:00:00+00:00")]
+    store.objects.clear()
+    for day in ("2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02"):
+        store.archive(_v2_key(day, "dev-hay"), [_v2(f"{day}T{h:02d}:00:00Z", f"hay {day} {h}") for h in range(13, 23)])
+    store.archive(_v2_key("2026-10-28", "dev-a"), [_v2("2026-10-28T13:30:00Z", "ERROR Needle one")])
+    store.archive(
+        _v2_key("2026-11-01", "dev-b"),
+        [_v2("2026-11-01T14:00:00Z", "WARNING needle two"), _v2("2026-11-01T14:00:00Z", "INFO needle three")],
+    )
+
+    pages: list[tuple[list[str], bool]] = []
+    query = "?q=needle&limit=1"
+    for _ in range(10):
+        body = _get(api, mint, query)
+        pages.append(([line["line"] for line in body["lines"]], body["truncated"]))
+        assert body["truncated"] is (body["next"] is not None)
+        if not body["next"]:
+            break
+        query = f"?q=needle&limit=1&after={body['next']}"
+
+    seen = [line for lines, _ in pages for line in lines]
+    assert (seen[0], sorted(seen[1:])) == ("ERROR Needle one", ["INFO needle three", "WARNING needle two"])
+    # A read that reached the day cap with no match answers nothing, still truncated: the days past it are unread.
+    assert ([], True) in pages
+    assert pages[-1][1] is False
+
+    floor = _get(api, mint, "?q=NEEDLE&severity=warning&limit=10")
+    assert [line["line"] for line in floor["lines"]] == ["ERROR Needle one"]
+    assert floor["next"]
+    assert [line["line"] for line in _get(api, mint, f"?q=NEEDLE&severity=warning&after={floor['next']}")["lines"]] == [
+        "WARNING needle two"
+    ]
+
+
+@pytest.mark.parametrize("query", ["?q=", "?q=" + "x" * 201, "?q=a%1Bb"])
+def test_a_malformed_search_is_refused_before_anything_is_read(
+    api: TestClient, dagster: FakeDagster, store: ObjectStore, mint: Mint, query: str
+) -> None:
+    assert api.get(PATH + query, headers=_as(mint, "data-engineer")).status_code == 422
+    assert store.listed == []
+    assert dagster.variables == []

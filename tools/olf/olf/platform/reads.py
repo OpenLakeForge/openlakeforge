@@ -8,6 +8,7 @@ credential, for a person or their local agent alike.
 from __future__ import annotations
 
 import json
+import unicodedata
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from typing import Any
@@ -129,6 +130,9 @@ def logs(
     severity: str = typer.Option(
         "", "--severity", help="Only lines at this level or above: debug, info, warning, error or critical."
     ),
+    grep: str = typer.Option(
+        "", "--grep", help="Only lines whose message contains this text, ignoring case; plain text, not a pattern."
+    ),
     since: str = typer.Option("", "--since", help="Only lines at or after this ISO 8601 time; UTC without an offset."),
     until: str = typer.Option("", "--until", help="Only lines before this ISO 8601 time; UTC without an offset."),
     limit: int = typer.Option(500, "--limit", min=1, max=5000, help="At most this many lines."),
@@ -153,6 +157,9 @@ def logs(
             raise typer.Exit(code=fail(f"{flag} {value!r} is not an ISO 8601 time")) from exc
     if severity and severity not in ("debug", "info", "warning", "error", "critical"):
         raise typer.Exit(code=fail("--severity is one of debug, info, warning, error or critical"))
+    # The API's limits on `q`, checked here so the refusal says which flag broke them.
+    if len(grep) > 200 or any(unicodedata.category(char) == "Cc" for char in grep):
+        raise typer.Exit(code=fail("--grep is at most 200 characters, with no control characters"))
     params: dict[str, Any] = {"date": when.isoformat(), "limit": limit}
     if hour is not None:
         params["hour"] = hour
@@ -165,6 +172,7 @@ def logs(
         ("product", product),
         ("component", component),
         ("severity", severity),
+        ("q", grep),
         ("since", since),
         ("until", until),
     ):

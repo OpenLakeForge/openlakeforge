@@ -4034,7 +4034,7 @@
     },
     "/api/v1/stages/{stage}/logs": {
       "get": {
-        "description": "The stage's archived pod log lines for a UTC day or one hour of it, oldest first.\n\nThe stage picks the archive, so no filter can reach another stage's. `severity` is a floor on each line's\n`level`; `component`, `product` and `run_id` match v2 records only.",
+        "description": "The stage's archived pod log lines for a UTC day or one hour of it, oldest first.\n\nThe stage picks the archive, so no filter can reach another stage's. `severity` is a floor on each line's\n`level`; `q` keeps the lines whose message contains it, ignoring case; `component`, `product` and `run_id` match\nv2 records only. Every filter applies before `limit`, so `truncated` means more matching lines exist.",
         "operationId": "list_logs_api_v1_stages__stage__logs_get",
         "parameters": [
           {
@@ -4145,6 +4145,26 @@
                 }
               ],
               "title": "Severity"
+            }
+          },
+          {
+            "description": "Only lines whose message contains this text, ignoring case: a plain substring, not a pattern. 1 to 200 characters, no control characters.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only lines whose message contains this text, ignoring case: a plain substring, not a pattern. 1 to 200 characters, no control characters.",
+              "title": "Q"
             }
           },
           {
@@ -4875,7 +4895,7 @@
     },
     "/api/v1/stages/{stage}/runs/{run_id}/logs": {
       "get": {
-        "description": "The stage's archived pod log lines from the run's start to its end, oldest first, across UTC days.\n\n`since` and `until` narrow the run's window, never widen it. `match_run` keeps only v2 records tagged with the\nrun's id, which leaves v1 out. The other filters are `list_logs`'s. A truncated answer carries `next`; pass it\nback as `after` to read on, past lines that share one timestamp included.",
+        "description": "The stage's archived pod log lines from the run's start to its end, oldest first, across UTC days.\n\n`since` and `until` narrow the run's window, never widen it. `match_run` keeps only v2 records tagged with the\nrun's id, which leaves v1 out. The other filters are `list_logs`'s. A truncated answer carries `next`; pass it\nback as `after` to read on, past lines that share one timestamp included.\n\nWith `q`, the limit and the cursor count matching lines only, so paging neither skips nor repeats a match. A page\nstops at the days one read covers whatever it found, so a sparse search can answer fewer than `limit` lines, or\nnone, with `next` set: read on until `next` is null.",
         "operationId": "list_run_logs_api_v1_stages__stage__runs__run_id__logs_get",
         "parameters": [
           {
@@ -4947,6 +4967,26 @@
                 }
               ],
               "title": "Severity"
+            }
+          },
+          {
+            "description": "Only lines whose message contains this text, ignoring case: a plain substring, not a pattern. 1 to 200 characters, no control characters.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only lines whose message contains this text, ignoring case: a plain substring, not a pattern. 1 to 200 characters, no control characters.",
+              "title": "Q"
             }
           },
           {

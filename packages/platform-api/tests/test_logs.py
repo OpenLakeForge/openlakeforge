@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import io
 import json
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -412,3 +413,63 @@ def test_the_severity_floor_reads_the_same_level_the_line_carries(
     assert [(line["line"], line["level"]) for line in body["lines"]] == [
         ("2026-10-30 09:00:01 +0000 - dagster - ERROR - orders - failed", "error")
     ]
+
+
+def test_q_keeps_the_lines_whose_message_holds_it_ignoring_case_before_the_limit(
+    api: TestClient, store: ObjectStore, mint: Mint
+) -> None:
+    store.archive(
+        V2_DEV,
+        [
+            _v2("2026-10-30T09:00:01Z", "INFO Contract loaded"),
+            _v2("2026-10-30T09:00:02Z", "retrying the contract"),
+            _v2("2026-10-30T09:00:03Z", "ERROR contract violated"),
+            _v2("2026-10-30T09:00:04Z", "ERROR disk full"),
+        ],
+    )
+
+    both = api.get(LOGS + "&q=CONTRACT%20violated&severity=warning", headers=_as(mint, "data-engineer")).json()
+    first = api.get(LOGS + "&q=contract&limit=2", headers=_as(mint, "data-engineer")).json()
+    all_three = api.get(LOGS + "&q=Contract&limit=3", headers=_as(mint, "data-engineer")).json()
+
+    assert [line["line"] for line in both["lines"]] == ["ERROR contract violated"]
+    assert ([line["line"] for line in first["lines"]], first["truncated"]) == (
+        ["INFO Contract loaded", "retrying the contract"],
+        True,
+    )
+    # Six lines are in the day, three match: the limit counts matches, so nothing more is waiting.
+    assert all_three["truncated"] is True
+    assert api.get(LOGS + "&q=Contract&limit=4", headers=_as(mint, "data-engineer")).json()["truncated"] is False
+
+
+@pytest.mark.parametrize("query", ["&q=", "&q=" + "x" * 201, "&q=a%00b", "&q=a%0Ab", "&q=a%09b", "&q=%7F"])
+def test_a_search_text_that_is_empty_too_long_or_holds_a_control_character_is_refused(
+    api: TestClient, store: ObjectStore, mint: Mint, query: str
+) -> None:
+    assert api.get(LOGS + query, headers=_as(mint, "data-engineer")).status_code == 422
+    assert store.listed == []
+
+
+def test_a_search_of_two_hundred_characters_with_pattern_syntax_is_read_as_plain_text(
+    api: TestClient, store: ObjectStore, mint: Mint
+) -> None:
+    store.archive(V2_DEV, [_v2("2026-10-30T09:00:01Z", "a [literal] (x)+ " + "y" * 183)])
+
+    plain = api.get(LOGS + "&q=%5Bliteral%5D%20(x)%2B%20" + "y" * 183, headers=_as(mint, "data-engineer"))
+    pattern = api.get(LOGS + "&q=.%2A", headers=_as(mint, "data-engineer"))
+
+    assert [line["source"] for line in plain.json()["lines"]] == ["v2"]
+    assert pattern.json()["lines"] == []
+
+
+def test_the_search_text_is_not_logged(api: TestClient, store: ObjectStore, mint: Mint, caplog: Any) -> None:
+    store.archive(V2_DEV, [_v2("2026-10-30T09:00:01Z", "customer 4711 failed")])
+
+    with caplog.at_level(logging.INFO):
+        body = api.get(LOGS + "&q=customer%204711", headers=_as(mint, "data-engineer")).json()
+
+    assert [line["line"] for line in body["lines"]] == ["customer 4711 failed"]
+    # httpx is the test's own client logging the URL it sent; the server side must not.
+    server = [record.getMessage() for record in caplog.records if not record.name.startswith("httpx")]
+    assert server
+    assert not any("4711" in message for message in server)

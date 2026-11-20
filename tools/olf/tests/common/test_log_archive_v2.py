@@ -631,3 +631,95 @@ def test_paging_across_hour_partitions_dedups_replays_and_overlap_and_misses_no_
         after = page.last
 
     assert seen == ["nine", "replayed", "ten", "2026-11-16T10:10:00Z v1 only"]
+
+
+# Text search (#1347): a filter like the others, read from the message.
+def test_text_keeps_the_lines_whose_message_holds_it_ignoring_case_and_combines_with_severity(store: _Store) -> None:
+    store.put(
+        _v2_key("dev-a"),
+        [
+            _v2("2026-11-16T09:00:00Z", "INFO Contract loaded"),
+            _v2("2026-11-16T09:01:00Z", "ERROR contract VIOLATED on orders"),
+            _v2("2026-11-16T09:02:00Z", "ERROR disk full"),
+            _v2("2026-11-16T09:03:00Z", "a line naming .* literally"),
+        ],
+    )
+
+    assert _read(store, text="CONTRACT") == ["INFO Contract loaded", "ERROR contract VIOLATED on orders"]
+    assert _read(store, text="contract violated", severity="error") == ["ERROR contract VIOLATED on orders"]
+    assert _read(store, text="contract", limit=1) == ["INFO Contract loaded"]
+    # Plain text, not a pattern.
+    assert _read(store, text=".*") == ["a line naming .* literally"]
+    assert _read(store, text="nowhere") == []
+
+
+def test_text_reads_a_v1_message_without_its_kubelet_time_and_still_answers_a_shared_line_once(store: _Store) -> None:
+    store.put(_v2_key("dev-a"), [_v2("2026-11-16T09:00:01Z", "seen twice", pod="run-1")])
+    store.put(
+        _v1_key(),
+        [
+            _v1("2026-11-16T09:00:01Z seen twice"),
+            _v1("2026-11-16T09:30:00Z v1 only, seen once"),
+            {**_v1(""), "line": None, "archive_error": "container not found: seen"},
+        ],
+    )
+
+    lines = LogArchive(store, BASE).read("olf-dev", DAY, text="seen")
+
+    assert [(line.source, line.line) for line in lines] == [
+        ("v2", "seen twice"),
+        ("v1", "2026-11-16T09:30:00Z v1 only, seen once"),
+    ]
+    assert _read(store, text="2026-11-16T09") == []
+
+
+def test_paging_a_sparse_search_returns_every_match_once_and_only_matches(store: _Store) -> None:
+    # Matches are few and far apart, between replays, ties and a v1 copy, across two hours and two objects.
+    tie = "2026-11-16T09:30:00Z"
+    replayed = _v2(tie, "needle replayed")
+    store.put(
+        _hour_key("dev-a", 9),
+        [_v2(f"2026-11-16T09:{n:02d}:00Z", f"hay {n}") for n in range(0, 30)] + [replayed, _v2(tie, "NEEDLE tie")],
+    )
+    store.put(
+        _hour_key("dev-b", 9), [replayed, *(_v2(f"2026-11-16T09:{n:02d}:00Z", f"hay {n}") for n in range(31, 60))]
+    )
+    store.put(_hour_key("dev-c", 10), [_v2("2026-11-16T10:00:00Z", "a needle at ten", pod="run-1")])
+    store.put(_v1_key("10"), [_v1("2026-11-16T10:00:00Z a needle at ten"), _v1("2026-11-16T10:20:00Z v1 needle")])
+    archive = LogArchive(store, BASE)
+
+    seen: list[str] = []
+    after = None
+    for _ in range(10):
+        page = archive.read_days("olf-dev", [DAY], text="needle", limit=1, after=after)
+        if not page.lines:
+            break
+        seen += [line.line or "" for line in page.lines]
+        after = page.last
+
+    assert (sorted(seen[:2]), seen[2:]) == (
+        ["NEEDLE tie", "needle replayed"],
+        ["a needle at ten", "2026-11-16T10:20:00Z v1 needle"],
+    )
+
+
+def test_the_deadline_still_stops_a_search_that_matches_nothing(store: _Store) -> None:
+    for n in range(20):
+        store.put(_v2_key(f"dev-{n:02d}"), [_v2(f"2026-11-16T09:00:{n:02d}Z", f"line {n}")])
+    ticks = iter(range(1000))
+    archive = LogArchive(store, BASE, clock=lambda: float(next(ticks)))
+
+    with pytest.raises(ArchiveDeadline):
+        archive.read("olf-dev", DAY, text="absent", deadline=5.0)
+
+    assert len(store.opened) <= 3
+
+
+def test_the_search_text_is_not_logged(store: _Store, caplog: pytest.LogCaptureFixture) -> None:
+    store.put(_v2_key("dev-a"), [_v2("2026-11-16T09:00:00Z", "customer 4711 failed")])
+
+    with caplog.at_level(logging.DEBUG, logger="openlakeforge_services.logs"):
+        assert _read(store, text="customer 4711") == ["customer 4711 failed"]
+
+    assert caplog.records
+    assert "4711" not in caplog.text
