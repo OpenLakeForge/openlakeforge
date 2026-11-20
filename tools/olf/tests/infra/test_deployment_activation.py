@@ -27,7 +27,9 @@ from olf.infra.deployment import activation as activation_module
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 ROOT = Path(__file__).resolve().parents[4]
 _IMAGE = "ghcr.io/openlakeforge/project-code@sha256:" + "a" * 64
-_DEFAULT_LOCATIONS = (CodeLocation(name="openlakeforge-dagster", definitions_module="lakehouse_code.definitions"),)
+_DEFAULT_LOCATIONS = (
+    CodeLocation(name="openlakeforge-dagster", definitions_module="lakehouse_code.pipelines.definitions"),
+)
 
 
 def _contract() -> dict:
@@ -1173,7 +1175,7 @@ def test_rollout_serves_the_default_merged_code_location(harness) -> None:  # no
     _, values = harness.helm.rollouts[0]
 
     assert _deployed_locations(values) == [
-        ("openlakeforge-dagster", ["--module-name", "lakehouse_code.definitions"], 3030)
+        ("openlakeforge-dagster", ["--module-name", "lakehouse_code.pipelines.definitions"], 3030)
     ]
 
 
@@ -1231,7 +1233,7 @@ def test_changing_the_code_locations_rolls_the_stage_out_again(harness) -> None:
     contract binding covering it a redeploy would skip as an idempotent no-op."""
     first = harness.deploy("dev")
     harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
-        {"name": "acme-dagster", "definitions_module": "lakehouse_code.definitions"}
+        {"name": "acme-dagster", "definitions_module": "lakehouse_code.pipelines.definitions"}
     ]
 
     second = harness.deploy("dev")
@@ -1267,7 +1269,9 @@ def test_a_rollback_restores_the_pairs_the_previous_release_ran(harness, monkeyp
     # contract's name here would pair the previous image with a module it need
     # not contain, and an unready rollback lets Helm restore the uncommitted
     # new release while ACTIVE.json still names the old one.
-    assert [entry["dagsterApiGrpcArgs"] for entry in restored] == [["--module-name", "lakehouse_code.definitions"]]
+    assert [entry["dagsterApiGrpcArgs"] for entry in restored] == [
+        ["--module-name", "lakehouse_code.pipelines.definitions"]
+    ]
     assert [entry["name"] for entry in restored] == ["openlakeforge-dagster"]
 
 
@@ -1281,7 +1285,7 @@ def test_a_release_missing_one_contracted_location_is_not_skipped(harness) -> No
     skipped -- leaving Terraform's workspace pointing at a Service nobody
     creates."""
     harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
-        {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"},
+        {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.pipelines.definitions"},
         {"name": "acme-dagster", "definitions_module": "lakehouse_code.acme"},
     ]
     harness.deploy("dev")
@@ -1361,7 +1365,7 @@ def test_a_rollback_does_not_give_the_previous_image_a_new_module(harness, monke
     uncommitted new release while ACTIVE.json still named the old activation."""
     harness.deploy("dev")
     harness.contract["stages"]["dev"]["orchestration"]["code_locations"] = [
-        {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"},
+        {"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.pipelines.definitions"},
         {"name": "acme-dagster", "definitions_module": "lakehouse_code.brand_new"},
     ]
     monkeypatch.setattr(

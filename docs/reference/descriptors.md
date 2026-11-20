@@ -308,7 +308,7 @@ Each identity selects the files that implement it:
 | --- | --- |
 | Source `name` | `lakehouse_code/bronze/<source>/` |
 | Domain `name` | `lakehouse_code/silver/<domain>/`, whose `domain.yml` holds the domain's Floe defaults and whose `contracts/` holds one file per entity |
-| Product `id` | `lakehouse_code/gold/<id>/dbt/` and `lakehouse_code/pipelines/dagster/<id>.py` |
+| Product `id` | `lakehouse_code/gold/models/<id>/` |
 | Dashboard | `lakehouse_code/dashboards/superset/<name>/`, once it holds a `metadata.yaml` |
 
 ## Derived names
@@ -320,7 +320,6 @@ For a `crm` source, a `sales` domain and an `order_revenue` product:
 | Silver namespace | `sales_silver`, shared by every product of the domain |
 | Gold namespace | `order_revenue_gold` |
 | Dagster job | `order_revenue_pipeline` |
-| Dagster module | `lakehouse_code.pipelines.dagster.order_revenue` |
 | Floe report prefix | `floe/reports/sales/` |
 | dbt artifact prefix | `run-artifacts/dbt/sales/order_revenue/` |
 

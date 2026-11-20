@@ -1358,7 +1358,7 @@ def test_contract_emitted_before_the_field_resolves_the_merged_default() -> None
     parsed = parse_provider_contracts(contract, _topology(contract))
 
     assert [(location.name, location.definitions_module) for location in parsed.for_stage("dev").code_locations] == [
-        ("openlakeforge-dagster", "lakehouse_code.definitions")
+        ("openlakeforge-dagster", "lakehouse_code.pipelines.definitions")
     ]
 
 

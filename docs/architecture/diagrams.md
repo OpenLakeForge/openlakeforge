@@ -49,7 +49,7 @@ modules and Helm values (`infra/terraform/environments/local/main.tf`, `infra/he
 Thirty pods run at steady state for the Full preset with DEV and PROD and
 `spec.identity` set (the shape of `openlakeforge.conformance.yaml`). Per stage,
 Dagster runs three (webserver, daemon, and the merged `openlakeforge-dagster`
-code server loading `lakehouse_code.definitions`) and Superset runs three (node,
+code server loading `lakehouse_code.pipelines.definitions`) and Superset runs three (node,
 worker and Redis); the Dagster and Superset modules are instantiated once per
 enabled stage and per stage with analytics (`for_each` in
 `infra/terraform/environments/local/main.tf`), so DEV and PROD give 6 + 6.
@@ -282,7 +282,6 @@ concern still maps to exactly one engine:
 ```text
 lakehouse_code/
 ├── governance.yml                            ← governance:      domain · data-product metadata           → OpenMetadata
-├── definitions.py                            ← pipeline entry:  the Dagster Definitions the code server loads
 ├── bronze/<source>/                          ← source-owned
 │   ├── source.yaml                                              resource inventory
 │   └── dlt/<source>.py                       ← extract:         raw source → Bronze                      → dlt
@@ -294,7 +293,8 @@ lakehouse_code/
 │   └── models/
 │       ├── _sources/<domain>.yml                                 each domain's Silver, declared once
 │       └── <product>/                        ← product-owned:   *.sql · schema.yml  Silver→Gold SQL       → dbt-trino → Trino
-├── pipelines/dagster/<product>.py            ← pipeline:        asset graph wiring bronze→floe→dbt        → Dagster
+├── pipelines/definitions.py                  ← pipeline:        asset graph wiring bronze→floe→dbt        → Dagster
+├── pipelines/products.py                                        per-product cadence and input overrides
 ├── dashboards/superset/<dashboard>/          ← consumption-owned
 │   └── metadata.yaml                                             charts · dashboards · datasets · databases → Superset
 └── bronze/<source>/examples/*.csv                                seed data for the local demo

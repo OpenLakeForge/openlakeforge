@@ -90,12 +90,13 @@ olf product new marketing/campaign_performance \
 | `--with-report` | Also scaffold a draft Superset report; see [Dashboards as code](dashboards-as-code.md). |
 
 It creates the product's folder `gold/models/campaign_performance/` in the
-Gold dbt project and a Dagster module `pipelines/dagster/campaign_performance.py`,
-and registers the product in `governance.yml`. It also adds the product's
+Gold dbt project and registers the product in `governance.yml`. It also adds the product's
 `+group` block to `gold/dbt_project.yml` and declares any Silver table the
 domain's `gold/models/_sources/<domain>.yml` lacks; the first product creates
-the project itself. Dagster loads every module in `pipelines/dagster/` by
-itself.
+the project itself. It writes no Dagster code: `pipelines/definitions.py`
+builds a job for every product in `governance.yml`, and
+`pipelines/products.py` needs an entry only to change a product's
+[cadence or inputs](../reference/runtime-api.md).
 
 The generated model `mart_campaign_performance.sql` selects everything from
 the first Silver input. Replace it with your SQL, reading Silver through
@@ -138,7 +139,7 @@ hand:
    `<product>_gold`, and a table there belongs to the product.
 
    The product's Dagster job picks the model up from the dbt project; nothing in
-   `pipelines/dagster/<product>.py` lists it.
+   `pipelines/` lists it.
 
 A product's models are private to it: `gold/dbt_project.yml` sets
 `+access: private`, and each product is a dbt group. To let another product
@@ -163,8 +164,9 @@ staging models.
 ## Remove a product
 
 Delete its entry from `governance.yml`, its `gold/models/<product>/` folder,
-its block in `gold/dbt_project.yml` and its Dagster module. Dagster loads every module under `pipelines/dagster/`,
-declared or not, so a leftover module keeps the job alive.
+its block in `gold/dbt_project.yml` and its entry in `pipelines/products.py`, if
+it has one. The code location refuses an entry for a product `governance.yml`
+does not declare, so a leftover entry fails loudly instead of lingering.
 
 Renaming a source, domain, product or table changes the derived namespaces,
 so on a deployed stage treat it as a data migration, not an edit.

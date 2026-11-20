@@ -32,7 +32,7 @@ content-addressed revision, covering the complete promotable project:
 | `descriptors` | `lakehouse_code/governance.yml`, `bronze/<source>/source.yaml`, and `lakehouse_code/alerts.yml` when the project has one | — |
 | `floe` | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/domain.yml`, `silver/<domain>/contracts/*.yml` | — |
 | `dbt` | `gold/**` (no `profiles.yml`, `target/`, `dbt_packages/`, `logs/`) | stage connection and build output, not input |
-| `dagster` | `pipelines/dagster/<product>.py`, `bronze/<source>/dlt/<source>.py` | — |
+| `dagster` | `pipelines/definitions.py`, `pipelines/products.py`, `bronze/<source>/dlt/<source>.py` | — |
 | `reports` | `dashboards/superset/<dashboard>/**`, when any dashboard exists | — |
 | `image` | The project-code repository plus an immutable `@sha256:` digest | mutable tags are rejected |
 | `distribution` | `release/component-catalog.yaml` distribution version and runtime contract version | compatibility gate at activation |

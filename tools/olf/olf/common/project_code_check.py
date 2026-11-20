@@ -56,6 +56,8 @@ class _ProductDagsterLibrary(Protocol):
 
     ProductDefinitionSpec: Callable[..., object]
 
+    def build_product_definitions(self, spec: object) -> Any: ...
+
     def build_stage_schedules(self, spec: object, *, stage: str | None = None) -> Sequence[_Schedule]: ...
 
     def build_maintenance_definitions(self, *, stage: str | None = None) -> Any: ...
@@ -76,15 +78,9 @@ def _asset_keys(definitions: object) -> list[tuple[str, ...]]:
     ]
 
 
-def _product_inputs(product: Product) -> tuple[str, ...]:
-    """The Silver tables the product reads: the module's own list when it keeps one, else what the project declares."""
-    module = import_module(f"lakehouse_code.pipelines.dagster.{product.id}")
-    prefix = product.id.upper()
-    values = getattr(module, f"{prefix}_SILVER_INPUTS", getattr(module, f"{prefix}_ENTITIES", None))
-    if values is not None:
-        return tuple(values)
-    spec_class = import_module("openlakeforge_runtime.product_dagster").ProductDefinitionSpec
-    return tuple(spec_class(domain=product.domain_name, product=product.id).resolve().silver_inputs)
+def _product_inputs(spec: Any) -> tuple[str, ...]:
+    """The Silver tables the product reads: its override's list when it sets one, else what the project declares."""
+    return tuple(spec.resolve().silver_inputs)
 
 
 def private_runtime_imports(root: Path, public: Mapping[str, Collection[str]]) -> list[str]:
@@ -125,8 +121,9 @@ def validate(root: Path) -> None:
     from openlakeforge_core import load_lakehouse_inventory
 
     # Imported by name so mypy does not follow into the user project's tree.
-    merged_defs = import_module("lakehouse_code.definitions").defs
+    merged_defs = import_module(_DEFINITIONS_MODULE).defs
     product_dagster_lib = cast(_ProductDagsterLibrary, import_module("openlakeforge_runtime.product_dagster"))
+    code_location = import_module("openlakeforge_runtime.code_location")
 
     floe_profile = import_module("openlakeforge_runtime.floe_profile")
     execution = floe_profile.render_profile(os.environ)["execution"]
@@ -143,14 +140,13 @@ def validate(root: Path) -> None:
     if not products:
         _fail("lakehouse inventory has no products")
     product_ids = {product.id for product in products}
-    module_names = ["lakehouse_code.definitions", *(f"lakehouse_code.pipelines.dagster.{p}" for p in product_ids)]
-    for module_name in module_names:
-        targets = loadable_targets_from_python_module(module_name, str(root))
-        if len(targets) != 1 or targets[0].attribute != "defs":
-            _fail(f"{module_name} must expose exactly one defs target")
+    targets = loadable_targets_from_python_module(_DEFINITIONS_MODULE, str(root))
+    if len(targets) != 1 or targets[0].attribute != "defs":
+        _fail(f"{_DEFINITIONS_MODULE} must expose exactly one defs target")
 
+    specs = _product_specs(code_location, inventory)
     product_defs = {
-        product.id: import_module(f"lakehouse_code.pipelines.dagster.{product.id}").defs for product in products
+        product.id: product_dagster_lib.build_product_definitions(specs[product.id]) for product in products
     }
     merged_keys_list = _asset_keys(merged_defs)
     merged_keys = set(merged_keys_list)
@@ -168,7 +164,7 @@ def validate(root: Path) -> None:
     all_product_keys: set[tuple[str, ...]] = set()
 
     for product in products:
-        inputs = _product_inputs(product)
+        inputs = _product_inputs(specs[product.id])
         domain = product.domain_name
         if not inputs or any((domain, name) not in entities for name in inputs):
             _fail(f"{product.id} Silver inputs are not all Floe entities of domain {domain}")
@@ -198,14 +194,14 @@ def validate(root: Path) -> None:
 
     if not all_product_keys <= merged_keys:
         _fail("merged definitions do not contain every product asset")
-    _verify_shared_assets(inventory, entities, merged_keys_list)
+    _verify_shared_assets(inventory, specs, entities, merged_keys_list)
     stages = {stage: _load_stage_definitions(stage) for stage in _SCHEDULE_STAGES}
     _verify_stage_sensors(stages)
     _verify_stage_schedules(
         inventory,
         product_dagster_lib,
         {stage: loaded.schedules for stage, loaded in stages.items()},
-        _product_specs(products),
+        specs,
         _maintenance_schedule_names(product_dagster_lib),
     )
     _verify_bronze_dlt_stage_state()
@@ -300,12 +296,14 @@ def _verify_in_process_execution(product: Product, job: _Job) -> None:
         _fail(f"{product.job_name} run config must not set execution; the in-process executor takes none")
 
 
+_DEFINITIONS_MODULE = "lakehouse_code.pipelines.definitions"
+_PRODUCTS_MODULE = "lakehouse_code.pipelines.products"
 _STAGE_ENV = "OPENLAKEFORGE_STAGE"
 _SCHEDULE_STAGES = ("dev", "uat", "", "prod")
 
 
 def _maintenance_schedule_names(library: _ProductDagsterLibrary) -> frozenset[str]:
-    """The maintenance schedules `lakehouse_code/definitions.py` merges in: prod only, never started by a deploy."""
+    """The maintenance schedules the code location merges in: prod only, never started by a deploy."""
     return frozenset(
         schedule.name
         for build in (library.build_maintenance_definitions, library.build_gold_maintenance_definitions)
@@ -313,38 +311,10 @@ def _maintenance_schedule_names(library: _ProductDagsterLibrary) -> frozenset[st
     )
 
 
-def _product_specs(products: Sequence[Product]) -> dict[str, object]:
-    """The `spec` each product's pipeline module declares, which the schedule check compares the loaded code with.
-
-    A module that calls `build_product_definitions` without keeping its spec in a module-level `spec` is refused:
-    the check could not tell what cadence it declared, so it would pass whatever the module ships.
-    """
-    specs: dict[str, object] = {}
-    for product in products:
-        module = import_module(f"lakehouse_code.pipelines.dagster.{product.id}")
-        spec = getattr(module, "spec", None)
-        if spec is not None:
-            specs[product.id] = spec
-        elif _calls_build_product_definitions(module):
-            _fail(
-                f"{module.__name__} calls build_product_definitions but does not expose a module-level `spec`; "
-                "assign the ProductDefinitionSpec to `spec` so the cadence it declares can be checked"
-            )
-    return specs
-
-
-def _calls_build_product_definitions(module: object) -> bool:
-    path = getattr(module, "__file__", None)
-    if not path:
-        return False
-    for node in ast.walk(ast.parse(Path(path).read_text(), filename=path)):
-        if isinstance(node, ast.Call):
-            func = node.func
-            if (isinstance(func, ast.Name) and func.id == "build_product_definitions") or (
-                isinstance(func, ast.Attribute) and func.attr == "build_product_definitions"
-            ):
-                return True
-    return False
+def _product_specs(code_location: Any, inventory: LakehouseInventory) -> dict[str, object]:
+    """The spec each product's `PRODUCTS` entry yields, which the schedule check compares the loaded code with."""
+    overrides = import_module(_PRODUCTS_MODULE).PRODUCTS
+    return dict(code_location.product_specs(inventory, overrides))
 
 
 @contextmanager
@@ -362,9 +332,9 @@ def _fresh_project_modules() -> Iterator[None]:
 
 
 def _load_stage_definitions(stage: str) -> _StageDefinitions:
-    """The schedules and sensors `lakehouse_code.definitions` loads when the pod reports `stage`, as shipped."""
+    """The schedules and sensors the code location loads when the pod reports `stage`, as shipped."""
     with _environment({_STAGE_ENV: stage}), _fresh_project_modules():
-        defs = import_module("lakehouse_code.definitions").defs
+        defs = import_module(_DEFINITIONS_MODULE).defs
         return _StageDefinitions(list(defs.schedules or ()), list(defs.sensors or ()))
 
 
@@ -400,11 +370,11 @@ def _verify_stage_schedules(
 
     Every stage runs the same immutable revision, so this is the only thing
     standing between a promotion and a recurring production-shaped workload
-    appearing in DEV. `loaded` is what `lakehouse_code.definitions` actually
+    appearing in DEV. `loaded` is what the code location actually
     loads for each stage in `_SCHEDULE_STAGES`, hand-written schedules
     included; it is compared with what `build_stage_schedules` returns for the
-    `spec` each product module declares (a product whose module declares none
-    is held to the default cadence). DEV, UAT and an unset stage must load no
+    spec its `PRODUCTS` entry yields (a product without an entry is held to
+    the default cadence). DEV, UAT and an unset stage must load no
     schedule. PROD must load nothing but those product schedules, with their
     job, cron and status, and the maintenance schedules, which stay STOPPED. A
     schedule defaults to RUNNING only through `enabled_in_prod=True` in the
@@ -467,9 +437,14 @@ def _verify_stage_schedules(
 
 
 def _verify_shared_assets(
-    inventory: LakehouseInventory, entities: Mapping[tuple[str, str], FloeEntity], asset_keys: list[tuple[str, ...]]
+    inventory: LakehouseInventory,
+    specs: Mapping[str, Any],
+    entities: Mapping[tuple[str, str], FloeEntity],
+    asset_keys: list[tuple[str, ...]],
 ) -> None:
-    inputs = [(product.domain_name, name) for product in inventory.products for name in _product_inputs(product)]
+    inputs = [
+        (product.domain_name, name) for product in inventory.products for name in _product_inputs(specs[product.id])
+    ]
     counts = Counter((entities[key].source, entities[key].resource) for key in inputs)
     counts.update(inputs)
     for key, count in counts.items():

@@ -9,5 +9,6 @@ PUBLIC_MODULES = (
     "openlakeforge_runtime.bronze_csv",
     "openlakeforge_runtime.bronze_dlt",
     "openlakeforge_runtime.bronze_incremental",
+    "openlakeforge_runtime.code_location",
     "openlakeforge_runtime.product_dagster",
 )

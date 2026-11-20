@@ -36,8 +36,18 @@ _EMPTY_FILES = (
     "dashboards/__init__.py",
     "dashboards/superset/__init__.py",
     "pipelines/__init__.py",
-    "pipelines/dagster/__init__.py",
 )
+
+
+# No entry for the distribution's example products: `build_code_location` refuses overrides for a product the
+# project's governance.yml does not declare.
+_EMPTY_PRODUCTS = """from __future__ import annotations
+
+from openlakeforge_runtime.code_location import ProductOverrides
+
+# A product needs an entry only to depart from its defaults (a cadence, say), keyed by its governance.yml id.
+PRODUCTS: dict[str, ProductOverrides] = {}
+"""
 
 
 _PROFILE_HEADER = """# Deployment Profile (ADR 0011): the stages this project deploys and their
@@ -144,9 +154,9 @@ class ProjectInitializer:
         if profile_only:
             # An existing project (a 0.2 one, say) gains only its profile: no
             # code is copied, so neither the toolchain nor Docker is needed.
-            if not (target / "definitions.py").is_file():
+            if not (target / "__init__.py").is_file():
                 raise InitializationError(
-                    f"--profile-only needs an existing project: {target / 'definitions.py'} not found"
+                    f"--profile-only needs an existing project: {target / '__init__.py'} not found"
                 )
             _write_profile(profile_target, profile)
             return InitializationResult(
@@ -215,7 +225,7 @@ class ProjectInitializer:
             shutil.rmtree(staging_parent, ignore_errors=True)
 
     def _write_empty_project(self, distribution_root: Path, target: Path) -> None:
-        definitions = distribution_root / "lakehouse_code" / "definitions.py"
+        definitions = distribution_root / "lakehouse_code" / "pipelines" / "definitions.py"
         if not definitions.is_file():
             raise InitializationError(f"distribution is missing base definitions module: {definitions}")
         floe_project = distribution_root / "lakehouse_code" / "silver" / "floe.yml"
@@ -226,7 +236,8 @@ class ProjectInitializer:
             path = target / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("", encoding="utf-8")
-        (target / "definitions.py").write_text(definitions.read_text(encoding="utf-8"), encoding="utf-8")
+        (target / "pipelines" / "definitions.py").write_text(definitions.read_text(encoding="utf-8"), encoding="utf-8")
+        (target / "pipelines" / "products.py").write_text(_EMPTY_PRODUCTS, encoding="utf-8")
         (target / "silver" / "floe.yml").write_text(floe_project.read_text(encoding="utf-8"), encoding="utf-8")
         # `olf source new`/`domain new` declare each Bronze source here as an
         # entity first references it.

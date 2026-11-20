@@ -22,6 +22,7 @@ _PUBLISHED = {
         "newest_first_pages",
         "sql_engine",
     },
+    "openlakeforge_runtime.code_location": {"ProductOverrides", "build_code_location", "product_specs"},
     "openlakeforge_runtime.product_dagster": {
         "ProductCadence",
         "ProductDefinitionSpec",

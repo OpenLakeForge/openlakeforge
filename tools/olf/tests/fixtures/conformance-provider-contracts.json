@@ -347,7 +347,7 @@
       "orchestration": {
         "code_locations": [
           {
-            "definitions_module": "lakehouse_code.definitions",
+            "definitions_module": "lakehouse_code.pipelines.definitions",
             "name": "openlakeforge-dagster"
           }
         ],
@@ -445,7 +445,7 @@
       "orchestration": {
         "code_locations": [
           {
-            "definitions_module": "lakehouse_code.definitions",
+            "definitions_module": "lakehouse_code.pipelines.definitions",
             "name": "openlakeforge-dagster"
           }
         ],
