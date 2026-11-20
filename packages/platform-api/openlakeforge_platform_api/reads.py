@@ -11,6 +11,7 @@ no OpenMetadata credential.
 from __future__ import annotations
 
 import logging
+import unicodedata
 import zlib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -44,6 +45,26 @@ log = logging.getLogger(__name__)
 
 MAX_RUNS = 100
 MAX_LOG_LINES = 5000
+MAX_LOG_SEARCH = 200
+# The search text of both log routes. It may hold whatever a person pasted from a line, so it is never logged.
+LOG_SEARCH = Query(
+    default=None,
+    min_length=1,
+    max_length=MAX_LOG_SEARCH,
+    description=(
+        "Only lines whose message contains this text, ignoring case: a plain substring, not a pattern. "
+        f"1 to {MAX_LOG_SEARCH} characters, no control characters."
+    ),
+)
+
+
+def search_text(q: str | None) -> str:
+    """`q` as the archive reader takes it; 422 for a control character, which no single log line holds."""
+    if q is None:
+        return ""
+    if any(unicodedata.category(char) == "Cc" for char in q):
+        raise HTTPException(status_code=422, detail="`q` must not contain control characters")
+    return q
 
 
 def _dagster(request: Request, stage: str) -> DagsterClient:
@@ -116,6 +137,7 @@ def list_logs(
     product: str = "",
     run_id: str = "",
     severity: Literal["debug", "info", "warning", "error", "critical"] | None = None,
+    q: str | None = LOG_SEARCH,
     since: datetime | None = None,
     until: datetime | None = None,
     limit: int = Query(default=500, ge=1, le=MAX_LOG_LINES),  # noqa: B008
@@ -123,8 +145,10 @@ def list_logs(
     """The stage's archived pod log lines for a UTC day or one hour of it, oldest first.
 
     The stage picks the archive, so no filter can reach another stage's. `severity` is a floor on each line's
-    `level`; `component`, `product` and `run_id` match v2 records only.
+    `level`; `q` keeps the lines whose message contains it, ignoring case; `component`, `product` and `run_id` match
+    v2 records only. Every filter applies before `limit`, so `truncated` means more matching lines exist.
     """
+    text = search_text(q)
     reader, namespace = _log_archive(request, stage)
     with _archive_errors(stage):
         lines = reader.read(
@@ -137,6 +161,7 @@ def list_logs(
             product=product,
             run_id=run_id,
             severity=severity or "",
+            text=text,
             since=since,
             until=until,
             limit=limit,

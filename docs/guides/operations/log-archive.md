@@ -33,7 +33,16 @@ The platform prefix is outside every stage reader's grant, so `olf logs` does no
 ```bash
 olf logs --stage dev --run-id <dagster-run-id> --severity error
 olf logs --stage dev --product <product> --component floe --since 2026-11-17T09:00:00
+olf logs --stage dev --date 2026-11-17 --severity warning --grep "contract violated"
 ```
+
+`--severity` keeps lines at that level or above, read from the line's own text, so a line that states no level is left
+out. `--grep` keeps lines whose message contains the text, ignoring case; it is plain text, not a pattern, and does not
+match the kubelet timestamp of an older-layout line. Both are applied by the platform API before `--limit`, so the
+limit counts matching lines. In the API they are the `severity` and `q` parameters of
+`GET /api/v1/stages/<stage>/logs` and `GET /api/v1/stages/<stage>/runs/<run-id>/logs`. On the run route a page stops at
+the three UTC days one read covers, so a search with few matches can answer fewer lines than `limit`, or none, with
+`next` set; follow `next` until it is null.
 
 The flags are in the [CLI reference](../../reference/cli.md). `data-engineer` reads `dev`, `platform-admin` reads every
 stage, and a request for another stage is refused by the API. The newest lines may not be archived yet: the S3 output

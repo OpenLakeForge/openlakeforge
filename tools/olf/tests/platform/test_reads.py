@@ -365,7 +365,19 @@ def test_logs_passes_the_run_scoped_filters(fake: FakeAPI) -> None:
     }  # fmt: skip
 
 
-@pytest.mark.parametrize(("flag", "value"), [("--severity", "loud"), ("--since", "noon"), ("--until", "x")])
+def test_logs_passes_the_search_text_as_q_unchanged(fake: FakeAPI) -> None:
+    result = _olf("logs", "--date", "2026-10-30", "--severity", "warning", "--grep", "Contract [violated]")
+
+    assert result.exit_code == 0, result.output
+    assert fake.requests[0]["query"] == {
+        "date": ["2026-10-30"], "limit": ["500"], "severity": ["warning"], "q": ["Contract [violated]"],
+    }  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("flag", "value"),
+    [("--severity", "loud"), ("--since", "noon"), ("--until", "x"), ("--grep", "x" * 201), ("--grep", "a\tb\x00")],
+)
 def test_logs_refuses_a_filter_the_api_would_reject_without_a_message(fake: FakeAPI, flag: str, value: str) -> None:
     result = _olf("logs", flag, value)
 

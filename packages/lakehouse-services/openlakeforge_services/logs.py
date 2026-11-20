@@ -150,6 +150,18 @@ def _logfmt_level(text: str) -> str | None:
     return _level_name(value)
 
 
+def message_of(line: ArchivedLogLine) -> str:
+    """The text a search reads: the message, without the kubelet timestamp a v1 line opens with.
+
+    So a v1 copy of a v2 line matches exactly when the v2 record does, and a search for a date matches no line
+    by its timestamp. An archive error record has no message.
+    """
+    text = line.line or ""
+    if line.source == "v1" and line.timestamp is not None:
+        return text.removeprefix(line.timestamp).removeprefix(" ")
+    return text
+
+
 def _rank(level: str | None) -> int:
     return SEVERITIES.index(level) if level else -1
 
@@ -292,6 +304,7 @@ class LogArchive:
         product: str = "",
         run_id: str = "",
         severity: str = "",
+        text: str = "",
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 1000,
@@ -301,8 +314,9 @@ class LogArchive:
 
         Every filter selects within the one namespace's partitions; none of them is a path segment, so a
         filter cannot move the listing to another stage. `severity` is a floor (`warning` also returns
-        errors) on the line's `level`, so a line with no level is left out by it; `since` and `until` bound the
-        record time. `component`, `product` and `run_id` exist only in v2, so setting one leaves v1 out.
+        errors) on the line's `level`, so a line with no level is left out by it; `text` keeps the lines whose
+        message holds it, ignoring case (`message_of`); `since` and `until` bound the record time. `component`,
+        `product` and `run_id` exist only in v2, so setting one leaves v1 out.
         `deadline`, on the archive's clock, stops the scan with ArchiveDeadline between pages, objects and records.
         With `since`, an object uploaded before it (less UPLOAD_CLOCK_SLACK) is not read: it holds no line it selects.
         `hour`, `since` and `until` also pick the v2 hour partitions listed.
@@ -317,6 +331,7 @@ class LogArchive:
             product=product,
             run_id=run_id,
             severity=severity,
+            text=text,
             since=since,
             until=until,
             limit=limit,
@@ -335,6 +350,7 @@ class LogArchive:
         product: str = "",
         run_id: str = "",
         severity: str = "",
+        text: str = "",
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 1000,
@@ -355,6 +371,9 @@ class LogArchive:
         v2 lists only the hour partitions of each day that `hour`, `since` and `until` touch, and no day the window
         misses. A v2 object holds the records of the one hour its key names, whenever it was uploaded, so this needs
         no slack hour; objects of a day without hour partitions are listed as before, with the LastModified skip.
+
+        `text` is a filter like the others: it applies before the ordering and the limit, so `last` is the position
+        of the last matching line and `after` pages through the matches alone, none skipped or repeated.
         """
         # A slash would move the listing to another partition, such as another stage's namespace.
         if not _NAMESPACE.fullmatch(namespace):
@@ -364,6 +383,7 @@ class LogArchive:
         if severity and severity not in SEVERITIES:
             raise ValueError(f"not a severity: {severity!r}")
         floor = SEVERITIES.index(severity) if severity else -1
+        needle = text.casefold()
         since, until = (
             None if bound is None else bound if bound.tzinfo else bound.replace(tzinfo=UTC) for bound in (since, until)
         )
@@ -376,6 +396,7 @@ class LogArchive:
                 and (not product or line.product == product)
                 and (not run_id or line.run_id == run_id)
                 and (floor < 0 or _rank(line.level) >= floor)
+                and (not needle or needle in message_of(line).casefold())
                 and (since is None or (at is not None and at >= since))
                 and (until is None or (at is not None and at < until))
             )
