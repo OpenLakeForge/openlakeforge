@@ -112,4 +112,8 @@ uv run --project tools/olf --locked olf infra e2e run --env local --checks all
 ```
 
 runs the drills that cover this page: a short-lived failing pod whose output is read after the pod is gone, a collector
-killed mid-stream, retention in the object store, and the delivery signals through an outage.
+killed mid-stream, retention in the object store, and the delivery signals through an outage. A further drill fails
+a product run after its Floe step, deletes the run's Jobs, and reads the run's failure, quality checks, one report
+and its whole log window back through the platform API; it logs one `RUN_DRILLDOWN_JSON` line of counts. The
+operator journey drill then opens that run in the Portal and saves screenshots under
+`.tmp/walkthrough-screenshots/<namespace>/`; it needs Playwright and Chromium installed beside `olf`.

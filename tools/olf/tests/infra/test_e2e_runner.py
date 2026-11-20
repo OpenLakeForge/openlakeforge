@@ -147,7 +147,7 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
                 "superset", "openmetadata", "quality", "writer", "evidence", "artifacts", "metrics-reads",
                 "metrics-labels", "metrics-footprint", "metrics-outage", "short-lived", "collector-restart",
                 "retention", "footprint", "delivery", "spool-limit",
-                "alerts", "isolation",
+                "alerts", "drilldown", "journey", "isolation",
                 "exposure", "rotation",
             ],
         ),
@@ -197,6 +197,8 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "check_real_quality_evidence", lambda _cfg: calls.append("evidence"))
     monkeypatch.setattr(_runner, "check_ops_artifacts", lambda _cfg: calls.append("artifacts"))
     monkeypatch.setattr(_runner, "check_alert_delivery", lambda _cfg: calls.append("alerts"))
+    monkeypatch.setattr(_runner, "check_failed_run_drilldown", lambda _cfg: calls.append("drilldown"))
+    monkeypatch.setattr(_runner, "check_operator_journey_screenshots", lambda _cfg: calls.append("journey"))
     monkeypatch.setattr(_runner, "check_metrics_reads", lambda _cfg: calls.append("metrics-reads"))
     monkeypatch.setattr(_runner, "check_metrics_cardinality", lambda _cfg: calls.append("metrics-labels"))
     monkeypatch.setattr(_runner, "check_metrics_footprint", lambda _cfg: calls.append("metrics-footprint"))
@@ -214,7 +216,10 @@ def test_core_checks_skip_every_drill_and_keep_exposure_before_rotation(tmp_path
     cfg = e2e_cfg(tmp_path)
     labels = [a.label for a in _runner.full_assertions(cfg)]
     drills = [a.label for a in _runner.full_assertions(cfg) if a.tier == "drill"]
-    assert len(drills) == 17
+    assert len(drills) == 19
+    assert labels.index("alert notifications reach a receiver") < labels.index(
+        "failed run drill-down through the platform API"
+    ) < labels.index("operator journey screenshots")
     assert labels.index("identity credential exposure") < labels.index("credential preservation across a redeploy")
     assert labels.index("identity credential exposure") < labels.index("workload secret rotation")
     assert [a.label for a in _runner.full_assertions(e2e_cfg(tmp_path, env="aws")) if a.tier == "drill"] == []
@@ -301,6 +306,8 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "check_delivery_signals_follow_an_outage", lambda _cfg: calls.append("delivery"))
     monkeypatch.setattr(_runner, "check_spool_limit_is_the_loss_point", lambda _cfg: calls.append("spool-limit"))
     monkeypatch.setattr(_runner, "check_alert_delivery", lambda _cfg: calls.append("alerts"))
+    monkeypatch.setattr(_runner, "check_failed_run_drilldown", lambda _cfg: calls.append("drilldown"))
+    monkeypatch.setattr(_runner, "check_operator_journey_screenshots", lambda _cfg: calls.append("journey"))
     monkeypatch.setattr(_runner, "check_metrics_reads", lambda _cfg: calls.append("metrics-reads"))
     monkeypatch.setattr(_runner, "check_metrics_cardinality", lambda _cfg: calls.append("metrics-labels"))
     monkeypatch.setattr(_runner, "check_metrics_footprint", lambda _cfg: calls.append("metrics-footprint"))
@@ -318,7 +325,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
         "perimeter", "break-glass", "outage",
         "evidence", "artifacts", "metrics-reads", "metrics-labels", "metrics-footprint", "metrics-outage",
         "short-lived", "collector-restart", "retention", "footprint", "delivery", "spool-limit",
-        "alerts", "isolation", "exposure", "rotation",
+        "alerts", "drilldown", "journey", "isolation", "exposure", "rotation",
     ]
     skipped = (
         "perimeter dashboard latency, Superset dashboards, OpenMetadata governance assets, "

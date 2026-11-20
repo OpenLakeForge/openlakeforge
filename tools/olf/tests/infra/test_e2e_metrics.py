@@ -17,6 +17,15 @@ def envelope(state: str, *values: float | None) -> dict[str, Any]:
     return {"state": state, "reason": "r", "lines": [{"labels": {"stage": "dev"}, "points": points}] if values else []}
 
 
+def test_the_reader_is_the_mapped_role_nearest_the_floor_that_the_stage_admits() -> None:
+    precedence = ["platform-admin", "data-engineer", "analyst", "viewer"]
+    mapping = {"platform-admin": ["o:a"], "data-engineer": ["o:d"], "viewer": ["o:v"]}
+    assert _metrics.session_roles(precedence, mapping, "data-engineer") == ("data-engineer", "viewer")
+    on_prod = _metrics.session_roles(precedence, mapping, "data-engineer", lambda role: role != "data-engineer")
+    assert on_prod == ("platform-admin", "viewer")
+    assert _metrics.session_roles(precedence, {"analyst": ["o:x"]}, "data-engineer") == (None, "analyst")
+
+
 def test_a_series_counts_only_when_available_with_a_point_that_is_not_null() -> None:
     assert _metrics.has_points(envelope("available", None, 0.0))
     assert not _metrics.has_points(envelope("available", None, None))
