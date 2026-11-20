@@ -82,6 +82,7 @@ def test_the_shipped_app_serves_only_its_routes(settings: Settings) -> None:
         ("/api/v1/stages/{stage}/runs", "POST"),
         ("/api/v1/stages/{stage}/runs/{run_id}", "GET"),
         ("/api/v1/stages/{stage}/runs/{run_id}/failure", "GET"),
+        ("/api/v1/stages/{stage}/runs/{run_id}/logs", "GET"),
         ("/api/v1/stages/{stage}/runs/{run_id}/quality", "GET"),
         ("/api/v1/stages/{stage}/runs/{run_id}/quality/reports/{report_id}", "GET"),
         ("/api/v1/stages/{stage}/schemas", "GET"),

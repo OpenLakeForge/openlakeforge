@@ -428,7 +428,7 @@ asserts that its keys are a subset of this table **[T]**.
 | --- | --- | --- |
 | `run` | `<scheme>://dagster-<stage>.<base_domain>/runs/<run_id>` for a condition with a run, where `<scheme>` is `http` when `spec.access.tls` is `none` (the local default, ADR 0013 decision 9) and `https` for every TLS mode. The evaluator takes the scheme from the access contract, never a constant. The host pattern is ADR 0013's **[V]**; the `/runs/<id>` path is Dagster's UI route **[T: checked against the pinned Dagster version in #1173]** | Always available once the route exists |
 | `portal` | the Portal's diagnostic page for the incident (#333) | Omitted until #333 exists |
-| `runbook` | an anchor in the published docs for the condition (`stale_output`, `missed_run`, ...) | A docs anchor until runbooks (#51) exist (Default, revisit) |
+| `runbook` | `<runbook page>#<condition>`, the condition's section of `docs/guides/operations/alerts.md`; the local root defaults the page to that guide on GitHub at the release tag (`v<distribution.version>`), overridable with the root's `runbook_base_url` (https, no fragment) | Default |
 
 The Dagster link goes through the stage's perimeter, so the receiver's reader
 must sign in and hold a role for that stage (ADR 0013, ADR 0014); a notification
@@ -1094,3 +1094,11 @@ delivered notification from an expired or rejected one after it leaves the outbo
 incident, its latest notification's outcome and counts, and per outbox entry the receivers that rejected it. Both keys
 are optional on read and written only when set, so a state written before this change still parses, with no outcome,
 and keeps its digest, which tags its pending history. `schema_version` stays 1.
+
+2026-11-20: #794. Runbook linkage. The alerts guide's per-condition sections (headings equal to each `AlertKind`
+value) are the runbook, each giving meaning, first checks, common causes and recovery; a test fails CI when a kind has
+no section. The local root sets `runbook_base_url` by default to
+`https://github.com/OpenLakeForge/openlakeforge/blob/v<distribution.version>/docs/guides/operations/alerts.md`, read
+from `release/component-catalog.yaml`, overridable with the root variable `runbook_base_url`, https without a
+fragment. The evaluator and the platform API receive the same URL, so every notification carries `links.runbook`. The
+evaluator now refuses an `http://` runbook base.

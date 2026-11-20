@@ -6,11 +6,12 @@ import gzip
 import io
 import json
 import weakref
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
-from openlakeforge_services.logs import LogArchive
+from openlakeforge_core.log_archive import V1_LOOKBACK_SECONDS
+from openlakeforge_services.logs import ArchiveDeadline, LogArchive, level_of
 
 BASE = "s3://ops/activations/dev/logs"
 DAY = date(2026, 11, 16)
@@ -209,3 +210,132 @@ def test_dedup_state_stays_proportional_to_the_limit_not_to_the_day(
 
     assert _read(store, limit=1) == ["line 2999"]
     assert most_alive <= 5
+
+
+def test_several_days_read_as_one_ordering_with_one_dedup(store: _Store) -> None:
+    # A replay can land in the next day's object only if its time is that day's, so it is the same day here; the
+    # dedup and the limit still run over both days, not per day.
+    replayed = _v2("2026-11-16T23:59:59.9Z", "before midnight")
+    store.put(_v2_key("dev-a"), [replayed, replayed])
+    store.put(_v2_key("dev-b", day="2026-11-17"), [_v2("2026-11-17T00:00:00.1Z", "after midnight")])
+    store.put(
+        "activations/dev/logs/k8s/namespace=olf-dev/date=2026-11-17/hour=00/k8s-logs-x.ndjson.gz",
+        [_v1("2026-11-17T00:00:00.05Z from v1")],
+    )
+    archive = LogArchive(store, BASE)
+
+    both = archive.read_days("olf-dev", [date(2026, 11, 17), DAY]).lines
+
+    assert [line.line for line in both] == ["before midnight", "2026-11-17T00:00:00.05Z from v1", "after midnight"]
+    assert [line.timestamp for line in both] == [
+        "2026-11-16T23:59:59.9Z",
+        "2026-11-17T00:00:00.05Z",
+        "2026-11-17T00:00:00.1Z",
+    ]
+    assert [line.line for line in archive.read_days("olf-dev", [DAY, date(2026, 11, 17)], limit=1).lines] == [
+        "before midnight"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("message", "level"),
+    [
+        ("ERROR contract violated", "error"),
+        ("2026-11-16 09:41:07 WARNING disk", "warning"),
+        ("2026-11-16T09:41:07.123Z\tINFO\tmain\tstarted", "info"),
+        ("2026-11-16 09:41:07 +0000 - dagster - DEBUG - orders_job - step", "debug"),
+        ("26/11/16 09:41:07 FATAL shutdown", "critical"),
+        ("[2026/11/16 09:41:07] [ warn] [output:s3] retry", "warning"),
+        ("ERROR:root:boom", "error"),
+        ('{"level": "ERROR", "msg": "x"}', "error"),
+        ('{"severity": "info"}', "info"),
+        ('{"levelname": "WARNING"}', "warning"),
+        ("ts=2026-11-16T09:41:07Z level=error msg=x", "error"),
+        ('ts=1 level="warn" msg="a \\"quoted\\" word"', "warning"),
+        # Only a top-level key counts: a `level=` inside a quoted value is that value's text.
+        ('msg="retry after level=error again" level=info', "info"),
+        ('msg="example level=critical token"', None),
+        # An unbalanced quote is not logfmt, so nothing in the line is trusted.
+        ('msg="open level=error', None),
+        # Stated nowhere the reader recognises: no level, rather than a guess.
+        ("Error occurred while executing op", None),
+        ("retrying after error", None),
+        ("ERRORS: 3", None),
+        ('{"level": 30}', None),
+        ('{"level": "notice"}', None),
+        ("{not json ERROR", None),
+        ("Traceback (most recent call last):", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_a_level_is_read_only_where_the_message_states_it(message: str | None, level: str | None) -> None:
+    assert level_of(message) == level
+
+
+def test_a_v1_line_keeps_its_kubelet_time_and_an_error_record_has_none(store: _Store) -> None:
+    store.put(
+        _v1_key(),
+        [
+            _v1("2026-11-16T11:00:00.5Z ERROR failed"),
+            {**_v1(""), "line": None, "archive_error": "container not found"},
+        ],
+    )
+
+    lines = LogArchive(store, BASE).read("olf-dev", DAY)
+
+    assert [(line.timestamp, line.level, line.error) for line in lines] == [
+        (None, None, "container not found"),
+        ("2026-11-16T11:00:00.5Z", "error", None),
+    ]
+
+
+def test_v1_is_listed_past_the_window_by_the_archivers_lookback_and_still_filtered_by_event_time(store: _Store) -> None:
+    # The archiver ran at 00:00:05 and read the hour before, so the 23:59 line sits in the next day's partition.
+    store.put(
+        "activations/dev/logs/k8s/namespace=olf-dev/date=2026-11-17/hour=00/k8s-logs-x.ndjson.gz",
+        [
+            {**_v1("2026-11-16T23:59:10Z ERROR last"), "archived_at": "2026-11-17T00:00:05+00:00"},
+            {**_v1("2026-11-17T00:00:01Z later"), "archived_at": "2026-11-17T00:00:05+00:00"},
+        ],
+    )
+    archive = LogArchive(store, BASE)
+    until = datetime(2026, 11, 16, 23, 59, 30, tzinfo=UTC)
+
+    assert archive.read_days("olf-dev", [DAY], until=until).lines == []
+    found = archive.read_days("olf-dev", [DAY], until=until, v1_lookback=timedelta(seconds=V1_LOOKBACK_SECONDS))
+
+    assert [line.line for line in found.lines] == ["2026-11-16T23:59:10Z ERROR last"]
+
+
+def test_a_scan_past_its_deadline_stops_before_reading_the_rest(store: _Store) -> None:
+    for n in range(20):
+        store.put(_v2_key(f"dev-{n:02d}"), [_v2(f"2026-11-16T09:00:{n:02d}Z", f"line {n}")])
+    fetched: list[str] = []
+    get_object = store.get_object
+
+    def counting(*, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        fetched.append(Key)
+        return get_object(Bucket=Bucket, Key=Key)
+
+    store.get_object = counting  # type: ignore[method-assign]
+    # Every look at the clock moves it one second on.
+    ticks = iter(range(1000))
+    archive = LogArchive(store, BASE, clock=lambda: float(next(ticks)))
+
+    with pytest.raises(ArchiveDeadline):
+        archive.read("olf-dev", DAY, deadline=5.0)
+
+    assert len(fetched) <= 3
+
+
+def test_a_line_in_both_layouts_is_answered_once_when_a_page_ends_on_its_v2_record(store: _Store) -> None:
+    store.put(_v2_key("dev-a"), [_v2("2026-11-16T09:00:01Z", "seen twice", pod="run-1")])
+    store.put(_v1_key(), [_v1("2026-11-16T09:00:01Z seen twice")])
+    archive = LogArchive(store, BASE)
+
+    first = archive.read_days("olf-dev", [DAY], limit=1)
+    second = archive.read_days("olf-dev", [DAY], limit=1, after=first.last)
+
+    assert [line.source for line in first.lines] == ["v2"]
+    assert second.lines == []

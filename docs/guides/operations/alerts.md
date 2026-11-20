@@ -359,34 +359,66 @@ the evaluator reads no service signal and raises neither.
 | `run_id` | The Dagster run, when the condition has one. |
 | `summary` | A fixed phrase, never log or error text. |
 | `links.run` | The run in the stage's Dagster, behind the perimeter: the reader signs in and needs a role for that stage. |
-| `links.runbook` | The anchor for the condition on a runbook page. Omitted unless the evaluator has a runbook base URL, which no profile field sets today. |
+| `links.runbook` | The condition's section of the alert runbook: [What to do for each condition](#what-to-do-for-each-condition) at the deployed release, unless [overridden](#the-runbook-link). |
 
 A payload never carries log lines, run tags, error text, row contents, storage
 URLs or credentials.
 
 ## What to do for each condition
 
-The headings are the `condition` values, which is the anchor a runbook link
-ends with. The first five are product conditions and alert only where
-`alerts.yml` declares them; the severities below are their defaults, which a
-rule's options change.
+This is the alert runbook. The headings are the `condition` values, which is
+the anchor `links.runbook` ends with; the platform API's run quality answer
+(`GET /api/v1/stages/{stage}/runs/{run_id}/quality`) links the
+[`quality`](#quality) section for a run with an error check and the
+[`run_failed`](#run_failed) section for any other failed run. The first five
+are product conditions and alert only where `alerts.yml` declares them; the
+severities below are their defaults, which a rule's options change.
+
+For a product condition, start with the stage's view of the pipeline, then the
+run. The CLI commands need `olf login` and read through the platform API:
+
+1. `olf pipelines health <stage>` prints each pipeline's state and the reason.
+2. `olf runs list --stage <stage> --job <job>` lists the job's latest runs, and
+   `olf runs show <run-id> --stage <stage>` one run; `links.run` opens the same
+   run in the stage's Dagster, with its steps and event log.
+3. `olf logs --stage <stage> --run-id <run-id> --severity error` prints the
+   run's archived pod log lines; the [log archive](log-archive.md) guide covers
+   the other filters.
+4. `GET /api/v1/stages/{stage}/runs/{run_id}/quality` lists the run's quality
+   checks and the reports it retained.
+
+To rerun a job after a fix, use `olf runs launch <job> --stage dev` on DEV,
+`olf infra product run <product> --stage <stage>` with cluster access on any
+stage, or re-execute the run in the stage's Dagster.
 
 ### run_failed
 
 Critical. The latest run of a job failed. A canceled run does not alert.
-Open `links.run`, read the failed step, and fix or rerun. It resolves when the
-latest run succeeds; a run still in progress does not resolve it. See
-[troubleshooting](../troubleshooting.md).
+
+- **First checks:** the failed step in `links.run`, then the run's error lines
+  in `olf logs`.
+- **Common causes:** an error in the product's code, a source that is
+  unreachable or misses a bound key (`olf infra source bindings --stage <stage>`
+  lists missing keys), a blocking quality check (see [`quality`](#quality)),
+  or a pod that was evicted or ran out of memory.
+- **Recovery:** fix the cause and rerun. It resolves when the latest run
+  succeeds; a run still in progress does not resolve it. See
+  [troubleshooting](../troubleshooting.md) for pods that do not start.
 
 ### missed_run
 
 Critical. A running schedule passed its due time plus its grace (15 minutes
-unless the rule sets `grace`) and no run started, which usually means the Dagster scheduler is down. Check the
-scheduler daemon in the stage's Dagster. It resolves when a run starts.
-Stopping the schedule closes it without a notification only when the product's
-cadence does not declare that schedule running. If the cadence declares it
-running, stopping it leaves `missed_run` open and also opens a
-`schedule_mismatch`; start a run, or change the declaration first.
+unless the rule sets `grace`) and no run started.
+
+- **First checks:** the scheduler daemon in the stage's Dagster, and its pods:
+  `kubectl -n <stage-namespace> get pods -l app.kubernetes.io/name=dagster`.
+- **Common causes:** the Dagster daemon is down, scaled to zero or cannot be
+  scheduled.
+- **Recovery:** bring the daemon back, or start a run. It resolves when a run
+  starts. Stopping the schedule closes it without a notification only when the
+  product's cadence does not declare that schedule running. If the cadence
+  declares it running, stopping it leaves `missed_run` open and also opens a
+  `schedule_mismatch`; start a run, or change the declaration first.
 
 ### stale_output
 
@@ -395,78 +427,133 @@ has had no success since the previous due time plus the grace (15 minutes
 unless the rule sets `grace`). With `warn_after` or `critical_after`, the last
 success is older than that bound, at `warning` or `critical`, whatever the
 schedule's state; a job with no success among the last 25 runs opens nothing. It
-is not sent while `run_failed` or
-`missed_run` is open for the same product, since either already explains it.
-It resolves on the next success. The signal is described in
-[health signals](../../reference/health-signals.md).
+is not sent while `run_failed` or `missed_run` is open for the same product,
+since either already explains it.
+
+- **First checks:** `olf pipelines health <stage>` and the job's latest runs in
+  `olf runs list`.
+- **Common causes:** runs that keep being canceled, a schedule stopped in a
+  stage where the rule sets thresholds, or thresholds tighter than the
+  product's real cadence.
+- **Recovery:** a successful run resolves it. The signal is described in
+  [health signals](../../reference/health-signals.md).
 
 ### quality
 
 `warning` for a Floe warning or a non-blocking error, `critical` for a blocking
 error. It is one incident whose severity can rise, so a warning that becomes a
-blocking error sends one `escalated`. It resolves when a later run's complete
-quality manifest passes. Thresholds stay in your Floe and dbt configuration.
+blocking error sends one `escalated`.
+
+- **First checks:** the run's checks and reports from the run quality route
+  above: which engine, table and check, and the rows it rejected or the
+  failures it counted. `olf logs --stage <stage> --run-id <run-id> --component
+  floe` shows the Floe validation's own lines.
+- **Common causes:** source data that changed shape or content (nulls, values
+  that do not cast, duplicate keys), or a Floe contract or dbt test that no
+  longer matches the data.
+- **Recovery:** fix the data at its source or the contract or test, then rerun.
+  It resolves when a later run's complete quality manifest passes. Thresholds
+  stay in your Floe and dbt configuration.
 
 ### schedule_mismatch
 
 Warning. A PROD schedule that the product's cadence declares running is
-stopped in Dagster. Start it, or change the declaration. Starting the schedule
-resolves the incident with a `resolved` notification; changing the declaration
-so the schedule is no longer expected to run closes it without a
-notification.
+stopped in Dagster.
+
+- **First checks:** the schedule's state in the stage's Dagster.
+- **Common causes:** the schedule was stopped by hand, or the declaration was
+  not updated when the product's cadence changed.
+- **Recovery:** start the schedule, which resolves the incident with a
+  `resolved` notification, or change the declaration so the schedule is no
+  longer expected to run, which closes it without a notification.
 
 ### stage_unreadable
 
 Critical, to the platform receivers only. Dagster for a stage could not be
-read in 3 consecutive evaluations. Check that the stage's Dagster webserver is
-running. While it lasts, that stage's open incidents are held, not resolved.
+read in 3 consecutive evaluations. While it lasts, that stage's open incidents
+are held, not resolved.
+
+- **First checks:** the stage's Dagster webserver:
+  `kubectl -n <stage-namespace> get pods -l app.kubernetes.io/name=dagster`,
+  and the `dagster.read-api` row of `olf health <stage>`.
+- **Common causes:** the webserver is down or restarting, or no code location
+  is loaded.
+- **Recovery:** see [`dagster.read-api`](service-health.md#dagsterread-api).
+  It resolves on the first evaluation that reads the stage.
 
 ### policy_unreadable
 
 Warning, to the platform receivers only. The evaluator could not use a stage's
-alert policy. The causes are a failed read of the stage's activation or
-revision, a revision file whose digest does not match its sidecar, an
-`alerts.yml` that fails validation (for example a revision built by a newer
-distribution than the evaluator), a revision that has `alerts.yml` without
-`governance.yml`, and a route that names a receiver the profile no longer
-declares. The notification carries a fixed summary, not the cause: the
+alert policy. The notification carries a fixed summary, not the cause: the
 evaluator logs the cause per stage (see [Check it](#check-it) for the Job's
-log). What happens meanwhile depends on whether the stage has a last good
-policy:
+log).
 
-- **A last good policy exists.** The evaluator keeps applying it, so alerts
-  continue as before.
-- **None does** (the first evaluation after a deploy, or after the cache was
-  lost). The stage is left out of the evaluation: its open product incidents are
-  held, not resolved, nothing new opens for it, and a queued product
-  notification waits. A policy that cannot be read is not a rule that went away.
-
-For a stale route, restore the receiver in `openlakeforge.yaml` and run
-`olf infra platform apply`, or change the route in `alerts.yml` and deploy a new
-revision; the other routes keep delivering. For a policy that fails validation,
-run `olf check contracts` on the revision's source and deploy a fixed one. The
-incident resolves, with a notification, on the first evaluation that reads the
-stage's policy cleanly. A stage with no activation, or whose revision has no
-`alerts.yml`, is a normal state and raises nothing.
+- **Common causes:** a failed read of the stage's activation or revision, a
+  revision file whose digest does not match its sidecar, an `alerts.yml` that
+  fails validation (for example a revision built by a newer distribution than
+  the evaluator), a revision that has `alerts.yml` without `governance.yml`,
+  and a route that names a receiver the profile no longer declares.
+- **Meanwhile:** with a last good policy, the evaluator keeps applying it, so
+  alerts continue as before. With none (the first evaluation after a deploy, or
+  after the cache was lost), the stage is left out of the evaluation: its open
+  product incidents are held, not resolved, nothing new opens for it, and a
+  queued product notification waits. A policy that cannot be read is not a
+  rule that went away.
+- **Recovery:** for a stale route, restore the receiver in `openlakeforge.yaml`
+  and run `olf infra platform apply`, or change the route in `alerts.yml` and
+  deploy a new revision; the other routes keep delivering. For a policy that
+  fails validation, run `olf check contracts` on the revision's source and
+  deploy a fixed one. The incident resolves, with a notification, on the first
+  evaluation that reads the stage's policy cleanly. A stage with no activation,
+  or whose revision has no `alerts.yml`, is a normal state and raises nothing.
 
 ### service_degraded
 
 Warning or critical, one incident per stage and component, sent to the platform
 receivers only. A Dagster or Trino workload that is not ready alerts at
 `warning` or `critical`, as `GET /api/v1/stages/{stage}/health/services`
-reports it. The object store that cannot be listed and the log archive's spool age, spool size
-and newest object alert at `critical` only. The incident resolves when the
-component reports `healthy`; an `unknown` or `disabled` component changes
-nothing. There are no reminders. Read the component's `reason` in the health
-routes' `services` list.
+reports it. The object store that cannot be listed and the log archive's spool
+age, spool size and newest object alert at `critical` only.
+
+- **First checks:** `olf health <stage>`, and the component's `reason` there.
+- **Common causes and recovery:** per component in
+  [service health](service-health.md#what-to-do-for-each-component).
+- **Resolves** when the component reports `healthy`; an `unknown` or `disabled`
+  component changes nothing. There are no reminders.
 
 ### health_unreadable
 
 Critical, to the platform receivers only. The platform API's services route
 (`GET /api/v1/stages/{stage}/health/services`) could not be read for a stage in
-3 consecutive evaluations. Check that the
-`platform-api` pod is running. While it lasts, open `service_degraded` incidents
-stay open: an API that cannot answer is not evidence that the services recovered.
+3 consecutive evaluations. While it lasts, open `service_degraded` incidents
+stay open: an API that cannot answer is not evidence that the services
+recovered.
+
+- **First checks:** the `platform-api` pod:
+  `kubectl -n olf-system get pods -l app.kubernetes.io/name=platform-api`.
+- **Common causes:** the pod is not ready or restarting, or its settings were
+  refused at startup, which its log names.
+- **Recovery:** it resolves on the first evaluation that reads the route.
+
+### The runbook link
+
+The local provider sets the runbook page to this guide on GitHub at the
+deployed release's tag,
+`https://github.com/OpenLakeForge/openlakeforge/blob/v<version>/docs/guides/operations/alerts.md`,
+with `<version>` the distribution version. To link your own runbook page, set
+the platform root's `runbook_base_url` in a variable file and deploy with it:
+
+```hcl
+runbook_base_url = "https://wiki.example.com/data-platform/alerts"
+```
+
+```bash
+olf infra deploy --var-file runbook.tfvars
+```
+
+The URL must be `https` and carry no `#fragment`: the link appends
+`#<condition>`, so your page needs a section with each condition's name as its
+anchor.
 
 ## Check it
 

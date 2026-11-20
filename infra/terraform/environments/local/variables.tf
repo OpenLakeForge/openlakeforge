@@ -45,6 +45,17 @@ variable "alert_receiver_secrets" {
   default = {}
 }
 
+variable "runbook_base_url" {
+  description = "The alert runbook page that alert notifications and the platform API's run quality answer link to, anchored with #<condition>. Null uses docs/guides/operations/alerts.md on GitHub at this distribution's release tag (release/component-catalog.yaml, distribution.version). Set it, for example in a -var-file, to serve the runbook from your own docs."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.runbook_base_url == null || can(regex("^https://[^/#\\s]+[^#\\s]*$", coalesce(var.runbook_base_url, "x")))
+    error_message = "runbook_base_url is an https URL without a fragment: the link appends #<condition>."
+  }
+}
+
 variable "stages" {
   description = "Resolved deployment topology: one entry per stage the resolver knows about, with its enabled flag and capabilities. Disabled stages stay in the map so the root can report what an apply would remove."
   type = map(object({
