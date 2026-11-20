@@ -38,6 +38,10 @@ def _v2_key(day: str, name: str = "dev-a") -> str:
     return f"activations/dev/logs/v2/namespace=olf-dev/date={day}/{name}.ndjson.gz"
 
 
+def _hour_key(day: str, hour: int, name: str) -> str:
+    return f"activations/dev/logs/v2/namespace=olf-dev/date={day}/hour={hour:02d}/{name}.ndjson.gz"
+
+
 def _v1(line: str) -> dict[str, Any]:
     return {
         "schema": "openlakeforge.k8s_log.v1",
@@ -255,6 +259,34 @@ def test_a_short_run_after_a_busy_day_opens_only_the_objects_uploaded_since_it_s
     assert [line["line"] for line in body["lines"]] == [f"run line {n}" for n in range(4)]
     # Of 124 objects listed, the run's four and the fifteen uploaded from 09:45 on: the clock slack before 10:00.
     assert len(store.opened) == 4 + 15
+
+
+def test_a_short_run_after_an_outage_flush_lists_and_opens_only_its_own_hour(
+    api: TestClient, dagster: FakeDagster, store: ObjectStore, mint: Mint
+) -> None:
+    # Run 44754438238 of #1338: the spool-limit drill flushed hours of spooled lines during a run of a few minutes, so
+    # their upload time is inside the run's window and the upload skip cannot rule them out.
+    dagster.runs = [_run("2026-10-31T10:00:00+00:00", "2026-10-31T10:04:00+00:00")]
+    store.objects.clear()
+    flushed = datetime(2026, 10, 31, 10, 1, tzinfo=UTC)
+    for hour in range(10):
+        for n in range(30):
+            at = datetime(2026, 10, 31, hour, n, tzinfo=UTC)
+            store.archive(
+                _hour_key("2026-10-31", hour, f"dev-{n:02d}"), [_v2(f"{at:%Y-%m-%dT%H:%M:%S}Z", "spooled")], flushed
+            )
+    store.archive(
+        _hour_key("2026-10-31", 10, "dev-run"),
+        [_v2("2026-10-31T10:02:00Z", "run line", run_id=RUN_ID)],
+        datetime(2026, 10, 31, 10, 5, tzinfo=UTC),
+    )
+
+    body = _get(api, mint, "?match_run=true&limit=200")
+
+    assert [line["line"] for line in body["lines"]] == ["run line"]
+    day = "activations/dev/logs/v2/namespace=olf-dev/date=2026-10-31/"
+    assert [prefix for prefix in store.listed if "/v2/" in prefix] == [day, f"{day}hour=10/"]
+    assert store.opened == [_hour_key("2026-10-31", 10, "dev-run")]
 
 
 @pytest.mark.parametrize("cursor", ["nope", "W10", "WzEsMiwzXQ"])

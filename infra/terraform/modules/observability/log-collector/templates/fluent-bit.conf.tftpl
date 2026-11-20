@@ -57,11 +57,13 @@
     time_as_table               On
     type_array_key              missing
 
-# The new tag is <namespace>.<UTC date of the record>: the S3 plugin keeps one buffer per tag, so an object holds one date.
+# The new tag is <namespace>.<UTC date>.<UTC hour> of the record: the S3 plugin keeps one buffer per tag, so an object
+# holds one hour, and the key is built from the tag. The key takes no strftime time: the plugin uses the first record's
+# for a fresh buffer but the restart time for a file left in the spool, so after an outage it would name the wrong hour.
 [FILTER]
     Name                        rewrite_tag
     Match                       ${route.namespace}.var.*
-    Rule                        $date ^(\d{4}-\d{2}-\d{2})$ ${route.namespace}.$date false
+    Rule                        $date ^(\d{4}-\d{2}-\d{2})$ ${route.namespace}.$date.$hour false
     Emitter_Name                retag_${stage}
     Emitter_Storage.type        filesystem
     # Above one Flush interval of the e2e's heaviest ingest (about 6 MB/s): at 10M that rate still lost 2% at Flush 1.
@@ -69,12 +71,17 @@
 
 [FILTER]
     Name                        record_modifier
-    Match_Regex                 ^${route.namespace}\.\d{4}-\d{2}-\d{2}$
+    Match_Regex                 ^${route.namespace}\.\d{4}-\d{2}-\d{2}\.\d{2}$
     Remove_key                  date
+    Remove_key                  hour
 
+# Also the <namespace>.<date> tag of a collector before hour partitions, so its chunks still on disk at the upgrade are
+# uploaded, not dropped by a Match that no longer names them. Such a tag has no third part, so the plugin fills
+# hour=$TAG[2] with the whole tag (`hour=<namespace>.<date>[2]/`); the reader reads any sub-prefix that is not an hour
+# whole, as it reads the objects of a day written before hours.
 [OUTPUT]
     Name                        s3
-    Match_Regex                 ^${route.namespace}\.\d{4}-\d{2}-\d{2}$
+    Match_Regex                 ^${route.namespace}\.\d{4}-\d{2}-\d{2}(\.\d{2})?$
     bucket                      ${bucket}
     region                      ${region}
     endpoint                    ${endpoint}
@@ -83,7 +90,7 @@
     total_file_size             8M
     upload_timeout              5m
     json_date_key               false
-    s3_key_format               /${route.key_prefix}namespace=$TAG[0]/date=$TAG[1]/${stage}-$UUID.ndjson.gz
+    s3_key_format               /${route.key_prefix}namespace=$TAG[0]/date=$TAG[1]/hour=$TAG[2]/${stage}-$UUID.ndjson.gz
     store_dir                   /var/fluent-bit/spool-${stage}
     store_dir_limit_size        ${spool_limit_size}
     # The default of 5 retries gave up after about a minute and moved the file out of the spool, where nothing resends

@@ -160,7 +160,7 @@ The newest-key signal reuses an identity: the platform API's log reader,
 key was checked and cannot: it lists `alerts/` and each stage's quality
 manifests only. No identity is minted, no grant widened, no flow added. The
 health route lists `logs/v2/namespace=<namespace>/date=<day>/` for today and
-yesterday (UTC) and takes the newest `LastModified`, with a second S3 client on
+yesterday (UTC), recursively, so the hour partitions are included, and takes the newest `LastModified`, with a second S3 client on
 the same key and the probe's timeouts (the API's log client waits up to 30 s).
 Limits: the `platform/logs/v2/` prefix is outside that grant, so the platform
 namespace has the spool signals only; at most 5000 objects of a day are looked
@@ -245,31 +245,30 @@ is decided with the API slice, not here.
 NDJSON, gzip, one object per flush, written by the collector. Open, line-oriented,
 readable with `zcat`.
 
-Partitioning: `<base>/v2/namespace=<ns>/date=<YYYY-MM-DD>/<name>.ndjson.gz`,
+Partitioning: `<base>/v2/namespace=<ns>/date=<YYYY-MM-DD>/hour=<HH>/<name>.ndjson.gz`,
 where `<base>` is the stage's existing `s3://<ops>/activations/<stage>/logs`, so
-the stage is the leading path segment, as it is for v1. The date is the **UTC date
-of every record in the object**, not the time of the flush or of the first
-record. `s3_key_format` offers `$UUID`, `$INDEX`, `$TAG`, `$TAG[n]` and strftime
-time, with the time being the first record's ([S3 output](https://docs.fluentbit.io/manual/data-pipeline/outputs/s3)); the page names no specifier that reads a record field,
-and after an outage the spool uploads old files after new ones, so a first-record
-date alone can put day D's records under D+1. The date therefore goes into the
-tag: a `rewrite_tag` filter re-tags each record `<namespace>.<YYYY-MM-DD of its
-own time>`, and the key is
-`v2/namespace=$TAG[0]/date=$TAG[1]/<stage>-$UUID.ndjson.gz`. The plugin keeps one
-buffer per tag, so an object holds one date by construction, and a reader of day
-D lists `date=D` only and still filters by each record's `time`. Namespace names
-contain no dot, so `$TAG[0]` is the namespace. Whether `rewrite_tag` can build a
-tag from the `time` field (a record accessor, run after the record carries the
-CRI time) and how many open per-tag buffers it costs on a busy day boundary is
-[T], slice b's first test. If it cannot, the fallback is a bounded read: day D is
-listed in `date=D` through `date=D+k`, with `k = ceil((outage budget +
-upload_timeout) / 24h)`, which holds only if the spool discards its oldest data first [T]; the reader never lists fewer days than that. There
-is no hour partition: an hour would promise a precision the fallback does not
-keep.
+the stage is the leading path segment, as it is for v1. The date and hour are the
+**UTC date and hour of every record in the object**, not the time of the flush or
+of the first record. `s3_key_format`'s strftime time is not the records' time: in
+Fluent Bit 5.2.0 it is the first record's time for a fresh buffer, but the restart
+time for a file restored from `store_dir` (`s3_store.c`, `s3.c` `put_all_chunks`)
+[V], so after an outage it would name the wrong hour. The key therefore takes no
+strftime time. The record builder writes the record's `date` and `hour`, a
+`rewrite_tag` filter re-tags each record `<namespace>.<date>.<hour>`, and the key
+is `v2/namespace=$TAG[0]/date=$TAG[1]/hour=$TAG[2]/<stage>-$UUID.ndjson.gz`. The
+plugin keeps one buffer per tag, and a restored file keeps its tag [V], so an
+object holds one hour by construction, however late it is uploaded. A reader of a
+window lists only the `hour=` partitions the window touches, with no slack hour,
+and still filters by each record's `time`. Namespace names contain no dot, so
+`$TAG[0]` is the namespace. Objects written before hour partitions sit directly
+under `date=` and are read whole, with the upload-time skip, as is any sub-prefix
+of a day that is not an hour (a collector upgraded with date-only tags on disk
+writes `hour=<namespace>.<date>[2]/`, because the plugin substitutes the whole tag
+for a missing part).
 
 ```text
-s3://openlakeforge-ops/activations/dev/logs/v2/namespace=olf-dev/date=2026-11-16/dev-4f1b6c2e-9a3d.ndjson.gz
-s3://openlakeforge-ops/platform/logs/v2/namespace=olf-system/date=2026-11-16/platform-0b7e5d11-62aa.ndjson.gz
+s3://openlakeforge-ops/activations/dev/logs/v2/namespace=olf-dev/date=2026-11-16/hour=09/dev-4f1b6c2e.ndjson.gz
+s3://openlakeforge-ops/platform/logs/v2/namespace=olf-system/date=2026-11-16/hour=09/platform-0b7e5d11.ndjson.gz
 ```
 
 Record fields:
@@ -434,3 +433,11 @@ exposed, as `last_success_at` on the `log-archive.newest-object` service row
 of the platform API (#798); no threshold or setting changed.
 
 2026-11-20: #1326. Each line carries `timestamp` and `level`; `severity` filters on that `level`, which is read only from a JSON level key, a leading level word, Python logging's format or a top-level logfmt `level=` (a quoted value's text never counts), not from a level word anywhere in the line. `LogArchive.read_days` reads a run's window across UTC days, ordering lines by a deterministic position (time, layout, day, object, record) a cursor continues from, and lists v1 partitions `V1_LOOKBACK_SECONDS` (`openlakeforge_core/log_archive.py`) past the window's end, because v1 objects are partitioned by archive time. The archive format is unchanged.
+
+2026-11-20: #1326. Decision 4 gains an hour partition: the collector tags each record `<namespace>.<date>.<hour>`
+of its own time and keys the object `date=$TAG[1]/hour=$TAG[2]/`, because a run's read had to list and open every
+object of the day, including hours of spooled lines uploaded during a short run (full e2e run 44754438238 on #1338
+answered 502). The key holds no strftime time, which Fluent Bit 5.2.0 takes from the restart for a file left in the
+spool. The reader lists only the hours a window touches, with no slack hour, since an object holds one hour by
+construction. Objects already written directly under `date=` are still read, with the upload-time skip. The record
+format is unchanged.

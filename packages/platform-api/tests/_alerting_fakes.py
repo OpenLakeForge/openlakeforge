@@ -35,7 +35,7 @@ class FakeBucket:
         self.objects[Key] = Body
 
     def list_objects_v2(  # noqa: N803
-        self, *, Bucket: str, Prefix: str = "", ContinuationToken: str = ""
+        self, *, Bucket: str, Prefix: str = "", Delimiter: str = "", ContinuationToken: str = ""
     ) -> dict[str, Any]:
         raise NotImplementedError
 

@@ -30,9 +30,9 @@ from openlakeforge_platform_api.reads import (
     log_line,
 )
 
-# A run of up to two whole days spans three UTC days. Each day lists every object of the stage's namespace and reads
-# those uploaded since the window's start (`UPLOAD_CLOCK_SLACK` before it), so this caps the read at three times a
-# `list_logs` day; a longer window is answered in pages by `next`. The cap
+# A run of up to two whole days spans three UTC days. Each day lists the v2 hour partitions the window touches (and a
+# day's objects from before hour partitions, those uploaded since the window's start less `UPLOAD_CLOCK_SLACK`), so
+# this caps the read at three times a `list_logs` day; a longer window is answered in pages by `next`. The cap
 # counts days of event time. v1 objects are partitioned by archive time, up to V1_LOOKBACK_SECONDS after their lines,
 # so v1 alone may list one day more, past the cut, for the lines of its last hour.
 MAX_RUN_LOG_DAYS = 3

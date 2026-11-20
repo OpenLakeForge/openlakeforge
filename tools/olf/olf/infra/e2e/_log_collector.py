@@ -47,6 +47,12 @@ SHORT_LIVED_LINES = 60
 STREAM_LINES = 90
 STREAM_INTERVAL_SECONDS = 1
 KILL_AFTER_LINE = 30
+# The reader is given the drill's start less this as its window start, so it lists only the hour partitions from then
+# on, as a run's read does. The line times are the node's clock and the start is this process's; on kind they share
+# the host's clock, and the margin keeps a line written as the drill starts in the window.
+WINDOW_MARGIN = timedelta(minutes=2)
+# A v2 key's partition: `.../date=<YYYY-MM-DD>/hour=<HH>/<object>`.
+_PARTITION = re.compile(r"/date=(\d{4}-\d{2}-\d{2})/hour=(\d{2})/[^/]+$")
 
 
 def emitter_manifest(
@@ -187,15 +193,52 @@ def _s3(cfg: E2EConfig) -> Iterator[tuple[Any, str]]:
 
 
 def _run_lines(archive: LogArchive, cfg: E2EConfig, run_id: str, token: str, since: datetime) -> list[int]:
-    """Line numbers the reader returns for `run_id`, with no pod name, across every UTC day since `since`."""
+    """Line numbers the reader returns for `run_id`, with no pod name, from `since` on across UTC days.
+
+    The window start makes the reader list only the hour partitions it touches, so a line archived under the wrong
+    hour is missing here.
+    """
     messages: list[str] = []
-    day: date = since.date()
+    start = since - WINDOW_MARGIN
+    day: date = start.date()
     while day <= datetime.now(UTC).date():
-        for line in archive.read(cfg.namespace, day, run_id=run_id, limit=10_000):
+        for line in archive.read(cfg.namespace, day, run_id=run_id, since=start, limit=10_000):
             if line.line is not None:
                 messages.append(line.line)
         day += timedelta(days=1)
     return line_numbers(messages, token)
+
+
+def partition_problems(key: str, records: list[dict[str, Any]]) -> list[str]:
+    """Why the v2 object `key` is not in the partition of every record's own UTC date and hour; empty when it is."""
+    match = _PARTITION.search(key)
+    if match is None:
+        return [f"{key} is not under date=<day>/hour=<HH>/"]
+    partition = f"{match.group(1)}T{match.group(2)}"
+    stray = sorted({str(record.get("time")) for record in records if str(record.get("time"))[:13] != partition})
+    return [f"{key} holds records of another hour: {stray[:3]}"] if stray else []
+
+
+def check_hour_partitions(cfg: E2EConfig, token: str, since: datetime) -> None:
+    """Every object holding `token` sits under the date and hour of each of its records (ADR 0022, decision 4)."""
+    prefix = f"activations/{cfg.namespace.removeprefix('olf-')}/logs/v2/namespace={cfg.namespace}/"
+    problems: list[str] = []
+    found = 0
+    with _s3(cfg) as (client, bucket):
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
+            for item in page.get("Contents", []):
+                if item["LastModified"] < since:
+                    continue
+                body = gzip.decompress(client.get_object(Bucket=bucket, Key=item["Key"])["Body"].read())
+                records = [json.loads(raw) for raw in body.splitlines() if raw.strip()]
+                if any(token in str(record.get("message", "")) for record in records):
+                    found += 1
+                    problems += partition_problems(item["Key"], records)
+    if not found:
+        raise E2EError(f"no v2 object under {prefix} holds {token}")
+    if problems:
+        raise E2EError(f"the collector's keys do not name their records' hour: {'; '.join(problems[:5])}")
+    log.info(f"{found} object(s) holding {token} sit under the date and hour of their records.")
 
 
 def diagnose_missing_lines(cfg: E2EConfig, token: str, since: datetime, run_id: str) -> None:
@@ -311,6 +354,7 @@ def check_short_lived_pod_output(cfg: E2EConfig) -> None:
             except E2EError:
                 diagnose_missing_lines(cfg, token, started, run_id)
                 raise
+        check_hour_partitions(cfg, token, started)
     finally:
         kubectl(cfg, ["delete", "job", name, "-n", cfg.namespace, "--ignore-not-found", "--wait=false"])
 

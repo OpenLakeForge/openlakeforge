@@ -8,6 +8,7 @@ import json
 import logging
 import weakref
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -31,14 +32,24 @@ class _Store:
         if modified is not None:
             self.modified[key] = modified
 
-    def list_objects_v2(self, *, Bucket: str, Prefix: str, ContinuationToken: str = "") -> dict[str, Any]:  # noqa: N803
+    def list_objects_v2(  # noqa: N803 - boto3's names
+        self, *, Bucket: str, Prefix: str, Delimiter: str = "", ContinuationToken: str = ""
+    ) -> dict[str, Any]:
         self.listed.append(Prefix)
+        under = [key for key in sorted(self.objects) if key.startswith(Prefix)]
+        nested = {key for key in under if Delimiter and Delimiter in key.removeprefix(Prefix)}
         return {
             "Contents": [
                 {"Key": key, **({"LastModified": self.modified[key]} if key in self.modified else {})}
-                for key in sorted(self.objects)
-                if key.startswith(Prefix)
-            ]
+                for key in under
+                if key not in nested
+            ],
+            "CommonPrefixes": [
+                {"Prefix": prefix}
+                for prefix in sorted(
+                    {Prefix + key.removeprefix(Prefix).split(Delimiter)[0] + Delimiter for key in nested}
+                )
+            ],
         }
 
     def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
@@ -476,3 +487,147 @@ def test_the_deadline_still_stops_a_long_scan_of_objects_inside_the_window(store
         archive.read_days("olf-dev", [DAY], since=_at("2026-11-16T10:00:00"), deadline=5.0)
 
     assert len(store.opened) <= 3
+
+
+# Hour partitions (#1326): the collector keys an object by the date and hour of its records.
+TEMPLATE = Path(__file__).resolve().parents[4] / (
+    "infra/terraform/modules/observability/log-collector/templates/fluent-bit.conf.tftpl"
+)
+DAY_PREFIX = "activations/dev/logs/v2/namespace=olf-dev/date=2026-11-16/"
+
+
+def _hour_key(name: str, hour: int, day: str = "2026-11-16") -> str:
+    return f"activations/dev/logs/v2/namespace=olf-dev/date={day}/hour={hour:02d}/{name}.ndjson.gz"
+
+
+def _v2_listed(store: _Store) -> list[str]:
+    return [prefix for prefix in store.listed if "/v2/" in prefix]
+
+
+def test_the_collector_key_for_a_record_tag_is_the_partition_the_reader_lists(store: _Store) -> None:
+    # What the S3 plugin makes of the key format for the tag `olf-dev.2026-11-16.09` and $UUID `4f1b6c2e`.
+    template = next(line.split()[1] for line in TEMPLATE.read_text().splitlines() if "s3_key_format" in line)
+    key = (
+        template.replace("${route.key_prefix}", "activations/dev/logs/v2/")
+        .replace("${stage}", "dev")
+        .replace("$TAG[0]", "olf-dev")
+        .replace("$TAG[1]", "2026-11-16")
+        .replace("$TAG[2]", "09")
+        .replace("$UUID", "4f1b6c2e")
+    )
+    assert "%" not in template
+    assert key == "/activations/dev/logs/v2/namespace=olf-dev/date=2026-11-16/hour=09/dev-4f1b6c2e.ndjson.gz"
+
+    store.put(key.removeprefix("/"), [_v2("2026-11-16T09:30:00Z", "keyed by its hour")])
+
+    assert _read(store, since=_at("2026-11-16T09:00:00"), until=_at("2026-11-16T10:00:00")) == ["keyed by its hour"]
+
+
+def test_a_window_lists_only_the_hours_it_touches_however_much_the_others_hold(store: _Store) -> None:
+    # The incident of #1326: an outage drill flushed hours of spooled lines, all uploaded during a short run.
+    flushed = _at("2026-11-16T10:01:00")
+    for hour in (h for h in range(24) if h != 10):
+        for n in range(50):
+            store.put(_hour_key(f"dev-{n:02d}", hour), [_v2(f"2026-11-16T{hour:02d}:{n:02d}:00Z", "other")], flushed)
+    store.put(_hour_key("dev-run", 10), [_v2("2026-11-16T10:02:00Z", "the run", run_id="r1")], flushed)
+
+    found = LogArchive(store, BASE).read_days(
+        "olf-dev", [DAY], run_id="r1", since=_at("2026-11-16T10:00:00"), until=_at("2026-11-16T11:00:00")
+    )
+
+    assert [line.line for line in found.lines] == ["the run"]
+    # One delimiter listing finds the hours; only hour 10 is listed, not even the hour before the window.
+    assert _v2_listed(store) == [DAY_PREFIX, f"{DAY_PREFIX}hour=10/"]
+    assert store.opened == [_hour_key("dev-run", 10)]
+
+
+def test_old_lines_uploaded_late_are_read_from_their_own_hour(store: _Store) -> None:
+    store.put(
+        _hour_key("dev-spooled", 3), [_v2("2026-11-16T03:15:00Z", "written at three")], _at("2026-11-16T10:00:00")
+    )
+    archive = LogArchive(store, BASE)
+
+    early = archive.read_days("olf-dev", [DAY], since=_at("2026-11-16T03:10:00"), until=_at("2026-11-16T03:20:00"))
+    late = archive.read_days("olf-dev", [DAY], since=_at("2026-11-16T10:00:00"), until=_at("2026-11-16T10:05:00"))
+
+    assert [line.line for line in early.lines] == ["written at three"]
+    assert late.lines == []
+    assert store.opened == [_hour_key("dev-spooled", 3)]
+
+
+def test_a_window_across_midnight_lists_the_last_hour_of_one_day_and_the_first_of_the_next(store: _Store) -> None:
+    store.put(_hour_key("dev-a", 22), [_v2("2026-11-16T22:59:00Z", "too early")])
+    store.put(_hour_key("dev-b", 23), [_v2("2026-11-16T23:58:30Z", "before midnight")])
+    store.put(_hour_key("dev-c", 0, day="2026-11-17"), [_v2("2026-11-17T00:01:00Z", "after midnight")])
+    store.put(_hour_key("dev-d", 1, day="2026-11-17"), [_v2("2026-11-17T01:00:00Z", "too late")])
+
+    found = LogArchive(store, BASE).read_days(
+        "olf-dev", [DAY, date(2026, 11, 17)], since=_at("2026-11-16T23:30:00"), until=_at("2026-11-17T00:30:00")
+    )
+
+    assert [line.line for line in found.lines] == ["before midnight", "after midnight"]
+    next_day = DAY_PREFIX.replace("2026-11-16", "2026-11-17")
+    assert _v2_listed(store) == [DAY_PREFIX, f"{DAY_PREFIX}hour=23/", next_day, f"{next_day}hour=00/"]
+
+
+def test_a_window_that_misses_a_day_lists_nothing_of_it(store: _Store) -> None:
+    LogArchive(store, BASE).read_days(
+        "olf-dev", [DAY, date(2026, 11, 17)], since=_at("2026-11-16T09:00:00"), until=_at("2026-11-16T10:00:00")
+    )
+
+    assert _v2_listed(store) == [DAY_PREFIX]
+
+
+def test_a_day_written_before_hours_and_after_reads_both_with_the_upload_skip(store: _Store) -> None:
+    since = _at("2026-11-16T10:00:00")
+    store.put(_v2_key("dev-flat-old"), [_v2("2026-11-16T08:00:00Z", "flat, early")], _at("2026-11-16T08:05:00"))
+    store.put(_v2_key("dev-flat"), [_v2("2026-11-16T10:01:00Z", "flat, in the window")], _at("2026-11-16T10:06:00"))
+    store.put(_hour_key("dev-hourly", 10), [_v2("2026-11-16T10:30:00Z", "hourly")], _at("2026-11-16T10:35:00"))
+    store.put(_hour_key("dev-other", 12), [_v2("2026-11-16T12:00:00Z", "another hour")], _at("2026-11-16T12:05:00"))
+
+    found = LogArchive(store, BASE).read_days("olf-dev", [DAY], since=since, until=_at("2026-11-16T11:00:00"))
+
+    assert [line.line for line in found.lines] == ["flat, in the window", "hourly"]
+    assert sorted(store.opened) == sorted([_v2_key("dev-flat"), _hour_key("dev-hourly", 10)])
+
+
+def test_an_hour_reads_its_partition_and_the_matching_lines_of_a_flat_day(store: _Store) -> None:
+    store.put(_v2_key("dev-flat"), [_v2("2026-11-16T09:59:00Z", "flat nine"), _v2("2026-11-16T10:00:00Z", "flat ten")])
+    store.put(_hour_key("dev-ten", 10), [_v2("2026-11-16T10:30:00Z", "hourly ten")])
+    store.put(_hour_key("dev-nine", 9), [_v2("2026-11-16T09:30:00Z", "hourly nine")])
+
+    assert _read(store, hour=10) == ["flat ten", "hourly ten"]
+    assert _v2_listed(store) == [DAY_PREFIX, f"{DAY_PREFIX}hour=10/"]
+
+
+def test_a_sub_prefix_that_is_not_an_hour_is_read_whole(store: _Store) -> None:
+    # A collector upgraded with chunks of the date-only tag on disk fills hour=$TAG[2] with the whole tag.
+    upgraded = f"{DAY_PREFIX}hour=olf-dev.2026-11-16[2]/dev-4f1b6c2e.ndjson.gz"
+    store.put(upgraded, [_v2("2026-11-16T10:02:00Z", "from before the upgrade")], _at("2026-11-16T10:04:00"))
+
+    assert _read(store, since=_at("2026-11-16T10:00:00"), until=_at("2026-11-16T10:05:00")) == [
+        "from before the upgrade"
+    ]
+    assert store.opened == [upgraded]
+
+
+def test_paging_across_hour_partitions_dedups_replays_and_overlap_and_misses_no_line(store: _Store) -> None:
+    replayed = _v2("2026-11-16T09:59:59Z", "replayed")
+    store.put(_hour_key("dev-a", 9), [_v2("2026-11-16T09:40:00Z", "nine"), replayed])
+    store.put(_hour_key("dev-b", 9), [replayed])
+    store.put(_hour_key("dev-c", 10), [_v2("2026-11-16T10:00:00Z", "ten", pod="run-1")])
+    store.put(_v1_key("10"), [_v1("2026-11-16T10:00:00Z ten"), _v1("2026-11-16T10:10:00Z v1 only")])
+    archive = LogArchive(store, BASE)
+
+    seen: list[str] = []
+    after = None
+    for _ in range(10):
+        page = archive.read_days(
+            "olf-dev", [DAY], since=_at("2026-11-16T09:30:00"), until=_at("2026-11-16T10:30:00"), limit=1, after=after
+        )
+        if not page.lines:
+            break
+        seen += [line.line or "" for line in page.lines]
+        after = page.last
+
+    assert seen == ["nine", "replayed", "ten", "2026-11-16T10:10:00Z v1 only"]
