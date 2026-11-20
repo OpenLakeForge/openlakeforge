@@ -128,9 +128,14 @@ variable "dagster_host_template" {
 }
 
 variable "runbook_base_url" {
-  description = "Base URL the notification's runbook link anchors into; null omits the link."
+  description = "The alert runbook page a notification's runbook link anchors into with #<condition>; null omits the link."
   type        = string
   default     = null
+
+  validation {
+    condition     = var.runbook_base_url == null || can(regex("^https://[^/#\\s]+[^#\\s]*$", coalesce(var.runbook_base_url, "x")))
+    error_message = "runbook_base_url is an https URL without a fragment: the link appends #<condition>."
+  }
 }
 
 variable "platform_api_url" {

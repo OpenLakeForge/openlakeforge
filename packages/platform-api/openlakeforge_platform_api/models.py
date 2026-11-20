@@ -470,7 +470,8 @@ class RunQuality(BaseModel):
     # Ordered by engine, table, column and check id. Null when there is no usable manifest, never an empty list.
     checks: list[QualityCheck] | None
     reports: list[QualityReport]
-    # A runbook page for the run's quality condition, from the health-signal catalog; null while none is catalogued.
+    # The alert runbook's section for the run's condition: `#quality` with an error check, else `#run_failed` for a
+    # failed run. Null for a run that passed or only warned, and where the deployment configures no runbook page.
     runbook: str | None
     sources: list[IntegrationStatus]
 

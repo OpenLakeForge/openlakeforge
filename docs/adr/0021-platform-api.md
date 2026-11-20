@@ -901,3 +901,8 @@ contract's `logs.archive.retention_days` when `retention_supported` is true, ren
 from settings alone. `RunFailure` gains `domain` and `product`, additive and nullable, as on `Job`, from the run's job
 definition tags. The job list is now read once per request, whether or not the stage has a quality reader, within the
 same 20-second deadline; null when it cannot be read in time.
+
+2026-11-20: #794. `get_run_quality.runbook` is populated from the new `runbook_base_url` setting: the alert runbook
+section for the condition the run would alert on, `#quality` when a check ended in `error`, else `#run_failed` for a
+failed run, `null` for a run that passed or only warned or where the deployment sets no `runbook_base_url` (the same
+page the alert evaluator links, ADR 0023). The response shape is unchanged.

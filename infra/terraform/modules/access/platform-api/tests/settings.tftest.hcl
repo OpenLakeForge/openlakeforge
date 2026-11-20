@@ -286,3 +286,27 @@ run "a_fractional_log_retention_is_refused" {
 
   expect_failures = [var.log_archive_retention_days]
 }
+
+# #794: the run quality answer's runbook link.
+run "the_runbook_base_reaches_the_settings" {
+  command = plan
+
+  variables {
+    runbook_base_url = "https://docs.example.test/alerts.md"
+  }
+
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).runbook_base_url == "https://docs.example.test/alerts.md"
+    error_message = "the runbook page must reach settings.json"
+  }
+}
+
+run "a_runbook_base_with_a_fragment_is_refused" {
+  command = plan
+
+  variables {
+    runbook_base_url = "https://docs.example.test/alerts.md#quality"
+  }
+
+  expect_failures = [var.runbook_base_url]
+}

@@ -436,3 +436,49 @@ run "the_log_archive_retention_reaches_the_api" {
     error_message = "the platform API must state the archive retention the local provider applies"
   }
 }
+
+# #794: notifications and the run quality answer link the alerts guide at this release's tag unless overridden.
+run "the_runbook_defaults_to_the_alerts_guide_at_the_release_tag" {
+  command = plan
+
+  variables {
+    observability          = { alert_receivers = [{ name = "on-call", type = "webhook" }] }
+    alert_receiver_secrets = { on-call = { secret_name = "alert-webhooks", key = "webhook-url" } }
+  }
+
+  assert {
+    condition = (
+      jsondecode(module.alerts.settings_json).links.runbook_base_url == "https://github.com/OpenLakeForge/openlakeforge/blob/v${yamldecode(file("../../../../release/component-catalog.yaml")).distribution.version}/docs/guides/operations/alerts.md"
+      && jsondecode(module.platform_api[0].settings_json).runbook_base_url == jsondecode(module.alerts.settings_json).links.runbook_base_url
+    )
+    error_message = "the evaluator and the API must link the alerts guide at the distribution's release tag"
+  }
+}
+
+run "an_overridden_runbook_reaches_the_evaluator_and_the_api" {
+  command = plan
+
+  variables {
+    observability          = { alert_receivers = [{ name = "on-call", type = "webhook" }] }
+    alert_receiver_secrets = { on-call = { secret_name = "alert-webhooks", key = "webhook-url" } }
+    runbook_base_url       = "https://docs.example.test/runbooks/alerts"
+  }
+
+  assert {
+    condition = (
+      jsondecode(module.alerts.settings_json).links.runbook_base_url == "https://docs.example.test/runbooks/alerts"
+      && jsondecode(module.platform_api[0].settings_json).runbook_base_url == "https://docs.example.test/runbooks/alerts"
+    )
+    error_message = "an overridden runbook page must reach the evaluator and the API"
+  }
+}
+
+run "a_runbook_override_with_a_fragment_is_refused" {
+  command = plan
+
+  variables {
+    runbook_base_url = "https://docs.example.test/alerts.md#quality"
+  }
+
+  expect_failures = [var.runbook_base_url]
+}

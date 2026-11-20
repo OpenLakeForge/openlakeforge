@@ -143,6 +143,26 @@ def test_two_evaluations_of_the_same_dagster_state_send_one_notification() -> No
     assert state["incidents"][0]["delivery"]["outcome"] == "delivered"
 
 
+RUNBOOK = "https://github.com/OpenLakeForge/openlakeforge/blob/v1.2.3/docs/guides/operations/alerts.md"
+
+
+def test_a_notification_links_the_runbook_section_of_its_condition() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+
+    _evaluate(_settings(A, runbook_base_url=RUNBOOK), bucket, dagster, {"ops": notifier})
+
+    (payload,) = [p for _, p in notifier.sent]
+    assert payload["links"]["runbook"] == f"{RUNBOOK}#run_failed"
+
+
+def test_without_a_runbook_base_a_notification_carries_no_runbook_link() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+
+    _evaluate(_settings(A), bucket, dagster, {"ops": notifier})
+
+    assert "runbook" not in notifier.sent[0][1]["links"]
+
+
 def _told(notifier: FakeNotifier) -> list[tuple[str, str, str]]:
     """(stage, condition, event) of everything sent, in order."""
     return [(p["stage"], p["condition"], p["event"]) for _, p in notifier.sent]
