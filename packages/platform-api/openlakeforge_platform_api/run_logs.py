@@ -16,7 +16,9 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from fastapi import HTTPException, Query, Request
+from openlakeforge_core.log_archive import V1_LOOKBACK_SECONDS
 from openlakeforge_services.dagster import DagsterRun
+from openlakeforge_services.logs import ArchiveDeadline, decode_position, encode_position, position_before
 
 from openlakeforge_platform_api.models import RunLogs
 from openlakeforge_platform_api.reads import (
@@ -29,12 +31,18 @@ from openlakeforge_platform_api.reads import (
 )
 
 # A run of up to two whole days spans three UTC days. Each day lists and reads every object of the stage's namespace,
-# so this caps the read at three times a `list_logs` day; a longer window is answered in pages by `since`.
+# so this caps the read at three times a `list_logs` day; a longer window is answered in pages by `next`. The cap
+# counts days of event time. v1 objects are partitioned by archive time, up to V1_LOOKBACK_SECONDS after their lines,
+# so v1 alone may list one day more, past the cut, for the lines of its last hour.
 MAX_RUN_LOG_DAYS = 3
+V1_LOOKBACK = timedelta(seconds=V1_LOOKBACK_SECONDS)
 # The run read and the archive read together, as in run_failure: each call has its own timeout, but a slow store
-# reading three days would otherwise hold the request for their sum.
+# reading three days would otherwise hold the request for their sum. The archive read also checks it itself between
+# pages, objects and records, so a read abandoned here stops soon after instead of holding a worker.
 READ_DEADLINE_SECONDS = 20.0
-# A read abandoned at the deadline keeps its thread until its own timeouts end it; a small pool caps how many.
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+# A read abandoned at the deadline keeps its thread until it next checks the deadline or a call's own timeout ends
+# it; a small pool caps how many.
 _READS = ThreadPoolExecutor(max_workers=2, thread_name_prefix="run-logs-read")
 
 
@@ -88,13 +96,21 @@ def list_run_logs(
     match_run: bool = False,
     since: datetime | None = None,
     until: datetime | None = None,
-    limit: int = Query(default=500, ge=1, le=MAX_LOG_LINES),  # noqa: B008 - FastAPI's parameter API
+    after: str | None = Query(  # noqa: B008 - FastAPI's parameter API
+        default=None, description="The `next` of the previous page, with the same filters: continues exactly past it."
+    ),
+    limit: int = Query(default=500, ge=1, le=MAX_LOG_LINES),  # noqa: B008
 ) -> RunLogs:
     """The stage's archived pod log lines from the run's start to its end, oldest first, across UTC days.
 
     `since` and `until` narrow the run's window, never widen it. `match_run` keeps only v2 records tagged with the
-    run's id, which leaves v1 out. The other filters are `list_logs`'s.
+    run's id, which leaves v1 out. The other filters are `list_logs`'s. A truncated answer carries `next`; pass it
+    back as `after` to read on, past lines that share one timestamp included.
     """
+    try:
+        cursor = decode_position(after) if after else None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="`after` is not a cursor this route returned") from exc
     reader, namespace = _log_archive(request, stage)
     client = _dagster(request, stage)
     expires = time.monotonic() + READ_DEADLINE_SECONDS
@@ -113,13 +129,16 @@ def list_run_logs(
         start = max(start, _utc(since))
     if until is not None:
         end = min(end, _utc(until))
+    if cursor is not None:
+        # The cursor's own microsecond: lines later in it are kept by the position, not by `since`.
+        start = max(start, _EPOCH + timedelta(microseconds=cursor[0] // 1000))
     if start >= end:
-        return RunLogs(lines=[], truncated=False, since=start.isoformat(), until=end.isoformat())
+        return RunLogs(lines=[], truncated=False, since=start.isoformat(), until=end.isoformat(), next=None)
     days, cut = window_days(start, end)
 
     with _archive_errors(stage):
         try:
-            lines = _within(
+            found = _within(
                 expires,
                 lambda: reader.read_days(
                     namespace,
@@ -132,15 +151,25 @@ def list_run_logs(
                     since=start,
                     until=cut,
                     limit=limit,
+                    after=cursor,
+                    v1_lookback=V1_LOOKBACK,
+                    deadline=expires,
                 ),
             )
-        except _Deadline as exc:
+        except (_Deadline, ArchiveDeadline) as exc:
             raise HTTPException(
                 status_code=502, detail=f"stage {stage!r}'s log archive did not answer in {READ_DEADLINE_SECONDS:g} s"
             ) from exc
+    if len(found.lines) >= limit and found.last is not None:
+        following: str | None = encode_position(found.last)
+    elif cut < end:
+        following = encode_position(position_before(cut))
+    else:
+        following = None
     return RunLogs(
-        lines=[log_line(line) for line in lines],
-        truncated=len(lines) >= limit or cut < end,
+        lines=[log_line(line) for line in found.lines],
+        truncated=following is not None,
         since=start.isoformat(),
         until=cut.isoformat(),
+        next=following,
     )

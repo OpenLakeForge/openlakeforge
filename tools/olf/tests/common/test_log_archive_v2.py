@@ -6,11 +6,12 @@ import gzip
 import io
 import json
 import weakref
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
-from openlakeforge_services.logs import LogArchive, level_of
+from openlakeforge_core.log_archive import V1_LOOKBACK_SECONDS
+from openlakeforge_services.logs import ArchiveDeadline, LogArchive, level_of
 
 BASE = "s3://ops/activations/dev/logs"
 DAY = date(2026, 11, 16)
@@ -223,7 +224,7 @@ def test_several_days_read_as_one_ordering_with_one_dedup(store: _Store) -> None
     )
     archive = LogArchive(store, BASE)
 
-    both = archive.read_days("olf-dev", [date(2026, 11, 17), DAY])
+    both = archive.read_days("olf-dev", [date(2026, 11, 17), DAY]).lines
 
     assert [line.line for line in both] == ["before midnight", "2026-11-17T00:00:00.05Z from v1", "after midnight"]
     assert [line.timestamp for line in both] == [
@@ -231,7 +232,7 @@ def test_several_days_read_as_one_ordering_with_one_dedup(store: _Store) -> None
         "2026-11-17T00:00:00.05Z",
         "2026-11-17T00:00:00.1Z",
     ]
-    assert [line.line for line in archive.read_days("olf-dev", [DAY, date(2026, 11, 17)], limit=1)] == [
+    assert [line.line for line in archive.read_days("olf-dev", [DAY, date(2026, 11, 17)], limit=1).lines] == [
         "before midnight"
     ]
 
@@ -250,6 +251,12 @@ def test_several_days_read_as_one_ordering_with_one_dedup(store: _Store) -> None
         ('{"severity": "info"}', "info"),
         ('{"levelname": "WARNING"}', "warning"),
         ("ts=2026-11-16T09:41:07Z level=error msg=x", "error"),
+        ('ts=1 level="warn" msg="a \\"quoted\\" word"', "warning"),
+        # Only a top-level key counts: a `level=` inside a quoted value is that value's text.
+        ('msg="retry after level=error again" level=info', "info"),
+        ('msg="example level=critical token"', None),
+        # An unbalanced quote is not logfmt, so nothing in the line is trusted.
+        ('msg="open level=error', None),
         # Stated nowhere the reader recognises: no level, rather than a guess.
         ("Error occurred while executing op", None),
         ("retrying after error", None),
@@ -281,3 +288,42 @@ def test_a_v1_line_keeps_its_kubelet_time_and_an_error_record_has_none(store: _S
         (None, None, "container not found"),
         ("2026-11-16T11:00:00.5Z", "error", None),
     ]
+
+
+def test_v1_is_listed_past_the_window_by_the_archivers_lookback_and_still_filtered_by_event_time(store: _Store) -> None:
+    # The archiver ran at 00:00:05 and read the hour before, so the 23:59 line sits in the next day's partition.
+    store.put(
+        "activations/dev/logs/k8s/namespace=olf-dev/date=2026-11-17/hour=00/k8s-logs-x.ndjson.gz",
+        [
+            {**_v1("2026-11-16T23:59:10Z ERROR last"), "archived_at": "2026-11-17T00:00:05+00:00"},
+            {**_v1("2026-11-17T00:00:01Z later"), "archived_at": "2026-11-17T00:00:05+00:00"},
+        ],
+    )
+    archive = LogArchive(store, BASE)
+    until = datetime(2026, 11, 16, 23, 59, 30, tzinfo=UTC)
+
+    assert archive.read_days("olf-dev", [DAY], until=until).lines == []
+    found = archive.read_days("olf-dev", [DAY], until=until, v1_lookback=timedelta(seconds=V1_LOOKBACK_SECONDS))
+
+    assert [line.line for line in found.lines] == ["2026-11-16T23:59:10Z ERROR last"]
+
+
+def test_a_scan_past_its_deadline_stops_before_reading_the_rest(store: _Store) -> None:
+    for n in range(20):
+        store.put(_v2_key(f"dev-{n:02d}"), [_v2(f"2026-11-16T09:00:{n:02d}Z", f"line {n}")])
+    fetched: list[str] = []
+    get_object = store.get_object
+
+    def counting(*, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        fetched.append(Key)
+        return get_object(Bucket=Bucket, Key=Key)
+
+    store.get_object = counting  # type: ignore[method-assign]
+    # Every look at the clock moves it one second on.
+    ticks = iter(range(1000))
+    archive = LogArchive(store, BASE, clock=lambda: float(next(ticks)))
+
+    with pytest.raises(ArchiveDeadline):
+        archive.read("olf-dev", DAY, deadline=5.0)
+
+    assert len(fetched) <= 3

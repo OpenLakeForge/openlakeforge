@@ -92,14 +92,16 @@ class Logs(BaseModel):
 
 class RunLogs(BaseModel):
     lines: list[LogLine]
-    # More lines lie in the run's window than were answered: past `limit`, or past the days one read covers. Ask
-    # again with `since` set to the last line's timestamp.
+    # More lines may lie in the run's window than were answered: past `limit`, or past the days one read covers.
     truncated: bool
     # The window that was read, ISO 8601 UTC: the run's start to its end (now, for a run still going), narrowed by
     # the request's `since` and `until`, and cut after MAX_RUN_LOG_DAYS UTC days. Empty when `since` is not before
     # `until`, as for a `since` past the run's end.
     since: str
     until: str
+    # Set exactly when `truncated` is: an opaque cursor to pass back as `after`, with the same filters, to read on
+    # past the last line answered, lines that share its timestamp included.
+    next: str | None = Field(default=None, description="Pass back as `after` to continue past the last line.")
 
 
 class ImportedReports(BaseModel):

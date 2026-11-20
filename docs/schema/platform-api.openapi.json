@@ -2219,6 +2219,18 @@
             "title": "Lines",
             "type": "array"
           },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass back as `after` to continue past the last line.",
+            "title": "Next"
+          },
           "since": {
             "title": "Since",
             "type": "string"
@@ -4545,7 +4557,7 @@
     },
     "/api/v1/stages/{stage}/runs/{run_id}/logs": {
       "get": {
-        "description": "The stage's archived pod log lines from the run's start to its end, oldest first, across UTC days.\n\n`since` and `until` narrow the run's window, never widen it. `match_run` keeps only v2 records tagged with the\nrun's id, which leaves v1 out. The other filters are `list_logs`'s.",
+        "description": "The stage's archived pod log lines from the run's start to its end, oldest first, across UTC days.\n\n`since` and `until` narrow the run's window, never widen it. `match_run` keeps only v2 records tagged with the\nrun's id, which leaves v1 out. The other filters are `list_logs`'s. A truncated answer carries `next`; pass it\nback as `after` to read on, past lines that share one timestamp included.",
         "operationId": "list_run_logs_api_v1_stages__stage__runs__run_id__logs_get",
         "parameters": [
           {
@@ -4661,6 +4673,24 @@
                 }
               ],
               "title": "Until"
+            }
+          },
+          {
+            "description": "The `next` of the previous page, with the same filters: continues exactly past it.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next` of the previous page, with the same filters: continues exactly past it.",
+              "title": "After"
             }
           },
           {

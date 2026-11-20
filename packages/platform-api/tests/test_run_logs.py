@@ -167,7 +167,18 @@ def test_a_window_longer_than_the_day_cap_is_cut_and_says_so(
 
     assert body["truncated"] is True
     assert body["until"] == "2026-10-31T00:00:00+00:00"
-    assert {prefix.rsplit("date=", 1)[1] for prefix in store.listed} == {"2026-10-28/", "2026-10-29/", "2026-10-30/"}
+    listed = {(prefix.split("/")[3], prefix.rsplit("date=", 1)[1]) for prefix in store.listed}
+    # Three event days; v1 also lists the day after the cut, where lines of the cut's last hour were archived.
+    assert listed == {("v2", day) for day in ("2026-10-28/", "2026-10-29/", "2026-10-30/")} | {
+        ("k8s", day) for day in ("2026-10-28/", "2026-10-29/", "2026-10-30/", "2026-10-31/")
+    }
+
+    store.listed.clear()
+    following = _get(api, mint, f"?after={body['next']}")
+
+    assert following["since"] == "2026-10-31T00:00:00+00:00"
+    assert following["lines"][0]["timestamp"] == "2026-10-31T00:05:00Z"
+    assert "activations/dev/logs/v2/namespace=olf-dev/date=2026-10-30/" not in store.listed
 
 
 def test_the_line_limit_marks_the_answer_truncated(api: TestClient, mint: Mint) -> None:
@@ -175,6 +186,55 @@ def test_the_line_limit_marks_the_answer_truncated(api: TestClient, mint: Mint) 
 
     assert [line["timestamp"] for line in body["lines"]] == ["2026-10-30T23:55:00Z"]
     assert body["truncated"] is True
+    assert body["next"]
+
+
+def test_a_v1_line_archived_after_midnight_for_a_run_that_ended_before_it_is_read(
+    api: TestClient, dagster: FakeDagster, store: ObjectStore, mint: Mint
+) -> None:
+    # The archiver ran at 00:00:05 and read the hour before it, so its object sits in the next day's partition.
+    dagster.runs = [_run("2026-10-30T23:30:00+00:00", "2026-10-30T23:59:30+00:00")]
+    store.objects.clear()
+    store.archive(
+        "activations/dev/logs/k8s/namespace=olf-dev/date=2026-10-31/hour=00/k8s-logs-20261031T000005Z.ndjson.gz",
+        [
+            {**_v1("2026-10-30T23:59:10Z ERROR the last line"), "archived_at": "2026-10-31T00:00:05+00:00"},
+            {**_v1("2026-10-31T00:00:01Z after the run"), "archived_at": "2026-10-31T00:00:05+00:00"},
+        ],
+    )
+
+    body = _get(api, mint)
+
+    assert [(line["timestamp"], line["level"]) for line in body["lines"]] == [("2026-10-30T23:59:10Z", "error")]
+    assert (body["until"], body["truncated"], body["next"]) == ("2026-10-30T23:59:30+00:00", False, None)
+
+
+def test_lines_that_share_one_timestamp_are_paged_through_without_loss_or_repeat(
+    api: TestClient, store: ObjectStore, mint: Mint
+) -> None:
+    tie = "2026-10-31T00:08:00Z"
+    replayed = _v2(tie, "second")
+    store.objects.clear()
+    store.archive(_v2_key("2026-10-31", "dev-a"), [_v2(tie, "first"), replayed])
+    # A collector replay of the second record, in another object.
+    store.archive(_v2_key("2026-10-31", "dev-b"), [replayed, _v2(tie, "third")])
+
+    seen: list[str] = []
+    query = "?limit=1"
+    for _ in range(5):
+        body = _get(api, mint, query)
+        seen += [line["line"] for line in body["lines"]]
+        if not body["next"]:
+            break
+        query = f"?limit=1&after={body['next']}"
+
+    assert sorted(seen) == ["first", "second", "third"]
+    assert len(seen) == 3
+
+
+@pytest.mark.parametrize("cursor", ["nope", "W10", "WzEsMiwzXQ"])
+def test_a_cursor_this_route_did_not_return_is_refused(api: TestClient, mint: Mint, cursor: str) -> None:
+    assert api.get(f"{PATH}?after={cursor}", headers=_as(mint, "data-engineer")).status_code == 422
 
 
 def test_an_unknown_run_is_not_found(api: TestClient, mint: Mint, store: ObjectStore) -> None:
