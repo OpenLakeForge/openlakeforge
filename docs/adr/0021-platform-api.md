@@ -911,3 +911,10 @@ page the alert evaluator links, ADR 0023). The response shape is unchanged.
 start-to-end window across at most three UTC days of event time (v1 also one day past the cut, by the archiver's
 lookback), paged by an opaque `next` cursor passed back as `after`, within a 20 s deadline that the archive read itself
 checks between pages, objects and records, with `list_logs`'s matrix row.
+
+2026-11-20: #1347. `list_logs` and `list_run_logs` take `q`: lines whose message contains it, ignoring case, as a plain
+substring (1 to 200 characters; a control character is refused with 422 before anything is read). `limit`, `truncated`
+and `next` count matching lines only. A run read still stops at `MAX_RUN_LOG_DAYS`, so a sparse search can answer fewer
+than `limit` lines, or none, with `next` set. `severity`, an at-or-above floor on each line's `level` on both routes
+since #1326, already met the issue's level filter, so no `level` parameter is added. The search text is not logged, and
+the permission rows are unchanged.
