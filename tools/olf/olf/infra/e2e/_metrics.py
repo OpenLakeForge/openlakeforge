@@ -190,10 +190,36 @@ class ApiSession:
         return dict(reply.json())
 
 
-@contextlib.contextmanager
-def api_session(cfg: E2EConfig) -> Iterator[ApiSession | None]:
-    """Sign in through Dex against the GitHub stub as a role at the metrics floor and one below it.
+def session_roles(
+    precedence: Sequence[str],
+    mapping: Mapping[str, Any],
+    floor: str,
+    admits: Callable[[str], bool] | None = None,
+) -> tuple[str | None, str | None]:
+    """The mapped role nearest above `floor` that `admits` lets in, and the first mapped role below `floor`.
 
+    `admits` narrows the reader further than the floor, for a row whose `role_stages` refuses the floor's own role
+    on some stages; without it every role at or above the floor reads.
+    """
+    index = precedence.index(floor)
+    reader = next(
+        (r for r in reversed(precedence[: index + 1]) if r in mapping and (admits is None or admits(r))), None
+    )
+    refused = next((r for r in precedence[index + 1 :] if r in mapping), None)
+    return reader, refused
+
+
+@contextlib.contextmanager
+def api_session(
+    cfg: E2EConfig,
+    *,
+    floor: str = METRICS_FLOOR,
+    admits: Callable[[Sequence[str]], Callable[[str], bool]] | None = None,
+    what: str = "the metrics API reads",
+) -> Iterator[ApiSession | None]:
+    """Sign in through Dex against the GitHub stub as a role at `floor` and one below it.
+
+    `admits`, given the role precedence, says which roles may read the routes on this stage (`session_roles`).
     Yields None, having said why, when the deployment has no such path: no perimeter, no Dex, no `olf-cli` client,
     no platform API route, or a port-forward run that bypasses the ingress.
     """
@@ -208,7 +234,7 @@ def api_session(cfg: E2EConfig) -> Iterator[ApiSession | None]:
         "OLF_PORT_FORWARD bypasses the ingress": config.truthy(cfg_environ(cfg).get(access.PORT_FORWARD_ENV, "")),
     }
     if reason := next((text for text, applies in reasons.items() if applies), None):
-        log.info(f"Skipping the metrics API reads: {reason}.")
+        log.info(f"Skipping {what}: {reason}.")
         yield None
         return
     with access.service_route(
@@ -226,13 +252,11 @@ def api_session(cfg: E2EConfig) -> Iterator[ApiSession | None]:
             yield None
             return
         precedence, mapping = identity["roles"]["precedence"], identity["role_mapping"]
-        floor = precedence.index(METRICS_FLOOR)
-        reader = next((r for r in reversed(precedence[: floor + 1]) if r in mapping), None)
+        reader, refused = session_roles(precedence, mapping, floor, admits(precedence) if admits else None)
         if reader is None:
-            raise E2EError(f"the profile maps no team to {METRICS_FLOOR} or above; no role could read the metrics")
-        refused = next((r for r in precedence[floor + 1 :] if r in mapping), None)
+            raise E2EError(f"the profile maps no team to a role at or above {floor} that may read {what}")
         suffix = secrets.token_hex(3)
-        logins = {role: f"olf-e2e-metrics-{role}-{suffix}" for role in (reader, refused) if role}
+        logins = {role: f"olf-e2e-api-{role}-{suffix}" for role in (reader, refused) if role}
         client_id = identity["clients"][CLI_CLIENT]["client_id"]
         loopback = f"http://127.0.0.1:{20000 + secrets.randbelow(40000)}/callback"
         issued: dict[str, tuple[float, str]] = {}

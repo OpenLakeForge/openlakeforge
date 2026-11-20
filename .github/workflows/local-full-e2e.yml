@@ -214,6 +214,9 @@ env:
   # The full suite's external project: created by `olf init`, outside the
   # checkout, the way a consumer's project is (#119).
   PROJECT_DIR: ${{ github.workspace }}/../lakehouse-project
+  # The operator journey screenshots (olf.infra.e2e._walkthrough) drive Chromium through Playwright, which is
+  # installed beside olf for this job only: it is not a dependency of olf.
+  PLAYWRIGHT_VERSION: "1.64.1"
 
 jobs:
   e2e:
@@ -309,7 +312,9 @@ jobs:
           wheel="$(ls dist/python/openlakeforge/openlakeforge-*.whl)"
           version="$(basename "${wheel}" | cut -d- -f2)"
           uv tool install --find-links dist/python/core --find-links dist/python/lakehouse-services \
-            --find-links dist/python/runtime --find-links dist/python/openlakeforge "openlakeforge==${version}" --python 3.12
+            --find-links dist/python/runtime --find-links dist/python/openlakeforge "openlakeforge==${version}" --python 3.12 \
+            --with "playwright==${PLAYWRIGHT_VERSION}"
+          "$(uv tool dir)/openlakeforge/bin/python" -m playwright install --with-deps chromium
           echo "$(uv tool dir --bin)" >> "${GITHUB_PATH}"
           # An installed olf keeps its state, and the kind kubeconfig, under
           # OLF_HOME (default ~/.openlakeforge), not in any checkout.
@@ -682,6 +687,24 @@ jobs:
           name: local-e2e-evidence-${{ github.run_id }}
           path: .tmp/e2e-evidence
           # Every evidence file sits under the hidden .tmp directory.
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Stage the walkthrough screenshots for upload
+        if: always() && (inputs.suite || 'full') != 'smoke'
+        run: |
+          mkdir -p .tmp/walkthrough-screenshots
+          cp -R "${PROJECT_DIR}/.tmp/walkthrough-screenshots/." .tmp/walkthrough-screenshots/ 2>/dev/null || true
+
+      - name: Upload the walkthrough screenshots
+        # The operator journey drill's PNGs, one directory per stage; a page that missed its state is kept as
+        # <name>.FAILED.png, so a failed run uploads what the browser showed instead.
+        if: always() && (inputs.suite || 'full') != 'smoke'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: walkthrough-screenshots-${{ github.run_id }}
+          path: .tmp/walkthrough-screenshots
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 90
