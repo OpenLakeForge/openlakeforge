@@ -13,6 +13,7 @@ import base64
 import json
 import re
 import tempfile
+import urllib.parse
 from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,10 @@ STAGE_S3_SECRET = re.compile(r"seaweedfs-.+-s3-creds")
 POLARIS_PRINCIPAL_SECRET = re.compile(r"polaris-.+-creds")
 POLARIS_CLIENT_SECRET_SUFFIX = "_CLIENT_SECRET"
 LOG_TAIL_LINES = 2000
+# A credential is redacted from an error message wherever this many of its characters appear in a row: short enough to
+# catch a value Playwright cut short, long enough that ordinary text is not mistaken for one.
+REDACTED_FRAGMENT = 8
+REDACTED_LIMIT = 600
 
 Surfaces = Mapping[str, str | None]
 
@@ -74,12 +79,49 @@ def find_exposures(credentials: Mapping[str, str], surfaces: Surfaces) -> list[s
             log.info(f"Skipping the exposure scan of {surface}: unavailable.")
             continue
         for label, value in credentials.items():
-            # Kubernetes carries Secret data base64-encoded, and `-o json` and Terraform
-            # state escape quotes, backslashes and newlines: those forms are leaks too.
-            forms = (value, base64.b64encode(value.encode()).decode(), json.dumps(value)[1:-1])
-            if any(form in text for form in forms):
+            if any(form in text for form in _forms(value)):
                 found.append(f"{surface} contains the value of Secret {label}")
     return found
+
+
+def _forms(value: str) -> tuple[str, ...]:
+    # Kubernetes carries Secret data base64-encoded, and `-o json` and Terraform state escape quotes, backslashes and
+    # newlines: those forms are leaks too. A URL carries it percent-encoded.
+    return (
+        value,
+        base64.b64encode(value.encode()).decode(),
+        json.dumps(value)[1:-1],
+        urllib.parse.quote(value, safe=""),
+    )
+
+
+def redact(text: str, credentials: Mapping[str, str], limit: int = REDACTED_LIMIT) -> str:
+    """`text` on one line, each run of it that holds part of a credential's value replaced by `<redacted:label>`, then
+    cut to `limit` characters.
+
+    Parts, not only whole values: an error message may quote a value cut short (Playwright elides long text), and a
+    prefix of a credential is a leak too. Any `REDACTED_FRAGMENT` characters of a value in any of its forms mark the
+    run they sit in.
+    """
+    text = " ".join(text.split())
+    fragments: dict[str, str] = {}
+    for label, value in credentials.items():
+        for form in _forms(value):
+            for start in range(max(len(form) - REDACTED_FRAGMENT, 0) + 1):
+                fragments.setdefault(form[start : start + REDACTED_FRAGMENT], label)
+    owner: list[str | None] = [None] * len(text)
+    for start in range(len(text) - REDACTED_FRAGMENT + 1):
+        if found := fragments.get(text[start : start + REDACTED_FRAGMENT]):
+            for at in range(start, start + REDACTED_FRAGMENT):
+                owner[at] = owner[at] or found
+    out: list[str] = []
+    for at, char in enumerate(text):
+        if owner[at] is None:
+            out.append(char)
+        elif at == 0 or owner[at - 1] is None:
+            out.append(f"<redacted:{owner[at]}>")
+    redacted = "".join(out)
+    return redacted if len(redacted) <= limit else redacted[: limit - 1] + "…"
 
 
 def scan(credentials: Mapping[str, str], surfaces: Surfaces) -> None:
