@@ -42,6 +42,7 @@ locals {
         schema = "openlakeforge.k8s_log.v2",
         time = time,
         date = os.date("!%Y-%m-%d", ts.sec),
+        hour = os.date("!%H", ts.sec),
         stage = record.stage,
         namespace = namespace,
         pod = pod,

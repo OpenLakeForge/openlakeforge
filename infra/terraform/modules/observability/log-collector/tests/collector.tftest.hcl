@@ -105,10 +105,31 @@ run "each_namespace_routes_to_its_own_prefix" {
   assert {
     condition = (
       strcontains(kubernetes_config_map_v1.collector.data["fluent-bit.conf"], "Path                        /var/log/containers/*_olf-dev_*.log")
-      && strcontains(kubernetes_config_map_v1.collector.data["fluent-bit.conf"], "s3_key_format               /activations/dev/logs/v2/namespace=$TAG[0]/date=$TAG[1]/dev-$UUID.ndjson.gz")
-      && strcontains(kubernetes_config_map_v1.collector.data["fluent-bit.conf"], "s3_key_format               /platform/logs/v2/namespace=$TAG[0]/date=$TAG[1]/platform-$UUID.ndjson.gz")
+      && strcontains(kubernetes_config_map_v1.collector.data["fluent-bit.conf"], "s3_key_format               /activations/dev/logs/v2/namespace=$TAG[0]/date=$TAG[1]/hour=$TAG[2]/dev-$UUID.ndjson.gz")
+      && strcontains(kubernetes_config_map_v1.collector.data["fluent-bit.conf"], "s3_key_format               /platform/logs/v2/namespace=$TAG[0]/date=$TAG[1]/hour=$TAG[2]/platform-$UUID.ndjson.gz")
     )
     error_message = "the input's namespace, not a record field, selects the stage prefix"
+  }
+}
+
+# The key's date and hour are the tag's, which the record builder takes from each record's own time; the key holds no
+# strftime time, which the plugin takes from the restart for a file left in the spool.
+run "objects_are_partitioned_by_the_hour_of_their_records" {
+  command = plan
+
+  assert {
+    condition = (
+      strcontains(kubernetes_config_map_v1.collector.data["record.lua"], "hour = os.date(\"!%H\", ts.sec)")
+      && strcontains(kubernetes_config_map_v1.collector.data["fluent-bit.conf"], "Rule                        $date ^(\\d{4}-\\d{2}-\\d{2})$ olf-dev.$date.$hour false")
+      && length(regexall("Remove_key +hour", kubernetes_config_map_v1.collector.data["fluent-bit.conf"])) == 3
+      && length(regexall("s3_key_format +[^\n%]*/date=\\$TAG\\[1\\]/hour=\\$TAG\\[2\\]/", kubernetes_config_map_v1.collector.data["fluent-bit.conf"])) == 3
+    )
+    error_message = "each record is tagged with its own UTC date and hour, and the key is built from that tag alone"
+  }
+
+  assert {
+    condition     = strcontains(kubernetes_config_map_v1.collector.data["fluent-bit.conf"], "Match_Regex                 ^olf-dev\\.\\d{4}-\\d{2}-\\d{2}(\\.\\d{2})?$")
+    error_message = "the output still takes the date-only tag of chunks a collector wrote before hours"
   }
 }
 

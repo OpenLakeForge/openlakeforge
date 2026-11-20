@@ -3,8 +3,9 @@
 v1, written by the polling archiver (`openlakeforge_runtime/k8s_log_archive.py`):
 `<base>/k8s/namespace=<ns>/date=<YYYY-MM-DD>/hour=<HH>/k8s-logs-<stamp>.ndjson.gz`.
 v2, written by the node collector:
-`<base>/v2/namespace=<ns>/date=<YYYY-MM-DD>/<stage>-<uuid>.ndjson.gz`.
-Both are gzipped NDJSON. The caller passes an S3 client: this package holds no
+`<base>/v2/namespace=<ns>/date=<YYYY-MM-DD>/hour=<HH>/<stage>-<uuid>.ndjson.gz`, the date and hour of every record in
+the object (the collector tags each record with its own and keys the object by the tag). Objects written before hour
+partitions sit directly under `date=`. Both are gzipped NDJSON. The caller passes an S3 client: this package holds no
 object-store credential and does not depend on boto3 (ADR 0021, decision 4).
 """
 
@@ -32,6 +33,9 @@ SCHEMA_V2 = "openlakeforge.k8s_log.v2"
 
 # Only a name Kubernetes could give a namespace becomes a path segment: no slash, `=` or dot.
 _NAMESPACE = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?")
+# A v2 hour partition. Any other sub-prefix of a day, such as the one a collector upgraded with chunks of the date-only
+# tag still on disk writes (`hour=<namespace>.<date>[2]/`), is read whole, as the objects directly under `date=` are.
+_V2_HOUR = re.compile(r"hour=(\d{2})/")
 # Neither layout keeps a severity field, so a line's level is read from its text, and only where the text states it
 # in one of the shapes `level_of` recognises; any other line has no level rather than a guessed one.
 SEVERITIES = ("debug", "info", "warning", "error", "critical")
@@ -69,7 +73,7 @@ class ObjectStore(Protocol):
     """The two calls of a boto3 S3 client the reader makes, with the arguments it passes."""
 
     def list_objects_v2(  # noqa: N803 - boto3's argument names
-        self, *, Bucket: str, Prefix: str = ..., ContinuationToken: str = ...
+        self, *, Bucket: str, Prefix: str = ..., Delimiter: str = ..., ContinuationToken: str = ...
     ) -> Mapping[str, Any]: ...
 
     def get_object(self, *, Bucket: str, Key: str) -> Mapping[str, Any]: ...  # noqa: N803
@@ -301,6 +305,7 @@ class LogArchive:
         record time. `component`, `product` and `run_id` exist only in v2, so setting one leaves v1 out.
         `deadline`, on the archive's clock, stops the scan with ArchiveDeadline between pages, objects and records.
         With `since`, an object uploaded before it (less UPLOAD_CLOCK_SLACK) is not read: it holds no line it selects.
+        `hour`, `since` and `until` also pick the v2 hour partitions listed.
         """
         return self.read_days(
             namespace,
@@ -346,6 +351,10 @@ class LogArchive:
         the days that reach past the window's end (`until`, or the end of the last day). The event-time filters
         still apply, so those days add no line outside the window. With `since`, an object uploaded more than
         UPLOAD_CLOCK_SLACK before it is skipped unread, from the LastModified the listing returns.
+
+        v2 lists only the hour partitions of each day that `hour`, `since` and `until` touch, and no day the window
+        misses. A v2 object holds the records of the one hour its key names, whenever it was uploaded, so this needs
+        no slack hour; objects of a day without hour partitions are listed as before, with the LastModified skip.
         """
         # A slash would move the listing to another partition, such as another stage's namespace.
         if not _NAMESPACE.fullmatch(namespace):
@@ -387,7 +396,9 @@ class LogArchive:
         try:
             v2 = _Best(limit, after)
             for day in event_days:
-                self._v2(namespace, day, hour, wanted, v2, scan)
+                hours = _v2_hours(day, hour, since, until)
+                if hours is None or hours:
+                    self._v2(namespace, day, hour, hours, wanted, v2, scan)
             retained = v2.sorted()
             # ADR 0022, decision 5: a v1 line is dropped only when v2 holds the same line of the same container.
             overlap = {
@@ -418,11 +429,12 @@ class LogArchive:
         namespace: str,
         day: date,
         hour: int | None,
+        hours: frozenset[int] | None,
         wanted: Callable[[ArchivedLogLine, datetime | None], bool],
         best: _Best,
         scan: _Scan,
     ) -> None:
-        for digest, key in self._ordered(self._partition("v2", namespace, day, None), scan):
+        for digest, key in self._v2_keys(self._partition("v2", namespace, day, None), hours, scan):
             for index, record in enumerate(self._records(key, scan)):
                 if record.get("schema") != SCHEMA_V2 or record["namespace"] != namespace:
                     continue
@@ -501,15 +513,33 @@ class LogArchive:
         # Scanned in the order positions sort in, so the first copy of a replayed record is always met first.
         return sorted((_digest(key), key) for key in self._keys(prefix, scan))
 
-    def _keys(self, prefix: str, scan: _Scan) -> Iterator[str]:
+    def _v2_keys(self, day_prefix: str, hours: frozenset[int] | None, scan: _Scan) -> list[tuple[str, str]]:
+        """The day's objects in `hours` (every hour when None), those directly under it, and any other sub-prefix's.
+
+        One listing with a delimiter finds the day's hour partitions without listing their objects. The keys of the
+        whole day are ordered together, as positions sort by day and then object.
+        """
+        subprefixes: list[str] = []
+        keys = list(self._keys(day_prefix, scan, subprefixes))
+        for prefix in subprefixes:
+            partition = _V2_HOUR.fullmatch(prefix.removeprefix(day_prefix))
+            if hours is None or partition is None or int(partition.group(1)) in hours:
+                keys.extend(self._keys(prefix, scan))
+        return sorted((_digest(key), key) for key in keys)
+
+    def _keys(self, prefix: str, scan: _Scan, subprefixes: list[str] | None = None) -> Iterator[str]:
+        """Objects under `prefix`; with `subprefixes`, only those directly under it, and the sub-prefixes go there."""
         token = ""
         while True:
             self._check()
-            page = (
-                self._store.list_objects_v2(Bucket=self._bucket, Prefix=prefix, ContinuationToken=token)
-                if token
-                else self._store.list_objects_v2(Bucket=self._bucket, Prefix=prefix)
-            )
+            args: dict[str, str] = {"Bucket": self._bucket, "Prefix": prefix}
+            if subprefixes is not None:
+                args["Delimiter"] = "/"
+            if token:
+                args["ContinuationToken"] = token
+            page = self._store.list_objects_v2(**args)
+            if subprefixes is not None:
+                subprefixes.extend(item["Prefix"] for item in page.get("CommonPrefixes") or [])
             for item in page.get("Contents", []):
                 if not item["Key"].endswith(".ndjson.gz"):
                     continue
@@ -535,3 +565,21 @@ class LogArchive:
             record = json.loads(raw)
             if isinstance(record, dict):
                 yield record
+
+
+def _v2_hours(day: date, hour: int | None, since: datetime | None, until: datetime | None) -> frozenset[int] | None:
+    """The hours of `day` that `hour` and `[since, until)` touch: None for all 24, empty when the window misses it."""
+    start = datetime.combine(day, datetime.min.time(), UTC)
+    first, last = start, start + timedelta(days=1)
+    if since is not None:
+        first = max(first, since.astimezone(UTC))
+    if until is not None:
+        last = min(last, until.astimezone(UTC))
+    if first >= last:
+        return frozenset()
+    touched = range(first.hour, (last - timedelta(microseconds=1)).hour + 1)
+    if hour is not None:
+        return frozenset({hour} & set(touched))
+    if len(touched) == 24:
+        return None
+    return frozenset(touched)

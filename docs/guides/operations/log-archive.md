@@ -13,9 +13,13 @@ per-stage confidentiality of collection. Stage isolation holds at the write pref
 
 | What | Where in the ops bucket |
 | --- | --- |
-| A stage's pod logs | `activations/<stage>/logs/v2/namespace=<namespace>/date=<YYYY-MM-DD>/<stage>-<uuid>.ndjson.gz` |
-| `olf-system` pod logs | `platform/logs/v2/namespace=olf-system/date=<YYYY-MM-DD>/platform-<uuid>.ndjson.gz` |
+| A stage's pod logs | `activations/<stage>/logs/v2/namespace=<namespace>/date=<YYYY-MM-DD>/hour=<HH>/<stage>-<uuid>.ndjson.gz` |
+| `olf-system` pod logs | `platform/logs/v2/namespace=olf-system/date=<YYYY-MM-DD>/hour=<HH>/platform-<uuid>.ndjson.gz` |
+| Collector logs archived before hour partitions | `.../date=<YYYY-MM-DD>/<stage>-<uuid>.ndjson.gz`, read as before |
 | Logs archived before the collector | `activations/<stage>/logs/k8s/...`, read exactly as before |
+
+The date and hour are UTC and are those of every line in the object, taken from each line's own time, not from when
+the object was uploaded. A read of a run's window or of one `--hour` lists only the hours it touches.
 
 On AWS and Azure there is no collector yet: a `*/15` CronJob writes the older layout, and a Job pod deleted by its TTL
 between two runs is not captured there.
@@ -89,7 +93,7 @@ A stage whose pods log nothing reads like a stalled collector. The component nam
    ```
 
 4. Watch the signals fall back to `healthy` once the spool is empty. Lines spooled during the outage appear in the
-   archive in their own date partition, not the day they were uploaded.
+   archive in their own date and hour partition, not the hour they were uploaded.
 
 ### What survives
 

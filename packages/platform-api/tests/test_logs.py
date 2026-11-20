@@ -38,16 +38,20 @@ class ObjectStore:
             self.modified[key] = modified
 
     def list_objects_v2(  # noqa: N803 - boto3's names
-        self, *, Bucket: str, Prefix: str = "", ContinuationToken: str = ""
+        self, *, Bucket: str, Prefix: str = "", Delimiter: str = "", ContinuationToken: str = ""
     ) -> dict[str, Any]:
         if self.fail:
             raise self.fail()
         self.listed.append(Prefix)
         keys = sorted(key for bucket, key in self.objects if bucket == Bucket and key.startswith(Prefix))
+        nested = {key for key in keys if Delimiter and Delimiter in key.removeprefix(Prefix)}
         contents = [
-            {"Key": key, **({"LastModified": self.modified[key]} if key in self.modified else {})} for key in keys
+            {"Key": key, **({"LastModified": self.modified[key]} if key in self.modified else {})}
+            for key in keys
+            if key not in nested
         ]
-        return {"Contents": contents, "IsTruncated": False}
+        prefixes = sorted({Prefix + key.removeprefix(Prefix).split(Delimiter)[0] + Delimiter for key in nested})
+        return {"Contents": contents, "CommonPrefixes": [{"Prefix": p} for p in prefixes], "IsTruncated": False}
 
     def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
         self.opened.append(Key)
@@ -284,6 +288,17 @@ def _v2(time: str, message: str, namespace: str = "olf-dev", **fields: Any) -> d
 
 
 V2_DEV = "activations/dev/logs/v2/namespace=olf-dev/date=2026-10-30/dev-4f1b.ndjson.gz"
+
+
+def test_an_hour_of_the_day_lists_only_that_hour_partition(api: TestClient, store: ObjectStore, mint: Mint) -> None:
+    day = "activations/dev/logs/v2/namespace=olf-dev/date=2026-10-30/"
+    store.archive(f"{day}hour=09/dev-a.ndjson.gz", [_v2("2026-10-30T09:15:00Z", "INFO nine")])
+    store.archive(f"{day}hour=10/dev-b.ndjson.gz", [_v2("2026-10-30T10:15:00Z", "INFO ten")])
+
+    response = api.get(LOGS + "&hour=10", headers=_as(mint, "data-engineer"))
+
+    assert [line["line"] for line in response.json()["lines"]] == ["INFO ten"]
+    assert [prefix for prefix in store.listed if "/v2/" in prefix] == [day, f"{day}hour=10/"]
 
 
 def test_v2_lines_are_found_by_run_without_the_pod_name_and_deduplicated(

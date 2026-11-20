@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import contextlib
+import gzip
+import io
+import json
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from openlakeforge_services.logs import LogArchive
 
 from olf.infra.e2e import _log_collector
 from olf.infra.e2e._shell import E2EError
@@ -69,6 +77,7 @@ def test_the_short_lived_drill_sees_the_pod_before_waiting_for_its_deletion(monk
     monkeypatch.setattr(_log_collector, "_pods_of", pods)
     monkeypatch.setattr(_log_collector, "_archive", lambda _cfg: _NullArchive())
     monkeypatch.setattr(_log_collector, "await_exactly_once", lambda *_a, **_k: None)
+    monkeypatch.setattr(_log_collector, "check_hour_partitions", lambda *_a: None)
 
     _log_collector.check_short_lived_pod_output(SimpleNamespace(namespace="olf-dev"))  # type: ignore[arg-type]
 
@@ -112,3 +121,90 @@ def test_a_slow_emitter_start_is_waited_out_not_reported_as_a_collector_failure(
 
     assert calls.count("logs") == 3
     assert "delete" in calls
+
+
+PREFIX = "activations/dev/logs/v2/namespace=olf-dev/"
+
+
+class _Bucket:
+    """The listing, paginator and get of a boto3 client over a dict of objects, with S3's delimiter."""
+
+    def __init__(self, objects: dict[str, list[dict[str, Any]]], modified: datetime) -> None:
+        self.objects = {
+            key: gzip.compress("".join(json.dumps(r) + "\n" for r in rs).encode()) for key, rs in objects.items()
+        }
+        self.modified = modified
+
+    def list_objects_v2(self, *, Bucket: str, Prefix: str, Delimiter: str = "", **_: str) -> dict[str, Any]:  # noqa: N803
+        under = sorted(key for key in self.objects if key.startswith(Prefix))
+        nested = [key for key in under if Delimiter and Delimiter in key.removeprefix(Prefix)]
+        return {
+            "Contents": [{"Key": key, "LastModified": self.modified} for key in under if key not in nested],
+            "CommonPrefixes": [
+                {"Prefix": p} for p in sorted({Prefix + k.removeprefix(Prefix).split("/")[0] + "/" for k in nested})
+            ],
+        }
+
+    def get_paginator(self, _name: str) -> SimpleNamespace:
+        return SimpleNamespace(paginate=lambda **kwargs: [self.list_objects_v2(**kwargs)])
+
+    def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        return {"Body": io.BytesIO(self.objects[Key])}
+
+
+def _record(time: str, message: str, run_id: str = "r-1") -> dict[str, Any]:
+    return {
+        "schema": "openlakeforge.k8s_log.v2",
+        "time": time,
+        "namespace": "olf-dev",
+        "pod": "p",
+        "container": "emit",
+        "message": message,
+        "run_id": run_id,
+        "dedup_key": f"c:{time}",
+    }
+
+
+def test_an_object_is_in_place_only_under_the_date_and_hour_of_every_record() -> None:
+    key = f"{PREFIX}date=2026-11-16/hour=09/dev-4f1b6c2e.ndjson.gz"
+
+    assert _log_collector.partition_problems(key, [_record("2026-11-16T09:59:59.9Z", "tok line 1 ")]) == []
+    assert "another hour" in _log_collector.partition_problems(key, [_record("2026-11-16T10:00:00Z", "x")])[0]
+    flat = f"{PREFIX}date=2026-11-16/dev-4f1b6c2e.ndjson.gz"
+    assert "not under date=<day>/hour=<HH>/" in _log_collector.partition_problems(flat, [])[0]
+
+
+def _with_bucket(monkeypatch: pytest.MonkeyPatch, bucket: _Bucket) -> None:
+    @contextlib.contextmanager
+    def s3(_cfg: object) -> Iterator[tuple[_Bucket, str]]:
+        yield bucket, "ops"
+
+    monkeypatch.setattr(_log_collector, "_s3", s3)
+
+
+def test_the_drill_fails_when_the_collector_keys_a_line_under_another_hour(monkeypatch: pytest.MonkeyPatch) -> None:
+    since = datetime(2026, 11, 16, 9, 0, tzinfo=UTC)
+    cfg = SimpleNamespace(namespace="olf-dev")
+    good = {f"{PREFIX}date=2026-11-16/hour=09/dev-a.ndjson.gz": [_record("2026-11-16T09:30:00Z", "tok line 1 ")]}
+    _with_bucket(monkeypatch, _Bucket(good, since))
+    _log_collector.check_hour_partitions(cfg, "tok", since)  # type: ignore[arg-type]
+
+    lying = {f"{PREFIX}date=2026-11-16/hour=10/dev-a.ndjson.gz": [_record("2026-11-16T09:30:00Z", "tok line 1 ")]}
+    _with_bucket(monkeypatch, _Bucket(lying, since))
+    with pytest.raises(E2EError, match="another hour"):
+        _log_collector.check_hour_partitions(cfg, "tok", since)  # type: ignore[arg-type]
+
+
+def test_the_drill_reads_a_run_from_the_hours_since_it_started(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A line keyed under an hour before the drill's start is not listed: the read finds what a run's read would.
+    now = datetime.now(UTC).replace(microsecond=0)
+    earlier = now - timedelta(hours=3)
+    stamp = f"{now:%Y-%m-%dT%H:%M:%S}Z"
+    objects = {
+        f"{PREFIX}date={now:%Y-%m-%d}/hour={now:%H}/dev-a.ndjson.gz": [_record(stamp, "tok line 1 ")],
+        f"{PREFIX}date={earlier:%Y-%m-%d}/hour={earlier:%H}/dev-b.ndjson.gz": [_record(stamp, "tok line 2 ")],
+    }
+    archive = LogArchive(_Bucket(objects, now), "s3://ops/activations/dev/logs")
+    cfg = SimpleNamespace(namespace="olf-dev")
+
+    assert _log_collector._run_lines(archive, cfg, "r-1", "tok", now) == [1]  # type: ignore[arg-type]  # noqa: SLF001

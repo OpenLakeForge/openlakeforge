@@ -26,13 +26,23 @@ class _ObjectStore:
     def put_object(self, *, Bucket: str, Key: str, Body: bytes, **_: Any) -> None:  # noqa: N803 - boto3's names
         self.objects[(Bucket, Key)] = Body
 
-    def list_objects_v2(self, *, Bucket: str, Prefix: str, ContinuationToken: str = "") -> dict[str, Any]:  # noqa: N803
-        keys = sorted(key for bucket, key in self.objects if bucket == Bucket and key.startswith(Prefix))
+    def list_objects_v2(  # noqa: N803 - boto3's names
+        self, *, Bucket: str, Prefix: str, Delimiter: str = "", ContinuationToken: str = ""
+    ) -> dict[str, Any]:
+        entries = sorted(
+            {
+                Prefix + rest.split(Delimiter)[0] + Delimiter if Delimiter and Delimiter in rest else key
+                for bucket, key in self.objects
+                if bucket == Bucket and key.startswith(Prefix)
+                for rest in [key.removeprefix(Prefix)]
+            }
+        )
         start = int(ContinuationToken or 0)
-        page = keys[start : start + self.page_size]
-        more = start + self.page_size < len(keys)
+        page = entries[start : start + self.page_size]
+        more = start + self.page_size < len(entries)
         return {
-            "Contents": [{"Key": key} for key in page],
+            "Contents": [{"Key": key} for key in page if not (Delimiter and key.endswith(Delimiter))],
+            "CommonPrefixes": [{"Prefix": key} for key in page if Delimiter and key.endswith(Delimiter)],
             "IsTruncated": more,
             **({"NextContinuationToken": str(start + self.page_size)} if more else {}),
         }
