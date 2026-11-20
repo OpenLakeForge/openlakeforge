@@ -110,7 +110,7 @@ my-lakehouse/
     ├── bronze/             # sources and their dlt loaders
     ├── silver/             # Floe project: one file per entity, grouped by domain
     ├── gold/               # dbt projects per product
-    ├── pipelines/dagster/  # one Dagster job per product
+    ├── pipelines/          # Dagster code location; one job per product
     └── dashboards/superset/
 ```
 

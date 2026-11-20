@@ -78,4 +78,4 @@ RUN mkdir -p "${DAGSTER_HOME}" \
 
 USER 10001:10001
 
-CMD ["dagster", "api", "grpc", "--module-name", "lakehouse_code.definitions", "--host", "0.0.0.0", "--port", "3030"]
+CMD ["dagster", "api", "grpc", "--module-name", "lakehouse_code.pipelines.definitions", "--host", "0.0.0.0", "--port", "3030"]

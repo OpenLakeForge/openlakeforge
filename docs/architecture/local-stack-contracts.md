@@ -182,7 +182,7 @@ The orchestration module owns:
 
 - the Dagster Helm release
 - shared PostgreSQL credentials for Dagster metadata
-- the `openlakeforge-dagster` code location loading `lakehouse_code.definitions`
+- the `openlakeforge-dagster` code location loading `lakehouse_code.pipelines.definitions`
 - one user-code pod by default; a multi-entry `code_locations` configuration
   remains available when domains need isolated code-location loading and restarts
 - the Kubernetes run launcher

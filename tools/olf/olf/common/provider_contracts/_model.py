@@ -18,7 +18,7 @@ from olf.common.provider_contracts._validation import _mapping, _stage_name
 # would make every artifacts-phase deploy against that state demand a platform
 # apply first, which is the lifecycle boundary ADR 0002 exists to hold.
 _LEGACY_CODE_LOCATIONS = (
-    MappingProxyType({"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.definitions"}),
+    MappingProxyType({"name": "openlakeforge-dagster", "definitions_module": "lakehouse_code.pipelines.definitions"}),
 )
 
 

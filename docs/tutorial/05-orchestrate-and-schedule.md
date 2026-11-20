@@ -11,26 +11,27 @@ about 10 minutes.
 
 ## 1. Read the product definition
 
-Dagster code for a product lives in
-`lakehouse_code/pipelines/dagster/campaign_performance.py`, which
-`olf product new` generated:
+You write no Dagster code for a product. `lakehouse_code/pipelines/definitions.py`
+is the code location, and it builds one job per product in `governance.yml`:
 
 ```python
 from __future__ import annotations
 
-from openlakeforge_runtime.product_dagster import ProductDefinitionSpec, build_product_definitions
+from openlakeforge_runtime.code_location import build_code_location
 
-defs = build_product_definitions(ProductDefinitionSpec(domain="marketing", product="campaign_performance"))
+from lakehouse_code.pipelines.products import PRODUCTS
+
+defs = build_code_location(PRODUCTS)
 ```
 
-`build_product_definitions` connects the three layers of the product: the
-Bronze loader of `marketing_platform`, the Floe Silver table `campaigns` and
-the dbt Gold mart. It reads them from the project: the dbt models are the Gold
-assets, the dbt sources are the Silver inputs, and the Floe entity of each
-source names its Bronze resource ([Runtime API](../reference/runtime-api.md)). It also defines the job
-`campaign_performance_pipeline`.
-`lakehouse_code/definitions.py` finds every module in
-`lakehouse_code/pipelines/dagster/` by itself, so you register nothing.
+For each product it connects the three layers: the Bronze loader of
+`marketing_platform`, the Floe Silver table `campaigns` and the dbt Gold mart.
+It reads them from the project: the dbt models are the Gold assets, the dbt
+sources are the Silver inputs, and the Floe entity of each source names its
+Bronze resource ([Runtime API](../reference/runtime-api.md)). It also defines
+the job `campaign_performance_pipeline`. `lakehouse_code/pipelines/products.py`
+lists only the products that depart from the defaults, so a new product needs
+no entry there.
 
 ## 2. Launch the job
 
@@ -63,11 +64,11 @@ accumulating duplicates.
 ## 4. Know where the schedule comes from
 
 A product's job has no recurring trigger of its own in DEV. The shared
-`build_product_definitions` adds a daily schedule named
+code location adds a daily schedule named
 `campaign_performance_daily` (`0 3 * * *`, UTC), but only in the PROD stage.
 It is created stopped, and enabling it is a deliberate act in the Dagster UI,
-unless the product's `ProductCadence` sets `enabled_in_prod=True`, which makes
-PROD start it on deploy (see the [runtime API](../reference/runtime-api.md)).
+unless the product's entry in `pipelines/products.py` sets a `ProductCadence`
+with `enabled_in_prod=True`, which makes PROD start it on deploy (see the [runtime API](../reference/runtime-api.md)).
 DEV and UAT stay manual on purpose: the same immutable revision is deployed to
 every stage, and a schedule there would be a production-shaped workload on a
 development catalog. You add PROD in lesson 9, and the schedule appears in

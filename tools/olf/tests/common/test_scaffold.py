@@ -395,7 +395,8 @@ def test_product_new_creates_first_product_and_domain_implicitly(tmp_path: Path)
     assert project["campaign_performance"] == {"+group": "campaign_performance"}
     # The products already there keep their blocks.
     assert project["order_revenue"] == {"+group": "order_revenue"}
-    assert (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").is_file()
+    # The product's job comes from governance.yml, so scaffolding writes no Dagster module for it.
+    assert not (repo_root / "lakehouse_code" / "pipelines" / "campaign_performance.py").exists()
     silver = repo_root / "lakehouse_code" / "silver" / "marketing"
     assert (silver / "domain.yml").is_file()
     assert (silver / "contracts" / "campaigns.yml").is_file()
@@ -844,10 +845,6 @@ def test_generated_product_artifacts_are_internally_consistent(tmp_path: Path) -
     floe_domain = (repo_root / "lakehouse_code" / "silver" / "marketing" / "domain.yml").read_text()
     assert 'namespace: "marketing_silver"' in floe_domain
 
-    dagster_module = (repo_root / "lakehouse_code" / "pipelines" / "dagster" / "campaign_performance.py").read_text()
-    assert 'ProductDefinitionSpec(domain="marketing", product="campaign_performance")' in dagster_module
-    assert "silver_inputs=" not in dagster_module
-
 
 # --------------------------------------------------------------------------
 # YAML-safety and Superset-identity regressions
@@ -979,7 +976,7 @@ def test_cli_source_new_end_to_end(tmp_path: Path) -> None:
 def _seed_empty_project(tmp_path: Path) -> Path:
     """The tree `olf init --empty` leaves behind, without the toolchain work."""
     lakehouse_code = tmp_path / "lakehouse_code"
-    for package in ("", "bronze", "silver", "gold", "dashboards/superset", "pipelines/dagster"):
+    for package in ("", "bronze", "silver", "gold", "dashboards/superset", "pipelines"):
         directory = lakehouse_code / package if package else lakehouse_code
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "__init__.py").write_text("", encoding="utf-8")

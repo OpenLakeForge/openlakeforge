@@ -63,6 +63,15 @@ for how a release is cut and verified.
 
 ### Changed
 
+- **The Dagster code location moved to `lakehouse_code.pipelines.definitions`,
+  and a product no longer has a module of its own.** `lakehouse_code/definitions.py`
+  and `pipelines/dagster/<product>.py` are gone. `pipelines/definitions.py` builds
+  a job for every product in `governance.yml` through
+  `openlakeforge_runtime.code_location.build_code_location`, and
+  `pipelines/products.py` holds the optional per-product overrides (cadence,
+  input lists). `olf product new` writes no Dagster file. The example products
+  now declare enabled PROD cadences (02:00, 02:30 and 03:00 UTC), so their
+  schedules are `<product>_schedule` and `RUNNING` on deploy.
 - The project-code image and `olf` pin `floe-python` 0.10.2 and `dagster-floe`
   0.6.1. A `job_scope: domain` step on Kubernetes now writes each entity's
   checks as that entity finishes.
@@ -81,6 +90,15 @@ for how a release is cut and verified.
   `failed_runs` that can be unknown (#1260).
 
 ### Migration
+
+The code location move, for a project created before it:
+
+1. Delete `lakehouse_code/definitions.py` and `lakehouse_code/pipelines/dagster/`.
+2. Copy `pipelines/definitions.py` from the distribution, and create
+   `pipelines/products.py` with a `PRODUCTS` entry for each product that set a
+   `cadence` or an input list in its old module.
+3. A profile or contract that sets `definitions_module` to
+   `lakehouse_code.definitions` must name `lakehouse_code.pipelines.definitions`.
 
 Alerts, for a deployment whose profile declares `spec.observability.alerts`
 receivers and that ran without a policy:

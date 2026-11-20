@@ -173,7 +173,6 @@ def test_renaming_descriptor_product_changes_discovered_work_without_shared_code
     assert product.silver_namespace == "sales_silver"
     assert product.openmetadata_data_product_fqns == ("revenue", "sales.revenue")
     assert inventory.domains[0].artifact_prefixes.floe_report_prefix == "floe/reports/sales/"
-    assert product.definitions_module == "lakehouse_code.pipelines.dagster.revenue"
     assert inventory.job_names == ("revenue_pipeline",)
     assert product.gold_namespace == "revenue_gold"
     assert inventory.silver_namespace_names == frozenset({"sales_silver"})

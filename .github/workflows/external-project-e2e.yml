@@ -216,7 +216,7 @@ jobs:
           print("psycopg2-binary", metadata.version("psycopg2-binary"))
           assert util.find_spec("openlakeforge_runtime") is not None
           assert util.find_spec("libs") is None, "a libs package is importable"
-          import lakehouse_code.definitions
+          import lakehouse_code.pipelines.definitions
           ' 2>&1 | tee "${E2E_DIR}/4-code-location.log"
           olf infra project status -f openlakeforge.yaml 2>&1 | tee "${E2E_DIR}/4-project-status.log"
 

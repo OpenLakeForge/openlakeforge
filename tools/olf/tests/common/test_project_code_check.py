@@ -280,6 +280,11 @@ class ProductCadence:
 
 
 @dataclass(frozen=True)
+class ProductOverrides:
+    cadence: ProductCadence | None = None
+
+
+@dataclass(frozen=True)
 class ProductDefinitionSpec:
     domain: str
     product: str
@@ -288,6 +293,15 @@ class ProductDefinitionSpec:
     @property
     def job_name(self):
         return f"{self.product}_pipeline"
+
+
+def product_specs(inventory, overrides):
+    return {
+        product.id: ProductDefinitionSpec(
+            product.domain_name, product.id, cadence=overrides.get(product.id, ProductOverrides()).cadence
+        )
+        for product in inventory.products
+    }
 
 
 def build_stage_schedules(spec, *, stage=None):
@@ -312,64 +326,59 @@ def build_product_definitions(spec):
     return Definitions(jobs=[pipeline], schedules=build_stage_schedules(spec))
 """
 
-_PRODUCT_NO_SPEC = """
-from fake_runtime import ProductCadence, ProductDefinitionSpec, build_product_definitions
+_PRODUCTS = """
+from fake_runtime import ProductCadence, ProductOverrides
 
-defs = build_product_definitions(
-    ProductDefinitionSpec("sales", "order_revenue", cadence=ProductCadence("0 * * * *", enabled_in_prod=True))
-)
+PRODUCTS = {"order_revenue": ProductOverrides(cadence=ProductCadence("0 * * * *", enabled_in_prod=True))}
 """
 
-_PRODUCT_OWN_SCHEDULE = """
-from dagster import DefaultScheduleStatus, Definitions, ScheduleDefinition
-from fake_runtime import ProductDefinitionSpec, build_product_definitions
+_DEFINITIONS = """
+from dagster import Definitions
+from fake_runtime import build_product_definitions, product_specs
+from lakehouse_code.pipelines.products import PRODUCTS
 
-spec = ProductDefinitionSpec("sales", "order_revenue")
+from types import SimpleNamespace
+
+_inventory = SimpleNamespace(products=[SimpleNamespace(id="order_revenue", domain_name="sales")])
+defs = Definitions.merge(*(build_product_definitions(spec) for spec in product_specs(_inventory, PRODUCTS).values()))
+"""
+
+_DEFINITIONS_OWN_SCHEDULE = _DEFINITIONS + """
+from dagster import DefaultScheduleStatus, ScheduleDefinition
+
 own = ScheduleDefinition(
-    name="order_revenue_manual_on", job_name=spec.job_name, cron_schedule="0 3 * * *",
+    name="order_revenue_manual_on", job_name="order_revenue_pipeline", cron_schedule="0 3 * * *",
     default_status=DefaultScheduleStatus.RUNNING,
 )
-defs = Definitions.merge(build_product_definitions(spec), Definitions(schedules=[own]))
+defs = Definitions.merge(defs, Definitions(schedules=[own]))
 """
 
-
-_PRODUCT_RUNNING_SENSOR = """
-from dagster import DefaultSensorStatus, Definitions, RunRequest, sensor
-from fake_runtime import ProductDefinitionSpec, build_product_definitions
-
-spec = ProductDefinitionSpec("sales", "order_revenue")
+_DEFINITIONS_RUNNING_SENSOR = _DEFINITIONS + """
+from dagster import DefaultSensorStatus, RunRequest, sensor
 
 
-@sensor(job_name=spec.job_name, default_status=DefaultSensorStatus.RUNNING)
+@sensor(job_name="order_revenue_pipeline", default_status=DefaultSensorStatus.RUNNING)
 def every_minute():
     yield RunRequest()
 
 
-defs = Definitions.merge(build_product_definitions(spec), Definitions(sensors=[every_minute]))
+defs = Definitions.merge(defs, Definitions(sensors=[every_minute]))
 """
 
-_PRODUCT_DECLARED_SCHEDULE_NOT_SHIPPED = """
-from dagster import Definitions
-from fake_runtime import ProductCadence, ProductDefinitionSpec, build_product_definitions
-
-spec = ProductDefinitionSpec("sales", "order_revenue", cadence=ProductCadence("0 * * * *", enabled_in_prod=True))
-defs = Definitions(jobs=build_product_definitions(spec).jobs)
+_DEFINITIONS_DROPS_SCHEDULES = _DEFINITIONS + """
+defs = Definitions(jobs=defs.jobs)
 """
 
 
-def _fixture_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, product_module: str) -> SimpleNamespace:
+def _fixture_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, definitions: str) -> SimpleNamespace:
     pytest.importorskip("dagster")
     code = tmp_path / "lakehouse_code"
-    (code / "pipelines" / "dagster").mkdir(parents=True)
-    for package in (code, code / "pipelines", code / "pipelines" / "dagster"):
+    (code / "pipelines").mkdir(parents=True)
+    for package in (code, code / "pipelines"):
         (package / "__init__.py").write_text("")
     (tmp_path / "fake_runtime.py").write_text(_FAKE_RUNTIME)
-    (code / "pipelines" / "dagster" / "order_revenue.py").write_text(product_module)
-    (code / "definitions.py").write_text(
-        "from dagster import Definitions\n"
-        "from lakehouse_code.pipelines.dagster.order_revenue import defs as product\n"
-        "defs = Definitions.merge(product)\n"
-    )
+    (code / "pipelines" / "products.py").write_text(_PRODUCTS)
+    (code / "pipelines" / "definitions.py").write_text(definitions)
     monkeypatch.syspath_prepend(str(tmp_path))
     for name in [name for name in sys.modules if name.split(".")[0] in {"lakehouse_code", "fake_runtime"}]:
         monkeypatch.delitem(sys.modules, name)
@@ -380,11 +389,14 @@ def _fixture_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, product_mo
 
 
 def _check_fixture_project(project: SimpleNamespace) -> None:
-    specs = project_code_check._product_specs(project.products)
-    stages = {stage: project_code_check._load_stage_definitions(stage) for stage in project_code_check._SCHEDULE_STAGES}
+    inventory = SimpleNamespace(products=project.products)
+    specs = project_code_check._product_specs(project.library, inventory)
+    stages = {
+        stage: project_code_check._load_stage_definitions(stage) for stage in project_code_check._SCHEDULE_STAGES
+    }
     project_code_check._verify_stage_sensors(stages)
     project_code_check._verify_stage_schedules(
-        SimpleNamespace(products=project.products),
+        inventory,
         project.library,
         {stage: loaded.schedules for stage, loaded in stages.items()},
         specs,
@@ -392,25 +404,16 @@ def _check_fixture_project(project: SimpleNamespace) -> None:
     )
 
 
-def test_a_product_module_that_builds_definitions_without_a_module_level_spec_is_refused(
+def test_a_schedule_the_code_location_merges_in_is_refused_in_dev_and_in_prod(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = _fixture_project(tmp_path, monkeypatch, _PRODUCT_NO_SPEC)
-
-    with pytest.raises(RuntimeError, match="does not expose a module-level `spec`"):
-        _check_fixture_project(project)
-
-
-def test_a_schedule_the_module_merges_in_is_refused_in_dev_and_in_prod(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    project = _fixture_project(tmp_path, monkeypatch, _PRODUCT_OWN_SCHEDULE)
-    specs = project_code_check._product_specs(project.products)
+    project = _fixture_project(tmp_path, monkeypatch, _DEFINITIONS_OWN_SCHEDULE)
+    inventory = SimpleNamespace(products=project.products)
+    specs = project_code_check._product_specs(project.library, inventory)
     loaded = {
         stage: project_code_check._load_stage_definitions(stage).schedules
         for stage in project_code_check._SCHEDULE_STAGES
     }
-    inventory = SimpleNamespace(products=project.products)
 
     with pytest.raises(RuntimeError, match="stage 'dev' must load no schedule"):
         project_code_check._verify_stage_schedules(inventory, project.library, loaded, specs, _MAINTENANCE)
@@ -419,28 +422,26 @@ def test_a_schedule_the_module_merges_in_is_refused_in_dev_and_in_prod(
         project_code_check._verify_stage_schedules(inventory, project.library, prod_only, specs, _MAINTENANCE)
 
 
-def test_a_running_sensor_the_module_merges_in_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    project = _fixture_project(tmp_path, monkeypatch, _PRODUCT_RUNNING_SENSOR)
+def test_a_running_sensor_the_code_location_merges_in_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _fixture_project(tmp_path, monkeypatch, _DEFINITIONS_RUNNING_SENSOR)
 
     with pytest.raises(RuntimeError, match="stage 'dev' loads the sensor every_minute \\(default status RUNNING\\)"):
         _check_fixture_project(project)
 
 
-def test_a_running_schedule_the_cadence_declares_but_the_module_does_not_ship_is_refused(
+def test_a_running_schedule_the_cadence_declares_but_the_code_location_does_not_ship_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = _fixture_project(tmp_path, monkeypatch, _PRODUCT_DECLARED_SCHEDULE_NOT_SHIPPED)
+    project = _fixture_project(tmp_path, monkeypatch, _DEFINITIONS_DROPS_SCHEDULES)
 
     with pytest.raises(RuntimeError, match="declares order_revenue_schedule RUNNING in prod, but the code location"):
         _check_fixture_project(project)
 
 
-def test_the_declared_schedule_the_module_ships_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    module = _PRODUCT_NO_SPEC.replace(
-        "defs = build_product_definitions(\n    ProductDefinitionSpec", "spec = (\n    ProductDefinitionSpec"
-    )
-    module += "\ndefs = build_product_definitions(spec)\n"
-    project = _fixture_project(tmp_path, monkeypatch, module)
+def test_the_declared_schedule_the_code_location_ships_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = _fixture_project(tmp_path, monkeypatch, _DEFINITIONS)
 
     _check_fixture_project(project)
 
@@ -463,7 +464,7 @@ _PUBLIC = {
 
 
 def _project(tmp_path: Path, source: str) -> Path:
-    module = tmp_path / "lakehouse_code" / "pipelines" / "dagster" / "orders.py"
+    module = tmp_path / "lakehouse_code" / "pipelines" / "orders.py"
     module.parent.mkdir(parents=True)
     module.write_text(source)
     return tmp_path
@@ -490,12 +491,12 @@ def test_private_runtime_modules_and_names_are_reported_with_their_location(tmp_
     )
 
     assert project_code_check.private_runtime_imports(root, _PUBLIC) == [
-        "lakehouse_code/pipelines/dagster/orders.py:1: openlakeforge_runtime.product_dagster._floe_profile "
+        "lakehouse_code/pipelines/orders.py:1: openlakeforge_runtime.product_dagster._floe_profile "
         "is not in the module's public API",
-        "lakehouse_code/pipelines/dagster/orders.py:2: openlakeforge_runtime.s3_artifacts "
+        "lakehouse_code/pipelines/orders.py:2: openlakeforge_runtime.s3_artifacts "
         "is not a public runtime module",
-        "lakehouse_code/pipelines/dagster/orders.py:3: openlakeforge_runtime.floe_profile "
+        "lakehouse_code/pipelines/orders.py:3: openlakeforge_runtime.floe_profile "
         "is not a public runtime module",
-        "lakehouse_code/pipelines/dagster/orders.py:4: openlakeforge_runtime.gold_maintenance "
+        "lakehouse_code/pipelines/orders.py:4: openlakeforge_runtime.gold_maintenance "
         "is not a public runtime module",
     ]
