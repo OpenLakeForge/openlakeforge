@@ -32,16 +32,22 @@ spec:
 olf infra deploy
 ```
 
-The walkthrough needs a failed run whose pods are already gone. The e2e suite makes one: its failed-run drill
-launches a product's job, makes it fail at the dbt step after Floe has recorded its checks, and deletes the run's pods
-the way the one-hour cleanup would.
+The walkthrough needs a failed run that has written its quality checks. Make one in Dagster
+(`http://dagster-dev.olf.localhost`): open a product's job, select its Silver and Gold assets only, and in the
+launchpad add two run tags:
 
-```bash
-olf infra e2e run --env local --suite full --checks all
-```
+| Tag | Value |
+| --- | --- |
+| `openlakeforge/full_refresh` | `not-a-scope` |
+| `floe/full_refresh` | `true` |
 
-The drill uses the first product, the default product first, whose job writes Silver tables of its own domain. It
-skips with a log line when no product does. Afterwards that product's latest run in DEV is the failed one.
+Floe rebuilds the job's Silver tables from Bronze and records its checks. The dbt step then refuses the unknown
+full-refresh scope ([full refresh](../../reference/descriptors.md#full-refresh)), so the run fails before Gold
+changes. Leave out the Bronze assets: their step reads the same tag and would fail the run before Floe.
+
+The run's pods are deleted an hour after it ends; the steps below work before and after that, since the logs and
+reports are read from the archive and the ops bucket. The full e2e suite makes the same run on a deployment with
+the e2e sign-in stub (its `failed run drill-down through the platform API` check), and deletes the pods at once.
 
 Open the Portal at `http://olf.localhost`. With sign-in off, the Portal and the API serve you as `platform-admin`.
 With sign-in on, a `data-engineer` sees all of this on DEV, and needs a higher role for PROD's logs and reports
@@ -97,7 +103,9 @@ the read for each day a run crosses:
 
 ```bash
 olf logs --stage dev --run-id <run-id> --date <YYYY-MM-DD> --severity error
-``` How the archive works, and what to do when delivery stops, is in
+```
+
+How the archive works, and what to do when delivery stops, is in
 [Log archive](log-archive.md).
 
 Proven by: `short-lived pod output in the log archive`, `log collector restart mid-stream` and the failed-run
