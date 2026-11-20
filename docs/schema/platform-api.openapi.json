@@ -965,6 +965,24 @@
             ],
             "title": "Error"
           },
+          "level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "debug",
+                  "info",
+                  "warning",
+                  "error",
+                  "critical"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
           "line": {
             "anyOf": [
               {
@@ -1052,6 +1070,17 @@
               }
             ],
             "title": "Stream"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
           }
         },
         "required": [
@@ -2179,6 +2208,37 @@
           "sources"
         ],
         "title": "RunFailure",
+        "type": "object"
+      },
+      "RunLogs": {
+        "properties": {
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LogLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "since": {
+            "title": "Since",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "until": {
+            "title": "Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lines",
+          "truncated",
+          "since",
+          "until"
+        ],
+        "title": "RunLogs",
         "type": "object"
       },
       "RunRows": {
@@ -3644,7 +3704,7 @@
     },
     "/api/v1/stages/{stage}/logs": {
       "get": {
-        "description": "The stage's archived pod log lines for a UTC day or one hour of it, oldest first.\n\nThe stage picks the archive, so no filter can reach another stage's. `severity` is a floor read from the\nline's level token; `component`, `product` and `run_id` match v2 records only.",
+        "description": "The stage's archived pod log lines for a UTC day or one hour of it, oldest first.\n\nThe stage picks the archive, so no filter can reach another stage's. `severity` is a floor on each line's\n`level`; `component`, `product` and `run_id` match v2 records only.",
         "operationId": "list_logs_api_v1_stages__stage__logs_get",
         "parameters": [
           {
@@ -4481,6 +4541,164 @@
           }
         },
         "summary": "Get Run Failure"
+      }
+    },
+    "/api/v1/stages/{stage}/runs/{run_id}/logs": {
+      "get": {
+        "description": "The stage's archived pod log lines from the run's start to its end, oldest first, across UTC days.\n\n`since` and `until` narrow the run's window, never widen it. `match_run` keeps only v2 records tagged with the\nrun's id, which leaves v1 out. The other filters are `list_logs`'s.",
+        "operationId": "list_run_logs_api_v1_stages__stage__runs__run_id__logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pod",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Pod",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "container",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Container",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "component",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Component",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "debug",
+                    "info",
+                    "warning",
+                    "error",
+                    "critical"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "match_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Match Run",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 5000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunLogs"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Run Logs"
       }
     },
     "/api/v1/stages/{stage}/schemas": {
