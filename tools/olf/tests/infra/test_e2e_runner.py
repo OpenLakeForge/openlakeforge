@@ -146,8 +146,8 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
                 "perimeter", "break-glass", "latency", "outage",
                 "superset", "openmetadata", "quality", "writer", "evidence", "artifacts", "metrics-reads",
                 "metrics-labels", "metrics-footprint", "metrics-outage", "short-lived", "collector-restart",
-                "retention", "footprint", "delivery", "spool-limit",
-                "alerts", "drilldown", "journey", "isolation",
+                "retention", "footprint",
+                "alerts", "drilldown", "journey", "delivery", "spool-limit", "isolation",
                 "exposure", "rotation",
             ],
         ),
@@ -220,6 +220,9 @@ def test_core_checks_skip_every_drill_and_keep_exposure_before_rotation(tmp_path
     assert labels.index("alert notifications reach a receiver") < labels.index(
         "failed run drill-down through the platform API"
     ) < labels.index("operator journey screenshots")
+    # The outage drills flush their spools into the hour the drill-down and the screenshots read.
+    assert labels.index("operator journey screenshots") < labels.index("log archive delivery signals through an outage")
+    assert labels.index("operator journey screenshots") < labels.index("log archive spool limit is the loss point")
     assert labels.index("identity credential exposure") < labels.index("credential preservation across a redeploy")
     assert labels.index("identity credential exposure") < labels.index("workload secret rotation")
     assert [a.label for a in _runner.full_assertions(e2e_cfg(tmp_path, env="aws")) if a.tier == "drill"] == []
@@ -324,8 +327,8 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
         "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
         "perimeter", "break-glass", "outage",
         "evidence", "artifacts", "metrics-reads", "metrics-labels", "metrics-footprint", "metrics-outage",
-        "short-lived", "collector-restart", "retention", "footprint", "delivery", "spool-limit",
-        "alerts", "drilldown", "journey", "isolation", "exposure", "rotation",
+        "short-lived", "collector-restart", "retention", "footprint",
+        "alerts", "drilldown", "journey", "delivery", "spool-limit", "isolation", "exposure", "rotation",
     ]
     skipped = (
         "perimeter dashboard latency, Superset dashboards, OpenMetadata governance assets, "

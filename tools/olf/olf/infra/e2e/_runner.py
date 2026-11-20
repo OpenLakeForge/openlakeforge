@@ -429,17 +429,6 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         assertions.append(
             FullAssertion("log collector footprint at three log rates", check_collection_footprint, tier="drill")
         )
-        # They cut the collector's route to the object store, so they run after the checks that need the archive.
-        assertions.append(
-            FullAssertion(
-                "log archive delivery signals through an outage", check_delivery_signals_follow_an_outage, tier="drill"
-            )
-        )
-        assertions.append(
-            FullAssertion(
-                "log archive spool limit is the loss point", check_spool_limit_is_the_loss_point, tier="drill"
-            )
-        )
     if cfg.env == "local":
         assertions.append(FullAssertion("alert notifications reach a receiver", check_alert_delivery))
         # After the alert drill, whose quality case needs the product's latest run to be a success: this one leaves a
@@ -449,6 +438,19 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         )
         assertions.append(
             FullAssertion("operator journey screenshots", check_operator_journey_screenshots, tier="drill")
+        )
+        # They cut the collector's route to the object store and flush their spools into the stage's current hour, so
+        # they run after every check that reads the archive: the drill-down and the screenshots of its logs read a
+        # window in that hour, and each read lists and fetches every object in it.
+        assertions.append(
+            FullAssertion(
+                "log archive delivery signals through an outage", check_delivery_signals_follow_an_outage, tier="drill"
+            )
+        )
+        assertions.append(
+            FullAssertion(
+                "log archive spool limit is the loss point", check_spool_limit_is_the_loss_point, tier="drill"
+            )
         )
     assertions.append(FullAssertion("cross-stage isolation", check_stage_isolation))
     if cfg.env == "local":

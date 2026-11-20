@@ -19,7 +19,8 @@ per-stage confidentiality of collection. Stage isolation holds at the write pref
 | Logs archived before the collector | `activations/<stage>/logs/k8s/...`, read exactly as before |
 
 The date and hour are UTC and are those of every line in the object, taken from each line's own time, not from when
-the object was uploaded. A read of a run's window or of one `--hour` lists only the hours it touches.
+the object was uploaded. A read of a run's window or of one `--hour` lists only the hours it touches, and fetches
+up to eight of the listed objects at once.
 
 On AWS and Azure there is no collector yet: a `*/15` CronJob writes the older layout, and a Job pod deleted by its TTL
 between two runs is not captured there.
@@ -129,4 +130,5 @@ killed mid-stream, retention in the object store, and the delivery signals throu
 a product run after its Floe step, deletes the run's Jobs, and reads the run's failure, quality checks, one report
 and its whole log window back through the platform API; it logs one `RUN_DRILLDOWN_JSON` line of counts. The
 operator journey drill then opens that run in the Portal and saves screenshots under
-`.tmp/walkthrough-screenshots/<namespace>/`; it needs Playwright and Chromium installed beside `olf`.
+`.tmp/walkthrough-screenshots/<namespace>/`; it needs Playwright and Chromium installed beside `olf`. The outage
+drills run after both, since they flush their spools into the hour the run's window reads.

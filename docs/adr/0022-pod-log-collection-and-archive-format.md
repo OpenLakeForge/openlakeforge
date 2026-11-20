@@ -443,3 +443,8 @@ construction. Objects already written directly under `date=` are still read, wit
 format is unchanged.
 
 2026-11-20: #1347. `LogArchive.read_days` takes `text`, a case-insensitive plain substring matched against each line's message (a v1 line without the kubelet timestamp it opens with, so a v1 copy of a v2 line matches exactly when the v2 record does and Decision 5's overlap rule is unchanged; an archive error record has no message). It is a filter like `severity`, applied before the ordering, the dedup and `limit`, so a cursor's position is that of the last matching line and paging neither skips nor repeats a match. The search text is never logged. The archive format is unchanged.
+
+2026-11-20: after full e2e run 44788573906 timed out reading a run's window from an hour that two outage drills had
+filled with spooled objects, `LogArchive` fetches up to eight listed objects at once on one bounded process-wide pool.
+Decoding, ordering, dedup, `limit` and the cursor stay on the reading thread in key order, so a read returns exactly
+what a sequential one does; no GET starts after its deadline; the archive format is unchanged.

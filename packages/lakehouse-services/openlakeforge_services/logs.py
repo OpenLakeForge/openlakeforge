@@ -20,7 +20,10 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections import deque
+from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from itertools import chain
@@ -62,6 +65,15 @@ _FRACTION = re.compile(r"\.(\d+)")
 # bound is taken: during a store outage the collector spools for as long as `store_dir_limit_size` lasts, sized in
 # hours, and uploads old files after new ones (ADR 0022, decisions 2 and 5), so a late object can hold early lines.
 UPLOAD_CLOCK_SLACK = timedelta(minutes=15)
+
+# How many objects one read fetches at once. An hour after a store outage or a spool flush can hold hundreds of
+# objects, and one GET at a time spent the platform API's whole 20 s request deadline on round trips. It also bounds
+# the fetched bodies a read holds before decoding them, and stays below botocore's default of ten pooled connections.
+FETCH_AHEAD = 8
+# One pool for the process, not one per read: the platform API already runs reads on small pools of its own, and a
+# pool per read would multiply the GETs in flight by theirs. A fetch waits on nothing but the store, so a read
+# waiting on one cannot deadlock the pool, however the callers' pools nest. Threads start on first use, not at import.
+_FETCHES = ThreadPoolExecutor(max_workers=FETCH_AHEAD, thread_name_prefix="log-archive-get")
 
 log = logging.getLogger(__name__)
 
@@ -455,36 +467,38 @@ class LogArchive:
         best: _Best,
         scan: _Scan,
     ) -> None:
-        for digest, key in self._v2_keys(self._partition("v2", namespace, day, None), hours, scan):
-            for index, record in enumerate(self._records(key, scan)):
-                if record.get("schema") != SCHEMA_V2 or record["namespace"] != namespace:
-                    continue
-                stamp = record["time"]
-                if hour is not None and stamp[11:13] != f"{hour:02d}":
-                    continue
-                missing = record.get("missing")
-                line = ArchivedLogLine(
-                    archived_at=stamp,
-                    namespace=namespace,
-                    pod=record["pod"],
-                    container=record["container"],
-                    line=record["message"],
-                    stage=record.get("stage"),
-                    component=record.get("component"),
-                    domain=record.get("domain"),
-                    product=record.get("product"),
-                    run_id=record.get("run_id"),
-                    stream=record.get("stream"),
-                    missing=tuple(missing) if isinstance(missing, list) else (),
-                    source="v2",
-                    timestamp=stamp,
-                    level=level_of(record["message"]),
-                )
-                at = _instant(stamp)
-                if wanted(line, at):
-                    # A replay after a collector restart writes the same record again.
-                    position = (_event_nanoseconds(stamp, stamp), 0, day.isoformat(), digest, index)
-                    best.offer(position, record.get("dedup_key"), line)
+        keys = self._v2_keys(self._partition("v2", namespace, day, None), hours, scan)
+        with closing(self._bodies(keys, scan)) as bodies:
+            for digest, body in bodies:
+                for index, record in enumerate(self._records(body)):
+                    if record.get("schema") != SCHEMA_V2 or record["namespace"] != namespace:
+                        continue
+                    stamp = record["time"]
+                    if hour is not None and stamp[11:13] != f"{hour:02d}":
+                        continue
+                    missing = record.get("missing")
+                    line = ArchivedLogLine(
+                        archived_at=stamp,
+                        namespace=namespace,
+                        pod=record["pod"],
+                        container=record["container"],
+                        line=record["message"],
+                        stage=record.get("stage"),
+                        component=record.get("component"),
+                        domain=record.get("domain"),
+                        product=record.get("product"),
+                        run_id=record.get("run_id"),
+                        stream=record.get("stream"),
+                        missing=tuple(missing) if isinstance(missing, list) else (),
+                        source="v2",
+                        timestamp=stamp,
+                        level=level_of(record["message"]),
+                    )
+                    at = _instant(stamp)
+                    if wanted(line, at):
+                        # A replay after a collector restart writes the same record again.
+                        position = (_event_nanoseconds(stamp, stamp), 0, day.isoformat(), digest, index)
+                        best.offer(position, record.get("dedup_key"), line)
 
     def _v1(
         self,
@@ -496,33 +510,35 @@ class LogArchive:
         best: _Best,
         scan: _Scan,
     ) -> None:
-        for digest, key in self._ordered(self._partition("k8s", namespace, day, hour), scan):
-            for index, record in enumerate(self._records(key, scan)):
-                # A run with no pods leaves one marker record naming no pod; it is not a log line.
-                if record.get("schema") != SCHEMA or "pod" not in record:
-                    continue
-                text = record.get("line")
-                # The line starts with the kubelet's timestamp, which is when it was written; the
-                # archive time is only when it was copied.
-                stamp, _, rest = (text or "").partition(" ")
-                written = _instant(stamp)
-                line = ArchivedLogLine(
-                    archived_at=record["archived_at"],
-                    namespace=record["namespace"],
-                    pod=record["pod"],
-                    container=record["container"],
-                    line=text,
-                    error=record.get("archive_error"),
-                    source="v1",
-                    timestamp=stamp if written else None,
-                    level=level_of(rest if written else text),
-                )
-                at = written or _instant(line.archived_at)
-                if (line.pod, line.container, stamp, rest) in overlap:
-                    continue
-                if wanted(line, at):
-                    position = (_event_nanoseconds(stamp, line.archived_at), 1, day.isoformat(), digest, index)
-                    best.offer(position, None, line)
+        keys = self._ordered(self._partition("k8s", namespace, day, hour), scan)
+        with closing(self._bodies(keys, scan)) as bodies:
+            for digest, body in bodies:
+                for index, record in enumerate(self._records(body)):
+                    # A run with no pods leaves one marker record naming no pod; it is not a log line.
+                    if record.get("schema") != SCHEMA or "pod" not in record:
+                        continue
+                    text = record.get("line")
+                    # The line starts with the kubelet's timestamp, which is when it was written; the
+                    # archive time is only when it was copied.
+                    stamp, _, rest = (text or "").partition(" ")
+                    written = _instant(stamp)
+                    line = ArchivedLogLine(
+                        archived_at=record["archived_at"],
+                        namespace=record["namespace"],
+                        pod=record["pod"],
+                        container=record["container"],
+                        line=text,
+                        error=record.get("archive_error"),
+                        source="v1",
+                        timestamp=stamp if written else None,
+                        level=level_of(rest if written else text),
+                    )
+                    at = written or _instant(line.archived_at)
+                    if (line.pod, line.container, stamp, rest) in overlap:
+                        continue
+                    if wanted(line, at):
+                        position = (_event_nanoseconds(stamp, line.archived_at), 1, day.isoformat(), digest, index)
+                        best.offer(position, None, line)
 
     def _partition(self, layout: str, namespace: str, day: date, hour: int | None) -> str:
         parts = [self._prefix, layout, f"namespace={namespace}", f"date={day.isoformat()}"]
@@ -575,10 +591,41 @@ class LogArchive:
             if not page.get("IsTruncated") or not token:
                 return
 
-    def _records(self, key: str, scan: _Scan) -> Iterator[dict[str, Any]]:
-        self._check()
-        scan.opened += 1
-        body = self._store.get_object(Bucket=self._bucket, Key=key)["Body"].read()
+    def _bodies(self, keys: list[tuple[str, str]], scan: _Scan) -> Generator[tuple[str, bytes]]:
+        """Each object's digest and gzipped body, in the order of `keys`, fetched up to FETCH_AHEAD at once.
+
+        Only the fetch runs on the pool; decoding and every offer stay on the reading thread in key order, so the
+        result, ties and dedup are those of a read one object at a time. No object holds a position known before it
+        is read, so every listed object is fetched: the limit cannot end the scan early. A fetch checks the deadline
+        before its GET, so none starts after it, and one that fails raises its own exception here, in key order.
+        """
+        deadline, clock = self._deadline, self._clock
+
+        def fetch(key: str) -> bytes:
+            if deadline is not None and clock() >= deadline:
+                raise ArchiveDeadline("the log archive read passed its deadline")
+            body: bytes = self._store.get_object(Bucket=self._bucket, Key=key)["Body"].read()
+            return body
+
+        upcoming = iter(keys)
+        pending: deque[tuple[str, Future[bytes]]] = deque()
+        try:
+            while True:
+                while len(pending) < FETCH_AHEAD and (item := next(upcoming, None)) is not None:
+                    self._check()
+                    scan.opened += 1
+                    pending.append((item[0], _FETCHES.submit(fetch, item[1])))
+                if not pending:
+                    return
+                digest, fetched = pending.popleft()
+                yield digest, fetched.result()
+        finally:
+            # A read that stopped, on its deadline or an error, starts none of the fetches it had queued.
+            for _, fetched in pending:
+                if fetched.cancel():
+                    scan.opened -= 1
+
+    def _records(self, body: bytes) -> Iterator[dict[str, Any]]:
         for raw in gzip.decompress(body).decode("utf-8").splitlines():
             self._check()
             if not raw.strip():
