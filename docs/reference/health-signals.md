@@ -174,11 +174,17 @@ one reads `unknown`, because dbt's results are added last. Runs are read newest
 first. One that did not succeed answers only with a `warning` or `critical`,
 and is otherwise passed over, so a failure between an old success and a
 Silver-only retry still speaks. The first `SUCCESS` run answers with its own
-manifest and the walk stops there, except that a newer run whose manifest
-exists but cannot be read (store error, malformed, foreign) may be hiding a
-failure, so a success after it reads `unknown` rather than `healthy`; a run with
-no manifest hides nothing. When none is reached the pipeline
-carries no `quality` signal, which leaves an open incident open. A manifest
+manifest and the walk stops there. A newer run can stop that success from
+reading `healthy`: one whose manifest exists but cannot be read (store error,
+malformed, foreign) may be hiding a failure, and one that ended `FAILURE` or
+`CANCELED` without a complete manifest never finished its checks, so the older
+pass is not the current quality. The newest such run answers `unknown` in its
+place, with its own run id and, for the second kind, the reason "the run failed
+before its quality checks finished" (or "was canceled"). A run still in progress
+hides nothing, since it may yet finish. When no success is reached, that run
+answers the same way; with neither, the pipeline carries no `quality` signal.
+`unknown` opens no incident and resolves none, so either leaves an open
+incident open. A manifest
 whose `results` are malformed (an entry that is not an object, wrong field
 types) reads `unknown` like an unreadable one.
 
@@ -195,7 +201,9 @@ errors that blocked the pipeline) beside `error` rather than added to it. It
 reads in the same pass as `/health/pipelines`, so its `state` is that signal,
 and a pipeline the walk above reached no run for reads `unknown` with no run.
 Counts are `null` where the manifest is absent or unusable, never zeros, and an
-incomplete manifest keeps its counts with `complete: false`.
+incomplete manifest keeps its counts with `complete: false`. A run that ended
+before its checks finished is the row's `run_id`, with its partial counts or
+none, never the older success's.
 
 `GET /api/v1/stages/{stage}/runs/{run_id}/quality` lists every check of one
 run's manifest, which is never re-run: engine, check id, table, column,

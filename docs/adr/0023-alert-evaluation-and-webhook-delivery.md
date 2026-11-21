@@ -1102,3 +1102,10 @@ no section. The local root sets `runbook_base_url` by default to
 from `release/component-catalog.yaml`, overridable with the root variable `runbook_base_url`, https without a
 fragment. The evaluator and the platform API receive the same URL, so every notification carries `links.runbook`. The
 evaluator now refuses an `http://` runbook base.
+
+2026-11-21: #1346. A run that ended `FAILURE` or `CANCELED` without a complete quality manifest never finished its
+checks, so, like a newer run whose manifest could not be read, it stops an older success from reading `healthy`: the
+newest such run answers `unknown`, naming itself, with its partial manifest or none. A run in progress still hides
+nothing, and an older run's `warning` or `critical` still speaks. With no success reached, that run answers `unknown`
+instead of leaving no signal. `unknown` neither opens nor resolves a quality incident, so an open one stays open through
+such a run. No deviation from the decisions above.
