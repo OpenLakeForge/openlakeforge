@@ -919,6 +919,10 @@ than `limit` lines, or none, with `next` set. `severity`, an at-or-above floor o
 since #1326, already met the issue's level filter, so no `level` parameter is added. The search text is not logged, and
 the permission rows are unchanged.
 
+2026-11-21: #1346. On `GET /api/v1/stages/{stage}/health/quality`, a pipeline whose run ended before its quality checks
+finished reads `unknown` with that run's id, its partial counts (`complete: false`) or `null`, and the reason "the run
+failed before its quality checks finished", never the older complete run's result. The response schema is unchanged.
+
 2026-11-21: #1344. `AlertIncident` gains `runbook`, additive and nullable: the alert runbook section for the incident's
 condition, built from `runbook_base_url` as `get_run_quality.runbook` is and equal to the notification's
 `links.runbook` (ADR 0023); `null` where the deployment sets no `runbook_base_url`. The route, its floor and permission

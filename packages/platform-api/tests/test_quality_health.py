@@ -365,15 +365,98 @@ def test_a_success_after_a_run_whose_manifest_is_unreadable_cannot_read_healthy(
     old = _result(QualityOutcome.PASSED, run_id="run-1")
     bucket = _store(old)
     bucket.objects[PREFIX + manifest_key("sales", "orders", "run-2")] = b"{not json"
-    runs = _two_runs("SUCCESS", "FAILURE")
 
-    def read(bucket: FakeBucket) -> str | None:
+    def read(bucket: FakeBucket, *statuses: str) -> str | None:
+        runs = _two_runs("SUCCESS", *statuses)
         _, (pipeline,) = read_stage_pipelines(FakeDagster(runs), "dev", NOW, QualityReader(bucket, BASE))
         return next((s.state.value for s in pipeline.signals if s.kind.value == "quality"), None)
 
-    assert read(bucket) == "unknown"
-    # A failed run that wrote no manifest hides nothing.
-    assert read(_store(old)) == "healthy"
+    assert read(bucket, "FAILURE") == "unknown"
+    assert read(bucket, "STARTED") == "unknown"
+    # A run still in progress with no manifest yet hides nothing.
+    assert read(_store(old), "STARTED") == "healthy"
+
+
+def _signal_of(runs: list[DagsterRun], bucket: FakeBucket) -> dict[str, str | None] | None:
+    _, (pipeline,) = read_stage_pipelines(FakeDagster(runs), "dev", NOW, QualityReader(bucket, BASE))
+    found = next((s for s in pipeline.signals if s.kind.value == "quality"), None)
+    return {"state": found.state.value, "run": found.run, "reason": found.reason} if found else None
+
+
+@pytest.mark.parametrize(("status", "verb"), [("FAILURE", "failed"), ("CANCELED", "was canceled")])
+@pytest.mark.parametrize("manifest", ["absent", "incomplete"])
+def test_a_run_that_ended_before_its_checks_finished_hides_an_older_pass(status: str, verb: str, manifest: str) -> None:
+    bucket = _store(_result(QualityOutcome.PASSED, run_id="run-1"))
+    if manifest == "incomplete":
+        partial = QualityManifest("dev", "sales", "orders", "run-2", (_result(QualityOutcome.PASSED, run_id="run-2"),))
+        bucket.objects[partial.ops_key] = partial.to_json().encode()
+
+    assert _signal_of(_two_runs("SUCCESS", status), bucket) == {
+        "state": "unknown",
+        "run": "run-2",
+        "reason": f"the run {verb} before its quality checks finished",
+    }
+
+
+def test_a_run_that_ended_before_its_checks_finished_with_no_success_before_it_reads_unknown() -> None:
+    assert _signal_of(_two_runs("FAILURE"), FakeBucket()) == {
+        "state": "unknown",
+        "run": "run-1",
+        "reason": "the run failed before its quality checks finished",
+    }
+
+
+def test_a_failure_older_than_a_run_that_did_not_finish_its_checks_still_speaks() -> None:
+    old = _result(QualityOutcome.PASSED, run_id="run-1")
+    bucket = _store(old)
+    blocked = QualityManifest(
+        "dev", "sales", "orders", "run-2", (_result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-2"),)
+    )
+    bucket.objects[blocked.ops_key] = blocked.to_json().encode()
+
+    found = _signal_of(_two_runs("SUCCESS", "FAILURE", "FAILURE"), bucket)
+
+    assert found is not None and (found["state"], found["run"]) == ("critical", "run-2")
+
+
+def test_a_run_in_progress_leaves_the_last_complete_success_answering() -> None:
+    bucket = _store(_result(QualityOutcome.PASSED, run_id="run-1"))
+
+    found = _signal_of(_two_runs("SUCCESS", "STARTED"), bucket)
+
+    assert found is not None and (found["state"], found["run"]) == ("healthy", "run-1")
+
+
+def test_a_run_that_did_not_finish_its_checks_never_resolves_a_quality_incident() -> None:
+    store, notifier = AlertStore(_declared(), "s3://ops/alerts/"), FakeNotifier()
+    old = _result(QualityOutcome.PASSED, run_id="run-1")
+    blocked = _result(QualityOutcome.ERROR, PipelineOutcome.BLOCKED, run_id="run-2")
+
+    def evaluate(runs: list[DagsterRun], *results: QualityResult, minutes: int) -> list[str]:
+        bucket = FakeBucket()
+        for result in results:
+            manifest = QualityManifest("dev", "sales", "orders", result.dagster_run_id, (result,), complete=True)
+            bucket.objects[manifest.ops_key] = manifest.to_json().encode()
+        notifier.sent.clear()
+        run_once(
+            settings=_settings(A),
+            store=store,
+            dagster={"dev": FakeDagster(runs)},
+            notifiers={"ops": notifier},
+            now=NOW + timedelta(minutes=minutes),
+            quality={"dev": QualityReader(bucket, BASE)},
+        )
+        return [f"{p['event']}:{p['condition']}" for _, p in notifier.sent if p["condition"] == "quality"]
+
+    assert evaluate(_two_runs("SUCCESS", "FAILURE"), old, blocked, minutes=0) == ["opened:quality"]
+    # run-3 failed before writing a manifest. With run-2's manifest gone too (retention, a store reset), the walk
+    # used to pass over both and let run-1's pass resolve the incident.
+    assert evaluate(_two_runs("SUCCESS", "FAILURE", "FAILURE"), old, blocked, minutes=5) == []
+    assert evaluate(_two_runs("SUCCESS", "FAILURE", "FAILURE"), old, minutes=10) == []
+    passed = _result(QualityOutcome.PASSED, run_id="run-4")
+    assert evaluate(_two_runs("SUCCESS", "FAILURE", "FAILURE", "SUCCESS"), old, passed, minutes=15) == [
+        "resolved:quality"
+    ]
 
 
 def test_a_failed_run_with_a_blocking_error_still_reads_critical() -> None:
