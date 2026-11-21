@@ -21,7 +21,7 @@ import io
 import json
 import tempfile
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -151,7 +151,6 @@ class StubAuthorize(requests.adapters.BaseAdapter):
         pass
 
 
-
 def _wait_until_dex_reaches(cfg: E2EConfig, *, attempts: int = 30, delay: float = 2.0) -> None:
     """A Ready pod is not yet routable: kube-proxy programs the Service a moment
     later and rejects connections until then, which Dex reports as a refused
@@ -166,6 +165,93 @@ def _wait_until_dex_reaches(cfg: E2EConfig, *, attempts: int = 30, delay: float 
             return
         time.sleep(delay)
     raise E2EError(f"Dex could not reach {stub_host(cfg)} within {attempts * delay:.0f}s")
+
+
+# After a restart, `rollout status` returns once the new pods are Ready, while Traefik can still send a request to an
+# old pod that is shutting down; that request hangs until the client gives up (a 499 at the edge). A short per-try
+# timeout and a few answers in a row tell a settled edge from one that happened to pick the new pod once.
+SETTLE_TIMEOUT = 90.0
+SETTLE_PROBE_TIMEOUT = 3.0
+SETTLE_SUCCESSES = 3
+
+
+def wait_until_settled(
+    terminating: Callable[[], Sequence[str]],
+    answer: Callable[[], str | None],
+    *,
+    what: str,
+    timeout: float = SETTLE_TIMEOUT,
+    successes: int = SETTLE_SUCCESSES,
+    interval: float = 1.0,
+    clock: Callable[[], float] = time.monotonic,
+    pause: Callable[[float], None] = time.sleep,
+) -> None:
+    """Return once no restarted pod is terminating and `answer` has reported no problem `successes` times in a row.
+
+    `terminating` names the restarted deployments' pods still shutting down; `answer` probes `what` once and
+    returns None when it answered promptly, or what went wrong.
+    """
+    deadline = clock() + timeout
+    streak = 0
+    pending = "nothing probed yet"
+    while True:
+        pods = terminating()
+        if pods:
+            streak = 0
+            pending = f"pods still terminating: {', '.join(sorted(pods))}"
+        else:
+            problem = answer()
+            if problem is None:
+                streak += 1
+                if streak >= successes:
+                    return
+                pending = f"{what} answered {streak} of {successes} times in a row"
+            else:
+                streak = 0
+                pending = f"{what}: {problem}"
+        if clock() >= deadline:
+            raise E2EError(f"the restarted deployments did not settle within {timeout:.0f}s; {pending}")
+        pause(interval)
+
+
+def terminating_pods(cfg: E2EConfig, namespace: str, restarts: Sequence[tuple[str, str | None]]) -> list[str]:
+    """The pods of the `(resource, selector)` deployments that are shutting down."""
+    found: list[str] = []
+    for resource, selector in restarts:
+        args = ["get", resource, "-n", namespace, "-o", "json", *(["-l", selector] if selector else [])]
+        document = json.loads(kubectl(cfg, args, capture=True, retry_transient=True))
+        for deployment in document["items"] if "items" in document else [document]:
+            labels = deployment["spec"]["selector"]["matchLabels"]
+            pods_args = [
+                "get",
+                "pods",
+                "-n",
+                namespace,
+                "-o",
+                "json",
+                "-l",
+                ",".join(f"{k}={v}" for k, v in labels.items()),
+            ]
+            pods = json.loads(kubectl(cfg, pods_args, capture=True, retry_transient=True))["items"]
+            found += [p["metadata"]["name"] for p in pods if p["metadata"].get("deletionTimestamp")]
+    return found
+
+
+def dex_discovery_answer(route: access.Route, issuer_url: str) -> Callable[[], str | None]:
+    """Probe Dex's discovery document through `route` (the edge, for an ingress route) with a short timeout."""
+    url = f"{issuer_url.rstrip('/')}/.well-known/openid-configuration"
+    session = route.session()
+
+    def answer() -> str | None:
+        try:
+            reply = session.get(url, timeout=SETTLE_PROBE_TIMEOUT, allow_redirects=False)
+        except requests.exceptions.SSLError:
+            raise  # a broken trust setup is not a slow Dex
+        except requests.RequestException as exc:
+            return f"{type(exc).__name__} from {url}"
+        return None if reply.status_code == 200 else f"HTTP {reply.status_code} from {url}"
+
+    return answer
 
 
 def sign_in_with_stub(

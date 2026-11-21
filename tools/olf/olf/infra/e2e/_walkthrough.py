@@ -9,8 +9,9 @@ the logs row admits on this stage, so the run's logs and reports are on the page
 
 The failed run is the one `_run_drilldown` left as the latest run of its product, found the same way
 (`drill_target`), so the walk skips where the drill-down did. Each page must reach the
-state its screenshot is meant to show (a heading, a region, the run's own error text) before it is saved, and must
-hold no Secret value; a page that does not is saved as `<name>.FAILED.png` beside the others and fails the check.
+state its screenshot is meant to show (a heading, a region, the run's own error text), with no card or chart still
+showing its loading placeholder, before it is saved, and must hold no Secret value; a page that does not is saved
+as `<name>.FAILED.png` beside the others and fails the check.
 
 Playwright is not a dependency of `olf`: a `--checks all` run needs it installed beside `olf` with its Chromium
 (the nightly does both), and this check fails without it rather than leaving the walkthrough out.
@@ -47,6 +48,9 @@ PHONE = {"width": 390, "height": 844}
 SCALE = 2
 STATE_TIMEOUT_MS = 30_000
 CHROMIUM_ERROR_PAGE = "chrome-error://"
+# Portal 0.7.3 shows a card or chart that is still loading as a `status` reading "Reading …" (the run page's Logs
+# card: "Reading the run's archived lines…"). Its other statuses are not placeholders and do not start that way.
+LOADING_PLACEHOLDER = re.compile(r"^Reading .+…$")
 INSTALL_HINT = (
     "install it beside olf with its browser, e.g. `uv tool install openlakeforge --with playwright` and "
     "`<that tool's python> -m playwright install --with-deps chromium`"
@@ -220,6 +224,16 @@ def walk(
     def region(name: str) -> Any:
         return page.get_by_role("region", name=name, exact=True)
 
+    def loaded(on: Any, reach: Callable[[], Any]) -> Callable[[], Any]:
+        """`reach`, then wait until no part of the page still shows its loading placeholder: the shot shows data."""
+
+        def reached() -> Any:
+            target = reach()
+            expect(on.get_by_role("status").filter(has_text=LOADING_PLACEHOLDER)).to_have_count(0)
+            return target
+
+        return reached
+
     def overview() -> None:
         sign_in(page, f"{portal}/monitoring?stage={stage}", login, stub, pw.Error)
         expect(page.get_by_role("heading", level=1, name="Monitoring")).to_be_visible()
@@ -285,7 +299,7 @@ def walk(
 
     *steps, phone_name = names
     for name, reach in zip(steps, (overview, failed_run, logs, quality, runs, logs_run, metrics_tab), strict=True):
-        shooter.shot(page, name, reach)
+        shooter.shot(page, name, loaded(page, reach))
     page.close()
 
     phone = context.browser.new_context(
@@ -302,7 +316,7 @@ def walk(
             small.goto(run_url)
             expect(small.get_by_role("region", name="What failed", exact=True)).to_contain_text(REFUSED_SCOPE)
 
-        shooter.shot(small, phone_name, failed_run_small)
+        shooter.shot(small, phone_name, loaded(small, failed_run_small))
     finally:
         phone.close()
 

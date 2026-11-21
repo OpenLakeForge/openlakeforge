@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import sys
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -109,12 +110,18 @@ def test_the_metrics_shot_is_named_for_what_it_shows() -> None:
 class FakeLocator:
     def __init__(self, page: FakePage, path: tuple[str, ...]) -> None:
         self.page, self.path = page, path
+        self.has_text: re.Pattern[str] | None = None
 
     def get_by_role(self, role: str, **kwargs: Any) -> FakeLocator:
         return FakeLocator(self.page, (*self.path, f"{role}:{kwargs.get('name', '')}"))
 
     def get_by_text(self, text: Any) -> FakeLocator:
         return FakeLocator(self.page, (*self.path, f"text:{getattr(text, 'pattern', text)}"))
+
+    def filter(self, has_text: re.Pattern[str]) -> FakeLocator:
+        located = FakeLocator(self.page, self.path)
+        located.has_text = has_text
+        return located
 
     def or_(self, other: FakeLocator) -> FakeLocator:
         return self if self.count() else other
@@ -147,11 +154,21 @@ class FakeLocator:
 
 
 class FakePage(FakeLocator):
-    """A page on which every locator is there, except those whose accessible names `missing` lists."""
+    """A page on which every locator is there, except those whose accessible names `missing` lists.
 
-    def __init__(self, missing: set[str], shown: str = "", saved: list[str] | None = None) -> None:
+    `statuses` maps a URL fragment to the `status` texts a page at a URL holding it keeps showing.
+    """
+
+    def __init__(
+        self,
+        missing: set[str],
+        shown: str = "",
+        saved: list[str] | None = None,
+        statuses: dict[str, str] | None = None,
+    ) -> None:
         super().__init__(self, ())
         self.missing, self.shown, self.url = missing, shown, PORTAL
+        self.statuses = statuses or {}
         self.saved = [] if saved is None else saved
 
     def goto(self, url: str) -> None:
@@ -200,6 +217,13 @@ class FakeExpect:
     def to_be_checked(self) -> None:
         self._there()
 
+    def to_have_count(self, count: int) -> None:
+        page, pattern = self.locator.page, self.locator.has_text
+        assert self.locator.path[-1] == "status:" and pattern is not None
+        shown = [text for fragment, text in page.statuses.items() if fragment in page.url and pattern.search(text)]
+        if len(shown) != count:
+            raise AssertionError(f"{shown} still shown")
+
 
 class FakeContext:
     def __init__(self, page: FakePage) -> None:
@@ -214,7 +238,7 @@ class FakeContext:
         return {"cookies": []}
 
     def new_context(self, **options: Any) -> FakeContext:
-        phone = FakeContext(FakePage(self.page.missing, saved=self.page.saved))
+        phone = FakeContext(FakePage(self.page.missing, saved=self.page.saved, statuses=self.page.statuses))
         phone.options = options
         self.options = options
         return phone
@@ -477,3 +501,16 @@ def test_with_no_product_selecting_its_own_silver_the_walk_skips(
         "Skipping the operator journey screenshots: no product's job selects a Silver table of its own domain, "
         "so no Floe Job would run."
     ]
+
+
+def test_the_failed_run_is_not_shot_while_its_logs_card_is_still_reading(tmp_path: Path) -> None:
+    page = FakePage(set(), statuses={f"/runs/{RUN_ID}": "Reading the run's archived lines…"})
+    with pytest.raises(E2EError, match=r"02-failed-run: .*Reading the run's archived lines"):
+        _walk(tmp_path, page)
+    assert page.saved == ["01-monitoring-overview.png", "02-failed-run.FAILED.png"]
+
+
+def test_a_status_that_is_not_a_loading_placeholder_does_not_hold_a_shot(tmp_path: Path) -> None:
+    page = FakePage(set(), statuses={"": "Trino is starting; queries wait until it answers."})
+    _walk(tmp_path, page)
+    assert page.saved == [f"{name}.png" for name in walkthrough.screenshot_names(False)]
