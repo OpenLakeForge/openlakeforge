@@ -255,3 +255,63 @@ def test_a_raised_grace_reads_the_occurrence_that_opened_the_incident_as_inside_
         "the expected run is within its grace period",
         _utc(16, 9),
     )
+
+
+def _activated(cron: str, started: datetime, runs: list[DagsterRun], now: datetime) -> dict[str, tuple[str, str]]:
+    schedule = replace(_schedule(cron), started_at=started.timestamp(), last_tick_at=None)
+    evaluation = _evaluate("prod", "orders_job", runs, schedule, now)
+    signals = {signal.kind.value: (signal.state.value, signal.reason) for signal in evaluation.signals}
+    signals["pipeline"] = (evaluation.state.value, "")
+    return signals
+
+
+def test_a_schedule_activated_after_its_due_time_owes_no_run_until_tomorrow() -> None:
+    # #1345: PROD activated at 10:00, after the day's 02:00 occurrence, and the pipeline run once by hand.
+    signals = _activated("0 2 * * *", _utc(16, 10), [_success(_utc(16, 10, 30))], _utc(16, 11))
+
+    assert signals["freshness"] == ("healthy", "no scheduled run due yet; next run due 02:00 UTC tomorrow")
+    assert signals["expected_run"][0] == "healthy"
+    assert signals["pipeline"][0] == "healthy"
+
+
+def test_a_schedule_activated_before_midnight_names_its_first_due_day_from_the_utc_date() -> None:
+    before = _activated("0 2 * * *", _utc(16, 23, 50), [], _utc(16, 23, 55))["freshness"]
+    after = _activated("0 2 * * *", _utc(16, 23, 50), [], _utc(17, 0, 10))["freshness"]
+
+    assert before == ("healthy", "no scheduled run due yet; next run due 02:00 UTC tomorrow")
+    assert after == ("healthy", "no scheduled run due yet; next run due 02:00 UTC today")
+
+
+def test_a_schedule_with_several_ticks_a_day_owes_its_first_tick_after_activation() -> None:
+    cron, started = "0 2,14 * * *", _utc(16, 10)
+
+    assert _activated(cron, started, [], _utc(16, 12))["freshness"] == (
+        "healthy",
+        "no scheduled run due yet; next run due 14:00 UTC today",
+    )
+    assert _activated(cron, started, [], _utc(16, 14, 10))["freshness"] == (
+        "healthy",
+        "no scheduled run due yet; the first run, due 14:00 UTC today, is within its grace period",
+    )
+    missed = _activated(cron, started, [_success(_utc(16, 10, 30))], _utc(16, 14, 16))
+    assert missed["freshness"][0] == "critical"
+    assert missed["expected_run"][0] == "critical"
+    kept = _activated(cron, started, [_success(_utc(16, 14, 5))], _utc(16, 14, 16))
+    assert kept["freshness"] == ("healthy", "a run succeeded since the previous due time")
+
+
+def test_an_occurrence_at_the_activation_instant_is_the_first_one_owed() -> None:
+    started = _utc(16, 14)
+
+    assert _activated("0 14 * * *", started, [], _utc(16, 14, 5))["freshness"] == (
+        "healthy",
+        "no scheduled run due yet; the first run, due 14:00 UTC today, is within its grace period",
+    )
+    assert _activated("0 14 * * *", started, [], _utc(16, 14, 16))["freshness"][0] == "unknown"
+    assert _activated("0 14 * * *", started, [_success(_utc(16, 13))], _utc(16, 14, 16))["freshness"][0] == "critical"
+
+
+def test_a_cron_that_cannot_be_read_is_unknown_and_named() -> None:
+    signals = _activated("not a cron", _utc(16, 10), [_success(_utc(16, 10, 30))], _utc(16, 11))
+
+    assert signals["freshness"] == ("unknown", "the cron 'not a cron' in timezone 'UTC' could not be read")

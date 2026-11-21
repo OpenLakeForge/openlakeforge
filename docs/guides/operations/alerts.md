@@ -426,7 +426,9 @@ Critical, declared as `freshness`. Without thresholds, a running schedule's job
 has had no success since the previous due time plus the grace (15 minutes
 unless the rule sets `grace`). With `warn_after` or `critical_after`, the last
 success is older than that bound, at `warning` or `critical`, whatever the
-schedule's state; a job with no success among the last 25 runs opens nothing. It
+schedule's state; a job with no success among the last 25 runs opens nothing. A
+schedule switched on after its latest due time owes nothing until its next one
+plus the grace, so it neither opens nor resolves this incident. It
 is not sent while `run_failed` or `missed_run` is open for the same product,
 since either already explains it.
 

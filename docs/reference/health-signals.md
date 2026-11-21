@@ -115,8 +115,21 @@ it comes from `next_due`, the same walk run forward.
 | No schedule (a manual pipeline), or a stopped one | `disabled`, never stale |
 | A run succeeded at or after the owed due time | `healthy` |
 | No success since the owed due time (its grace has elapsed by construction) | `critical` (stale) |
+| The schedule was switched on after the owed due time, so it owes no run yet | `healthy`, "no scheduled run due yet; next run due 02:00 UTC tomorrow" |
 | No successful run in the runs read (the latest 25 per job) | `unknown` |
-| The cron cannot be read, or nothing shows the schedule was on at the owed due time | `unknown` |
+| The cron or its timezone cannot be read | `unknown`, naming the cron and timezone |
+| Dagster records no start time and nothing shows the schedule was on at the owed due time | `unknown` |
+
+A schedule switched on after its latest owed due time (a stage activated after
+the day's run, or a schedule turned back on) owes its first run at the first
+due time at or after its start, which Dagster records as the schedule's start
+time. Until that run's grace elapses the reason gives the first due time in
+UTC, as `today` or `tomorrow` by the UTC date, and once the time itself has
+passed it says the first run is within its grace period. A cron with several
+ticks a day owes the first tick after the start, not the first tick of the
+next day. The alert evaluator neither opens nor resolves a stale-output
+incident on this reason: nothing is owed, but the output is no fresher than it
+was.
 
 Stale is `critical`, as ADR 0023 has `stale_output` alert as critical: output
 that has not refreshed since its owed due time is a broken promise to its

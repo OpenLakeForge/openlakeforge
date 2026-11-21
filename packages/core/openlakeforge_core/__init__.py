@@ -76,7 +76,9 @@ from .governance import (
     validate_governance_descriptor,
 )
 from .health import (
+    NOT_YET_DUE,
     HealthState,
+    NotYetDue,
     QualityObservation,
     RunObservation,
     RunStatus,
@@ -85,6 +87,7 @@ from .health import (
     Scope,
     Signal,
     SignalKind,
+    UnreadableCron,
     WorkloadObservation,
     evaluate_execution,
     evaluate_expected_run,
@@ -183,6 +186,9 @@ __all__ = [
     "fingerprint",
     "HealthState",
     "HealthQualityFields",
+    "NOT_YET_DUE",
+    "NotYetDue",
+    "UnreadableCron",
     "PipelineOutcome",
     "QualityManifest",
     "QualityObservation",

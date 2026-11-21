@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from openlakeforge_core import (
+    NOT_YET_DUE,
     HealthState,
+    NotYetDue,
     QualityObservation,
     QualityOutcome,
     RunObservation,
@@ -14,6 +16,7 @@ from openlakeforge_core import (
     Scope,
     Signal,
     SignalKind,
+    UnreadableCron,
     WorkloadObservation,
     evaluate_execution,
     evaluate_expected_run,
@@ -165,7 +168,7 @@ def test_stale_schedule_observation_is_unknown_not_critical() -> None:
 
 def _freshness(
     success_at: datetime | None,
-    due: datetime | None,
+    due: datetime | NotYetDue | UnreadableCron | None,
     *,
     schedule: ScheduleState = ScheduleState.RUNNING,
     status: RunStatus = RunStatus.SUCCEEDED,
@@ -199,8 +202,60 @@ def test_freshness_of_a_stopped_or_absent_schedule_is_disabled_never_stale(sched
     assert _freshness(None, NOW - timedelta(days=1), schedule=schedule).state is HealthState.DISABLED
 
 
-def test_freshness_without_a_due_time_is_unknown_not_healthy() -> None:
-    assert _freshness(FRESH, None).state is HealthState.UNKNOWN
+def test_freshness_without_evidence_the_schedule_was_on_is_unknown_not_healthy() -> None:
+    signal = _freshness(FRESH, None)
+    assert signal.state is HealthState.UNKNOWN
+    assert signal.reason == "nothing shows the schedule was on at its latest due time"
+
+
+def test_freshness_of_an_unreadable_cron_is_unknown_and_names_the_cron() -> None:
+    signal = _freshness(FRESH, UnreadableCron("0 25 * * *", "UTC"))
+    assert signal.state is HealthState.UNKNOWN
+    assert signal.reason == "the cron '0 25 * * *' in timezone 'UTC' could not be read"
+
+
+@pytest.mark.parametrize(
+    ("first_due", "when"),
+    [
+        (datetime(2026, 11, 17, 2, 0, tzinfo=UTC), "next run due 02:00 UTC tomorrow"),
+        (datetime(2026, 11, 16, 14, 0, tzinfo=UTC), "next run due 14:00 UTC today"),
+        (datetime(2026, 11, 19, 3, 0, tzinfo=UTC), "next run due 03:00 UTC on 2026-11-19"),
+        # A cron in another timezone is reported in UTC: 04:00 in Berlin on the 17th is 03:00 UTC.
+        (datetime(2026, 11, 17, 4, 0, tzinfo=timezone(timedelta(hours=1))), "next run due 03:00 UTC tomorrow"),
+        (NOW - timedelta(minutes=5), "the first run, due 11:55 UTC today, is within its grace period"),
+    ],
+)
+def test_freshness_of_a_schedule_not_yet_due_since_it_started_is_healthy_and_says_when(
+    first_due: datetime, when: str
+) -> None:
+    for success_at in (FRESH, None):
+        signal = _freshness(success_at, NotYetDue(first_due))
+        assert signal.state is HealthState.HEALTHY
+        assert signal.reason == f"{NOT_YET_DUE}; {when}"
+
+
+def test_freshness_names_the_day_from_the_utc_date_just_after_midnight() -> None:
+    just_after = datetime(2026, 11, 17, 0, 5, tzinfo=UTC)
+    signal = evaluate_freshness(
+        DEV,
+        None,
+        NotYetDue(datetime(2026, 11, 17, 2, 0, tzinfo=UTC)),
+        now=just_after,
+        grace=GRACE,
+        schedule=ScheduleState.RUNNING,
+    )
+    assert signal.reason == f"{NOT_YET_DUE}; next run due 02:00 UTC today"
+
+
+def test_freshness_of_a_stopped_schedule_stays_disabled_when_not_yet_due() -> None:
+    assert _freshness(FRESH, NotYetDue(NOW + timedelta(hours=1)), schedule=ScheduleState.STOPPED).state is (
+        HealthState.DISABLED
+    )
+
+
+def test_not_yet_due_rejects_a_naive_time() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        NotYetDue(datetime(2026, 11, 17, 2, 0))
 
 
 def test_freshness_names_the_run_and_leaves_expiry_to_the_next_evaluation() -> None:

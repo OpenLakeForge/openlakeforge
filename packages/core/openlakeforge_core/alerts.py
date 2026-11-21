@@ -19,7 +19,7 @@ from enum import StrEnum
 from typing import Any, NamedTuple
 
 from .alert_policy import ConditionOptions, Freshness, ResolvedPolicy
-from .health import HealthState, Scope, Signal, SignalKind
+from .health import NOT_YET_DUE, HealthState, Scope, Signal, SignalKind
 
 PAYLOAD_SCHEMA = "openlakeforge.alert.v1"
 FINGERPRINT_VERSION = "1"
@@ -494,7 +494,11 @@ def _observe(signal: Signal, policy: Mapping[str, ResolvedPolicy]) -> list[_Obse
             # readable: for this condition the answer is a recovery observation, which restarts the counter and
             # resolves an open incident. An UNKNOWN pipeline read beside it still wins (see `_rank`).
             health = HealthState.HEALTHY
-        elif health is HealthState.HEALTHY and signal.reason not in _RECOVERY_REASONS.get(kind, {signal.reason}):
+        elif health is HealthState.HEALTHY and (
+            signal.reason not in _RECOVERY_REASONS.get(kind, {signal.reason})
+            # A schedule switched back on owes nothing yet, but its output is no fresher than when the incident opened.
+            or (kind is AlertKind.STALE_OUTPUT and signal.reason.startswith(NOT_YET_DUE))
+        ):
             health = HealthState.UNKNOWN
         if (
             kind is AlertKind.STAGE_UNREADABLE

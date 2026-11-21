@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 from .quality import QualityOutcome
@@ -156,6 +156,32 @@ class WorkloadObservation:
     evidence_uri: str | None = None
 
 
+@dataclass(frozen=True)
+class NotYetDue:
+    """A running schedule that has not reached a due time since it started, so it owes no run yet.
+
+    `first_due` is the first time it fires at or after its start. It may already have passed while still inside its
+    grace: the run is not owed until the grace elapses.
+    """
+
+    first_due: datetime
+
+    def __post_init__(self) -> None:
+        _require_aware(self.first_due)
+
+
+@dataclass(frozen=True)
+class UnreadableCron:
+    """A running schedule whose cron or timezone cannot be evaluated, so no due time exists to judge against."""
+
+    cron: str
+    timezone: str
+
+
+# The start of every freshness reason that means "nothing is owed yet". Such a signal is healthy, but it says nothing
+# about the output, so the alert evaluator must not resolve a stale-output incident on it.
+NOT_YET_DUE = "no scheduled run due yet"
+
 _Observation = RunObservation | ScheduleObservation | QualityObservation | WorkloadObservation
 
 
@@ -224,7 +250,7 @@ def evaluate_expected_run(
 def evaluate_freshness(
     scope: Scope,
     last_success: RunObservation | None,
-    previous_due: datetime | None,
+    previous_due: datetime | NotYetDue | UnreadableCron | None,
     *,
     now: datetime,
     grace: timedelta,
@@ -233,19 +259,32 @@ def evaluate_freshness(
     """Whether the pipeline kept its cadence: a success since `previous_due`, or `previous_due` is still in grace.
 
     `previous_due` is the latest due time whose grace the caller considers elapsed, so a due time that is still
-    inside its grace must not be passed or an earlier missed run would be hidden. No bound is invented here: a
-    pipeline that is manual, stopped or absent has no cadence to keep and is `disabled`, never stale. A missing
-    success is `unknown` rather than stale because the caller reads a window of runs, so it cannot tell "never" from
-    "older than the window".
+    inside its grace must not be passed or an earlier missed run would be hidden. `NotYetDue` says the schedule has
+    owed nothing since it started, which is `healthy`: the run it will owe is still ahead. `UnreadableCron` and None
+    are `unknown`; None is a schedule that cannot be shown to have been on at its latest due time.
+
+    No bound is invented here: a pipeline that is manual, stopped or absent has no cadence to keep and is `disabled`,
+    never stale. A missing success is `unknown` rather than stale because the caller reads a window of runs, so it
+    cannot tell "never" from "older than the window".
     """
     _require_aware(now)
     if grace < timedelta(0):
         raise ValueError("grace must not be negative")
     if schedule is not ScheduleState.RUNNING:
         return _signal(SignalKind.FRESHNESS, scope, HealthState.DISABLED, f"schedule is {schedule.value}", None, grace)
+    if isinstance(previous_due, NotYetDue):
+        return _signal(SignalKind.FRESHNESS, scope, HealthState.HEALTHY, _not_yet_due(previous_due, now), None, grace)
+    if isinstance(previous_due, UnreadableCron):
+        reason = f"the cron {previous_due.cron!r} in timezone {previous_due.timezone!r} could not be read"
+        return _signal(SignalKind.FRESHNESS, scope, HealthState.UNKNOWN, reason, None, grace)
     if previous_due is None:
         return _signal(
-            SignalKind.FRESHNESS, scope, HealthState.UNKNOWN, "no due time could be derived from the cron", None, grace
+            SignalKind.FRESHNESS,
+            scope,
+            HealthState.UNKNOWN,
+            "nothing shows the schedule was on at its latest due time",
+            None,
+            grace,
         )
     _require_aware(previous_due)
     if last_success is None:
@@ -400,6 +439,17 @@ def rollup_by_stage(signals: Iterable[Signal]) -> dict[str, HealthState]:
     for signal in signals:
         by_stage.setdefault(signal.stage, []).append(signal)
     return {stage: rollup(group) for stage, group in by_stage.items()}
+
+
+def _not_yet_due(cadence: NotYetDue, now: datetime) -> str:
+    """In UTC, with the day said relative to `now`'s UTC date, so a time just past midnight reads as today."""
+    due = cadence.first_due.astimezone(UTC)
+    days = (due.date() - now.astimezone(UTC).date()).days
+    day = {0: "today", 1: "tomorrow", -1: "yesterday"}.get(days, f"on {due:%Y-%m-%d}")
+    when = f"{due:%H:%M} UTC {day}"
+    if cadence.first_due <= now:
+        return f"{NOT_YET_DUE}; the first run, due {when}, is within its grace period"
+    return f"{NOT_YET_DUE}; next run due {when}"
 
 
 def _require_aware(moment: datetime | None) -> None:
