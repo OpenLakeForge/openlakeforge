@@ -428,7 +428,7 @@ asserts that its keys are a subset of this table **[T]**.
 | --- | --- | --- |
 | `run` | `<scheme>://dagster-<stage>.<base_domain>/runs/<run_id>` for a condition with a run, where `<scheme>` is `http` when `spec.access.tls` is `none` (the local default, ADR 0013 decision 9) and `https` for every TLS mode. The evaluator takes the scheme from the access contract, never a constant. The host pattern is ADR 0013's **[V]**; the `/runs/<id>` path is Dagster's UI route **[T: checked against the pinned Dagster version in #1173]** | Always available once the route exists |
 | `portal` | the Portal's diagnostic page for the incident (#333) | Omitted until #333 exists |
-| `runbook` | `<runbook page>#<condition>`, the condition's section of `docs/guides/operations/alerts.md`; the local root defaults the page to that guide on GitHub at the release tag (`v<distribution.version>`), overridable with the root's `runbook_base_url` (https, no fragment) | Default |
+| `runbook` | `<runbook page>#<condition>`, the condition's section of `docs/guides/operations/alerts.md`; the local root defaults the page to that guide on GitHub at `main`, overridable with the root's `runbook_base_url` (https, no fragment) | Default |
 
 The Dagster link goes through the stage's perimeter, so the receiver's reader
 must sign in and hold a role for that stage (ADR 0013, ADR 0014); a notification
@@ -1102,3 +1102,11 @@ no section. The local root sets `runbook_base_url` by default to
 from `release/component-catalog.yaml`, overridable with the root variable `runbook_base_url`, https without a
 fragment. The evaluator and the platform API receive the same URL, so every notification carries `links.runbook`. The
 evaluator now refuses an `http://` runbook base.
+
+2026-11-21: #1344. The default runbook page is the alerts guide on GitHub at `main`, no longer at
+`v<distribution.version>`: main keeps the last release's version until the next one is prepared, so the tag was older
+than every build after it and linked a 404 for a guide added since (v0.6.0-alpha.3 predates it). Only the latest
+pre-release is maintained and the anchors are the `AlertKind` values, so `main` always has the section a notification
+links. A test fails CI unless the local root's default page exists at its ref. The override is unchanged. Each incident
+from `GET /api/v1/stages/{stage}/alerts/incidents` carries `runbook`, the same `<page>#<condition>` as its
+notification's `links.runbook`, or `null` without a runbook page; it is the one link the answer carries.
