@@ -20,12 +20,14 @@ from openlakeforge_core.alert_policy import (
 )
 from openlakeforge_core.health import (
     HealthState,
+    NotYetDue,
     RunObservation,
     RunStatus,
     ScheduleObservation,
     ScheduleState,
     Scope,
     Signal,
+    UnreadableCron,
     evaluate_execution,
     evaluate_expected_run,
     evaluate_freshness,
@@ -212,15 +214,27 @@ def _evidence_bound(schedule: DagsterSchedule | None, owed: datetime | None, gra
     return following - owed + grace if following else RUN_MAX_AGE
 
 
-def _owed(schedule: DagsterSchedule | None, runs: list[DagsterRun], owed: datetime | None) -> datetime | None:
-    """`owed` when the schedule can be shown to have been on at that time, for the reason given in `_expected`.
+def _owed(
+    schedule: DagsterSchedule | None, runs: list[DagsterRun], now: datetime, grace: timedelta
+) -> datetime | NotYetDue | UnreadableCron | None:
+    """The due time whose run is owed, for `evaluate_freshness`.
 
-    None, which reads `unknown`, otherwise.
+    `NotYetDue` when the schedule was switched on after the latest owed due time: nothing is owed until its first due
+    time at or after the start plus the grace. `UnreadableCron` when the cron cannot be evaluated. None, which reads
+    `unknown`, when nothing shows the schedule was on at the owed due time, for the reason given in `_expected`.
     """
-    if owed is None or schedule is None:
+    if schedule is None or schedule.status != "RUNNING":
         return None
+    owed = _owed_due(schedule, now, grace)
+    if owed is None:
+        return UnreadableCron(schedule.cron_schedule, schedule.timezone)
     if schedule.started_at is not None:
-        return owed if owed >= at(schedule.started_at) else None
+        started = at(schedule.started_at)
+        if owed >= started:
+            return owed
+        # An occurrence at the start itself is owed (above), so the first due time is taken at or after the start.
+        first = next_due(schedule.cron_schedule, schedule.timezone, started - timedelta(microseconds=1))
+        return NotYetDue(first) if first is not None else UnreadableCron(schedule.cron_schedule, schedule.timezone)
     if schedule.last_tick_at is None and not (runs and at(runs[0].created_at) >= owed):
         return None
     return owed
@@ -304,8 +318,7 @@ def _freshness(
         return evaluate_freshness_age(
             scope, success, now=now, warn_after=options.warn_after, critical_after=options.critical_after
         )
-    owed = _owed(schedule, runs, _owed_due(schedule, now, grace))
-    return evaluate_freshness(scope, success, owed, now=now, grace=grace, schedule=state)
+    return evaluate_freshness(scope, success, _owed(schedule, runs, now, grace), now=now, grace=grace, schedule=state)
 
 
 def _evaluate(

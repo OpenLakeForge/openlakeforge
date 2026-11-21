@@ -101,6 +101,14 @@ for how a release is cut and verified.
   and every Monitoring time is in one labelled zone, UTC or the browser's
   (openlakeforge-portal#36 to #40).
 
+### Fixed
+
+- A running schedule switched on after its latest due time, such as a PROD
+  stage activated after the day's run, no longer reads `unknown` freshness and
+  sits under *Needs attention* until its cron next fires (#1345). It reads
+  `healthy`, "no scheduled run due yet; next run due 02:00 UTC tomorrow". A
+  cron that cannot be read stays `unknown` and the reason names it.
+
 ### Migration
 
 The code location move, for a project created before it:

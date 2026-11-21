@@ -231,7 +231,7 @@ The alert policy is not part of the fingerprint, and the scope keeps the job as
 | `run_failed` | the latest run **succeeded**. A run in progress does not resolve it: `evaluate_execution` reads "in progress" as `healthy`, which would resolve the incident while a retry is still running | yes, once |
 | `missed_run` | a run started at or after the due time | yes, once |
 | `missed_run`, schedule stopped while open | the schedule becomes `disabled` | **no**; recorded in history as `resolved_silently`. Default, revisit |
-| `stale_output` | a success at or after the due time, or, with thresholds, a success younger than `warn_after` | yes, once |
+| `stale_output` | a success at or after the due time, or, with thresholds, a success younger than `warn_after`. A schedule switched on after its latest due time reads `healthy` freshness ("no scheduled run due yet; …") but that is not a recovery: the incident holds until a success | yes, once |
 | `quality` | a later run's outcome is `passed` | yes, once |
 | `stage_unreadable` | the first evaluation that reads the stage | yes, once |
 | `policy_unreadable` | the first evaluation that reads the stage's policy cleanly | yes, once |

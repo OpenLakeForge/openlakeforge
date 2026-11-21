@@ -17,6 +17,7 @@ from openlakeforge_core import (
     AlertSeverity,
     AlertState,
     HealthState,
+    NotYetDue,
     QualityObservation,
     QualityOutcome,
     RunObservation,
@@ -28,6 +29,7 @@ from openlakeforge_core import (
     SignalKind,
     evaluate_execution,
     evaluate_expected_run,
+    evaluate_freshness,
     evaluate_quality,
     fingerprint,
     service_signal,
@@ -405,6 +407,18 @@ def test_stale_output_is_suppressed_while_its_cause_is_firing_or_opening(cause, 
         state, [_signal(HealthState.CRITICAL, SignalKind.FRESHNESS, other_product, "data is stale")], 10
     )
     assert [n.kind for n in notifications] == [AlertKind.STALE_OUTPUT]
+
+
+def test_a_schedule_not_yet_due_neither_opens_nor_resolves_stale_output() -> None:
+    not_yet_due = evaluate_freshness(DEV, None, NotYetDue(_at(60)), now=T0, grace=GRACE, schedule=ScheduleState.RUNNING)
+    assert _run(AlertState(), [not_yet_due], 0)[1] == []
+
+    state, _ = _run(AlertState(), [_stale()], 0)
+    state, notifications = _run(state, [not_yet_due], 5)
+    assert (notifications, len(state.firing())) == ([], 1)
+
+    fresh = _signal(HealthState.HEALTHY, SignalKind.FRESHNESS, reason="a run succeeded since the previous due time")
+    assert _events(_run(state, [fresh], 10)[1]) == [AlertEvent.RESOLVED]
 
 
 def test_open_incidents_outside_the_active_scopes_resolve_silently() -> None:
