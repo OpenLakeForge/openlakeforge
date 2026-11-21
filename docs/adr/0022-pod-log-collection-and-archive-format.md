@@ -448,3 +448,8 @@ format is unchanged.
 filled with spooled objects, `LogArchive` fetches up to eight listed objects at once on one bounded process-wide pool.
 Decoding, ordering, dedup, `limit` and the cursor stay on the reading thread in key order, so a read returns exactly
 what a sequential one does; no GET starts after its deadline; the archive format is unchanged.
+
+2026-11-21: after full e2e run 44912147653's platform API was OOMKilled reading a run's window twice at once from an
+hour the footprint drill had filled with 375 MB of NDJSON, `LogArchive` decompresses each object a line at a time
+instead of holding it whole, and reads a record's level only after the filters its own fields decide have kept it.
+Results, ordering, dedup and the cursor are unchanged; only `\n` ends a record. The archive format is unchanged.
