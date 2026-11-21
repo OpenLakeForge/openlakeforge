@@ -1,7 +1,9 @@
 """Workload-secret rotation drill (#178): `olf infra secrets rotate` on the perimeter's Dex client.
 
 The command regenerates the Secret and restarts Dex and the perimeter. The
-drill then signs in through the portal, which succeeds only when Dex and
+drill waits until the old pods are gone and Dex answers promptly through the
+edge, since a Ready rollout can still route a request to a terminating pod,
+then signs in through the portal, which succeeds only when Dex and
 oauth2-proxy hold the same new secret. Only the Secret's uid and
 resourceVersion are read, never its value.
 """
@@ -15,7 +17,16 @@ from urllib.parse import urlsplit
 from olf.common import config, log
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra import access, secrets_rotation
-from olf.infra.e2e._identity_github import dex_points_at_stub, github_stub, log_skip, sign_in_with_stub, stub_host
+from olf.infra.e2e._identity_github import (
+    dex_discovery_answer,
+    dex_points_at_stub,
+    github_stub,
+    log_skip,
+    sign_in_with_stub,
+    stub_host,
+    terminating_pods,
+    wait_until_settled,
+)
 from olf.infra.e2e._perimeter import DENIAL_HEADING, PORTAL_REF
 from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, load_provider_contracts_or_raise
 
@@ -58,6 +69,12 @@ def check_secret_rotation(cfg: E2EConfig) -> None:
         kube_context=cfg.kube_context,
         environ=cfg_environ(cfg),
     ) as route:
+        restarts = [(r.resource, r.selector) for r in secrets_rotation.CLIENT_RESTARTS[TARGET]]
+        wait_until_settled(
+            lambda: terminating_pods(cfg, cfg.platform_namespace, restarts),
+            dex_discovery_answer(route, identity["issuer_url"]),
+            what="Dex through the edge",
+        )
         with github_stub(cfg, {login: mapping[role]}):
             _browser, landing = sign_in_with_stub(route, portal, login, stub_host(cfg))
     # An unauthenticated request to the portal is redirected to the issuer, so the portal's own page here
