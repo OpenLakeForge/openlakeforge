@@ -16,6 +16,7 @@ import bisect
 import gzip
 import hashlib
 import heapq
+import io
 import json
 import logging
 import re
@@ -273,6 +274,24 @@ def position_before(at: datetime) -> Position:
     return (_nanoseconds(at.isoformat(), at), -1, "", "", 0)
 
 
+@dataclass(frozen=True)
+class _Placement:
+    """The fields of a record that its selection reads before its level: who wrote it, for which run, and when."""
+
+    pod: str
+    container: str
+    component: str | None
+    product: str | None
+    run_id: str | None
+    at: datetime | None
+
+
+@dataclass(frozen=True)
+class _Selection:
+    placed: Callable[[_Placement], bool]
+    wanted: Callable[[ArchivedLogLine], bool]
+
+
 @dataclass
 class _Scan:
     """One read's object bound and its counts; kept per read, so an archive shared by two reads cannot mix them."""
@@ -400,18 +419,24 @@ class LogArchive:
             None if bound is None else bound if bound.tzinfo else bound.replace(tzinfo=UTC) for bound in (since, until)
         )
 
-        def wanted(line: ArchivedLogLine, at: datetime | None) -> bool:
+        # The filters a record's own fields decide, applied before its level is read from its text: in an hour that a
+        # burst of another workload's logging filled, nearly every record fails one of them, and reading the level of
+        # each was most of the time a run window's read took.
+        def placed(record: _Placement) -> bool:
             return (
-                (not pod or line.pod == pod)
-                and (not container or line.container == container)
-                and (not component or line.component == component)
-                and (not product or line.product == product)
-                and (not run_id or line.run_id == run_id)
-                and (floor < 0 or _rank(line.level) >= floor)
-                and (not needle or needle in message_of(line).casefold())
-                and (since is None or (at is not None and at >= since))
-                and (until is None or (at is not None and at < until))
+                (not pod or record.pod == pod)
+                and (not container or record.container == container)
+                and (not component or record.component == component)
+                and (not product or record.product == product)
+                and (not run_id or record.run_id == run_id)
+                and (since is None or (record.at is not None and record.at >= since))
+                and (until is None or (record.at is not None and record.at < until))
             )
+
+        def wanted(line: ArchivedLogLine) -> bool:
+            return (floor < 0 or _rank(line.level) >= floor) and (not needle or needle in message_of(line).casefold())
+
+        selects = _Selection(placed, wanted)
 
         event_days = sorted(set(days))
         v1_days = event_days
@@ -431,7 +456,7 @@ class LogArchive:
             for day in event_days:
                 hours = _v2_hours(day, hour, since, until)
                 if hours is None or hours:
-                    self._v2(namespace, day, hour, hours, wanted, v2, scan)
+                    self._v2(namespace, day, hour, hours, selects, v2, scan)
             retained = v2.sorted()
             # ADR 0022, decision 5: a v1 line is dropped only when v2 holds the same line of the same container.
             overlap = {
@@ -441,7 +466,7 @@ class LogArchive:
             v1 = _Best(limit, after)
             if not (component or product or run_id):
                 for day in v1_days:
-                    self._v1(namespace, day, hour, wanted, overlap, v1, scan)
+                    self._v1(namespace, day, hour, selects, overlap, v1, scan)
         finally:
             log.info(
                 "log archive read of %s over %d day(s): %d objects listed, %d read",
@@ -463,7 +488,7 @@ class LogArchive:
         day: date,
         hour: int | None,
         hours: frozenset[int] | None,
-        wanted: Callable[[ArchivedLogLine, datetime | None], bool],
+        selects: _Selection,
         best: _Best,
         scan: _Scan,
     ) -> None:
@@ -476,26 +501,32 @@ class LogArchive:
                     stamp = record["time"]
                     if hour is not None and stamp[11:13] != f"{hour:02d}":
                         continue
+                    pod, container, message = record["pod"], record["container"], record["message"]
+                    at = _instant(stamp)
+                    placement = _Placement(
+                        pod, container, record.get("component"), record.get("product"), record.get("run_id"), at
+                    )
+                    if not selects.placed(placement):
+                        continue
                     missing = record.get("missing")
                     line = ArchivedLogLine(
                         archived_at=stamp,
                         namespace=namespace,
-                        pod=record["pod"],
-                        container=record["container"],
-                        line=record["message"],
+                        pod=pod,
+                        container=container,
+                        line=message,
                         stage=record.get("stage"),
-                        component=record.get("component"),
+                        component=placement.component,
                         domain=record.get("domain"),
-                        product=record.get("product"),
-                        run_id=record.get("run_id"),
+                        product=placement.product,
+                        run_id=placement.run_id,
                         stream=record.get("stream"),
                         missing=tuple(missing) if isinstance(missing, list) else (),
                         source="v2",
                         timestamp=stamp,
-                        level=level_of(record["message"]),
+                        level=level_of(message),
                     )
-                    at = _instant(stamp)
-                    if wanted(line, at):
+                    if selects.wanted(line):
                         # A replay after a collector restart writes the same record again.
                         position = (_event_nanoseconds(stamp, stamp), 0, day.isoformat(), digest, index)
                         best.offer(position, record.get("dedup_key"), line)
@@ -505,7 +536,7 @@ class LogArchive:
         namespace: str,
         day: date,
         hour: int | None,
-        wanted: Callable[[ArchivedLogLine, datetime | None], bool],
+        selects: _Selection,
         overlap: set[tuple[str, str, str, str | None]],
         best: _Best,
         scan: _Scan,
@@ -522,21 +553,25 @@ class LogArchive:
                     # archive time is only when it was copied.
                     stamp, _, rest = (text or "").partition(" ")
                     written = _instant(stamp)
+                    archived_at, written_in = record["archived_at"], record["namespace"]
+                    pod, container = record["pod"], record["container"]
+                    at = written or _instant(archived_at)
+                    if not selects.placed(_Placement(pod, container, None, None, None, at)):
+                        continue
+                    if (pod, container, stamp, rest) in overlap:
+                        continue
                     line = ArchivedLogLine(
-                        archived_at=record["archived_at"],
-                        namespace=record["namespace"],
-                        pod=record["pod"],
-                        container=record["container"],
+                        archived_at=archived_at,
+                        namespace=written_in,
+                        pod=pod,
+                        container=container,
                         line=text,
                         error=record.get("archive_error"),
                         source="v1",
                         timestamp=stamp if written else None,
                         level=level_of(rest if written else text),
                     )
-                    at = written or _instant(line.archived_at)
-                    if (line.pod, line.container, stamp, rest) in overlap:
-                        continue
-                    if wanted(line, at):
+                    if selects.wanted(line):
                         position = (_event_nanoseconds(stamp, line.archived_at), 1, day.isoformat(), digest, index)
                         best.offer(position, None, line)
 
@@ -626,13 +661,17 @@ class LogArchive:
                     scan.opened -= 1
 
     def _records(self, body: bytes) -> Iterator[dict[str, Any]]:
-        for raw in gzip.decompress(body).decode("utf-8").splitlines():
-            self._check()
-            if not raw.strip():
-                continue
-            record = json.loads(raw)
-            if isinstance(record, dict):
-                yield record
+        # Decompressed a line at a time: an object holds up to the collector's 8 MB `total_file_size` of NDJSON, and
+        # holding it whole, as bytes, then text, then lines, took over 20 MB per read, enough for two reads at once to
+        # pass the platform API's 192 MiB memory limit. Only `\n` ends a record, as NDJSON defines it.
+        with gzip.GzipFile(fileobj=io.BytesIO(body)) as stream:
+            for raw in stream:
+                self._check()
+                if not raw.strip():
+                    continue
+                record = json.loads(raw.decode("utf-8"))
+                if isinstance(record, dict):
+                    yield record
 
 
 def _v2_hours(day: date, hour: int | None, since: datetime | None, until: datetime | None) -> frozenset[int] | None:

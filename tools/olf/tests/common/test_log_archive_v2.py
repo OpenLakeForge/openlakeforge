@@ -6,6 +6,7 @@ import gzip
 import io
 import json
 import logging
+import tracemalloc
 import weakref
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -723,3 +724,39 @@ def test_the_search_text_is_not_logged(store: _Store, caplog: pytest.LogCaptureF
 
     assert caplog.records
     assert "4711" not in caplog.text
+
+
+def test_a_message_holding_a_unicode_line_separator_is_one_record(store: _Store) -> None:
+    # JSON leaves U+2028 and U+0085 unescaped inside a string; only `\n` ends an NDJSON record.
+    records = [_v2("2026-11-16T09:00:00Z", "before after\x85end"), _v2("2026-11-16T09:00:01Z", "next")]
+    body = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
+    store.objects[_v2_key("dev-a")] = gzip.compress(body.encode())
+
+    assert _read(store) == ["before after\x85end", "next"]
+
+
+def test_an_object_is_read_without_holding_its_decompressed_lines_at_once(store: _Store) -> None:
+    # An hour after a burst of logging holds objects of the collector's 8 MB `total_file_size`; a read holding one
+    # whole, as bytes, text and lines, took several times that, and two reads at once ran the API out of memory.
+    lines = 12_000
+    filler = "0123456789abcdef" * 40
+    store.put(
+        _v2_key("dev-burst"),
+        [
+            _v2(f"2026-11-16T09:{n // 600:02d}:{n % 60:02d}Z", f"burst {n} {filler}", run_id="other")
+            for n in range(lines)
+        ]
+        + [_v2("2026-11-16T09:30:00Z", "ERROR the run's own line", run_id="r1")],
+    )
+    uncompressed = len(gzip.decompress(store.objects[_v2_key("dev-burst")]))
+    assert uncompressed > 8_000_000
+
+    tracemalloc.start()
+    try:
+        found = _read(store, run_id="r1", severity="error")
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert found == ["ERROR the run's own line"]
+    assert peak < uncompressed / 8
