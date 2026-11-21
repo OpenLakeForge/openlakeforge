@@ -131,7 +131,9 @@ Delivery rules:
 
 `GET /api/v1/stages/{stage}/alerts/incidents` on the platform API lists a
 stage's open incidents, read-only, for `data-engineer` and above. Each carries
-its latest notification's `delivery`:
+`runbook`, the [runbook section](#what-to-do-for-each-condition) of its
+condition as its notification links it (`null` where the deployment sets no
+runbook page), and its latest notification's `delivery`:
 
 | `status` | Meaning |
 | --- | --- |
@@ -367,15 +369,36 @@ URLs or credentials.
 ## What to do for each condition
 
 This is the alert runbook. The headings are the `condition` values, which is
-the anchor `links.runbook` ends with; the platform API's run quality answer
+the anchor `links.runbook` ends with. The platform API links the same sections:
+each incident from `GET /api/v1/stages/{stage}/alerts/incidents` carries
+`runbook`, its condition's section, and the run quality answer
 (`GET /api/v1/stages/{stage}/runs/{run_id}/quality`) links the
 [`quality`](#quality) section for a run with an error check and the
 [`run_failed`](#run_failed) section for any other failed run. The first five
 are product conditions and alert only where `alerts.yml` declares them; the
 severities below are their defaults, which a rule's options change.
 
-For a product condition, start with the stage's view of the pipeline, then the
-run. The CLI commands need `olf login` and read through the platform API:
+Each section says first what to check in the Portal, then the command line or
+API read that shows the same thing. For a product condition, start with the
+stage, then the run; [Walk through a failed run](monitoring-walkthrough.md)
+shows each screen:
+
+1. Open **Monitoring** in the Portal and select the stage. **Needs attention**
+   lists the open incident beside its pipeline's signal, with its latest runs
+   and whether its notification went out. The **Pipelines** table gives each
+   pipeline's state, latest run, last success, schedule and failed runs.
+2. Select a run to open its page. **What failed** names the
+   failed step and the first line of its error, and links **Open in Dagster**,
+   the **Runbook** and **All runs of** the job. **Monitoring → Runs** lists the
+   stage's runs by pipeline, product, status and window.
+3. The run's **Logs** card reads the run's window from the log archive, after
+   its pods are gone. **Open in Logs ↗** opens the same window on the **Logs**
+   page, which filters by level, pod and text.
+4. The run's **Quality checks** card lists the Floe and dbt checks that did not
+   pass, and **What failed** links the run's retained reports.
+
+The same reads on the command line need `olf login` and go through the
+platform API:
 
 1. `olf pipelines health <stage>` prints each pipeline's state and the reason.
 2. `olf runs list --stage <stage> --job <job>` lists the job's latest runs, and
@@ -387,16 +410,22 @@ run. The CLI commands need `olf login` and read through the platform API:
 4. `GET /api/v1/stages/{stage}/runs/{run_id}/quality` lists the run's quality
    checks and the reports it retained.
 
-To rerun a job after a fix, use `olf runs launch <job> --stage dev` on DEV,
+The Portal does not start runs. To rerun a job after a fix, re-execute the run
+in the stage's Dagster (**Open in Dagster**), use
+`olf runs launch <job> --stage dev` on DEV, or
 `olf infra product run <product> --stage <stage>` with cluster access on any
-stage, or re-execute the run in the stage's Dagster.
+stage.
 
 ### run_failed
 
 Critical. The latest run of a job failed. A canceled run does not alert.
 
-- **First checks:** the failed step in `links.run`, then the run's error lines
-  in `olf logs`.
+- **In the Portal:** the incident's run in **Needs attention** opens the
+  run's page. **What failed** gives the failed step and its error,
+  the **Logs** card the run's error lines, and **Quality checks** whether a
+  blocking check stopped the run.
+- **On the command line:** the failed step in `links.run`, then the run's error
+  lines in `olf logs`.
 - **Common causes:** an error in the product's code, a source that is
   unreachable or misses a bound key (`olf infra source bindings --stage <stage>`
   lists missing keys), a blocking quality check (see [`quality`](#quality)),
@@ -410,8 +439,12 @@ Critical. The latest run of a job failed. A canceled run does not alert.
 Critical. A running schedule passed its due time plus its grace (15 minutes
 unless the rule sets `grace`) and no run started.
 
-- **First checks:** the scheduler daemon in the stage's Dagster, and its pods:
-  `kubectl -n <stage-namespace> get pods -l app.kubernetes.io/name=dagster`.
+- **In the Portal:** **Needs attention** shows *Expected run did not start*
+  with the time the run was due, and the pipeline's **Schedule** in the
+  **Pipelines** table reads **Running**. The **Services** table lists the
+  stage's Dagster when one of its workloads is not ready, with the reason.
+- **On the command line:** the scheduler daemon in the stage's Dagster, and its
+  pods: `kubectl -n <stage-namespace> get pods -l app.kubernetes.io/name=dagster`.
 - **Common causes:** the Dagster daemon is down, scaled to zero or cannot be
   scheduled.
 - **Recovery:** bring the daemon back, or start a run. It resolves when a run
@@ -432,8 +465,12 @@ plus the grace, so it neither opens nor resolves this incident. It
 is not sent while `run_failed` or `missed_run` is open for the same product,
 since either already explains it.
 
-- **First checks:** `olf pipelines health <stage>` and the job's latest runs in
-  `olf runs list`.
+- **In the Portal:** **Needs attention** shows *Data is late* or *Data is
+  ageing*. In the **Pipelines** table, compare the pipeline's **Last success**
+  with its **Latest run**, and open its **Failed runs**, or all its runs in
+  **Monitoring → Runs**, to see whether runs are being canceled.
+- **On the command line:** `olf pipelines health <stage>` and the job's latest
+  runs in `olf runs list`.
 - **Common causes:** runs that keep being canceled, a schedule stopped in a
   stage where the rule sets thresholds, or thresholds tighter than the
   product's real cadence.
@@ -446,8 +483,14 @@ since either already explains it.
 error. It is one incident whose severity can rise, so a warning that becomes a
 blocking error sends one `escalated`.
 
-- **First checks:** the run's checks and reports from the run quality route
-  above: which engine, table and check, and the rows it rejected or the
+- **In the Portal:** the run's **Quality checks** card lists the checks that did
+  not pass, errors first, with the table and column, what the pipeline did
+  (quarantined rows, blocked the run, continued) and the counts the engine
+  recorded. **Floe report ↗** and **dbt results ↗** under **What failed**
+  download the reports. The overview's **Data quality** table gives each
+  product's latest checks.
+- **On the command line:** the run's checks and reports from the run quality
+  route above: which engine, table and check, and the rows it rejected or the
   failures it counted. `olf logs --stage <stage> --run-id <run-id> --component
   floe` shows the Floe validation's own lines.
 - **Common causes:** source data that changed shape or content (nulls, values
@@ -462,7 +505,9 @@ blocking error sends one `escalated`.
 Warning. A PROD schedule that the product's cadence declares running is
 stopped in Dagster.
 
-- **First checks:** the schedule's state in the stage's Dagster.
+- **In the Portal:** in the PROD stage's **Pipelines** table, the pipeline's
+  **Schedule** reads **Stopped**, with the schedule's name.
+- **On the command line:** the schedule's state in the stage's Dagster.
 - **Common causes:** the schedule was stopped by hand, or the declaration was
   not updated when the product's cadence changed.
 - **Recovery:** start the schedule, which resolves the incident with a
@@ -475,7 +520,10 @@ Critical, to the platform receivers only. Dagster for a stage could not be
 read in 3 consecutive evaluations. While it lasts, that stage's open incidents
 are held, not resolved.
 
-- **First checks:** the stage's Dagster webserver:
+- **In the Portal:** the stage's overview reads its pipelines as unknown, with
+  the reason, and the **Services** table shows Dagster's workloads and read API
+  with their state and reason.
+- **On the command line:** the stage's Dagster webserver:
   `kubectl -n <stage-namespace> get pods -l app.kubernetes.io/name=dagster`,
   and the `dagster.read-api` row of `olf health <stage>`.
 - **Common causes:** the webserver is down or restarting, or no code location
@@ -490,6 +538,8 @@ alert policy. The notification carries a fixed summary, not the cause: the
 evaluator logs the cause per stage (see [Check it](#check-it) for the Job's
 log).
 
+- **In the Portal:** **Needs attention** lists the incident with its summary
+  only; the cause is in the evaluator's log, which needs cluster access.
 - **Common causes:** a failed read of the stage's activation or revision, a
   revision file whose digest does not match its sidecar, an `alerts.yml` that
   fails validation (for example a revision built by a newer distribution than
@@ -517,7 +567,11 @@ receivers only. A Dagster or Trino workload that is not ready alerts at
 reports it. The object store that cannot be listed and the log archive's spool
 age, spool size and newest object alert at `critical` only.
 
-- **First checks:** `olf health <stage>`, and the component's `reason` there.
+- **In the Portal:** the overview's **Services** table lists the service that is
+  not healthy, with each component's state and reason. With metrics on,
+  **Monitoring → Metrics** charts each component's CPU and memory.
+- **On the command line:** `olf health <stage>`, and the component's `reason`
+  there.
 - **Common causes and recovery:** per component in
   [service health](service-health.md#what-to-do-for-each-component).
 - **Resolves** when the component reports `healthy`; an `unknown` or `disabled`
@@ -531,7 +585,10 @@ Critical, to the platform receivers only. The platform API's services route
 stay open: an API that cannot answer is not evidence that the services
 recovered.
 
-- **First checks:** the `platform-api` pod:
+- **In the Portal:** the Portal reads the same API, so a stage overview that
+  cannot read its services points at the platform API rather than a service.
+  The checks below need cluster access.
+- **On the command line:** the `platform-api` pod:
   `kubectl -n olf-system get pods -l app.kubernetes.io/name=platform-api`.
 - **Common causes:** the pod is not ready or restarting, or its settings were
   refused at startup, which its log names.
@@ -539,11 +596,12 @@ recovered.
 
 ### The runbook link
 
-The local provider sets the runbook page to this guide on GitHub at the
-deployed release's tag,
-`https://github.com/OpenLakeForge/openlakeforge/blob/v<version>/docs/guides/operations/alerts.md`,
-with `<version>` the distribution version. To link your own runbook page, set
-the platform root's `runbook_base_url` in a variable file and deploy with it:
+The local provider sets the runbook page to this guide on GitHub at `main`,
+`https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/guides/operations/alerts.md`.
+Not the release tag: a build between releases is newer than its version's tag,
+and a page or section added since would not be there. To link your own runbook
+page, set the platform root's `runbook_base_url` in a variable file and deploy
+with it:
 
 ```hcl
 runbook_base_url = "https://wiki.example.com/data-platform/alerts"

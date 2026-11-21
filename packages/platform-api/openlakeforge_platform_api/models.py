@@ -536,6 +536,9 @@ class AlertIncident(BaseModel):
     summary: str
     run_ids: list[str]
     delivery: AlertDelivery
+    # The alert runbook's section for the condition, the notification's `links.runbook`. Null where the deployment
+    # configures no runbook page.
+    runbook: str | None
 
 
 class StageAlertIncidents(BaseModel):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -546,3 +548,23 @@ def test_every_condition_has_a_runbook_section_its_link_anchors_at() -> None:
     ]
 
     assert missing == [], f"{guide.name} has no runbook section for: {', '.join(missing)}"
+
+
+def test_the_default_runbook_link_names_a_ref_at_which_the_runbook_exists() -> None:
+    """#1344: the default linked v<distribution.version>, a tag cut before the guide existed, so every link was a 404.
+    `main` must hold this tree's guide; any other ref must hold it in git, and a ref this checkout cannot resolve
+    (a shallow clone without tags, a version interpolated at plan time) fails rather than passes unproven."""
+    repo = Path(__file__).resolve().parents[4]
+    root = (repo / "infra/terraform/environments/local/main.tf").read_text(encoding="utf-8")
+    # Any form of the default (a coalesce, a local, a variable default) names the page by its GitHub URL.
+    match = re.search(r'"https://github\.com/OpenLakeForge/openlakeforge/blob/([^/"]+)/([^"#]+)"', root)
+    assert match, "the local root no longer defaults runbook_base_url to a page of this repository on GitHub"
+    ref, page = match.groups()
+
+    if ref == "main":
+        assert (repo / page).is_file(), f"the default runbook link names {page}, which does not exist"
+    else:
+        found = subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{ref}:{page}"], capture_output=True)
+        assert found.returncode == 0, (
+            f"{page} cannot be found at {ref}: a tag cut before the page existed, or a ref this checkout cannot resolve"
+        )

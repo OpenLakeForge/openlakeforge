@@ -190,6 +190,8 @@ def test_a_firing_incident_with_a_queued_notification_is_pending(
         "summary": "latest run failed",
         "run_ids": ["run-1", "run-2"],
         "delivery": {"status": "pending", "event": "opened", "attempts": 3, "receivers": 2, "delivered": 1},
+        # The deployment configures no runbook page.
+        "runbook": None,
     }
 
 
@@ -292,6 +294,23 @@ def test_only_the_stages_own_incidents_are_listed_platform_conditions_included(
     found = _only(api, mint)
 
     assert (found["condition"], found["component"], found["domain"]) == ("service_degraded", "trino.workloads", None)
+
+
+def test_each_incident_links_the_runbook_section_of_its_own_condition(
+    settings: Settings, mint: Mint, bucket: FakeBucket
+) -> None:
+    runbook = "https://docs.example.test/runbooks/alerts.md"
+    service = _incident(2, kind=AlertKind.SERVICE_DEGRADED, component="trino.workloads")
+    _write(bucket, AlertState(incidents=(_incident(1), service, _incident(3, kind=AlertKind.QUALITY))))
+    configured = _api_settings(settings, alerts_state_base_uri=BASE, runbook_base_url=runbook)
+
+    body = _get(TestClient(create_app(configured, alert_state_store=bucket)), mint)
+
+    assert {i["condition"]: i["runbook"] for i in body["incidents"]} == {
+        "run_failed": f"{runbook}#run_failed",
+        "service_degraded": f"{runbook}#service_degraded",
+        "quality": f"{runbook}#quality",
+    }
 
 
 def _scoped(incident: Incident, job: str) -> Incident:

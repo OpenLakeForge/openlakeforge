@@ -185,7 +185,7 @@ variable "alerts_state_base_uri" {
 }
 
 variable "runbook_base_url" {
-  description = "The alert runbook page the run quality answer links to with #<condition>, the evaluator's own runbook_base_url. Null: the answer names no runbook."
+  description = "The alert runbook page the run quality answer and each alert incident link to with #<condition>, the evaluator's own runbook_base_url. Null: the answers name no runbook."
   type        = string
   default     = null
 

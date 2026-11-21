@@ -147,8 +147,8 @@ class Settings:
     # (OPENLAKEFORGE_ALERTS_ACCESS_KEY_ID, OPENLAKEFORGE_ALERTS_SECRET_ACCESS_KEY). Without both the route answers
     # `not_provided`.
     alerts_state_base_uri: str | None = None
-    # The alert runbook page a run quality answer links to, anchored by condition; the alert evaluator is given the same
-    # URL. None: the answer names no runbook.
+    # The alert runbook page a run quality answer and each alert incident link to, anchored by condition; the alert
+    # evaluator is given the same URL. None: the answers name no runbook.
     runbook_base_url: str | None = None
 
     @classmethod
