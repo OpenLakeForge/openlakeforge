@@ -229,7 +229,11 @@ def walk(
 
         def reached() -> Any:
             target = reach()
-            expect(on.get_by_role("status").filter(has_text=LOADING_PLACEHOLDER)).to_have_count(0)
+            # `expect` keeps its own 5 s default, not the page's: a run's log card waits on the archive read, which
+            # the platform API bounds at 20 s, so the placeholder gets the state timeout.
+            expect(on.get_by_role("status").filter(has_text=LOADING_PLACEHOLDER)).to_have_count(
+                0, timeout=STATE_TIMEOUT_MS
+            )
             return target
 
         return reached
