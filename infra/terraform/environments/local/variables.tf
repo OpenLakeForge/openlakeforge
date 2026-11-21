@@ -46,7 +46,7 @@ variable "alert_receiver_secrets" {
 }
 
 variable "runbook_base_url" {
-  description = "The alert runbook page that alert notifications and the platform API's run quality answer link to, anchored with #<condition>. Null uses docs/guides/operations/alerts.md on GitHub at this distribution's release tag (release/component-catalog.yaml, distribution.version). Set it, for example in a -var-file, to serve the runbook from your own docs."
+  description = "The alert runbook page that alert notifications and the platform API's run quality and incident answers link to, anchored with #<condition>. Null uses docs/guides/operations/alerts.md on GitHub at main. Set it, for example in a -var-file, to serve the runbook from your own docs."
   type        = string
   default     = null
 

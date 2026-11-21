@@ -437,8 +437,8 @@ run "the_log_archive_retention_reaches_the_api" {
   }
 }
 
-# #794: notifications and the run quality answer link the alerts guide at this release's tag unless overridden.
-run "the_runbook_defaults_to_the_alerts_guide_at_the_release_tag" {
+# #794, #1344: notifications and the run quality answer link the alerts guide on main unless overridden.
+run "the_runbook_defaults_to_the_alerts_guide_on_main" {
   command = plan
 
   variables {
@@ -448,10 +448,10 @@ run "the_runbook_defaults_to_the_alerts_guide_at_the_release_tag" {
 
   assert {
     condition = (
-      jsondecode(module.alerts.settings_json).links.runbook_base_url == "https://github.com/OpenLakeForge/openlakeforge/blob/v${yamldecode(file("../../../../release/component-catalog.yaml")).distribution.version}/docs/guides/operations/alerts.md"
+      jsondecode(module.alerts.settings_json).links.runbook_base_url == "https://github.com/OpenLakeForge/openlakeforge/blob/main/docs/guides/operations/alerts.md"
       && jsondecode(module.platform_api[0].settings_json).runbook_base_url == jsondecode(module.alerts.settings_json).links.runbook_base_url
     )
-    error_message = "the evaluator and the API must link the alerts guide at the distribution's release tag"
+    error_message = "the evaluator and the API must link the alerts guide on main"
   }
 }
 

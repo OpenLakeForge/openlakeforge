@@ -44,7 +44,7 @@ locals {
     quality_sync_summaries = var.quality_sync_summaries
     # Read with the key in alert_state_reader_secret_name (#1258).
     alerts_state_base_uri = var.alerts_state_base_uri
-    # The run quality answer's runbook link (ADR 0021), the page the alert evaluator links to.
+    # The run quality and incident answers' runbook link (ADR 0021), the page the alert evaluator links to.
     runbook_base_url = var.runbook_base_url
     # Written with the key in audit_writer_secret_name; without it, every
     # operation that changes state answers 503.

@@ -150,6 +150,17 @@
             "title": "Run Ids",
             "type": "array"
           },
+          "runbook": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runbook"
+          },
           "severity": {
             "enum": [
               "warning",
@@ -187,7 +198,8 @@
           "last_seen_at",
           "summary",
           "run_ids",
-          "delivery"
+          "delivery",
+          "runbook"
         ],
         "title": "AlertIncident",
         "type": "object"

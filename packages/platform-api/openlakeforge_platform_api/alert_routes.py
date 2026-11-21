@@ -3,7 +3,9 @@
 The evaluator is the only writer of `alerts/` (ADR 0023, decision 3), and this route never writes: a state that does not
 parse is answered `unavailable` and left for the evaluator, which keeps the corrupt copy, rather than through
 `AlertStore.read_state`, which would write that copy itself and answer an empty state. An answer carries the fields of
-the notification payload allowlist and delivery counts only: no receiver name, URL or header, and no link.
+the notification payload allowlist and delivery counts only: no receiver name, URL or header. Of the payload's links
+it carries the runbook (#1344), built from this API's own `runbook_base_url` as the evaluator builds it from the same
+URL, and not the run link, which names the stage's Dagster.
 
 The one other read is the stage's Dagster job list, for each incident's domain and product (#1272): an incident is
 scoped by job name, which the state keeps and its fingerprint includes, so the mapping is looked up when answering and
@@ -24,7 +26,7 @@ from urllib.parse import urlsplit
 
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Request
-from openlakeforge_core.alerts import AlertState, Incident, OutboxEntry
+from openlakeforge_core.alerts import AlertState, Incident, OutboxEntry, runbook_link
 from openlakeforge_core.alerts_state import AlertStateError, notification_order, state_from_json
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
@@ -158,7 +160,9 @@ def _job_scopes(request: Request, stage: str, expires: float) -> dict[str, JobSc
     return {job.name: job_scope(job.tags) for job in jobs}
 
 
-def _incident(incident: Incident, queued: OutboxEntry | None, scopes: Mapping[str, JobScope]) -> AlertIncident:
+def _incident(
+    incident: Incident, queued: OutboxEntry | None, scopes: Mapping[str, JobScope], runbook_base_url: str | None
+) -> AlertIncident:
     # The core scope's `product` is the job name (pipeline_health._evaluate).
     job = incident.scope.product
     scope = scopes.get(job, JobScope()) if job else JobScope()
@@ -178,6 +182,7 @@ def _incident(incident: Incident, queued: OutboxEntry | None, scopes: Mapping[st
             "summary": incident.reason,
             "run_ids": list(incident.run_ids),
             "delivery": _delivery(incident, queued),
+            "runbook": runbook_link(runbook_base_url, incident.kind) if runbook_base_url else None,
         }
     )
 
@@ -216,7 +221,7 @@ def list_alert_incidents(request: Request, stage: str) -> StageAlertIncidents:
     queued = _latest_queued(state)
     found = [i for i in state.incidents if i.scope.stage == stage]
     scopes = _job_scopes(request, stage, expires) if any(i.scope.product for i in found) else {}
-    incidents = [_incident(i, queued.get(i.id), scopes) for i in found]
+    incidents = [_incident(i, queued.get(i.id), scopes, settings.runbook_base_url) for i in found]
     if evaluated_at is None:
         reason = "the alert state does not say when it was evaluated"
     elif stale:
