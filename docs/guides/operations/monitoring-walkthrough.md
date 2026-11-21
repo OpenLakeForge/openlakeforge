@@ -104,8 +104,9 @@ pipeline's state now, then:
 - **Data quality**: rows rejected and accepted, and the Floe and dbt outcome counts, from the run's quality manifest;
 - **Open incidents** for this pipeline, and whether their notification was delivered.
 
-<!-- Screenshot 02-failed-run.png (the Failed-run screen at desktop width) to replace from the next full e2e run: the
-     capture in run 44828390545 was taken while the Logs card still read "Reading the run's archived lines…". -->
+![The run's page for a failed order_revenue_pipeline run: the failed dbt step and its error under What failed, with
+links to the logs, Dagster, the runbook and each Floe report; the Logs card listing the run's window at all levels; the
+run's quality checks and data quality counts, marked incomplete; and no open incident](../../assets/walkthrough/02-failed-run.png)
 
 At phone width the same screen stacks its cards, **What failed** first:
 
@@ -211,8 +212,9 @@ When Prometheus is down, each chart says the history is unknown and offers Retry
 metrics off, as on Slim, the page says resource history is not collected, and the pipeline charts, which come from
 Dagster, still show.
 
-<!-- Screenshot 07-metrics.png to replace from the next full e2e run: the capture in run 44828390545 was taken while
-     several charts still read "Reading …". -->
+![Monitoring, Metrics tab for DEV over 24 hours: CPU, memory and storage per component, Trino load and query errors,
+pipeline runs by outcome and run duration per pipeline, and the cluster's node CPU and memory, each with a text summary
+and a table view](../../assets/walkthrough/07-metrics.png)
 
 Proven by: `metrics series through the platform API`, `metrics outage reads unavailable` and `metrics labels and series
 budget`.
