@@ -23,7 +23,7 @@ import re
 import time
 from collections import deque
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -75,6 +75,8 @@ FETCH_AHEAD = 8
 # pool per read would multiply the GETs in flight by theirs. A fetch waits on nothing but the store, so a read
 # waiting on one cannot deadlock the pool, however the callers' pools nest. Threads start on first use, not at import.
 _FETCHES = ThreadPoolExecutor(max_workers=FETCH_AHEAD, thread_name_prefix="log-archive-get")
+# How often a read waiting on a fetch checks its cancellation and deadline.
+FETCH_POLL_SECONDS = 0.25
 
 log = logging.getLogger(__name__)
 
@@ -668,6 +670,11 @@ class LogArchive:
                     pending.append((item[0], _FETCHES.submit(fetch, item[1])))
                 if not pending:
                     return
+                # Waited for in slices, not at once: a GET on a hung store holds its thread until botocore gives up,
+                # and the read must see its cancellation or deadline meanwhile. It stays queued until it is done, so
+                # a read that stops here still cancels it with the rest.
+                while not wait([pending[0][1]], timeout=FETCH_POLL_SECONDS).done:
+                    self._check()
                 digest, fetched = pending.popleft()
                 yield digest, fetched.result()
         finally:

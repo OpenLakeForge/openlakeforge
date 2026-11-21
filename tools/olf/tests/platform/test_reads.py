@@ -90,6 +90,9 @@ class FakeAPI:
         self.requests: list[dict[str, Any]] = []
         self.status = 200
         self.body: bytes | None = None
+        # Headers of a refusal, and how many requests it answers before the paths answer again (None: every one).
+        self.refusal_headers: dict[str, str] = {}
+        self.refusals: int | None = None
         self.token = _token()
         api_ = self
 
@@ -112,8 +115,11 @@ class FakeAPI:
                         "body": self.body(self.rfile.read(length)) if length else None,
                     }
                 )
-                if api_.status != 200:
-                    payload, status = api_.body or b"", api_.status
+                headers: dict[str, str] = {}
+                if api_.status != 200 and api_.refusals != 0:
+                    payload, status, headers = api_.body or b"", api_.status, api_.refusal_headers
+                    if api_.refusals is not None:
+                        api_.refusals -= 1
                 elif isinstance(answers.get(url.path), bytes):
                     payload, status = answers[url.path], ok
                 elif url.path in answers:
@@ -122,6 +128,8 @@ class FakeAPI:
                     payload, status = json.dumps({"detail": "Not Found"}).encode(), 404
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
+                for name, value in headers.items():
+                    self.send_header(name, value)
                 self.end_headers()
                 self.wfile.write(payload)
 
@@ -135,9 +143,13 @@ class FakeAPI:
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_port}/api"
 
-    def refuse(self, status: int, detail: str | None) -> None:
+    def refuse(
+        self, status: int, detail: str | None, *, times: int | None = None, headers: dict[str, str] | None = None
+    ) -> None:
         self.status = status
         self.body = json.dumps({"detail": detail}).encode() if detail is not None else b"<html>Forbidden</html>"
+        self.refusals = times
+        self.refusal_headers = headers or {}
 
 
 @pytest.fixture
@@ -392,6 +404,70 @@ def test_logs_shows_the_api_refusal_for_a_stage_the_role_may_not_read(fake: Fake
 
     assert result.exit_code == 1
     assert "may not perform 'list_logs' on stage 'prod'" in result.stderr
+
+
+def test_a_log_read_past_the_api_deadline_says_how_to_narrow_it(fake: FakeAPI) -> None:
+    fake.refuse(502, "stage 'dev''s log archive did not answer in 20 s")
+
+    result = _olf("logs", "--date", "2026-10-30")
+
+    assert result.exit_code == 1
+    assert "did not answer in 20 s" in result.stderr
+    assert "--hour" in result.stderr and "--since" in result.stderr
+
+
+def test_another_502_is_shown_without_the_narrowing_hint(fake: FakeAPI) -> None:
+    fake.refuse(502, "the object store is unreachable")
+
+    result = _olf("logs", "--date", "2026-10-30")
+
+    assert result.exit_code == 1
+    assert "the object store is unreachable" in result.stderr
+    assert "--hour" not in result.stderr
+
+
+def test_a_busy_api_is_asked_once_more_after_its_retry_after(fake: FakeAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    waits: list[float] = []
+    monkeypatch.setattr(api.time, "sleep", waits.append)
+    fake.refuse(503, "every log read worker is busy; retry in 5 s", times=1, headers={"Retry-After": "5"})
+
+    result = _olf("logs", "--date", "2026-10-30")
+
+    assert result.exit_code == 0, result.stderr
+    assert "started" in result.stdout
+    assert waits == [5] and len(fake.requests) == 2
+
+
+def test_a_busy_api_is_retried_once_only(fake: FakeAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(api.time, "sleep", lambda _s: None)
+    fake.refuse(503, "every log read worker is busy; retry in 5 s", headers={"Retry-After": "5"})
+
+    result = _olf("logs", "--date", "2026-10-30")
+
+    assert result.exit_code == 1
+    assert "HTTP 503" in result.stderr
+    assert len(fake.requests) == 2
+
+
+@pytest.mark.parametrize("headers", [{}, {"Retry-After": "3600"}, {"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}])
+def test_a_503_without_a_short_retry_after_is_not_retried(
+    fake: FakeAPI, monkeypatch: pytest.MonkeyPatch, headers: dict[str, str]
+) -> None:
+    monkeypatch.setattr(api.time, "sleep", lambda _s: pytest.fail("slept"))
+    fake.refuse(503, "the platform API holds no object-store key for the log archive", headers=headers)
+
+    assert _olf("logs", "--date", "2026-10-30").exit_code == 1
+    assert len(fake.requests) == 1
+
+
+def test_a_state_changing_call_is_not_retried_on_a_503(fake: FakeAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(api.time, "sleep", lambda _s: pytest.fail("slept"))
+    fake.refuse(503, "busy", headers={"Retry-After": "1"})
+
+    with pytest.raises(sessions.PlatformError):
+        api.post(sessions.resolve_instance(GITHUB_PROFILE), "/v1/stages/dev/runs", {"job": "orders_job"})
+
+    assert len(fake.requests) == 1
 
 
 def test_logs_reads_today_in_utc_by_default(fake: FakeAPI) -> None:

@@ -11,12 +11,12 @@ import threading
 import time
 from collections.abc import Iterator, MutableMapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import pytest
 from conftest import Mint
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from openlakeforge_services.logs import FETCH_AHEAD
 from test_logs import DEV_BASE, ObjectStore, _v2
@@ -199,14 +199,14 @@ def test_a_read_that_waits_past_the_queue_bound_is_answered_503_with_retry_after
 def test_time_spent_queued_does_not_count_against_the_read_deadline(
     app: FastAPI, store: GatedStore, mint: Mint, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Each read takes one GET's 0.8 s, inside the 1.2 s deadline; the third waits about 0.8 s for a worker first, so
-    # its whole request takes about 1.6 s, past a deadline counted from its arrival.
-    monkeypatch.setattr(log_reads, "READ_DEADLINE_SECONDS", 1.2)
+    # Each read takes one GET's 1.6 s, 0.8 s inside the 2.4 s deadline; the third waits about 1.6 s for a worker first,
+    # so its whole request takes about 3.2 s, 0.8 s past a deadline counted from its arrival.
+    monkeypatch.setattr(log_reads, "READ_DEADLINE_SECONDS", 2.4)
     monkeypatch.setattr(log_reads, "QUEUE_WAIT_SECONDS", 3.0)
     for key in [key for _, key in store.objects][1:]:
         del store.objects[("ops", key)]
     store.gate.set()
-    store.delay = 0.8
+    store.delay = 1.6
     headers = _as(mint, "data-engineer")
 
     async def scenario() -> tuple[list[Call], float]:
@@ -238,3 +238,42 @@ def test_a_read_slower_than_the_deadline_is_answered_502(
     assert response.status_code == 502
     assert response.json()["detail"] == "stage 'dev''s log archive did not answer in 0.3 s"
     assert time.monotonic() - started < 1.0
+
+
+class _Leaving:
+    """A request whose client leaves while the read finishes: `is_disconnected` answers only once the read is done."""
+
+    def __init__(self, done: threading.Event) -> None:
+        self._done = done
+
+    async def is_disconnected(self) -> bool:
+        while not self._done.is_set():
+            await asyncio.sleep(0.01)
+        # The worker sets the event just before returning; this lets its result reach the future first.
+        await asyncio.sleep(0.05)
+        return True
+
+
+def test_a_read_that_finishes_as_the_client_leaves_is_answered_not_discarded() -> None:
+    done = threading.Event()
+
+    def read(_slot: log_reads.ReadSlot) -> str:
+        done.set()
+        return "lines"
+
+    answer = asyncio.run(log_reads.bounded_read(cast(Any, _Leaving(done)), read, waiting_on="the archive"))
+
+    assert answer == "lines"
+
+
+def test_a_read_that_fails_as_the_client_leaves_raises_its_own_error() -> None:
+    done = threading.Event()
+
+    def read(_slot: log_reads.ReadSlot) -> str:
+        done.set()
+        raise HTTPException(status_code=502, detail="the object store is unreachable")
+
+    with pytest.raises(HTTPException) as raised:
+        asyncio.run(log_reads.bounded_read(cast(Any, _Leaving(done)), read, waiting_on="the archive"))
+
+    assert (raised.value.status_code, raised.value.detail) == (502, "the object store is unreachable")

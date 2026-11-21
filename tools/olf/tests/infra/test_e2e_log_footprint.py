@@ -6,6 +6,7 @@ import json
 import subprocess
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -109,16 +110,14 @@ def test_the_emitter_rate_is_paced_against_the_clock() -> None:
 def test_an_emitter_without_a_pod_yet_is_still_starting(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(fp, "kubectl", lambda *_a, **_k: "")
 
-    assert (
-        fp._emitter_running(cast(Any, SimpleNamespace(namespace="ns", shared_namespace="olf-platform")), "job") is False
-    )  # noqa: SLF001
+    assert fp._emitter_running(cast(Any, _cfg()), "job") is False  # noqa: SLF001
 
 
 def test_a_failed_emitter_pod_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(fp, "kubectl", lambda *_a, **_k: "Pending Failed")
 
     with pytest.raises(E2EError):
-        fp._emitter_running(cast(Any, SimpleNamespace(namespace="ns", shared_namespace="olf-platform")), "job")  # noqa: SLF001
+        fp._emitter_running(cast(Any, _cfg()), "job")  # noqa: SLF001
 
 
 def _observation(stage: str, size: int, *, unreadable: bool = False) -> Any:
@@ -154,8 +153,8 @@ def test_an_emitter_that_never_starts_is_deleted(monkeypatch: pytest.MonkeyPatch
     assert ["delete", "job", "olf-e2e-log-x", "-n", "olf-platform", "--ignore-not-found", "--wait=false"] in deleted
 
 
-def _cfg(**fields: Any) -> SimpleNamespace:
-    return SimpleNamespace(**{"namespace": "olf-dev", "shared_namespace": "olf-platform", **fields})
+def _cfg(namespace: str = "olf-dev", platform_namespace: str = "olf-platform") -> SimpleNamespace:
+    return SimpleNamespace(namespace=namespace, platform_namespace=platform_namespace)
 
 
 def test_the_emitters_run_in_the_platform_namespace_on_the_measured_node(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -197,7 +196,16 @@ def test_the_spool_measured_is_the_platform_routes(monkeypatch: pytest.MonkeyPat
     assert fp._target(cast(Any, _cfg())).stage == "platform"  # noqa: SLF001
 
 
-@pytest.mark.parametrize("shared", ["", "olf-dev"])
-def test_without_a_platform_namespace_apart_from_the_stage_the_drill_refuses(shared: str) -> None:
+def test_without_a_platform_namespace_apart_from_the_stage_the_drill_refuses() -> None:
     with pytest.raises(E2EError, match="platform namespace"):
-        fp._emitter_namespace(cast(Any, _cfg(shared_namespace=shared)))  # noqa: SLF001
+        fp._emitter_namespace(cast(Any, _cfg(platform_namespace="olf-dev")))  # noqa: SLF001
+
+
+def test_the_platform_route_is_the_one_the_local_environment_gives_the_collector() -> None:
+    main = (Path(__file__).parents[4] / "infra/terraform/environments/local/main.tf").read_text()
+
+    route = (
+        f"{fp.collector.PLATFORM_ROUTE} = {{ namespace = var.shared_namespace, "
+        f'key_prefix = "{fp.collector.PLATFORM_V2_PREFIX}" }}'
+    )
+    assert route in main

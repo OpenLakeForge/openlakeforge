@@ -29,8 +29,8 @@ from openlakeforge_core.metrics import MetricScope, MetricSource, catalog_for
 from olf.common import config, log
 from olf.infra import access
 from olf.infra.e2e import _log_delivery as delivery
-from olf.infra.e2e._identity_github import REQUEST_TIMEOUT, dex_points_at_stub, github_stub, log_skip
-from olf.infra.e2e._perimeter_bearer import CLI_CLIENT, PLATFORM_API_HOST_REF, issue_id_token
+from olf.infra.e2e._identity_github import dex_points_at_stub, github_stub, log_skip
+from olf.infra.e2e._perimeter_bearer import API_READ_TIMEOUT, CLI_CLIENT, PLATFORM_API_HOST_REF, issue_id_token
 from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
 
 # ADR 0024, decision 3: the labels a served series may carry, and the head-series operating target.
@@ -165,12 +165,6 @@ def metrics_contract(cfg: E2EConfig) -> Mapping[str, Any]:
 
 def metrics_on(contract: Mapping[str, Any]) -> bool:
     return bool(contract.get("enabled") and contract.get("supported") and contract.get("query_url"))
-
-
-# Longer than the platform API's slowest read (the run routes' 20 s, `run_failure.READ_DEADLINE_SECONDS`, and a log
-# read's 5 s wait for a worker before its own 20 s, `log_reads`), so the client never gives up on an answer the API is
-# still allowed to give, and a 502 past the deadline or a 503 for a busy pool is seen as one.
-API_READ_TIMEOUT = 30
 
 
 @dataclass
@@ -421,7 +415,7 @@ def _check_api_without_metrics(cfg: E2EConfig) -> None:
 
         def read(path: str) -> dict[str, Any]:
             reply = route.session().get(
-                f"{route.url}{path}", headers={"Accept": "application/json"}, timeout=REQUEST_TIMEOUT
+                f"{route.url}{path}", headers={"Accept": "application/json"}, timeout=API_READ_TIMEOUT
             )
             if reply.status_code == 401:
                 raise _NeedsToken

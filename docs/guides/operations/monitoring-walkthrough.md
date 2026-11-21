@@ -151,6 +151,9 @@ the read for each day a run crosses:
 olf logs --stage dev --run-id <run-id> --date <YYYY-MM-DD> --severity error
 ```
 
+`--run-id` selects lines but still reads the whole day, and the platform API stops a log read after 20 seconds. On a
+busy stage, add `--since` and `--until` around the run's start and end so only those hours are read.
+
 How the archive works, and what to do when delivery stops, is in
 [Log archive](log-archive.md).
 

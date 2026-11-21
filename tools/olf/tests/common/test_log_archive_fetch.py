@@ -217,6 +217,46 @@ def test_an_uncancelled_read_answers_as_a_read_without_the_hook() -> None:
     assert with_hook == LogArchive(store, BASE).read_days("olf-dev", [DAY, NEXT_DAY])
 
 
+@pytest.mark.parametrize("stop", ["cancelled", "deadline"])
+def test_a_read_waiting_on_a_hung_get_stops_without_waiting_for_it(stop: str) -> None:
+    release = threading.Event()
+    store = _Store()
+    for n in range(3):
+        store.put(_v2_key(f"dev-{n}"), [_v2(f"2026-11-16T09:00:{n:02d}Z", f"line {n}")])
+    get_object = store.get_object
+
+    def hung(*, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        release.wait(10)
+        return get_object(Bucket=Bucket, Key=Key)
+
+    store.get_object = hung  # type: ignore[method-assign]
+    stopped = threading.Event()
+    now = [0.0]
+    outcome: list[Exception] = []
+
+    def read() -> None:
+        try:
+            LogArchive(store, BASE, clock=lambda: now[0]).read("olf-dev", DAY, deadline=5.0, cancelled=stopped.is_set)
+        except Exception as exc:
+            outcome.append(exc)
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    time.sleep(0.3)
+    if stop == "cancelled":
+        stopped.set()
+    else:
+        now[0] = 10.0
+    reader.join(2)
+    finished = not reader.is_alive()
+    release.set()
+    reader.join(5)
+
+    assert finished, "the read waited for the hung GET"
+    assert len(outcome) == 1
+    assert isinstance(outcome[0], ArchiveCancelled if stop == "cancelled" else ArchiveDeadline)
+
+
 def test_fetches_queued_behind_another_read_do_not_start_after_their_deadline() -> None:
     # One read holds every fetch thread; a second read's fetches wait for one while its deadline passes.
     release = threading.Event()

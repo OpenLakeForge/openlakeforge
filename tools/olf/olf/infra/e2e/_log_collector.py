@@ -33,6 +33,10 @@ from olf.infra.e2e._artifacts import wait_for_bucket
 from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_contracts_or_raise
 
 COLLECTOR = "log-collector"
+# The platform namespace's collector route: its stage label and v2 prefix, as `log_collector_routes` in
+# infra/terraform/environments/local/main.tf names them.
+PLATFORM_ROUTE = "platform"
+PLATFORM_V2_PREFIX = "platform/logs/v2/"
 RUN_ID_LABEL = "dagster/run-id"
 
 # upload_timeout (5m) plus a retry cycle and the kubelet's and the collector's own latency.

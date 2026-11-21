@@ -55,9 +55,6 @@ STABLE_POLLS = 3
 # size. Real log text compresses better, and constant padding would flatter the number.
 PAYLOAD_GROUPS = 32
 SUMMARY_PATH_ENV = "GITHUB_STEP_SUMMARY"
-# The collector route of the platform namespace, keyed and prefixed as `log_collector_routes` in the local environment.
-PLATFORM_ROUTE = "platform"
-PLATFORM_PREFIX = "platform/logs/v2/"
 _FOOTPRINT_CONTAINERS = ("fluent-bit", "spool-probe")
 
 
@@ -283,14 +280,14 @@ class Target:
 
 def _emitter_namespace(cfg: E2EConfig) -> str:
     """The platform namespace, where the emitters run; without one there is no namespace apart from the stage's."""
-    if not cfg.shared_namespace or cfg.shared_namespace == cfg.namespace:
+    if cfg.platform_namespace == cfg.namespace:
         raise E2EError("the footprint drill needs a platform namespace apart from the stage's")
-    return cfg.shared_namespace
+    return cfg.platform_namespace
 
 
 def _target(cfg: E2EConfig) -> Target:
     api = delivery._api_pod(cfg) if delivery._has_probe(cfg) else None  # noqa: SLF001
-    return Target(_collector_pod(cfg), PLATFORM_ROUTE, api)
+    return Target(_collector_pod(cfg), collector.PLATFORM_ROUTE, api)
 
 
 def _take(cfg: E2EConfig, target: Target) -> Sample:
@@ -423,7 +420,7 @@ def _scan_archive(
 ) -> ArchiveStats:
     """Read the platform route's v2 objects written since `since`; an object is immutable once written, so it is
     fetched once."""
-    prefix = f"{PLATFORM_PREFIX}namespace={_emitter_namespace(cfg)}/"
+    prefix = f"{collector.PLATFORM_V2_PREFIX}namespace={_emitter_namespace(cfg)}/"
     with collector._s3(cfg) as (client, bucket):  # noqa: SLF001
         for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
             for item in page.get("Contents", []):

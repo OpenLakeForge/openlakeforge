@@ -153,10 +153,11 @@ async def list_logs(
     text = search_text(q)
     reader, namespace = _log_archive(request, stage)
 
-    def read(slot: ReadSlot) -> list[ArchivedLogLine]:
+    # The response is built on the worker too: thousands of lines' models are no work for the event loop.
+    def read(slot: ReadSlot) -> Logs:
         with _archive_errors(stage):
             try:
-                return reader.read(
+                lines = reader.read(
                     namespace,
                     day,
                     hour=hour,
@@ -178,10 +179,10 @@ async def list_logs(
                     status_code=502,
                     detail=f"stage {stage!r}'s log archive did not answer in {log_reads.READ_DEADLINE_SECONDS:g} s",
                 ) from exc
+        # `truncated` tells a client that a narrower window or a higher limit would show more.
+        return Logs(lines=[log_line(line) for line in lines], truncated=len(lines) >= limit)
 
-    lines = await bounded_read(request, read, waiting_on=f"stage {stage!r}'s log archive")
-    # `truncated` tells a client that a narrower window or a higher limit would show more.
-    return Logs(lines=[log_line(line) for line in lines], truncated=len(lines) >= limit)
+    return await bounded_read(request, read, waiting_on=f"stage {stage!r}'s log archive")
 
 
 def log_line(line: ArchivedLogLine) -> LogLine:

@@ -84,7 +84,11 @@ async def bounded_read[T](request: Request, read: Callable[[ReadSlot], T], *, wa
     answer = asyncio.wrap_future(_READS.submit(start))
     try:
         while not answer.done():
-            if await request.is_disconnected():
+            disconnected = await request.is_disconnected()
+            # The read may have finished during that await: its answer, or its exception, is taken rather than lost.
+            if answer.done():
+                break
+            if disconnected:
                 raise HTTPException(status_code=CLIENT_CLOSED_REQUEST, detail="the client closed the request")
             expires = slot.expires
             left = (queued_until if expires is None else expires) - time.monotonic()
