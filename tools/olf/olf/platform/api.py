@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -13,12 +14,26 @@ import requests
 
 from olf.platform import session as sessions
 
+# A read the API turned away because its workers were busy (a log read's 503) is sent once more after the API's own
+# Retry-After, if the API asks for no longer than this; the API bounds that wait itself, so one retry is enough.
+MAX_RETRY_AFTER_SECONDS = 30
+
 
 def base_url(instance: sessions.Instance) -> str:
     """The API answers under /api on the portal's host, the deployment's base domain, with the issuer's scheme, or
     the routes' own when authentication is off."""
     scheme = urlsplit(instance.issuer).scheme or instance.scheme
     return f"{scheme}://{instance.base_domain}/api"
+
+
+def _retry_after(response: requests.Response) -> int | None:
+    """The seconds a 503 asks a client to wait, when it states a delay this client will wait for."""
+    if response.status_code != 503:
+        return None
+    value = response.headers.get("Retry-After", "")
+    if not value.isdigit() or int(value) > MAX_RETRY_AFTER_SECONDS:
+        return None
+    return int(value)
 
 
 def _detail(response: requests.Response) -> str:
@@ -98,6 +113,11 @@ def _send(
         headers["Content-Type"] = content_type
     try:
         response = sessions.send(method, url, headers=headers, timeout=60, stream=sink is not None, **request)
+        # Only a read is sent twice: a state-changing call is never retried (see `post`).
+        if method == "GET" and (wait := _retry_after(response)) is not None:
+            response.close()
+            time.sleep(wait)
+            response = sessions.send(method, url, headers=headers, timeout=60, stream=sink is not None, **request)
     except requests.exceptions.SSLError as exc:
         raise sessions.PlatformError(
             f"cannot verify the TLS certificate of {instance.base_domain}. A local deployment uses its own CA: run "
@@ -124,7 +144,11 @@ def _send(
             "(spec.identity) and the platform API image"
         )
     if not 200 <= response.status_code < 300:
-        raise sessions.PlatformError(f"the platform API answered HTTP {response.status_code}: {detail or 'no detail'}")
+        raise sessions.PlatformStatusError(
+            f"the platform API answered HTTP {response.status_code}: {detail or 'no detail'}",
+            response.status_code,
+            detail,
+        )
     if sink is not None:
         return _write(response, sink)
     if raw:

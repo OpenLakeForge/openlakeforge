@@ -8,18 +8,24 @@ window is the run's, not its pods': lines another workload of the stage wrote me
 
 from __future__ import annotations
 
-import time
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeout
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from fastapi import HTTPException, Query, Request
 from openlakeforge_core.log_archive import V1_LOOKBACK_SECONDS
-from openlakeforge_services.dagster import DagsterRun
-from openlakeforge_services.logs import ArchiveDeadline, decode_position, encode_position, position_before
+from openlakeforge_services.dagster import DagsterClient, DagsterRun
+from openlakeforge_services.logs import (
+    ArchiveDeadline,
+    LogArchive,
+    Position,
+    decode_position,
+    encode_position,
+    position_before,
+)
 
+from openlakeforge_platform_api import log_reads
+from openlakeforge_platform_api.log_reads import ReadSlot, bounded_read
 from openlakeforge_platform_api.models import RunLogs
 from openlakeforge_platform_api.reads import (
     LOG_SEARCH,
@@ -39,32 +45,7 @@ from openlakeforge_platform_api.reads import (
 # so v1 alone may list one day more, past the cut, for the lines of its last hour.
 MAX_RUN_LOG_DAYS = 3
 V1_LOOKBACK = timedelta(seconds=V1_LOOKBACK_SECONDS)
-# The run read and the archive read together, as in run_failure: each call has its own timeout, but a slow store
-# reading three days would otherwise hold the request for their sum. The archive read also checks it itself between
-# pages, objects and records, so a read abandoned here stops soon after instead of holding a worker.
-READ_DEADLINE_SECONDS = 20.0
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-# A read abandoned at the deadline keeps its thread until it next checks the deadline or a call's own timeout ends
-# it; a small pool caps how many.
-_READS = ThreadPoolExecutor(max_workers=2, thread_name_prefix="run-logs-read")
-
-
-class _Deadline(Exception):
-    pass
-
-
-def _within[T](expires: float, read: Callable[[], T]) -> T:
-    def run() -> T:
-        if time.monotonic() >= expires:
-            raise _Deadline
-        return read()
-
-    answer = _READS.submit(run)
-    try:
-        return answer.result(timeout=max(expires - time.monotonic(), 0))
-    except FutureTimeout as exc:
-        answer.cancel()
-        raise _Deadline from exc
 
 
 def _utc(at: datetime) -> datetime:
@@ -88,7 +69,7 @@ def window_days(since: datetime, until: datetime) -> tuple[list[date], datetime]
     return [first + timedelta(days=n) for n in range((last - first).days + 1)], until
 
 
-def list_run_logs(
+async def list_run_logs(
     request: Request,
     stage: str,
     run_id: str,
@@ -122,22 +103,49 @@ def list_run_logs(
         raise HTTPException(status_code=422, detail="`after` is not a cursor this route returned") from exc
     reader, namespace = _log_archive(request, stage)
     client = _dagster(request, stage)
-    expires = time.monotonic() + READ_DEADLINE_SECONDS
+    filters = _Filters(pod, container, component, match_run, severity or "", text, since, until, limit, cursor)
+    # One read for both calls, so they share one worker and one deadline that starts when the worker takes them.
+    return await bounded_read(
+        request,
+        lambda slot: _read(slot, stage, run_id, client, reader, namespace, filters),
+        waiting_on=f"Dagster for stage {stage!r}",
+    )
+
+
+@dataclass(frozen=True)
+class _Filters:
+    pod: str
+    container: str
+    component: str
+    match_run: bool
+    severity: str
+    text: str
+    since: datetime | None
+    until: datetime | None
+    limit: int
+    cursor: Position | None
+
+
+def _read(
+    slot: ReadSlot,
+    stage: str,
+    run_id: str,
+    client: DagsterClient,
+    reader: LogArchive,
+    namespace: str,
+    filters: _Filters,
+) -> RunLogs:
     with _dagster_errors(stage):
-        try:
-            run = _within(expires, lambda: client.get_run(run_id))
-        except _Deadline as exc:
-            raise HTTPException(
-                status_code=502, detail=f"Dagster for stage {stage!r} did not answer in {READ_DEADLINE_SECONDS:g} s"
-            ) from exc
+        run = client.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"no run {run_id!r} in stage {stage!r}")
 
     start, end = run_window(run, datetime.now(UTC))
-    if since is not None:
-        start = max(start, _utc(since))
-    if until is not None:
-        end = min(end, _utc(until))
+    if filters.since is not None:
+        start = max(start, _utc(filters.since))
+    if filters.until is not None:
+        end = min(end, _utc(filters.until))
+    cursor = filters.cursor
     if cursor is not None:
         # The cursor's own microsecond: lines later in it are kept by the position, not by `since`.
         start = max(start, _EPOCH + timedelta(microseconds=cursor[0] // 1000))
@@ -145,32 +153,32 @@ def list_run_logs(
         return RunLogs(lines=[], truncated=False, since=start.isoformat(), until=end.isoformat(), next=None)
     days, cut = window_days(start, end)
 
+    slot.waiting_on = f"stage {stage!r}'s log archive"
     with _archive_errors(stage):
         try:
-            found = _within(
-                expires,
-                lambda: reader.read_days(
-                    namespace,
-                    days,
-                    pod=pod,
-                    container=container,
-                    component=component,
-                    run_id=run.run_id if match_run else "",
-                    severity=severity or "",
-                    text=text,
-                    since=start,
-                    until=cut,
-                    limit=limit,
-                    after=cursor,
-                    v1_lookback=V1_LOOKBACK,
-                    deadline=expires,
-                ),
+            found = reader.read_days(
+                namespace,
+                days,
+                pod=filters.pod,
+                container=filters.container,
+                component=filters.component,
+                run_id=run.run_id if filters.match_run else "",
+                severity=filters.severity,
+                text=filters.text,
+                since=start,
+                until=cut,
+                limit=filters.limit,
+                after=cursor,
+                v1_lookback=V1_LOOKBACK,
+                deadline=slot.expires,
+                cancelled=slot.cancelled.is_set,
             )
-        except (_Deadline, ArchiveDeadline) as exc:
+        except ArchiveDeadline as exc:
             raise HTTPException(
-                status_code=502, detail=f"stage {stage!r}'s log archive did not answer in {READ_DEADLINE_SECONDS:g} s"
+                status_code=502,
+                detail=f"stage {stage!r}'s log archive did not answer in {log_reads.READ_DEADLINE_SECONDS:g} s",
             ) from exc
-    if len(found.lines) >= limit and found.last is not None:
+    if len(found.lines) >= filters.limit and found.last is not None:
         following: str | None = encode_position(found.last)
     elif cut < end:
         following = encode_position(position_before(cut))

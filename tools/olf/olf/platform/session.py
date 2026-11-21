@@ -31,6 +31,15 @@ class PlatformError(Exception):
     """A user-facing failure. Messages never carry a token."""
 
 
+class PlatformStatusError(PlatformError):
+    """The platform API answered with an error status; `detail` is its own explanation, empty when it gave none."""
+
+    def __init__(self, message: str, status: int, detail: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.detail = detail
+
+
 @dataclass(frozen=True)
 class Instance:
     base_domain: str

@@ -2,10 +2,18 @@
 
 ADR 0022 declines to state the collector's CPU and memory because upstream publishes none for this configuration, so
 the numbers come from here. Four phases run on the node of one collector pod: the stack's own background logging
-(`idle`), then a Job in the stage namespace writing `lines_per_second` lines for `PHASE_SECONDS`. During each phase
-the kubelet's stats summary gives the collector's containers' CPU time and memory, and the spool probe gives the S3
-spool's bytes. Afterwards the archive's objects are read straight from the bucket to count what arrived and what the
-objects weigh, so a drop at a rate is a number and not a surprise.
+(`idle`), then a Job writing `lines_per_second` lines for `PHASE_SECONDS`. During each phase the kubelet's stats
+summary gives the collector's containers' CPU time and memory, and the spool probe gives the S3 spool's bytes.
+Afterwards the archive's objects are read straight from the bucket to count what arrived and what the objects weigh,
+so a drop at a rate is a number and not a surprise.
+
+The Jobs run in the platform namespace, not the stage's. The three phases write about 375 MB into the current hour of
+whichever archive they land in, and the checks after this one read the stage's: the failed-run drill-down and the
+screenshots of its logs list and fetch every object of that hour, and two Portal reads of it at once got the platform
+API OOMKilled (e2e run 44912147653). The collector tails only the namespaces it has a route for (one per stage and the
+platform's, ADR 0022, decision 3), so a namespace of the drill's own would not be collected and nothing would be
+measured. The platform route is the same tail, filters, re-tag emitter and S3 output as a stage route, in the same
+pod, so its CPU, memory and spool are the stage's at the same rate; no check reads the platform archive afterwards.
 
 The kubelet summary is used because kind has no metrics-server and `kubectl top` would need one; the summary is the
 source metrics-server itself reads. Local only, like the other collector checks: it needs the SeaweedFS port-forward.
@@ -270,9 +278,16 @@ class Target:
         return str(self.pod["spec"]["nodeName"])
 
 
+def _emitter_namespace(cfg: E2EConfig) -> str:
+    """The platform namespace, where the emitters run; without one there is no namespace apart from the stage's."""
+    if cfg.platform_namespace == cfg.namespace:
+        raise E2EError("the footprint drill needs a platform namespace apart from the stage's")
+    return cfg.platform_namespace
+
+
 def _target(cfg: E2EConfig) -> Target:
     api = delivery._api_pod(cfg) if delivery._has_probe(cfg) else None  # noqa: SLF001
-    return Target(_collector_pod(cfg), delivery._stage(cfg), api)  # noqa: SLF001
+    return Target(_collector_pod(cfg), collector.PLATFORM_ROUTE, api)
 
 
 def _take(cfg: E2EConfig, target: Target) -> Sample:
@@ -324,7 +339,7 @@ def _start_emitter(cfg: E2EConfig, node: str, size: Size) -> tuple[str, str]:
     name = f"olf-e2e-fp-{size.name}-{run_id[:8]}"
     manifest = collector.emitter_manifest(
         name,
-        cfg.namespace,
+        _emitter_namespace(cfg),
         image=collector._emitter_image(cfg),  # noqa: SLF001
         run_id=run_id,
         token=token,
@@ -345,7 +360,16 @@ def _emitter_running(cfg: E2EConfig, name: str) -> bool:
     """Whether the emitter's pod runs or ran; a Job whose pod is not created yet is still starting."""
     phases = kubectl(
         cfg,
-        ["get", "pods", "-n", cfg.namespace, "-l", f"job-name={name}", "-o", "jsonpath={.items[*].status.phase}"],
+        [
+            "get",
+            "pods",
+            "-n",
+            _emitter_namespace(cfg),
+            "-l",
+            f"job-name={name}",
+            "-o",
+            "jsonpath={.items[*].status.phase}",
+        ],
         capture=True,
     ).split()
     if "Failed" in phases:
@@ -354,7 +378,7 @@ def _emitter_running(cfg: E2EConfig, name: str) -> bool:
 
 
 def _job_done(cfg: E2EConfig, name: str) -> bool:
-    job = json.loads(kubectl(cfg, ["get", "job", name, "-n", cfg.namespace, "-o", "json"], capture=True))
+    job = json.loads(kubectl(cfg, ["get", "job", name, "-n", _emitter_namespace(cfg), "-o", "json"], capture=True))
     state = delivery.job_state(job)
     if state == "failed":
         raise E2EError(f"the emitter {name} failed: not every planned line was written")
@@ -387,15 +411,16 @@ def _measure(cfg: E2EConfig, target: Target, size: Size | None) -> tuple[PhaseSt
             samples.append(_take(cfg, target))
     finally:
         if name:
-            kubectl(cfg, ["delete", "job", name, "-n", cfg.namespace, "--ignore-not-found", "--wait=false"])
+            kubectl(cfg, ["delete", "job", name, "-n", _emitter_namespace(cfg), "--ignore-not-found", "--wait=false"])
     return summarize_phase(size.name if size else "idle", size.lines_per_second if size else 0, samples), token
 
 
 def _scan_archive(
     cfg: E2EConfig, since: datetime, tokens: Sequence[str], cache: dict[str, tuple[int, bytes]]
 ) -> ArchiveStats:
-    """Read the stage's v2 objects written since `since`; an object is immutable once written, so it is fetched once."""
-    prefix = f"activations/{delivery._stage(cfg)}/logs/v2/namespace={cfg.namespace}/"  # noqa: SLF001
+    """Read the platform route's v2 objects written since `since`; an object is immutable once written, so it is
+    fetched once."""
+    prefix = f"{collector.PLATFORM_V2_PREFIX}namespace={_emitter_namespace(cfg)}/"
     with collector._s3(cfg) as (client, bucket):  # noqa: SLF001
         for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
             for item in page.get("Contents", []):

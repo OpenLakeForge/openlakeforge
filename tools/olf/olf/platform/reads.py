@@ -178,7 +178,21 @@ def logs(
     ):
         if value:
             params[name] = value
-    result = _read(profile_file, stage_path(stage, "logs"), params)
+    try:
+        result = api.get(sessions.resolve_instance(profile_file), stage_path(stage, "logs"), params)
+    except sessions.PlatformStatusError as exc:
+        # The API holds a log read to 20 s; a whole day of a busy stage can take longer. Only the time window narrows
+        # what is fetched: the other filters still read every object of the day.
+        if exc.status == 502 and "did not answer" in exc.detail:
+            raise typer.Exit(
+                code=fail(
+                    f"{exc}. The platform API reads logs for at most 20 seconds: narrow the read to fewer hours "
+                    "with --hour, or --since and --until"
+                )
+            ) from exc
+        raise typer.Exit(code=fail(str(exc))) from exc
+    except sessions.PlatformError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
     if as_json:
         typer.echo(json.dumps(result, indent=2))
         return

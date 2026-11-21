@@ -114,7 +114,7 @@ def _archive_contract(cfg: E2EConfig) -> tuple[str, int, bool]:
 
 def _stage_prefixes(cfg: E2EConfig) -> list[str]:
     stage = cfg.namespace.removeprefix("olf-")
-    return [f"activations/{stage}/logs/v2/", "platform/logs/v2/"]
+    return [f"activations/{stage}/logs/v2/", collector.PLATFORM_V2_PREFIX]
 
 
 def _newest_v2_key(client: Any, bucket: str, cfg: E2EConfig) -> str:

@@ -4246,6 +4246,17 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "Every log read worker stayed busy for 5 s, so nothing was read: retry after the `Retry-After` seconds. Also, without `Retry-After`, when the API holds no object-store key for the archive.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "List Logs"
@@ -5096,6 +5107,17 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "Every log read worker stayed busy for 5 s, so nothing was read: retry after the `Retry-After` seconds. Also, without `Retry-After`, when the API holds no object-store key for the archive.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "List Run Logs"

@@ -45,6 +45,12 @@ limit counts matching lines. In the API they are the `severity` and `q` paramete
 the three UTC days one read covers, so a search with few matches can answer fewer lines than `limit`, or none, with
 `next` set; follow `next` until it is null.
 
+The platform API holds each log read to 20 seconds, counted from when one of its two log read workers takes it. A
+whole day of a busy stage can take longer and is answered with an error that says so: read fewer hours with `--hour`,
+or `--since` and `--until`. Those are the flags that narrow what is fetched; `--pod`, `--run-id`, `--severity` and the
+other filters still read every object of the hours asked for. When both workers stay busy for 5 seconds the API
+answers 503 with `Retry-After`, and `olf logs` asks once more after that wait.
+
 The flags are in the [CLI reference](../../reference/cli.md). `data-engineer` reads `dev`, `platform-admin` reads every
 stage, and a request for another stage is refused by the API. The newest lines may not be archived yet: the S3 output
 buffers for five minutes (`upload_timeout`) before it writes an object. Records carry `component`, `product` and

@@ -927,3 +927,11 @@ failed before its quality checks finished", never the older complete run's resul
 condition, built from `runbook_base_url` as `get_run_quality.runbook` is and equal to the notification's
 `links.runbook` (ADR 0023); `null` where the deployment sets no `runbook_base_url`. The route, its floor and permission
 row are unchanged.
+
+2026-11-21: after full e2e run 44912147653's platform API was OOMKilled while a read the browser had already cancelled
+kept running beside its replacement, `list_logs` and `list_run_logs` run their archive read on one shared pool of two
+workers and stop it when the client disconnects: the archive reader checks a cancellation with its deadline, between
+pages, objects and records, and starts none of its queued fetches. The 20-second deadline starts when a worker takes
+the read, so time queued never shortens it; a read that waits more than 5 seconds for a worker is answered 503 with
+`Retry-After: 5`, so a request takes at most 25 seconds. `list_logs`, previously unbounded, is held to the same
+deadline (502 past it). Response bodies and permission rows are unchanged; the 503 is in the OpenAPI document.

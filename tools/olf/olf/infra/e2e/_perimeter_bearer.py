@@ -34,6 +34,11 @@ API_PATH = "/graphql?query=%7Bversion%7D"
 SCOPE = "openid email profile groups"
 # The platform API answers under /api on the portal's host (ADR 0021).
 PLATFORM_API_HOST_REF = "shared/portal"
+# For the e2e's platform API reads that can take the API's longest answer: longer than a run route's 20 s
+# (`run_failure.READ_DEADLINE_SECONDS`) and a log route's 5 s wait for a worker plus its own 20 s (`log_reads`), so the
+# client never gives up on an answer the API may still give, and a 502 past a deadline or a 503 is seen as one. Other
+# calls, to routes the API answers without such a read, keep `REQUEST_TIMEOUT`.
+API_READ_TIMEOUT = 30
 # The logs and launch routes' rows in packages/platform-api's permissions.toml.
 LOGS_FLOOR = "data-engineer"
 # The logs row's `role_stages`: a role named here reads only these stages' archives (ADR 0022, decision 3).
@@ -151,6 +156,8 @@ def check_bearer_decisions(
     admits: Callable[[str], bool],
     cli_token: Callable[[str], str],
     other_token: Callable[[str], str] | None,
+    *,
+    timeout: float = REQUEST_TIMEOUT,
 ) -> None:
     """`url` is a protected API route: `roles` get 2xx at or above its floor and 403 below it, and no
     token, a tampered signature and another client's token get 401."""
@@ -159,7 +166,7 @@ def check_bearer_decisions(
         headers = {"Accept": "application/json"}
         if token is not None:
             headers["Authorization"] = f"Bearer {token}"
-        return route.session().get(url, headers=headers, allow_redirects=False, timeout=REQUEST_TIMEOUT).status_code
+        return route.session().get(url, headers=headers, allow_redirects=False, timeout=timeout).status_code
 
     def require(who: str, got: int, ok: bool) -> None:
         if not ok:
@@ -276,7 +283,9 @@ def check_platform_api(
     # object store refuses is a 502, so this also proves the SeaweedFS grant. Today's
     # partition may still be empty, which is still a 200.
     logs = f"{base_url}/api/v1/stages/{stage}/logs?date={datetime.now(UTC).date().isoformat()}&limit=1"
-    check_bearer_decisions(route, logs, roles, logs_admits(precedence, stage), cli_token, other_token)
+    check_bearer_decisions(
+        route, logs, roles, logs_admits(precedence, stage), cli_token, other_token, timeout=API_READ_TIMEOUT
+    )
     check_platform_reads(route, base_url, roles, cli_token, other_token, stage=stage, precedence=precedence)
     check_launch_audit(route, base_url, roles, cli_token, stage=stage, precedence=precedence)
 
