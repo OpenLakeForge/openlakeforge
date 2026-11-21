@@ -217,7 +217,8 @@ class FakeExpect:
     def to_be_checked(self) -> None:
         self._there()
 
-    def to_have_count(self, count: int) -> None:
+    def to_have_count(self, count: int, timeout: float | None = None) -> None:
+        assert timeout == walkthrough.STATE_TIMEOUT_MS, "the loading wait must outlast the archive read's 20 s deadline"
         page, pattern = self.locator.page, self.locator.has_text
         assert self.locator.path[-1] == "status:" and pattern is not None
         shown = [text for fragment, text in page.statuses.items() if fragment in page.url and pattern.search(text)]
