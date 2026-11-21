@@ -453,3 +453,9 @@ what a sequential one does; no GET starts after its deadline; the archive format
 hour the footprint drill had filled with 375 MB of NDJSON, `LogArchive` decompresses each object a line at a time
 instead of holding it whole, and reads a record's level only after the filters its own fields decide have kept it.
 Results, ordering, dedup and the cursor are unchanged; only `\n` ends a record. The archive format is unchanged.
+
+2026-11-21: `LogArchive.read` and `read_days` take an optional `cancelled` callable, checked wherever the deadline is
+checked and by each queued fetch before its GET; a cancelled read raises `ArchiveCancelled`, and only GETs already in
+flight complete. Callers that pass none are unchanged. The e2e footprint drill now writes its logs to the platform
+namespace, which the collector routes through the same pipeline, so the 375 MB it writes no longer lands in the stage
+hour the drill-down and screenshots read. The archive format is unchanged.
