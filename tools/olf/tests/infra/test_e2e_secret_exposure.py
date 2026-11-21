@@ -240,3 +240,33 @@ def test_a_clean_directory_passes_and_an_environment_value_is_scanned_for(
 def test_a_path_that_does_not_exist_is_an_error_not_a_clean_scan(tmp_path: Path) -> None:
     with pytest.raises(E2EError, match="cannot scan .*missing: not found"):
         exposure.check_files_for_exposure(_cfg(), [tmp_path / "missing"])
+
+
+@pytest.mark.parametrize(
+    "form",
+    [
+        CLIENT,
+        base64.b64encode(CLIENT.encode()).decode(),
+        json.dumps(CLIENT)[1:-1],
+        "c1ientSecret0123",  # a value cut short, as Playwright elides long text
+        CLIENT[5:20],
+    ],
+)
+def test_redact_replaces_any_form_or_part_of_a_value_with_its_label(form: str) -> None:
+    redacted = exposure.redact(f"Expected 'ok', received 'token={form}' at https://x/", CREDENTIALS)
+    assert redacted == "Expected 'ok', received 'token=<redacted:dex-client-perimeter/client-secret>' at https://x/"
+
+
+def test_redact_keeps_ordinary_text_puts_it_on_one_line_and_cuts_it_after_redacting() -> None:
+    assert exposure.redact("net::ERR_NAME_NOT_RESOLVED\nCall log:\n  - navigating", CREDENTIALS) == (
+        "net::ERR_NAME_NOT_RESOLVED Call log: - navigating"
+    )
+    long = exposure.redact(f"{ADMIN} " + "x" * 1000, CREDENTIALS, limit=40)
+    assert long == "<redacted:dex-admin-creds/password> xxx…" and len(long) == 40
+    assert "AAAAAAAA" not in long
+
+
+def test_redact_finds_a_value_percent_encoded_in_a_url() -> None:
+    value = "a/b+c=d&e/f+g=h&i/j"
+    redacted = exposure.redact("https://dex/callback?code=a%2Fb%2Bc%3Dd%26e%2Ff%2Bg%3Dh%26i%2Fj&state=1", {"k": value})
+    assert redacted == "https://dex/callback?code=<redacted:k>&state=1"

@@ -66,9 +66,13 @@ shows alerts as not provided, and everything else in this walkthrough is the sam
 
 ## 1. See that something needs attention
 
-Open **Monitoring**, then select the stage. The overview shows the stage's state, its services, the pipelines, data
-quality, and open alert incidents. A failed run makes its pipeline `critical`, and the run appears under **What needs
-attention** with a link to it.
+Open **Monitoring**, then select the stage. The overview shows the stage's state, its services, the pipelines and
+data quality. **What needs attention** is one list of the stage's failing signals and open alert incidents, worst
+first, each once, with whether its notification went out. A failed run makes its pipeline `critical`, and the run
+appears in that list with a link to it.
+
+Times on the Monitoring pages are in UTC until you pick **Local** in the **Time zone** switch; the browser keeps the
+choice across pages and reloads.
 
 Nothing is shown as healthy that the platform did not answer for: a service, a pipeline or a quality source that
 cannot be read is `unknown`, with the reason.
@@ -85,13 +89,21 @@ states, and the walkthrough drill's first page.
 
 ## 2. Open the failed run
 
-Follow the run link. The **Failed-run** screen shows:
+Follow the run link. The **Failed-run** screen shows the run's domain and product, its start and end, and the
+pipeline's state now, then:
 
-- the run's domain and product, its start and end, and the pipeline's state now;
-- **What failed**: the failed step and the first line of its error;
+- **What failed**, first: the failed step and the first line of its error, when the run ended, and where to look next:
+  the run's logs on this page, **Open in Dagster**, the **Runbook** for the condition, **All runs of** the job, and
+  the run's retained quality reports (step 4). Run control stays in Dagster: once the cause is fixed, re-run the job
+  there (step 5);
+- **Logs** (step 3);
+- **Quality checks** (step 4);
 - **Data quality**: rows rejected and accepted, and the Floe and dbt outcome counts, from the run's quality manifest;
-- **Open incidents** for this pipeline, and whether their notification was delivered;
-- **Next step**, with a link to the run in Dagster.
+- **Open incidents** for this pipeline, and whether their notification was delivered.
+
+**Monitoring → Runs** lists the stage's runs of the last 24 hours, newest first, and filters them by pipeline,
+product, status and window (1 hour to 7 days); each row opens its run. On the overview, a pipeline's name links to its
+runs, and its failed-run count to those failed runs.
 
 ```bash
 olf runs show <run-id> --stage dev
@@ -102,9 +114,12 @@ The API read is `GET /api/v1/stages/dev/runs/<run-id>/failure`.
 ## 3. Read the run's logs
 
 The **Logs** card reads the run's own window from the log archive, even though the run's pods are deleted. A run that
-crosses midnight UTC is read across both days. Each line shows its time and level when the source recorded them, and
-leaves them empty otherwise. **Match this run only** drops other workloads' lines from the same window, and **Load
-more** pages on. The footer gives the window read and how long the archive keeps logs (**Kept N days**).
+crosses midnight is read across both days. Each line shows its time and level when the source recorded them, and
+leaves them empty otherwise. The card opens at warning and above, or at all levels when the window holds no such
+line; **Level** and **Show all levels** change it. **Only this run's lines** drops other workloads' lines from the
+same window, and **Load more** pages on. The footer gives the window read and how long the archive keeps logs
+(**Kept N days**). **Open in Logs ↗** opens the same window on the **Logs** page (`Monitoring → Logs`), which also
+browses the stage's archive by day and hour, with level, pod and search filters.
 
 The API read is `GET /api/v1/stages/dev/runs/<run-id>/logs?match_run=true`. It covers the run's whole window, across
 UTC days. A cut-off answer carries `next`; pass it back as `after` for the next page.
@@ -124,14 +139,15 @@ drill-down, which pages the whole window through the API after the pods are gone
 
 ## 4. Read the quality report
 
-The **Quality checks** card lists the run's Floe and dbt checks from its quality manifest, failures first. Each row
-shows the outcome (`ERROR`, `WARN`, `PASS`, `NOT RUN` or `UNKNOWN`), the check, the table and column, the engine's
-severity, what the pipeline did with it (quarantined rows, blocked the run, continued), and the counts the engine
-recorded. A run with no manifest, or an unfinished one, says so; it never shows passes it did not record.
+The **Quality checks** card lists the run's Floe and dbt checks from its quality manifest that did not pass, errors
+first; the passes are behind their count (**N passed**), one click away. Each row shows the outcome (`ERROR`, `WARN`,
+`PASS`, `NOT RUN` or `UNKNOWN`), the check, the table and column, the engine's severity, what the pipeline did with it
+(quarantined rows, blocked the run, continued), and the counts the engine recorded. A run with no manifest, or an
+unfinished one, says so; it never shows passes it did not record.
 
-**Floe report ↗** and **dbt results ↗** download the retained reports through the API, as JSON attachments. The
-browser never gets an object-store address. A role that may not read the stage's reports sees the report named
-without a link.
+**Floe report ↗** and **dbt results ↗**, under **What failed**, download the retained reports through the API, as
+JSON attachments. The browser never gets an object-store address. A role that may not read the stage's reports sees
+the report named without a link.
 
 The API reads are `GET /api/v1/stages/dev/runs/<run-id>/quality` and the `href` of each entry in its `reports`.
 

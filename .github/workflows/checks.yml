@@ -201,6 +201,30 @@ jobs:
           uv run --project tools/olf --locked --group dagster
           pytest tools/olf/tests/runtime tools/olf/tests/infra/test_e2e_silver_serialization.py
 
+  walkthrough-browser:
+    name: Test the walkthrough sign-in in Chromium
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      # Playwright is not an olf dependency, so the tooling job skips the
+      # walkthrough's browser test. This job installs the `browser` group and
+      # Chromium; OLF_REQUIRE_PLAYWRIGHT makes a missing Playwright an import
+      # error instead of a skip that reads as green.
+      - name: Install Chromium
+        run: uv run --project tools/olf --locked --group browser python -m playwright install --with-deps chromium
+
+      - name: Test the walkthrough sign-in in Chromium
+        env:
+          OLF_REQUIRE_PLAYWRIGHT: "1"
+        run: >
+          uv run --project tools/olf --locked --group browser
+          pytest tools/olf/tests/infra/test_e2e_walkthrough_browser.py -p no:cacheprovider
+
   dbt:
     name: Validate product dbt projects
     runs-on: ubuntu-latest

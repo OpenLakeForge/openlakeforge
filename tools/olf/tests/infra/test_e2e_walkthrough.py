@@ -43,6 +43,50 @@ def test_chromium_resolves_hosts_as_the_requests_routes_do() -> None:
         "MAP portal.lake.example.com 10.1.2.3"
     ]
     assert walkthrough.resolver_rules(["https://elsewhere.org"], {}) == []
+    assert walkthrough.resolver_rules([PORTAL], {}, unresolved=[STUB]) == [
+        f"--host-resolver-rules=MAP portal.olf.localhost 127.0.0.1,MAP {STUB} ~NOTFOUND"
+    ]
+
+
+STUB = "olf-e2e-github.olf-system.svc"
+
+
+class FakeNavigationError(Exception):
+    pass
+
+
+class SignInPage:
+    """A page whose one navigation lands on `url`, or fails with `refusal` without leaving for the stub.
+
+    How the hop to the stub fails, and what Chromium does after it, is a browser's to show:
+    `test_e2e_walkthrough_browser.py` drives the real one.
+    """
+
+    def __init__(self, refusal: str | None = None) -> None:
+        self.refusal, self.visited, self.listeners = refusal, [], []  # type: ignore[var-annotated]
+
+    def on(self, _event: str, listener: Any) -> None:
+        self.listeners.append(listener)
+
+    def remove_listener(self, _event: str, listener: Any) -> None:
+        self.listeners.remove(listener)
+
+    def goto(self, url: str) -> None:
+        self.visited.append(url)
+        if self.refusal:
+            raise FakeNavigationError(self.refusal)
+
+
+def test_sign_in_is_one_navigation_once_signed_in_and_any_other_failure_is_raised() -> None:
+    overview = f"{PORTAL}/monitoring?stage=dev"
+    page = SignInPage()
+    walkthrough.sign_in(page, overview, "olf-e2e-x", STUB, FakeNavigationError)
+    assert page.visited == [overview] and page.listeners == []
+
+    refused = SignInPage("net::ERR_CERT_AUTHORITY_INVALID")
+    with pytest.raises(FakeNavigationError, match="CERT"):
+        walkthrough.sign_in(refused, overview, "olf-e2e-x", STUB, FakeNavigationError)
+    assert refused.listeners == []
 
 
 def test_the_journey_needs_the_drill_downs_failed_run_as_the_latest() -> None:
@@ -57,9 +101,9 @@ def test_the_journey_needs_the_drill_downs_failed_run_as_the_latest() -> None:
 
 
 def test_the_metrics_shot_is_named_for_what_it_shows() -> None:
-    assert walkthrough.screenshot_names(True)[4] == "05-metrics"
-    assert walkthrough.screenshot_names(False)[4] == "05-metrics-off"
-    assert len(walkthrough.screenshot_names(True)) == 6
+    assert walkthrough.screenshot_names(True)[6] == "07-metrics"
+    assert walkthrough.screenshot_names(False)[6] == "07-metrics-off"
+    assert len(walkthrough.screenshot_names(True)) == 8
 
 
 class FakeLocator:
@@ -68,6 +112,18 @@ class FakeLocator:
 
     def get_by_role(self, role: str, **kwargs: Any) -> FakeLocator:
         return FakeLocator(self.page, (*self.path, f"{role}:{kwargs.get('name', '')}"))
+
+    def get_by_text(self, text: Any) -> FakeLocator:
+        return FakeLocator(self.page, (*self.path, f"text:{getattr(text, 'pattern', text)}"))
+
+    def or_(self, other: FakeLocator) -> FakeLocator:
+        return self if self.count() else other
+
+    def count(self) -> int:
+        return 0 if any(m in part for m in self.page.missing for part in self.path) else 1
+
+    def select_option(self, label: str) -> None:
+        FakeExpect(self).to_be_visible()
 
     @property
     def first(self) -> FakeLocator:
@@ -81,7 +137,7 @@ class FakeLocator:
             self.page.url = f"{PORTAL}/monitoring/lakehouse/runs/{RUN_ID}"
 
     def check(self) -> None:
-        pass
+        FakeExpect(self).to_be_visible()  # an action waits for its element, as an assertion does
 
     def scroll_into_view_if_needed(self) -> None:
         pass
@@ -100,6 +156,12 @@ class FakePage(FakeLocator):
 
     def goto(self, url: str) -> None:
         self.url = url
+
+    def on(self, _event: str, _listener: Any) -> None:
+        pass
+
+    def remove_listener(self, _event: str, _listener: Any) -> None:
+        pass
 
     def set_default_timeout(self, _ms: int) -> None:
         pass
@@ -135,6 +197,9 @@ class FakeExpect:
     def to_have_attribute(self, _name: str, _value: Any) -> None:
         self._there()
 
+    def to_be_checked(self) -> None:
+        self._there()
+
 
 class FakeContext:
     def __init__(self, page: FakePage) -> None:
@@ -160,6 +225,7 @@ class FakeContext:
 
 class FakePlaywright:
     expect = FakeExpect
+    Error = FakeNavigationError
 
 
 def _walk(tmp_path: Path, page: FakePage, secrets: dict[str, str] | None = None) -> walkthrough.Shooter:
@@ -174,6 +240,8 @@ def _walk(tmp_path: Path, page: FakePage, secrets: dict[str, str] | None = None)
         metrics_served=False,
         names=walkthrough.screenshot_names(False),
         ignore_https=True,
+        login="olf-e2e-x",
+        stub=STUB,
     )
     return shooter
 
@@ -192,14 +260,18 @@ def test_every_page_that_reached_its_state_is_saved_in_order(tmp_path: Path) -> 
         metrics_served=False,
         names=walkthrough.screenshot_names(False),
         ignore_https=True,
+        login="olf-e2e-x",
+        stub=STUB,
     )
     assert page.saved == [f"{name}.png" for name in walkthrough.screenshot_names(False)]
     assert context.options["viewport"] == walkthrough.PHONE and context.options["device_scale_factor"] == 2
 
 
 def test_a_page_that_missed_its_state_is_kept_as_failed_and_fails_the_walk(tmp_path: Path) -> None:
-    page = FakePage({"Quality check results"})
-    with pytest.raises(E2EError, match=r"04-run-quality: the page did not reach its expected state \(kept as FAILED\)"):
+    page = FakePage({"Quality check results", "Passed quality checks"})
+    with pytest.raises(
+        E2EError, match=r"04-run-quality: the page at \S+ did not reach its expected state \(kept as FAILED\)"
+    ):
         _walk(tmp_path, page)
     assert page.saved == [
         "01-monitoring-overview.png",
@@ -242,8 +314,49 @@ def test_a_failing_page_whose_scan_cannot_complete_is_not_captured(tmp_path: Pat
     with pytest.raises(E2EError) as raised:
         walkthrough.Shooter(tmp_path, {"a client secret": SECRET}).shot(page, "02-failed-run", _miss)
     assert page.saved == []
-    assert "secret scan of the page could not complete (RuntimeError)" in str(raised.value)
+    assert "secret scan of the page could not complete (RuntimeError: target closed <redacted:a client secret>)" in str(
+        raised.value
+    )
     assert SECRET not in str(raised.value)
+
+
+def test_a_page_that_never_loaded_reports_where_it_stopped_and_why_with_secret_values_redacted(tmp_path: Path) -> None:
+    """The first full run's failure: the navigation failed, so the scan could not read the page either."""
+    page = FakePage(set())
+    page.url = f"https://dex/callback?code={SECRET}"
+
+    def navigating() -> str:
+        raise FakeNavigationError("Unable to retrieve content because the page is navigating")
+
+    def unreachable() -> None:
+        raise FakeNavigationError(f"net::ERR_NAME_NOT_RESOLVED at {page.url}\nCall log:\n  - navigating to ...")
+
+    page.content = navigating  # type: ignore[method-assign]
+    with pytest.raises(E2EError) as raised:
+        walkthrough.Shooter(tmp_path, {"a client secret": SECRET}).shot(page, "01-monitoring-overview", unreachable)
+    message = str(raised.value)
+    assert SECRET not in message and SECRET[:8] not in message
+    assert message == (
+        "walkthrough 01-monitoring-overview: the page at https://dex/callback?code=<redacted:a client secret> did not "
+        "reach its expected state (FakeNavigationError: net::ERR_NAME_NOT_RESOLVED at "
+        "https://dex/callback?code=<redacted:a client secret> Call log: - navigating to ...); no screenshot saved: "
+        "the secret scan of the page could not complete (FakeNavigationError: Unable to retrieve content because the "
+        "page is navigating)"
+    )
+
+
+def test_a_clean_page_reports_the_error_redacted_too(tmp_path: Path) -> None:
+    page = FakePage(set())
+
+    def quoting() -> None:
+        raise AssertionError(f"expected text, received {SECRET[:12]}…")
+
+    with pytest.raises(E2EError) as raised:
+        walkthrough.Shooter(tmp_path, {"a client secret": SECRET}).shot(page, "02-failed-run", quoting)
+    assert page.saved == ["02-failed-run.FAILED.png"]
+    assert str(raised.value).endswith(
+        "(kept as FAILED): AssertionError: expected text, received <redacted:a client secret>…"
+    )
 
 
 def test_a_page_showing_a_secret_value_is_not_saved(tmp_path: Path) -> None:
@@ -251,6 +364,31 @@ def test_a_page_showing_a_secret_value_is_not_saved(tmp_path: Path) -> None:
     with pytest.raises(E2EError, match="01-monitoring-overview: .*no screenshot saved"):
         _walk(tmp_path, page)
     assert page.saved == []
+
+
+@pytest.mark.parametrize(
+    ("label", "shot"),
+    [
+        ("What needs attention", "01-monitoring-overview"),
+        ("Time zone", "01-monitoring-overview"),
+        ("Quality reports", "02-failed-run"),
+        ("Only this run's lines", "03-run-logs"),
+        ("Run log lines", "03-run-logs"),
+        ("LAKEHOUSE runs", "05-runs"),
+        ("LAKEHOUSE log lines", "06-logs-run"),
+    ],
+)
+def test_each_shot_waits_for_the_portal_label_it_shows(tmp_path: Path, label: str, shot: str) -> None:
+    page = FakePage({label})
+    with pytest.raises(E2EError, match=f"walkthrough {shot}: "):
+        _walk(tmp_path, page)
+    assert f"{shot}.FAILED.png" in page.saved
+
+
+def test_a_run_whose_checks_all_passed_shows_them_opened(tmp_path: Path) -> None:
+    page = FakePage({"Quality check results"})
+    _walk(tmp_path, page)
+    assert "04-run-quality.png" in page.saved
 
 
 def test_the_failed_run_screen_must_show_the_runs_own_error(tmp_path: Path) -> None:

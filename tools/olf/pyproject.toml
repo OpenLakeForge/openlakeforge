@@ -55,6 +55,9 @@ dagster = [
   "dlt==1.29.0",
   "floe-python==0.10.2",
 ]
+# The walkthrough's browser test (test_e2e_walkthrough_browser.py). The version is the one local-full-e2e.yml installs
+# beside olf for the walkthrough drill (PLAYWRIGHT_VERSION).
+browser = ["playwright==1.64.1"]
 
 [tool.setuptools.packages.find]
 include = ["olf*"]
