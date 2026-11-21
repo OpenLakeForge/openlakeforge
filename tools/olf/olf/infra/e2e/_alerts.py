@@ -404,8 +404,9 @@ def _settle(h: Harness, what: str, now: datetime | None = None) -> list[dict[str
     return found
 
 
-def _quiet(h: Harness, what: str, now: datetime | None = None) -> None:
-    if found := _settle(h, what, now):
+def _quiet(h: Harness, what: str, now: datetime | None = None, **want: str) -> None:
+    """Nothing was sent; `want` narrows that to matching notifications (e.g. one product among several)."""
+    if found := select(_settle(h, what, now), **want):
         raise E2EError(f"{what}: expected nothing, got {[(n['condition'], n['event']) for n in found]}")
 
 
@@ -503,20 +504,22 @@ def schedule_cases(h: Harness) -> None:
     first, second = ref.due
     missed = first + PAST_GRACE
     try:
-        _quiet(h, "a stopped schedule past its due time", missed)
+        _quiet(h, "a stopped schedule past its due time", missed, product=JOB)
         h.set_schedule(ref, True)
         opened = exactly_one(_settle(h, "missed run", missed), "missed run", condition="missed_run", product=JOB)
         if opened["event"] != "opened" or opened["severity"] != "critical":
             raise E2EError(f"a missed run should open a critical incident, got {opened}")
-        _quiet(h, "second evaluation of the missed run", missed)
+        _quiet(h, "second evaluation of the missed run", missed, product=JOB)
         h.set_schedule(ref, False)
-        _quiet(h, "the schedule stopped while missed_run was open", missed)
-        if not any("resolved_silently" in key for key in h.keys(f"{STATE_PREFIX}history/")):
+        _quiet(h, "the schedule stopped while missed_run was open", missed, product=JOB)
+        if not any(
+            opened["incident_id"] in key and "resolved_silently" in key for key in h.keys(f"{STATE_PREFIX}history/")
+        ):
             raise E2EError("history should record the missed run as resolved_silently")
         h.set_schedule(ref, True)
         stale = _settle(h, "stale output", second + timedelta(minutes=1))
         exactly_one(stale, "stale output", condition="stale_output", event="opened", product=JOB)
-        if select(stale, condition="missed_run"):
+        if select(stale, condition="missed_run", product=JOB):
             raise E2EError("a run inside its grace period must not read as missed")
     finally:
         h.set_schedule(ref, False)
