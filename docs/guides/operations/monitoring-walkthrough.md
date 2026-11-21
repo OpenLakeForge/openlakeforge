@@ -182,9 +182,9 @@ publication`, and the failed-run drill-down's quality and report reads.
 
 ## 5. Fix it and confirm the recovery
 
-The run's quality answer, and every alert notification, links to the runbook section for its condition:
-[a failed run](alerts.md#run_failed) or [a failed quality check](alerts.md#quality). Each section gives the first
-checks, the common causes and the recovery.
+The run's quality answer, every alert incident and every alert notification link to the runbook section for its
+condition: [a failed run](alerts.md#run_failed) or [a failed quality check](alerts.md#quality). Each section gives what
+to check in the Portal, then on the command line, the common causes and the recovery.
 
 Once the cause is fixed, run the job again: from Dagster, or as yourself on DEV:
 

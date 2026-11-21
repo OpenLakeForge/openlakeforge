@@ -387,7 +387,7 @@ shows each screen:
    lists the open incident beside its pipeline's signal, with its latest runs
    and whether its notification went out. The **Pipelines** table gives each
    pipeline's state, latest run, last success, schedule and failed runs.
-2. Select a run to open its **Failed-run** screen. **What failed** names the
+2. Select a run to open its page. **What failed** names the
    failed step and the first line of its error, and links **Open in Dagster**,
    the **Runbook** and **All runs of** the job. **Monitoring → Runs** lists the
    stage's runs by pipeline, product, status and window.
@@ -421,7 +421,7 @@ stage.
 Critical. The latest run of a job failed. A canceled run does not alert.
 
 - **In the Portal:** the incident's run in **Needs attention** opens the
-  **Failed-run** screen. **What failed** gives the failed step and its error,
+  run's page. **What failed** gives the failed step and its error,
   the **Logs** card the run's error lines, and **Quality checks** whether a
   blocking check stopped the run.
 - **On the command line:** the failed step in `links.run`, then the run's error

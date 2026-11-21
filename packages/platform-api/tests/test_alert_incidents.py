@@ -296,7 +296,7 @@ def test_only_the_stages_own_incidents_are_listed_platform_conditions_included(
     assert (found["condition"], found["component"], found["domain"]) == ("service_degraded", "trino.workloads", None)
 
 
-def test_each_incident_links_the_runbook_section_of_its_condition_as_its_notification_does(
+def test_each_incident_links_the_runbook_section_of_its_own_condition(
     settings: Settings, mint: Mint, bucket: FakeBucket
 ) -> None:
     runbook = "https://docs.example.test/runbooks/alerts.md"

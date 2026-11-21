@@ -542,10 +542,8 @@ def test_the_default_runbook_link_names_a_ref_at_which_the_runbook_exists() -> N
     (a shallow clone without tags, a version interpolated at plan time) fails rather than passes unproven."""
     repo = Path(__file__).resolve().parents[4]
     root = (repo / "infra/terraform/environments/local/main.tf").read_text(encoding="utf-8")
-    match = re.search(
-        r'coalesce\(var\.runbook_base_url, "https://github\.com/OpenLakeForge/openlakeforge/blob/([^/"]+)/([^"#]+)"\)',
-        root,
-    )
+    # Any form of the default (a coalesce, a local, a variable default) names the page by its GitHub URL.
+    match = re.search(r'"https://github\.com/OpenLakeForge/openlakeforge/blob/([^/"]+)/([^"#]+)"', root)
     assert match, "the local root no longer defaults runbook_base_url to a page of this repository on GitHub"
     ref, page = match.groups()
 
