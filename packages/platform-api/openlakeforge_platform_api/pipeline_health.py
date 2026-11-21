@@ -240,6 +240,10 @@ def _owed(
     return owed
 
 
+# Dagster's terminal statuses for a run that did not succeed; a run in one of them will publish no further manifest.
+_ENDED_UNSUCCESSFUL = {"FAILURE": "failed", "CANCELED": "was canceled"}
+
+
 def _quality(
     quality: QualityReader,
     scope: Scope,
@@ -263,27 +267,40 @@ def _quality(
     run's dbt failure opened. Only a successful run's complete manifest can read `healthy`. Runs are walked newest
     first: one that did not succeed answers only with a warning or critical, and is otherwise passed over, so a
     failure between an old success and a Silver-only retry still speaks. The first success answers with its own
-    manifest (`unknown` while that is incomplete) and ends the walk; with none reached there is no signal, which
-    leaves an open incident open. A newer run whose manifest exists but cannot be read may be hiding a failure,
-    so a success after it cannot answer `healthy`: it answers `unknown`, and that run is the evidence named. A run
-    with no manifest hides nothing.
+    manifest (`unknown` while that is incomplete) and ends the walk.
+
+    A newer run can stop that success from answering `healthy` (#1346): one whose manifest exists but cannot be read
+    may be hiding a failure, and one that ended unsuccessfully without completing its manifest never finished its
+    checks, so the older pass is not the current quality. Either answers `unknown` in its place, naming the newest
+    such run, with its partial manifest where it has one. A run still in progress hides nothing: it may yet finish.
+    With no success reached, that run answers the same way; with neither there is no signal, which leaves an open
+    incident open, as `unknown` does.
     """
     domain, product = tags.get(DOMAIN_TAG), tags.get(PRODUCT_TAG)
     if domain is None or product is None:
         return None
-    unreadable: DagsterRun | None = None
+    hiding: QualityEvidence | None = None
     for run in runs:
         read = quality_signal(quality, scope, job, run.run_id, domain, product, now=now, max_age=max_age, level=level)
         found = read.signal
         if run.status == "SUCCESS":
-            if unreadable is not None and found.state is HealthState.HEALTHY:
-                return QualityEvidence(evaluate_quality(scope, None, now=now, max_age=max_age), unreadable.run_id, None)
+            if hiding is not None and found.state is HealthState.HEALTHY:
+                return hiding
             return QualityEvidence(found, run.run_id, read.manifest)
         if found.state in (HealthState.WARNING, HealthState.CRITICAL):
             return QualityEvidence(found, run.run_id, read.manifest)
-        if read.unreadable and unreadable is None:
-            unreadable = run
-    return QualityEvidence(None, None, None)
+        if hiding is not None:
+            continue
+        if read.unreadable:
+            hiding = QualityEvidence(evaluate_quality(scope, None, now=now, max_age=max_age), run.run_id, None)
+        elif run.status in _ENDED_UNSUCCESSFUL and not (read.manifest and read.manifest.complete):
+            unfinished = replace(
+                evaluate_quality(scope, None, now=now, max_age=max_age),
+                reason=f"the run {_ENDED_UNSUCCESSFUL[run.status]} before its quality checks finished",
+                run=run.run_id,
+            )
+            hiding = QualityEvidence(unfinished, run.run_id, read.manifest)
+    return hiding or QualityEvidence(None, None, None)
 
 
 def _freshness(

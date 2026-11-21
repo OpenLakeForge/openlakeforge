@@ -304,6 +304,76 @@ def test_a_pipeline_with_no_finished_run_is_listed_as_unknown(
     assert body["totals"] is None
 
 
+def test_a_latest_complete_success_reads_its_own_counts_and_run(
+    api: TestClient, mint: Mint, dagster: Dagster, bucket: FakeBucket
+) -> None:
+    dagster.runs = _runs("SUCCESS", "SUCCESS")
+    _store(bucket, _result(QualityOutcome.PASSED))
+    _store(
+        bucket, _result(QualityOutcome.PASSED, run_id="run-2"), _result(QualityOutcome.WARN, check="b", run_id="run-2")
+    )
+
+    pipeline = _only(api, mint)
+
+    assert (pipeline["state"], pipeline["run_id"], pipeline["complete"]) == ("warning", "run-2", True)
+    assert pipeline["counts"] == _counts(passed=1, warn=1)
+
+
+@pytest.mark.parametrize("status", ["FAILURE", "CANCELED"])
+def test_a_latest_run_that_ended_with_an_incomplete_manifest_is_unknown_with_its_partial_counts(
+    api: TestClient, mint: Mint, dagster: Dagster, bucket: FakeBucket, status: str
+) -> None:
+    dagster.runs = _runs("SUCCESS", status)
+    _store(bucket, *(_result(QualityOutcome.PASSED, check=f"c{n}") for n in range(3)))
+    _store(bucket, _result(QualityOutcome.PASSED, run_id="run-2"), complete=False)
+
+    body = _get(api, mint)
+
+    (pipeline,) = body["pipelines"]
+    assert (pipeline["state"], pipeline["run_id"], pipeline["complete"]) == ("unknown", "run-2", False)
+    assert pipeline["reason"].endswith("before its quality checks finished")
+    # The older run's three passes are not the current quality, nor part of the stage's sum.
+    assert pipeline["counts"] == _counts(passed=1)
+    assert body["totals"] == _counts(passed=1)
+
+
+def test_a_latest_failed_run_with_no_manifest_is_unknown_with_no_counts(
+    api: TestClient, mint: Mint, dagster: Dagster, bucket: FakeBucket
+) -> None:
+    dagster.runs = _runs("SUCCESS", "FAILURE")
+    _store(bucket, _result(QualityOutcome.PASSED))
+
+    body = _get(api, mint)
+
+    (pipeline,) = body["pipelines"]
+    assert (pipeline["state"], pipeline["run_id"], pipeline["complete"], pipeline["counts"]) == (
+        "unknown",
+        "run-2",
+        None,
+        None,
+    )
+    assert pipeline["reason"] == "the run failed before its quality checks finished"
+    assert body["totals"] is None
+
+
+def test_a_latest_run_in_progress_leaves_the_last_complete_success_answering(
+    api: TestClient, mint: Mint, dagster: Dagster, bucket: FakeBucket
+) -> None:
+    dagster.runs = _runs("SUCCESS", "STARTED")
+    _store(bucket, _result(QualityOutcome.PASSED))
+    _store(bucket, _result(QualityOutcome.PASSED, run_id="run-2"), complete=False)
+
+    pipeline = _only(api, mint)
+
+    assert (pipeline["state"], pipeline["run_id"], pipeline["complete"]) == ("healthy", "run-1", True)
+
+
+def test_a_pipeline_with_no_runs_is_not_listed(api: TestClient, mint: Mint, dagster: Dagster) -> None:
+    body = _get(api, mint)
+
+    assert (body["pipelines"], body["totals"]) == ([], None)
+
+
 @pytest.mark.parametrize(
     ("statuses", "manifests"),
     [
@@ -319,8 +389,9 @@ def test_a_pipeline_with_no_finished_run_is_listed_as_unknown(
             ],
         ),
         (("SUCCESS",), []),
+        (("SUCCESS", "FAILURE"), [("run-1", QualityOutcome.PASSED, PipelineOutcome.CONTINUED)]),
     ],
-    ids=["passed", "warn", "blocked-after-success", "failure-before-a-retry", "absent"],
+    ids=["passed", "warn", "blocked-after-success", "failure-before-a-retry", "absent", "ended-before-its-checks"],
 )
 def test_the_state_is_the_quality_signal_of_the_pipeline_health_route(
     api: TestClient,

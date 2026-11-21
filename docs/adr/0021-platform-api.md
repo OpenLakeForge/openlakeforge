@@ -918,3 +918,7 @@ and `next` count matching lines only. A run read still stops at `MAX_RUN_LOG_DAY
 than `limit` lines, or none, with `next` set. `severity`, an at-or-above floor on each line's `level` on both routes
 since #1326, already met the issue's level filter, so no `level` parameter is added. The search text is not logged, and
 the permission rows are unchanged.
+
+2026-11-21: #1346. On `GET /api/v1/stages/{stage}/health/quality`, a pipeline whose run ended before its quality checks
+finished reads `unknown` with that run's id, its partial counts (`complete: false`) or `null`, and the reason "the run
+failed before its quality checks finished", never the older complete run's result. The response schema is unchanged.
