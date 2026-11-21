@@ -7,8 +7,8 @@ thing.
 
 Each step names the e2e check that proves it on every full run, so the walkthrough can be repeated on a fresh cluster.
 
-<!-- Screenshots: taken by the e2e "operator journey screenshots" drill (artifact walkthrough-screenshots-<run id>);
-     added to docs/assets/walkthrough/ once the #1338 run is green. -->
+The screenshots are from the e2e "operator journey screenshots" drill on a local deployment with the example data
+(artifact `walkthrough-screenshots-<run id>`).
 
 ## Before you start
 
@@ -77,6 +77,9 @@ choice across pages and reloads.
 Nothing is shown as healthy that the platform did not answer for: a service, a pipeline or a quality source that
 cannot be read is `unknown`, with the reason.
 
+![The DEV overview: a critical banner for one failed pipeline, Needs attention listing the failed run of
+order_revenue_pipeline, and the pipelines and data quality tables](../../assets/walkthrough/01-monitoring-overview.png)
+
 The same answers on the command line:
 
 ```bash
@@ -101,9 +104,20 @@ pipeline's state now, then:
 - **Data quality**: rows rejected and accepted, and the Floe and dbt outcome counts, from the run's quality manifest;
 - **Open incidents** for this pipeline, and whether their notification was delivered.
 
+<!-- Screenshot 02-failed-run.png (the Failed-run screen at desktop width) to replace from the next full e2e run: the
+     capture in run 44828390545 was taken while the Logs card still read "Reading the run's archived lines…". -->
+
+At phone width the same screen stacks its cards, **What failed** first:
+
+<img src="../../assets/walkthrough/08-failed-run-390px.png" width="390" alt="The Failed-run screen at 390 pixels wide:
+the run header, What failed with the step's ValueError and the report links, then the Logs card">
+
 **Monitoring → Runs** lists the stage's runs of the last 24 hours, newest first, and filters them by pipeline,
 product, status and window (1 hour to 7 days); each row opens its run. On the overview, a pipeline's name links to its
 runs, and its failed-run count to those failed runs.
+
+![Monitoring, Runs filtered to the failed runs of order_revenue_pipeline on DEV in the last 24 hours, with one failed
+run listed](../../assets/walkthrough/05-runs.png)
 
 ```bash
 olf runs show <run-id> --stage dev
@@ -120,6 +134,12 @@ line; **Level** and **Show all levels** change it. **Only this run's lines** dro
 same window, and **Load more** pages on. The footer gives the window read and how long the archive keeps logs
 (**Kept N days**). **Open in Logs ↗** opens the same window on the **Logs** page (`Monitoring → Logs`), which also
 browses the stage's archive by day and hour, with level, pod and search filters.
+
+![The run's Logs card at all levels with Only this run's lines checked: 122 lines with their time, level, container
+and text, and the window and retention in the footer](../../assets/walkthrough/03-run-logs.png)
+
+![The Logs page opened on the run's window: the stage, run and filter controls above the run's tagged lines with
+their pod and container](../../assets/walkthrough/06-logs-run.png)
 
 The API read is `GET /api/v1/stages/dev/runs/<run-id>/logs?match_run=true`. It covers the run's whole window, across
 UTC days. A cut-off answer carries `next`; pass it back as `after` for the next page.
@@ -144,6 +164,9 @@ first; the passes are behind their count (**N passed**), one click away. Each ro
 `PASS`, `NOT RUN` or `UNKNOWN`), the check, the table and column, the engine's severity, what the pipeline did with it
 (quarantined rows, blocked the run, continued), and the counts the engine recorded. A run with no manifest, or an
 unfinished one, says so; it never shows passes it did not record.
+
+![The Quality checks card with its 30 passes opened: each row shows PASS, the Floe check, table and severity, what
+the pipeline did, and the rejected and accepted row counts](../../assets/walkthrough/04-run-quality.png)
 
 **Floe report ↗** and **dbt results ↗**, under **What failed**, download the retained reports through the API, as
 JSON attachments. The browser never gets an object-store address. A role that may not read the stage's reports sees
@@ -184,6 +207,9 @@ has a text summary and a table view.
 When Prometheus is down, each chart says the history is unknown and offers Retry; nothing is drawn as zero. With
 metrics off, as on Slim, the page says resource history is not collected, and the pipeline charts, which come from
 Dagster, still show.
+
+<!-- Screenshot 07-metrics.png to replace from the next full e2e run: the capture in run 44828390545 was taken while
+     several charts still read "Reading …". -->
 
 Proven by: `metrics series through the platform API`, `metrics outage reads unavailable` and `metrics labels and series
 budget`.
