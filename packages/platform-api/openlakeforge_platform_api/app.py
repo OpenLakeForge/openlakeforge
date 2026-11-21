@@ -24,6 +24,7 @@ from openlakeforge_platform_api import (
     file_writes,
     files,
     health_routes,
+    log_reads,
     metrics_routes,
     monitoring,
     quality_routes,
@@ -436,7 +437,11 @@ def create_app(
         name="get_run_failure",
     )
     app.add_api_route(
-        "/api/v1/stages/{stage}/runs/{run_id}/logs", run_logs.list_run_logs, methods=["GET"], name="list_run_logs"
+        "/api/v1/stages/{stage}/runs/{run_id}/logs",
+        run_logs.list_run_logs,
+        methods=["GET"],
+        name="list_run_logs",
+        responses=log_reads.OVERLOADED,
     )
     app.add_api_route(
         "/api/v1/stages/{stage}/runs/{run_id}/quality",
@@ -490,7 +495,13 @@ def create_app(
         methods=["GET"],
         name="list_alert_incidents",
     )
-    app.add_api_route("/api/v1/stages/{stage}/logs", reads.list_logs, methods=["GET"], name="list_logs")
+    app.add_api_route(
+        "/api/v1/stages/{stage}/logs",
+        reads.list_logs,
+        methods=["GET"],
+        name="list_logs",
+        responses=log_reads.OVERLOADED,
+    )
     app.add_api_route(
         "/api/v1/stages/{stage}/metrics", metrics_routes.list_stage_metrics, methods=["GET"], name="list_stage_metrics"
     )

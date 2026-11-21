@@ -167,8 +167,9 @@ def metrics_on(contract: Mapping[str, Any]) -> bool:
     return bool(contract.get("enabled") and contract.get("supported") and contract.get("query_url"))
 
 
-# Longer than the platform API's slowest read deadline (the run routes' 20 s, `run_failure.READ_DEADLINE_SECONDS`), so
-# the client never gives up on an answer the API is still allowed to give, and a 502 past the deadline is seen as one.
+# Longer than the platform API's slowest read (the run routes' 20 s, `run_failure.READ_DEADLINE_SECONDS`, and a log
+# read's 5 s wait for a worker before its own 20 s, `log_reads`), so the client never gives up on an answer the API is
+# still allowed to give, and a 502 past the deadline or a 503 for a busy pool is seen as one.
 API_READ_TIMEOUT = 30
 
 

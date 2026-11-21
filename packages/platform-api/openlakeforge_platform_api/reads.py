@@ -23,9 +23,11 @@ from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Query, Request
 from openlakeforge_services.base import ServiceClientError, TransientServiceError
 from openlakeforge_services.dagster import DagsterClient, DagsterJob
-from openlakeforge_services.logs import ArchivedLogLine, LogArchive
+from openlakeforge_services.logs import ArchiveDeadline, ArchivedLogLine, LogArchive
 from openlakeforge_services.openmetadata import OpenMetadataClient
 
+from openlakeforge_platform_api import log_reads
+from openlakeforge_platform_api.log_reads import ReadSlot, bounded_read
 from openlakeforge_platform_api.models import (
     DataProduct,
     DataProducts,
@@ -126,7 +128,7 @@ def get_run(request: Request, stage: str, run_id: str) -> Run:
     return Run(**asdict(run))
 
 
-def list_logs(
+async def list_logs(
     request: Request,
     stage: str,
     day: date = Query(alias="date"),  # noqa: B008 - FastAPI's parameter API
@@ -150,22 +152,34 @@ def list_logs(
     """
     text = search_text(q)
     reader, namespace = _log_archive(request, stage)
-    with _archive_errors(stage):
-        lines = reader.read(
-            namespace,
-            day,
-            hour=hour,
-            pod=pod,
-            container=container,
-            component=component,
-            product=product,
-            run_id=run_id,
-            severity=severity or "",
-            text=text,
-            since=since,
-            until=until,
-            limit=limit,
-        )
+
+    def read(slot: ReadSlot) -> list[ArchivedLogLine]:
+        with _archive_errors(stage):
+            try:
+                return reader.read(
+                    namespace,
+                    day,
+                    hour=hour,
+                    pod=pod,
+                    container=container,
+                    component=component,
+                    product=product,
+                    run_id=run_id,
+                    severity=severity or "",
+                    text=text,
+                    since=since,
+                    until=until,
+                    limit=limit,
+                    deadline=slot.expires,
+                    cancelled=slot.cancelled.is_set,
+                )
+            except ArchiveDeadline as exc:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"stage {stage!r}'s log archive did not answer in {log_reads.READ_DEADLINE_SECONDS:g} s",
+                ) from exc
+
+    lines = await bounded_read(request, read, waiting_on=f"stage {stage!r}'s log archive")
     # `truncated` tells a client that a narrower window or a higher limit would show more.
     return Logs(lines=[log_line(line) for line in lines], truncated=len(lines) >= limit)
 

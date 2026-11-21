@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 from openlakeforge_services import logs
-from openlakeforge_services.logs import ArchiveDeadline, ArchivedLogLine, LogArchive, Position
+from openlakeforge_services.logs import ArchiveCancelled, ArchiveDeadline, ArchivedLogLine, LogArchive, Position
 
 BASE = "s3://ops/activations/dev/logs"
 DAY = date(2026, 11, 16)
@@ -168,6 +168,53 @@ def test_a_read_past_its_deadline_starts_no_more_gets() -> None:
 
     # Only the GETs that had already started when the first one passed the deadline.
     assert len(store.fetched) <= logs.FETCH_AHEAD
+
+
+def test_a_cancelled_read_stops_before_its_next_object_and_starts_no_more_gets() -> None:
+    store = _Store(delay=0.01)
+    for n in range(40):
+        store.put(_v2_key(f"dev-{n:02d}"), [_v2(f"2026-11-16T09:00:{n:02d}Z", f"line {n}")])
+    cancelled = threading.Event()
+    get_object = store.get_object
+
+    def cancelling(*, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        cancelled.set()
+        return get_object(Bucket=Bucket, Key=Key)
+
+    store.get_object = cancelling  # type: ignore[method-assign]
+
+    with pytest.raises(ArchiveCancelled):
+        LogArchive(store, BASE).read("olf-dev", DAY, cancelled=cancelled.is_set)
+
+    # Only the GETs that had already started when the first one cancelled the read.
+    assert len(store.fetched) <= logs.FETCH_AHEAD
+
+
+def test_a_read_cancelled_before_it_starts_lists_nothing() -> None:
+    store = _Store()
+    store.put(_v2_key("dev-0"), [_v2("2026-11-16T09:00:00Z", "line 0")])
+    listed: list[str] = []
+    list_objects = store.list_objects_v2
+
+    def listing(**args: Any) -> dict[str, Any]:
+        listed.append(args["Prefix"])
+        return list_objects(**args)
+
+    store.list_objects_v2 = listing  # type: ignore[method-assign]
+
+    with pytest.raises(ArchiveCancelled):
+        LogArchive(store, BASE).read_days("olf-dev", [DAY], cancelled=lambda: True)
+
+    assert (listed, store.fetched) == ([], [])
+
+
+def test_an_uncancelled_read_answers_as_a_read_without_the_hook() -> None:
+    store = _Store()
+    _crowded(store, objects=12)
+
+    with_hook = LogArchive(store, BASE).read_days("olf-dev", [DAY, NEXT_DAY], cancelled=lambda: False)
+
+    assert with_hook == LogArchive(store, BASE).read_days("olf-dev", [DAY, NEXT_DAY])
 
 
 def test_fetches_queued_behind_another_read_do_not_start_after_their_deadline() -> None:

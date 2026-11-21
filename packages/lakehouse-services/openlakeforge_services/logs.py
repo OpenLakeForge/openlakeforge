@@ -305,6 +305,10 @@ class ArchiveDeadline(Exception):
     """The read passed its deadline and stopped; what it had found is not answered, as it may not be the earliest."""
 
 
+class ArchiveCancelled(Exception):
+    """The caller cancelled the read, as when the client that asked for it went away; nothing is answered."""
+
+
 @dataclass(frozen=True)
 class ArchiveRead:
     lines: list[ArchivedLogLine]
@@ -322,6 +326,7 @@ class LogArchive:
         self._prefix = parsed.path.strip("/")
         self._clock = clock
         self._deadline: float | None = None
+        self._cancelled: Callable[[], bool] | None = None
 
     def read(
         self,
@@ -340,6 +345,7 @@ class LogArchive:
         until: datetime | None = None,
         limit: int = 1000,
         deadline: float | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> list[ArchivedLogLine]:
         """Lines of one namespace for a UTC day, or one hour of it, oldest first, at most `limit`.
 
@@ -348,7 +354,8 @@ class LogArchive:
         errors) on the line's `level`, so a line with no level is left out by it; `text` keeps the lines whose
         message holds it, ignoring case (`message_of`); `since` and `until` bound the record time. `component`,
         `product` and `run_id` exist only in v2, so setting one leaves v1 out.
-        `deadline`, on the archive's clock, stops the scan with ArchiveDeadline between pages, objects and records.
+        `deadline`, on the archive's clock, stops the scan with ArchiveDeadline between pages, objects and records;
+        `cancelled` returning true stops it there with ArchiveCancelled, and no queued fetch of the read starts.
         With `since`, an object uploaded before it (less UPLOAD_CLOCK_SLACK) is not read: it holds no line it selects.
         `hour`, `since` and `until` also pick the v2 hour partitions listed.
         """
@@ -367,6 +374,7 @@ class LogArchive:
             until=until,
             limit=limit,
             deadline=deadline,
+            cancelled=cancelled,
         ).lines
 
     def read_days(
@@ -388,6 +396,7 @@ class LogArchive:
         after: Position | None = None,
         v1_lookback: timedelta | None = None,
         deadline: float | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> ArchiveRead:
         """`read` over several UTC days at once: one ordering and one dedup across them, at most `limit` in all.
 
@@ -448,6 +457,7 @@ class LogArchive:
             )
 
         self._deadline = deadline
+        self._cancelled = cancelled
         # Every line `wanted` keeps is at or after `since`, so a skipped object held none of them: the ordering, the
         # dedup and a cursor's page are those of a read of every object.
         scan = _Scan(None if since is None else since - UPLOAD_CLOCK_SLACK)
@@ -479,6 +489,8 @@ class LogArchive:
         return ArchiveRead(lines=[line for _, line in merged], last=merged[-1][0] if merged else None)
 
     def _check(self) -> None:
+        if self._cancelled is not None and self._cancelled():
+            raise ArchiveCancelled("the log archive read was cancelled")
         if self._deadline is not None and self._clock() >= self._deadline:
             raise ArchiveDeadline("the log archive read passed its deadline")
 
@@ -632,11 +644,15 @@ class LogArchive:
         Only the fetch runs on the pool; decoding and every offer stay on the reading thread in key order, so the
         result, ties and dedup are those of a read one object at a time. No object holds a position known before it
         is read, so every listed object is fetched: the limit cannot end the scan early. A fetch checks the deadline
-        before its GET, so none starts after it, and one that fails raises its own exception here, in key order.
+        before its GET, so none starts after it, and one that fails raises its own exception here, in key order. It
+        checks the read's cancellation too, so a cancelled read's queued fetches that `cancel` could not stop in time
+        start no GET either.
         """
-        deadline, clock = self._deadline, self._clock
+        deadline, cancelled, clock = self._deadline, self._cancelled, self._clock
 
         def fetch(key: str) -> bytes:
+            if cancelled is not None and cancelled():
+                raise ArchiveCancelled("the log archive read was cancelled")
             if deadline is not None and clock() >= deadline:
                 raise ArchiveDeadline("the log archive read passed its deadline")
             body: bytes = self._store.get_object(Bucket=self._bucket, Key=key)["Body"].read()
