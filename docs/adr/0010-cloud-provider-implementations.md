@@ -112,4 +112,4 @@ privilege and external secrets belong to the secure beta profile.
   replaced the single AWS Glue catalog mapping.
 - 2026-08-31 (#114): D2 and D3 replace the catalog-per-stage design, which
   the account's Glue service does not support.
-- 2026-11-22 (#PR): Rewritten in the standard form; no decision changed.
+- 2026-11-22 (#1384): Rewritten in the standard form; no decision changed.

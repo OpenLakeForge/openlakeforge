@@ -106,5 +106,5 @@ people is a connector.
   replacing the self-hosted user directory of #331; `olf users`, the
   `shared.identity.admin` contract, the Keycloak `olf-users` client and
   `spec.identity.bootstrap_admins` removed.
-- 2026-11-22 (#PR): Rewritten in the standard form; the Status now records
+- 2026-11-22 (#1384): Rewritten in the standard form; the Status now records
   D6 as built (Dex adapter, #384); no decision changed.

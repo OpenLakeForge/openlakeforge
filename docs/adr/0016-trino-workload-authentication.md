@@ -73,4 +73,4 @@ namespace, Traefik, OpenMetadata and the platform API only. Enforced by:
 - 2026-11-09 (#983): Rewritten in place: D1 to D4 replace the password
   mechanism; Trino authentication, its rules, the HTTPS listener and the Web
   UI's OAuth2 sign-in are removed from the local root.
-- 2026-11-22 (#PR): Rewritten in the standard form; no decision changed.
+- 2026-11-22 (#1384): Rewritten in the standard form; no decision changed.
