@@ -97,11 +97,13 @@ class LocalProvider:
         network_canary.require_policy_enforcement(self.config, self.tools, env=self.env)
 
     def foundation_down(self, *, force: bool = False) -> None:
+        from olf.common import host_images
         from olf.infra.deployment.local import foundation
 
         foundation.foundation_down(
             self.config, self.tools, env=self.env, force=force or self.config.force_foundation_down
         )
+        host_images.prune(self.config, self.tools, env=self.env)
 
     def prepare_images(self) -> None:
         from olf.infra.deployment.local import prefetch

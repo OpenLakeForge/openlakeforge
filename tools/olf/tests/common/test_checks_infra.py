@@ -69,7 +69,7 @@ def test_infra_templates_the_cached_tarball_not_the_repo_reference(
         "dagster-1.13.7",
         "superset-0.15.5",
         "traefik-41.6.1",
-        "cert-manager-v1.21.2",
+        "cert-manager-v1.21.3",
     ):
         (cache / f"{name}.tgz").touch()
     commands: list[list[str]] = []

@@ -67,6 +67,6 @@ CHART_DEFAULTS: Mapping[str, ChartDefault] = {
     "cert-manager": ChartDefault(
         chart_ref="jetstack/cert-manager",
         repository="https://charts.jetstack.io",
-        version="v1.21.2",
+        version="v1.21.3",
     ),
 }

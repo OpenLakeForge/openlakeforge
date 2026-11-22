@@ -566,6 +566,12 @@ jobs:
         run: |
           df -h /
           docker system df
+          # Compressed blobs against unpacked snapshots, per node (#1373).
+          for node in $(docker ps --filter name=openlakeforge-local- --format '{{.Names}}'); do
+            echo "$node"
+            docker exec "$node" du -sh /var/lib/containerd/io.containerd.content.v1.content \
+              /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs
+          done
 
       - name: Prove the stages pull the project image through a pull Secret (#537)
         # KNOWN GAP: the check proves the mechanism, not that a private image is pullable. `project-code-nightly`
