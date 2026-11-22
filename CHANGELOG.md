@@ -63,6 +63,10 @@ for how a release is cut and verified.
 
 ### Changed
 
+- SeaweedFS 4.48 → 4.54 (image `chrislusf/seaweedfs:4.54`, Helm chart 4.48.0 →
+  4.54.0). Putting or deleting a bucket's lifecycle rules now needs `Admin`, and
+  its CORS or versioning configuration an action of its own, instead of `Write`;
+  no OpenLakeForge identity calls them.
 - Apache Polaris, its admin tool and its Helm chart move from 1.8.0 to 1.9.0.
   The relational JDBC schema stays at v6, so an existing metastore needs no
   migration. Polaris now accepts up to 5 s of clock skew on a token's `iat`, so

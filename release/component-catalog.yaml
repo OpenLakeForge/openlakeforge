@@ -58,8 +58,8 @@ components:
       seaweedfs:
         repository: https://seaweedfs.github.io/seaweedfs/helm
         reference: seaweedfs/seaweedfs
-        version: 4.48.0
-        sha256: fa9beb4b68ee1e56129779643194968210381a33caf47fc177fd17d43efb686e
+        version: 4.54.0
+        sha256: 83d6e56164284c26be7fc5a8cb635bd7b829c1ea78db360e14b606823290ee6c
       polaris:
         repository: https://downloads.apache.org/polaris/helm-chart
         reference: polaris/polaris
@@ -118,7 +118,7 @@ components:
     dex: ghcr.io/dexidp/dex:v2.46.1@sha256:65b72ca0f4b0bf6d4ada84ec21da8851782563404ac7b8f926923d27ceced9ab
     oauth2_proxy: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048
     postgres: postgres:18.7-alpine@sha256:0115267ab5a509022df9319c77be365cef335adb71556c75f60f5360ee247e71
-    seaweedfs: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    seaweedfs: chrislusf/seaweedfs:4.54@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15
     fluent_bit: fluent/fluent-bit:5.2.0@sha256:e2718c47aaab7d99587fdffe78818549bdd09dee5e30a9199d2ff3da6e2c7628
     prometheus: prom/prometheus:v3.13.5@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9
     kube_state_metrics: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0@sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b
