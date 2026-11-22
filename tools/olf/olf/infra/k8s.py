@@ -21,6 +21,7 @@ from collections.abc import Callable, Collection, Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from olf.common import log
 from olf.common.deployment.errors import CommandExecutionError
 from olf.common.tooling.process import STDOUT, Popen, ProcessRunner, TimeoutExpired, unsets_of
 from olf.common.tooling.resolver import build_resolver
@@ -455,7 +456,7 @@ def annotate_pod_templates(
 
 def wait_for_deployments(selector: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
     """Wait for the rollout of every Deployment the label selector matches."""
-    _kubectl(["rollout", "status", "deployment", "-l", selector, "-n", namespace, "--timeout=300s"], environ=environ)
+    _rollout_status(["deployment", "-l", selector], namespace, "300s", environ)
 
 
 def wait_for_service_ready(
@@ -661,7 +662,24 @@ def port_forward(
 def wait_for_rollout(
     kind_name: str, namespace: str, timeout: str = "300s", *, environ: Mapping[str, str] | None = None
 ) -> None:
-    _kubectl(["rollout", "status", kind_name, "-n", namespace, f"--timeout={timeout}"], environ=environ)
+    _rollout_status([kind_name], namespace, timeout, environ)
+
+
+def _rollout_status(target: list[str], namespace: str, timeout: str, environ: Mapping[str, str] | None) -> None:
+    try:
+        _kubectl(["rollout", "status", *target, "-n", namespace, f"--timeout={timeout}"], environ=environ)
+    except KubectlError:
+        # `rollout status` only says it timed out. A Pending pod's reason (Insufficient memory, an image pull,
+        # a missing Secret) is in these, and the cluster is gone once the CI job ends.
+        for args in (
+            ["get", "pods", "-o", "wide", "-n", namespace],
+            ["get", "events", "--sort-by=.lastTimestamp", "-n", namespace],
+            ["describe", "nodes"],
+        ):
+            log.warn(f"kubectl {' '.join(args)}:")
+            with contextlib.suppress(KubectlError):
+                _kubectl(args, check=False, environ=environ)
+        raise
 
 
 def http_wait(url: str, *, attempts: int = 60, delay: float = 2.0, session: requests.Session | None = None) -> bool:
