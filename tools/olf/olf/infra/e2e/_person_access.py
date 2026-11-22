@@ -8,6 +8,7 @@ refused by storage rather than by Polaris; the check tells the two apart.
 
 from __future__ import annotations
 
+import re
 import secrets
 import time
 from collections.abc import Callable, Mapping
@@ -102,10 +103,20 @@ def check_claimed_user(
     log.info(f"Skipping the claimed-user check on {stage}: every role has the same access to the probe table.")
 
 
-def dump_query_route_state(cfg: E2EConfig, stage: str, sql: str) -> None:
+def failed_query_id(error: str) -> str | None:
+    """The Trino queryId the client appended to a transport failure, None when the first POST never answered."""
+    found = re.search(r"queryId: (\d\w*)", error)
+    return found.group(1) if found else None
+
+
+def dump_query_route_state(cfg: E2EConfig, stage: str, sql: str, error: str = "") -> None:
     """A person's query broke in transit (#1088): print what each hop saw, since the failure leaves no other trace.
     Best effort; the query's own error is what the run reports."""
-    log.error(f"The query to {stage}'s Trino broke in transit: {sql!r}. State of each hop:")
+    query_id = failed_query_id(error)
+    log.error(
+        f"The query to {stage}'s Trino broke in transit: {sql!r} ({error}). "
+        f"Trino queryId: {query_id or 'no queryId received'}. State of each hop:"
+    )
     probes = {
         "Trino pods (restarts, last state)": [
             "get",
@@ -152,6 +163,17 @@ def dump_query_route_state(cfg: E2EConfig, stage: str, sql: str) -> None:
         except Exception as exc:  # noqa: BLE001 - a probe that fails must not hide the others
             text = f"(unavailable: {exc})"
         log.info(f"--- {label}\n{text}")
+    if query_id:
+        # The coordinator logs a query when it ends, an abandoned one about five minutes after the break, so the
+        # window is wider than the hop probes and a line may only appear when this is looked at again later.
+        try:
+            lines = kubectl(
+                cfg, ["logs", "-n", f"olf-{stage}", "-l", "app.kubernetes.io/name=trino", "--since=15m"], capture=True
+            )
+            text = "\n".join(line for line in lines.splitlines() if query_id in line) or "(no line yet)"
+        except Exception as exc:  # noqa: BLE001
+            text = f"(unavailable: {exc})"
+        log.info(f"--- Trino log lines for {query_id}\n{text}")
 
 
 def outcome(call: Callable[[], object]) -> Outcome:
@@ -249,7 +271,7 @@ def person_runner(
                     return query.run_statement(url, sql, bearer=lambda: bearer(role), user=user, stage=stage)
                 except session.PlatformError as exc:
                     if "cannot reach Trino" in str(exc):
-                        dump_query_route_state(cfg, stage, sql)
+                        dump_query_route_state(cfg, stage, sql, str(exc))
                     raise
 
         return outcome(statement)

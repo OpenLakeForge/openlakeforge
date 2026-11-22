@@ -119,6 +119,27 @@ def _origin(url: str) -> tuple[str, str, int | None]:
     )
 
 
+def _describe(exc: BaseException, headers: Mapping[str, str]) -> str:
+    """The exception class and text, with its causes: `IncompleteRead(742 bytes read, ...)` against a bad chunk
+    length is what tells a truncated body from broken framing (#1366). Anything of the person's in `headers` is
+    blanked, since a library may echo what it was given."""
+    parts: list[str] = []
+    seen: set[int] = set()
+    cause: BaseException | None = exc
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        parts.append(f"{type(cause).__name__}: {cause}")
+        cause = cause.__cause__ or cause.__context__
+    text = " <- ".join(parts)[:600]
+    secrets = [headers.get("Authorization", "").removeprefix("Bearer ")]
+    secrets += [
+        pair.partition("=")[2] for pair in headers.get("X-Trino-Extra-Credential", "").split(",")
+    ]
+    for secret in filter(None, secrets):
+        text = text.replace(secret, "***")
+    return text
+
+
 @dataclass(frozen=True)
 class TrinoStatementClient:
     """`url` is the statement endpoint (`.../v1/statement`); continuation URIs must stay on its origin.
@@ -167,22 +188,29 @@ class TrinoStatementClient:
         """`bearer` is asked again before every page: a Dex token lasts five minutes, and a result can take longer to
         page through. `extra_credentials` maps the submission's bearer to the credentials sent with it (Polaris reads
         the person's own token). Past `max_rows` the query is cancelled and the result says it was truncated."""
-        token = bearer()
-        page = self.submit(
-            sql, token, extra_credentials(token) if extra_credentials else None
-        )
-        columns = page.columns
-        rows: list[list[Any]] = []
-        while True:
-            rows.extend(page.rows)
-            if max_rows is not None and len(rows) > max_rows:
-                if page.next_uri:
-                    self._cancel_quietly(page.next_uri, bearer())
-                return TrinoResult(columns, rows[:max_rows], truncated=True)
-            if page.next_uri is None:
-                return TrinoResult(columns, rows)
-            page = self.follow(page.next_uri, bearer())
-            columns = columns or page.columns
+        query_id: str | None = None
+        try:
+            token = bearer()
+            page = self.submit(
+                sql, token, extra_credentials(token) if extra_credentials else None
+            )
+            query_id = page.query_id
+            columns = page.columns
+            rows: list[list[Any]] = []
+            while True:
+                rows.extend(page.rows)
+                if max_rows is not None and len(rows) > max_rows:
+                    if page.next_uri:
+                        self._cancel_quietly(page.next_uri, bearer())
+                    return TrinoResult(columns, rows[:max_rows], truncated=True)
+                if page.next_uri is None:
+                    return TrinoResult(columns, rows)
+                page = self.follow(page.next_uri, bearer())
+                query_id = page.query_id or query_id
+                columns = columns or page.columns
+        except TrinoUnreachableError as exc:
+            # The id is what finds the abandoned query in the coordinator log, which writes it minutes later.
+            raise type(exc)(f"{exc} (queryId: {query_id or 'no queryId received'})") from exc
 
     def _cancel_quietly(self, next_uri: str, bearer: str) -> None:
         # The rows already collected are good; Trino abandons an unpolled query on its own.
@@ -254,11 +282,11 @@ class TrinoStatementClient:
             raise TrinoTlsError(f"cannot verify the TLS certificate of {host}") from exc
         except requests.Timeout as exc:
             raise TrinoTimeoutError(
-                f"cannot reach Trino at {host}: {type(exc).__name__}"
+                f"cannot reach Trino at {host}: {_describe(exc, headers)}"
             ) from exc
         except requests.RequestException as exc:
             raise TrinoUnreachableError(
-                f"cannot reach Trino at {host}: {type(exc).__name__}"
+                f"cannot reach Trino at {host}: {_describe(exc, headers)}"
             ) from exc
         status = response.status_code
         refusals: dict[int, type[TrinoError]] = {

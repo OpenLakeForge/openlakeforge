@@ -174,3 +174,22 @@ def test_only_the_submission_carries_the_extra_credentials_and_each_page_a_fresh
         "test",
     )
     assert fake.calls[0]["allow_redirects"] is False
+
+
+def test_a_break_mid_run_keeps_the_exception_text_and_the_query_id_without_the_token() -> None:
+    cut = requests.exceptions.ChunkedEncodingError(f"Connection broken: IncompleteRead(10 bytes read) {SECRET}")
+    cut.__cause__ = ValueError("underlying")
+    page = (200, {"id": "20261122_000000_00001_abcde", "nextUri": f"{URL}/1"})
+    with pytest.raises(TrinoUnreachableError) as raised:
+        _client(FakeTrino(page, cut)).run("SELECT 1", bearer=lambda: SECRET, extra_credentials=lambda t: {"token": t})
+
+    text = str(raised.value)
+    assert "ChunkedEncodingError: Connection broken: IncompleteRead(10 bytes read)" in text
+    assert "ValueError: underlying" in text
+    assert "queryId: 20261122_000000_00001_abcde" in text
+    assert SECRET not in text
+
+
+def test_a_break_on_the_first_post_says_no_query_id_was_received() -> None:
+    with pytest.raises(TrinoUnreachableError, match="no queryId received"):
+        _client(FakeTrino(requests.exceptions.ConnectionError("reset"))).run("SELECT 1", bearer=lambda: SECRET)

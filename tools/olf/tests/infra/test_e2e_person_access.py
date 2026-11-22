@@ -202,3 +202,19 @@ def test_a_query_broken_in_transit_dumps_each_hops_state(monkeypatch: pytest.Mon
     assert any("app.kubernetes.io/name=trino" in a and "-n olf-dev" in a for a in joined)
     assert any("app.kubernetes.io/name=traefik" in a for a in joined)
     assert any("app.kubernetes.io/name=polaris" in a for a in joined)
+
+
+def test_the_failed_querys_id_is_read_from_the_error_and_searched_in_the_coordinator_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    error = "cannot reach Trino at t: ChunkedEncodingError: cut (queryId: 20261122_000000_00001_abcde)"
+    assert person.failed_query_id(error) == "20261122_000000_00001_abcde"
+    assert person.failed_query_id("cannot reach Trino at t: X (queryId: no queryId received)") is None
+
+    printed: list[str] = []
+    logs = "other\nQueryCompletedEvent 20261122_000000_00001_abcde"
+    monkeypatch.setattr(person, "kubectl", lambda cfg, args, **kw: logs)
+    monkeypatch.setattr(person.log, "info", printed.append)
+    person.dump_query_route_state(None, "dev", "SHOW SCHEMAS", error)  # type: ignore[arg-type]
+    assert printed[-1].endswith("QueryCompletedEvent 20261122_000000_00001_abcde")
+    assert "other" not in printed[-1]
