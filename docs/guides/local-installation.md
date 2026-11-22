@@ -56,6 +56,14 @@ running, the host used about 9 GB of memory and Docker held about 100 GB: about
 copy of every image. Most of the disk is container images, not data. On Docker
 Desktop, raise its memory and disk limits to these values.
 
+The cluster has one worker. All kind nodes run on the same host, so a second
+worker added no CPU or memory, only a second copy of every image. A cluster
+created with two workers by an earlier version is replaced on the next
+`olf infra deploy`: the foundation tracks the hash of
+`infra/kind/local/kind-cluster.yaml` and recreates the cluster when it
+changes, so the deployment starts from empty. Run `olf infra destroy` first if
+you want to free the disk before redeploying.
+
 ## Install `olf`
 
 With uv, which fetches Python 3.12 if your machine has none:
@@ -129,7 +137,7 @@ runs four phases in order; `--phase` runs one of them:
 
 | Phase | What it does | Rerun it when |
 | --- | --- | --- |
-| `foundation` | Creates the kind cluster `openlakeforge-local` (one control plane, two workers) | The cluster was deleted |
+| `foundation` | Creates the kind cluster `openlakeforge-local` (one control plane, one worker) | The cluster was deleted |
 | `prefetch` | Pulls the large runtime images into the kind nodes | An image pull failed or timed out |
 | `platform` | Deploys the shared services and one namespace per stage with Terraform and Helm | You changed the preset or the stages |
 | `artifacts` | Builds the project-code image from `lakehouse_code/` and deploys your data products | You changed code under `lakehouse_code/` |

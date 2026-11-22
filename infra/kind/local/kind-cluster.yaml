@@ -17,5 +17,7 @@ nodes:
         hostPort: 443
         listenAddress: "127.0.0.1"
         protocol: TCP
-  - role: worker
+  # One worker: every kind node is a container on the same host, so a second
+  # adds no CPU or memory, only a second copy of every prefetched image (about
+  # 30 GB on a Full deployment, #1370).
   - role: worker

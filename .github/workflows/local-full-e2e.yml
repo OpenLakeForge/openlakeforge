@@ -228,8 +228,8 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Free runner disk for the image preload
-        # Prefetch keeps each catalog image in Docker and in all three kind
-        # nodes; the stock runner's free space is not enough (the #457 runs ran out of
+        # Prefetch keeps each catalog image in Docker and in each kind
+        # node; the stock runner's free space is not enough (the #457 runs ran out of
         # disk importing Polaris). These toolchains are never used here.
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL

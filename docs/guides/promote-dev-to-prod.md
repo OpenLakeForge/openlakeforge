@@ -315,10 +315,11 @@ It reads the image from the stage's active revision and the Secret from
 5. removes the image again, cordons the node that runs a code location, deletes
    the pod and requires it to start on another node with a real pull.
 
-The kind cluster `olf` creates has a control-plane node and two workers
-(`infra/kind/local/kind-cluster.yaml`). kind cannot add a node to a running
-cluster, so step 5 uses the second worker; with a single schedulable node it
-is skipped, and step 3 already shows that no node-local cache is relied on.
+The kind cluster `olf` creates has a control-plane node and one worker
+(`infra/kind/local/kind-cluster.yaml`), and the control plane is tainted, so
+step 5 has no second schedulable node there and is skipped; step 3 already
+shows that no node-local cache is relied on. Step 5 runs on a cluster with two
+schedulable nodes, such as a custom `CLUSTER_CONFIG` or a managed cluster.
 The check launches a run, so do not use it while a restore is in progress.
 It never reads or prints the Secret's data.
 

@@ -180,7 +180,7 @@ different set: exactly three platform modules (`storage/aws-s3`, `catalog/aws-gl
 
 | Contract | Local | Azure POC | AWS POC |
 | --- | --- | --- | --- |
-| Foundation | kind, 1 control-plane + 2 workers | AKS + ACR | VPC + EKS + node group + ECR |
+| Foundation | kind, 1 control-plane + 1 worker | AKS + ACR | VPC + EKS + node group + ECR |
 | Object storage | SeaweedFS in-cluster | SeaweedFS on AKS | **S3** |
 | Metadata database | PostgreSQL in-cluster | PostgreSQL in-cluster | **RDS PostgreSQL** |
 | Iceberg catalog | Polaris REST | Polaris REST | **AWS Glue** |
