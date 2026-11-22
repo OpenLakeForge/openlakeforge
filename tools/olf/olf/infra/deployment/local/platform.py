@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sys
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
@@ -29,6 +30,7 @@ from olf.common.deployment.context import (
 from olf.common.deployment.context import topology_variables as _topology_variables
 from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.release._manifest import load_catalog
 from olf.common.tooling.kubectl import KubeContextUnreachableError
 from olf.common.tooling.retry import RetryPolicy, run_with_retry
 from olf.common.tooling.toolkit import Toolkit
@@ -50,6 +52,9 @@ _POLARIS_JOB_PREFIXES = (
 # Every root's shared-services namespace was named "lakehouse" and addressed
 # as `kubernetes_namespace_v1.lakehouse` before the stage-aware rewrite.
 _LEGACY_SHARED_NAMESPACE = "lakehouse"
+# modules/storage/postgresql's StatefulSet and container (its `release_name`).
+_POSTGRES_STATEFULSET = "postgresql"
+_POSTGRES_MAJOR = re.compile(r"(?:^|/)postgres:(\d+)")
 
 
 def stage_namespace_resource_addr(stage: str) -> str:
@@ -529,6 +534,60 @@ def require_no_shared_namespace_replacement(
     )
 
 
+def _postgres_major(image: str) -> int | None:
+    """The PostgreSQL major an image reference names (`postgres:16-alpine@sha256:...` -> 16), or None."""
+    match = _POSTGRES_MAJOR.search(image)
+    return int(match.group(1)) if match else None
+
+
+def require_no_postgres_major_change(
+    config: LocalDeploymentConfig,
+    tools: Toolkit,
+    *,
+    kube_context: str,
+    env: Mapping[str, str],
+) -> None:
+    """Refuse an apply that would start the shared PostgreSQL on a data directory of another major version.
+
+    A PostgreSQL server only starts on a data directory its own major version initialised, and olf carries no
+    `pg_upgrade` step. Rolling the StatefulSet onto a new major would leave `postgresql-0` crash-looping on
+    "database files are incompatible with server" until the apply times out. The deployed StatefulSet's image is
+    the version that initialised the volume, so compare it with the catalog's pin before applying.
+    """
+    result = tools.kubectl.get(
+        "statefulset",
+        name=_POSTGRES_STATEFULSET,
+        namespace=config.context.shared_namespace,
+        context=kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        output=f'jsonpath={{.spec.template.spec.containers[?(@.name=="{_POSTGRES_STATEFULSET}")].image}}',
+        extra_args=("--ignore-not-found",),
+        env=env,
+        check=False,
+    )
+    if not result.ok:
+        detail = (result.stderr or result.stdout).strip()
+        raise DeploymentPreconditionError(
+            f"could not read the deployed PostgreSQL StatefulSet: {detail or 'kubectl returned a non-zero status'}. "
+            "Whether its data directory matches this release's PostgreSQL major cannot be determined; restore "
+            "access to the cluster and re-run."
+        )
+    deployed = _postgres_major(result.stdout.strip())
+    if deployed is None:
+        return  # nothing deployed yet, or an image this check cannot read a version from
+    catalog = load_catalog(config.paths.distribution_root / "release" / "component-catalog.yaml")
+    wanted = _postgres_major(str(catalog["components"]["images"]["postgres"]))
+    if wanted is None or wanted == deployed:
+        return
+    raise DeploymentPreconditionError(
+        f"the shared PostgreSQL in '{config.context.shared_namespace}' runs PostgreSQL {deployed}, and this release "
+        f"deploys PostgreSQL {wanted}. PostgreSQL {wanted} cannot start on a PostgreSQL {deployed} data directory and "
+        "olf does not migrate it. Destroy and redeploy the local stack (`olf infra destroy`, then `olf infra deploy`); "
+        "the Dagster run history, Polaris catalog, Superset dashboards, OpenMetadata entities and Dex state in that "
+        "database are not carried over. See the CHANGELOG's migration note for this release."
+    )
+
+
 def renamed_buckets(config: DeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> dict[str, tuple[str, str]]:
     """Deployed bucket name to the name the resolved topology now derives, for every bucket whose name differs.
 
@@ -812,6 +871,7 @@ def platform_up(
     require_no_stage_removal(config, tools, kube_context=config.kube_context, env=env)
     require_no_shared_namespace_replacement(config, tools, kube_context=config.kube_context, env=env)
     require_no_bucket_rename(config, tools, env=env)
+    require_no_postgres_major_change(config, tools, kube_context=config.kube_context, env=env)
     plan_storage_resize(config, tools, kube_context=config.kube_context, env=env)
     reset_drifted_platform_if_needed(config, tools, env=env)
 
