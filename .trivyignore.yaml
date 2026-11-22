@@ -68,7 +68,7 @@ images:
   - {name: polaris, owner: malon64, expired_at: 2026-12-15, statement: "124 fixable HIGH/CRITICAL findings at first scan"}
   - {name: polaris_admin_tool, owner: malon64, expired_at: 2026-12-15, statement: "102 fixable HIGH/CRITICAL findings at first scan"}
   - {name: portal, owner: malon64, expired_at: 2026-12-15, statement: "10 fixable HIGH/CRITICAL findings at first scan"}
-  - {name: postgres, owner: malon64, expired_at: 2026-12-15, statement: "35 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: postgres, owner: malon64, expired_at: 2027-02-15, statement: "postgres:18.7-alpine (alpine 3.24.4), scanned 2026-11-22 (CI run 45053202666): 27 fixable HIGH/CRITICAL, down from 35 on 16-alpine; 1 HIGH in Alpine libxml2 2.13.9-r2 (CVE-2026-86144, fixed 2.13.9-r3) and 26 (25 HIGH, 1 CRITICAL CVE-2025-68121) in the Go 1.24.6 stdlib of usr/local/bin/gosu; pending an upstream image rebuild, review by 2027-02-15"}
   - {name: project_code_base, owner: malon64, expired_at: 2026-12-15, statement: "56 fixable HIGH/CRITICAL findings at first scan"}
   - {name: seaweedfs, owner: malon64, expired_at: 2026-12-15, statement: "79 fixable HIGH/CRITICAL findings at first scan"}
   - {name: superset_base, owner: malon64, expired_at: 2026-12-15, statement: "570 fixable HIGH/CRITICAL findings at first scan"}
