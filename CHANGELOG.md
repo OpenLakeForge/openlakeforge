@@ -77,6 +77,12 @@ for how a release is cut and verified.
   deploy` refuses to roll a PostgreSQL 16 StatefulSet onto 18 and says to
   redeploy, instead of leaving `postgresql-0` crash-looping on an incompatible
   data directory until the apply times out. See the migration note.
+- Apache Polaris, its admin tool and its Helm chart move from 1.8.0 to 1.9.0.
+  The relational JDBC schema stays at v6, so an existing metastore needs no
+  migration. Polaris now accepts up to 5 s of clock skew on a token's `iat`, so
+  stopping `systemd-timesyncd` is no longer a WSL2 prerequisite: `olf infra
+  doctor` reports a second time source as information and a local deploy no
+  longer warns about it.
 - Release tooling accepts `x.y.z-beta.N` versions alongside `x.y.z-alpha.N`;
   a beta is published to PyPI as `x.y.zbN`.
 - **The Dagster code location moved to `lakehouse_code.pipelines.definitions`,

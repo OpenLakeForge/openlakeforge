@@ -52,8 +52,8 @@ def test_selected_images_full_profile_includes_governance_and_analytics() -> Non
     images = prefetch.selected_images(features, server_arch="amd64", catalog_images=_CATALOG)
 
     assert _CATALOG["opensearch"] in images
-    assert any(i.startswith("apache/polaris:1.8.0@sha256:532cb22f") for i in images)
-    assert any(i.startswith("apache/polaris-admin-tool:1.8.0@sha256:5b0a4f3a") for i in images)
+    assert any(i.startswith("apache/polaris:1.9.0@sha256:5dabc353") for i in images)
+    assert any(i.startswith("apache/polaris-admin-tool:1.9.0@sha256:d6adc43e") for i in images)
     assert "docker.io/openmetadata/server:1.13.6" in images
     assert _CATALOG["openmetadata_ingestion"] in images
     # Floe runs in-process in the project-code image; there is no runner image to load.
@@ -70,7 +70,7 @@ def test_selected_images_slim_profile_excludes_governance_and_analytics() -> Non
     assert not any("openmetadata" in image for image in images)
     assert not any("superset" in image for image in images)
     assert not any("redis" in image for image in images)
-    assert any(i.startswith("apache/polaris:1.8.0") for i in images)
+    assert any(i.startswith("apache/polaris:1.9.0") for i in images)
     # Floe runs in-process in the project-code image; there is no runner image to load.
     assert not any("floe" in image for image in images)
     assert any(image.startswith("postgres:18.7-alpine@sha256:0115267a") for image in images)
@@ -110,15 +110,15 @@ def test_prefetch_follows_the_profiles_metrics_setting(tmp_path: Path, profile: 
 
 def test_polaris_images_arch_mapping() -> None:
     arm_image, arm_admin = prefetch.polaris_images("arm64", _CATALOG)
-    assert arm_image.startswith("apache/polaris:1.8.0@sha256:74e6416c")
-    assert arm_admin.startswith("apache/polaris-admin-tool:1.8.0@sha256:9f85ebe1")
+    assert arm_image.startswith("apache/polaris:1.9.0@sha256:14bcb2f3")
+    assert arm_admin.startswith("apache/polaris-admin-tool:1.9.0@sha256:d89e2bc1")
 
     amd_image, amd_admin = prefetch.polaris_images("x86_64", _CATALOG)
-    assert amd_image.startswith("apache/polaris:1.8.0@sha256:532cb22f")
+    assert amd_image.startswith("apache/polaris:1.9.0@sha256:5dabc353")
 
     fallback_image, fallback_admin = prefetch.polaris_images("riscv64", _CATALOG)
     assert fallback_image == _CATALOG["polaris"]
-    assert fallback_admin.startswith("apache/polaris-admin-tool:1.8.0@sha256:34dde19b")
+    assert fallback_admin.startswith("apache/polaris-admin-tool:1.9.0@sha256:9ec24676")
 
 
 def test_archive_reference_strips_digest() -> None:
@@ -283,7 +283,7 @@ def test_digest_pinned_prefetch_needs_no_registry_from_the_node(tmp_path: Path) 
     assert prefetch.image_present_on_all_nodes(tools.docker, polaris_image, ["node-a"], env={})
     # The names containerd records for the import and CRI resolves for the pin, written out rather than derived.
     digest = polaris_image.split("@", 1)[1]
-    assert {"docker.io/apache/polaris:1.8.0", f"docker.io/apache/polaris@{digest}"} <= runner.node_images
+    assert {"docker.io/apache/polaris:1.9.0", f"docker.io/apache/polaris@{digest}"} <= runner.node_images
 
 
 def test_a_digest_only_pin_is_tagged_from_the_latest_name_docker_gave_it(tmp_path: Path) -> None:
