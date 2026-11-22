@@ -19,7 +19,6 @@ from olf.common.deployment.context import DeploymentFeatures
 from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.release._manifest import load_catalog
-from olf.common.tooling.retry import run_with_retry
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.deployment.local.images import containerd_name, split_digest_reference
 
@@ -213,12 +212,18 @@ def _prefetch_one_image(
         log.step(f"Image already present on every kind node: {image}")
         return
 
-    if in_node:
+    # An image the host's Docker already holds needs no network at all, so it takes the host path.
+    if in_node and not tools.docker.image_exists(image, env=env):
         # A CRI pull keeps the compressed layer blobs and, with the node image's `discard_unpacked_layers`, drops
         # them once unpacked. `ctr images import` of a `docker save` archive stores uncompressed blobs and keeps
-        # them, so each worker held every image twice (#1373). Each node also needs the registry's egress.
-        _run_on_nodes(nodes, lambda node: _pull_with_retry(image, tools, node, env=env, config=config))
-        return
+        # them, so each worker held every image twice (#1373). The pull is anonymous and uses neither the host's
+        # registry mirrors, proxy nor `docker login` (#757), so a failure (a Docker Hub 429, a node with no
+        # egress) falls back to the host path, which has the full pull retry policy.
+        try:
+            _run_on_nodes(nodes, lambda node: _pull_in_node(image, tools, node, env=env))
+            return
+        except DeploymentPreconditionError as exc:
+            log.warn(f"{exc} Pulling {image} through the host's Docker instead.")
 
     if tools.docker.image_exists(image, env=env):
         log.step(f"Using existing local image {image}...")
@@ -299,21 +304,11 @@ def _run_on_nodes(nodes: list[str], fn: Callable[[str], None]) -> None:
         raise errors[0]
 
 
-def _pull_with_retry(
-    image: str, tools: Toolkit, node: str, *, env: Mapping[str, str], config: LocalDeploymentConfig
-) -> None:
+def _pull_in_node(image: str, tools: Toolkit, node: str, *, env: Mapping[str, str]) -> None:
     log.step(f"Pulling {image} in kind node '{node}'...")
-    try:
-        run_with_retry(
-            lambda: tools.docker.exec_(node, ["crictl", "pull", image], env=env),
-            policy=config.prefetch.pull_retry,
-            description=f"Pulling {image} in kind node '{node}'",
-        )
-    except CommandExecutionError as exc:
-        raise DeploymentPreconditionError(
-            f"kind node '{node}' could not pull {image}: {exc.stderr.strip()}. The node pulls from the registry "
-            "itself, so it needs egress to it."
-        ) from exc
+    result = tools.docker.exec_(node, ["crictl", "pull", image], env=env, check=False)
+    if not result.ok:
+        raise DeploymentPreconditionError(f"kind node '{node}' could not pull {image}: {result.stderr.strip()}.")
 
 
 def _pull_on_node(

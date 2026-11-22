@@ -60,7 +60,11 @@ root disk, 40.77 GB of it in the three kind nodes' volumes
 The same deployment on main with images imported from the host's Docker
 ([run 44934519070](https://github.com/OpenLakeForge/openlakeforge/actions/runs/44934519070)) used 113 GB,
 52.08 GB in the volumes, because each worker also held 14 GB of uncompressed
-layers. The kind nodes need access to the image registries, not only the host.
+layers. The kind nodes pull anonymously, without your `docker login`, registry mirrors
+or proxy settings. When a node's pull fails, for example on a Docker Hub rate
+limit or with no route to the registry, `olf` pulls that image through your
+host's Docker instead and imports it, which uses the extra disk again for that
+image. An image your Docker already holds is imported without any pull.
 On Docker Desktop, raise its memory and disk limits to these values.
 
 ## Install `olf`

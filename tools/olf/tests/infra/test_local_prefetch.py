@@ -227,24 +227,21 @@ def test_prefetch_pulls_catalog_images_in_the_node_not_through_the_host(tmp_path
     assert not any("import" in c.argv and "ctr" in c.argv for c in runner.calls)
 
 
-def test_a_node_pull_is_retried_then_fails_naming_the_image(tmp_path: Path) -> None:
-    class _FlakyNode(_ScriptedRunner):
+def test_an_image_the_host_already_holds_skips_the_node_pull(tmp_path: Path) -> None:
+    class _HostHasImages(_ScriptedRunner):
         def run(self, command, **kwargs):  # type: ignore[override]
             argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
-            if "crictl" in argv and "pull" in argv:
+            if argv[1:3] == ["image", "inspect"]:
                 self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
-                raise CommandExecutionError(argv, 1, stderr="registry unreachable")
+                return CommandResult(argv=(), returncode=0, stdout="", stderr="", duration_seconds=0.0)
             return super().run(command, **kwargs)
 
-    environ = {"LOCAL_PREFETCH_PULL_ATTEMPTS": "3", "LOCAL_PREFETCH_PULL_RETRY_DELAY_SECONDS": "0"}
-    context = DeploymentContext.local(repo_root=tmp_path, profile=Profile.SLIM, distribution_root=_REPO_ROOT)
-    config = LocalDeploymentConfig.from_environment(environ, context=context)
-    runner = _FlakyNode()
+    runner = _HostHasImages()
 
-    with pytest.raises(DeploymentPreconditionError, match="registry unreachable"):
-        prefetch.prefetch_images(config, _toolkit(runner), env={}, work_dir=tmp_path / "scratch")
+    prefetch.prefetch_images(_config(tmp_path, profile=Profile.SLIM), _toolkit(runner), env={}, work_dir=tmp_path)
 
-    assert len([c for c in runner.calls if "crictl" in c.argv and "pull" in c.argv]) == 3
+    assert not any("crictl" in c.argv and "pull" in c.argv for c in runner.calls)
+    assert any("import" in c.argv and "ctr" in c.argv for c in runner.calls)
 
 
 class _OfflineNodeRunner(_ScriptedRunner):
@@ -290,14 +287,30 @@ def test_digest_pinned_prefetch_needs_no_registry_from_the_node(tmp_path: Path) 
     config = _config(tmp_path, profile=Profile.SLIM)
     runner = _OfflineNodeRunner()
     tools = _toolkit(runner)
+
+    prefetch.prefetch_images(config, tools, env={}, work_dir=tmp_path / "scratch")
+
+    # The node's pull failed, so the host's Docker supplied the image.
     polaris_image = prefetch.polaris_images("amd64", _CATALOG)[0]
-
-    prefetch.load_image_into_nodes(config, tools, polaris_image, env={})
-
+    assert ["docker", "exec", "node-a", "crictl", "pull", polaris_image] in [c.argv for c in runner.calls]
     assert prefetch.image_present_on_all_nodes(tools.docker, polaris_image, ["node-a"], env={})
     # The names containerd records for the import and CRI resolves for the pin, written out rather than derived.
     digest = polaris_image.split("@", 1)[1]
     assert {"docker.io/apache/polaris:1.8.0", f"docker.io/apache/polaris@{digest}"} <= runner.node_images
+
+
+def test_the_host_pull_is_the_failure_reported_when_neither_can_pull(tmp_path: Path) -> None:
+    class _NothingPulls(_OfflineNodeRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+            if argv[1:2] == ["pull"]:
+                raise CommandExecutionError(argv, 1, stderr="toomanyrequests")
+            return super().run(command, **kwargs)
+
+    with pytest.raises(CommandExecutionError, match="toomanyrequests"):
+        prefetch.prefetch_images(
+            _config(tmp_path, profile=Profile.SLIM), _toolkit(_NothingPulls()), env={}, work_dir=tmp_path
+        )
 
 
 def test_a_digest_only_pin_is_tagged_from_the_latest_name_docker_gave_it(tmp_path: Path) -> None:
@@ -364,9 +377,7 @@ def test_full_identity_selection_matches_the_catalog_pins() -> None:
 
 def test_a_locally_built_superset_is_not_prefetched() -> None:
     features = DeploymentFeatures(governance_enabled=False, analytics_enabled=True)
-    built = prefetch.selected_images(
-        features, server_arch="arm64", catalog_images=_CATALOG, build_superset=True
-    )
+    built = prefetch.selected_images(features, server_arch="arm64", catalog_images=_CATALOG, build_superset=True)
 
     assert _CATALOG["superset"] not in built
     assert _CATALOG["superset_redis"] in built
