@@ -19,7 +19,7 @@ from olf.infra.deployment.cloud.config import (
 def test_aws_image_settings_defaults_to_ecr_public_python_base_image() -> None:
     settings = CloudImageSettings.from_environment({}, scope="aws", image_tag="aws-abc123")
 
-    assert settings.project_code_python_base_image.startswith("public.ecr.aws/docker/library/python:3.12-slim@")
+    assert settings.project_code_python_base_image.startswith("public.ecr.aws/docker/library/python:3.12.16-slim@")
     assert settings.project_code_tag == "aws-abc123"
     assert settings.project_code_pull_policy == "Always"
     assert settings.project_code_repository == ""
@@ -29,7 +29,7 @@ def test_aws_image_settings_defaults_to_ecr_public_python_base_image() -> None:
 def test_azure_image_settings_defaults_to_docker_hub_python_base_image() -> None:
     settings = CloudImageSettings.from_environment({}, scope="azure", image_tag="azure-abc123")
 
-    assert settings.project_code_python_base_image.startswith("python:3.12-slim@")
+    assert settings.project_code_python_base_image.startswith("python:3.12.16-slim@")
     assert not settings.project_code_python_base_image.startswith("public.ecr.aws")
 
 

@@ -20,7 +20,7 @@ locals {
     "openlakeforge.io/seaweedfs-release-revision" = tostring(helm_release.seaweedfs.metadata.revision)
   }
 
-  # `fs.configure -ttl` in 4.48 takes a count of 1 to 255 and a unit of m, h, d, w, M (30 days) or y (365 days)
+  # `fs.configure -ttl` in 4.54 takes a count of 1 to 255 and a unit of m, h, d, w, M (30 days) or y (365 days)
   # (weed/shell/command_fs_configure.go, weed/storage/needle/volume_ttl.go). Up to 255 days stays in days. Above
   # that, the TTL is the shortest one of whole weeks, months or years that is at least the asked days, the larger
   # unit on a tie: exact when the days divide (365 is 1y), otherwise rounded up, never down (256 days is 37w, 259).

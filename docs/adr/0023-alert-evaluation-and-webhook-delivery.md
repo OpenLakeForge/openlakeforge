@@ -47,7 +47,7 @@ Slim. A missed run produces no event, so something has to look for it.
 | Fact | Where it is verified |
 | --- | --- |
 | `spec.observability.alerts.receivers` exists: `name`, `type` (only `webhook`) and `secret_ref` (`name`, `key`) are required; an inline credential is an unknown field and is rejected | `_validate_alert_receiver` in `tools/olf/olf/common/profile.py`; [deployment profile](../reference/deployment-profile.md#specobservability) |
-| The provider contract carries `shared.observability.alerts` as `{receivers, supported}`; all three environments set `alerts = false` and the reference says no component acts on it yet | `environments/{local,aws-poc,azure-poc}/contracts.tf`; `modules/contracts/provider-contract/outputs.tf`; [provider contracts](../architecture/provider-contracts.md) |
+| The provider contract carries `shared.observability.alerts` as `{receivers, supported}`; all three environments set `alerts = false` and the reference says no component acts on it yet (the local root sets `alerts = true` since the evaluator was built) | `environments/{local,aws-poc,azure-poc}/contracts.tf`; `modules/contracts/provider-contract/outputs.tf`; [provider contracts](../architecture/provider-contracts.md) |
 | The health vocabulary is canonical: `HealthState` (`healthy`, `warning`, `critical`, `unknown`, `disabled`), `SignalKind` (`execution`, `latest_success`, `expected_run`, `freshness`, `quality`, `service`) and the pure rules `evaluate_execution`, `evaluate_latest_success`, `evaluate_expected_run`, `evaluate_quality` | `packages/core/openlakeforge_core/health.py` |
 | A failed run is `critical`, a canceled one `warning`; a due run that never started is `critical` ("a scheduler that is down emits no failure event"); a stopped or absent schedule is `disabled` | `evaluate_execution`, `evaluate_expected_run` in `health.py` |
 | The API computes pipeline signals from Dagster reads and a due time derived from the cron alone, never from a tick; `GET /api/v1/stages/{stage}/health` and the pipelines route already return them. Each product pipeline's latest run also carries one `quality` signal read from its manifest with a per-stage read-only key; a stage without the key reports the quality integration as `not_provided` and adds none | `health_routes.py` (`_quality`), `pipeline_health.py` (`_evaluate`), `quality_health.py`, `schedules.py` (`latest_due`) in `packages/platform-api/openlakeforge_platform_api/`; `quality_reader_credentials` in `modules/storage/seaweedfs/credentials.tf` |
@@ -60,7 +60,7 @@ Slim. A missed run produces no event, so something has to look for it.
 | CronJobs the platform applies use `concurrencyPolicy: Forbid`, one retained success and three retained failures, and get Secrets through `secretKeyRef` | `tools/olf/olf/infra/deployment/activation.py`; `tools/olf/olf/infra/openmetadata/_role_sync.py` |
 | Stage services are `<service>-<stage>.<base_domain>`, so Dagster is `dagster-<stage>.<base_domain>` | [ADR 0013](0013-service-access-and-ingress.md), decision 2 |
 | A requested retention is reported, not applied: no lifecycle rule reaches the log prefix | `logs_archive_retention` comment in `environments/local/contracts.tf`; [ADR 0022](0022-pod-log-collection-and-archive-format.md), decision 6 |
-| `olf-system` is default-deny for ingress and egress, so every flow the evaluator needs is a row in the flow table | [ADR 0017](0017-local-network-policy-and-rbac.md); `release/network-flows.yaml` |
+| Each `olf-system` workload the flow file lists, the evaluator among them, is denied every flow its policy does not list, so every flow the evaluator needs is a row in the flow table | [ADR 0017](0017-local-network-policy-and-rbac.md); `release/network-flows.yaml` |
 
 The table above was verified on 2026-11-16, before the evaluator existed. Once
 it was built, its rules were fixed: the conditions and their severities were
@@ -88,7 +88,7 @@ builds on these facts, checked at `373dbc7` on 2026-11-17:
 | Basis | Decision |
 | --- | --- |
 | Default, revisit | The evaluator runs every 5 minutes (`*/5 * * * *`). |
-| Maintainer | It is a CronJob in `olf-system` that runs the platform API image with `python -m openlakeforge_platform_api.alerting` **[T: the module does not exist yet]**. The sensor is rejected. |
+| Maintainer | It is a CronJob in `olf-system` that runs the platform API image with `python -m openlakeforge_platform_api.alerting` **[V: `packages/platform-api/openlakeforge_platform_api/alerting/`]**. The sensor is rejected. |
 
 The image's `CMD` is `uvicorn`; the CronJob overrides the command, so no second
 image is built or pinned. The evaluator imports the same rules the health routes
@@ -1117,3 +1117,5 @@ pre-release is maintained and the anchors are the `AlertKind` values, so `main` 
 links. A test fails CI unless the local root's default page exists at its ref. The override is unchanged. Each incident
 from `GET /api/v1/stages/{stage}/alerts/incidents` carries `runbook`, the same `<page>#<condition>` as its
 notification's `links.runbook`, or `null` without a runbook page; it is the one link the answer carries.
+
+2026-11-22: Corrected to match the code: the local root reports `alerts = true`, `olf-system` is isolated per listed workload rather than default-deny, and the evaluator module exists. No decision changed.

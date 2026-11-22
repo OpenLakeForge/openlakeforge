@@ -114,3 +114,5 @@ image can run. Porting them to an `olf` step after the apply would make those
 releases wait on `olf`. Each is listed with its reason in `SHELL_TEMPLATES`
 (`tools/olf/olf/common/commands/checks/_structure.py`), and `olf check structure`
 fails on an unlisted template or a stale entry.
+
+2026-11-22: Corrected to match the code: `SHELL_TEMPLATES` lists nine `*.sh.tftpl` templates and nine are tracked, not the ten the 2026-11-06 entry counts; one of the nine, the platform API's `superset-users.sh.tftpl`, is outside that entry's list. No decision changed.

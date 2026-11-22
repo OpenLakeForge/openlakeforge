@@ -208,7 +208,6 @@ stage.
 | Same profile | The backup records the SHA-256 of `openlakeforge.yaml`. Any edit, including a different stage set, is refused. |
 | Platform deployed first | Restore does not create the cluster or the platform. |
 | One operator at a time | Run `olf` commands one at a time, and stop `olf infra forward` first. |
-| WSL2 clock | Restoring onto a new cluster runs the foundation again. With `systemd-timesyncd` active on WSL2 the clock steps back and Polaris rejects tokens, so restore or the checks after it fail at random. See [On WSL2](local-installation.md#on-wsl2). |
 
 ## Manual fallbacks
 
