@@ -14,13 +14,12 @@ import threading
 from collections.abc import Mapping
 from pathlib import Path
 
-from olf.common import log
+from olf.common import host_images, log
 from olf.common.deployment.context import DeploymentFeatures
 from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.release._manifest import load_catalog
 from olf.common.tooling.toolkit import Toolkit
-from olf.infra.deployment.local import host_images
 from olf.infra.deployment.local.images import containerd_name, split_digest_reference
 
 # arch -> (polaris image, polaris-admin-tool image), verbatim from

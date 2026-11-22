@@ -276,10 +276,6 @@ class Docker:
     def rmi(self, image: str, *, env: Mapping[str, str] | None = None) -> CommandResult:
         return self._run(["rmi", image], env=env, check=False)
 
-    def prune_images(self, *, label: str, env: Mapping[str, str] | None = None) -> CommandResult:
-        """Remove unused images carrying `label`, tagged ones included."""
-        return self._run(["image", "prune", "--all", "--force", "--filter", f"label={label}"], env=env)
-
     def tag(self, source: str, target: str, *, env: Mapping[str, str] | None = None) -> CommandResult:
         return self._run(["tag", source, target], env=env)
 

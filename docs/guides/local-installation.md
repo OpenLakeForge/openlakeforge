@@ -290,12 +290,14 @@ next `olf infra deploy` rebuilds the same platform from them. With HTTPS, a rebu
 cluster has a new CA: run `olf infra access trust` again.
 
 Destroying the cluster (`olf infra destroy`, or `--phase foundation`) also
-removes the images on the host's Docker that `olf` created: the ones it built,
-which carry the label `io.openlakeforge.managed=true`, and the ones its image
-prefetch pulled, which it records in `olf-host-images.txt` under the work
-directory. An image you already had is not in that record and stays, as do
-containers, volumes and the build cache. The build cache is not pruned,
-because Docker cannot scope it to `olf`; reclaim it yourself with
+removes the images on the host's Docker that `olf` created: the project-code,
+platform API and Superset images it built, and the images its prefetch pulled.
+`olf` records each in `olf-host-images.txt` under the work directory and
+removes them by name. An image you already had is not in that record and
+stays, as does an image you built `FROM` one of theirs, and so do containers,
+volumes and the build cache. An image `olf` pulled is removed even if you have
+used it since, unless a container still uses it. The build cache is not
+pruned, because Docker cannot scope it to `olf`; reclaim it yourself with
 `docker builder prune`. The next `olf infra deploy` pulls or rebuilds the
 removed images.
 

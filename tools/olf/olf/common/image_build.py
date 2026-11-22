@@ -5,15 +5,12 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
-from olf.common import config, log
+from olf.common import config, host_images, log
 from olf.common.deployment.context import DeploymentContext, Profile
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.deployment.project_code import project_code_build_context
 from olf.common.deployment.project_dependencies import check_project_requirements
 from olf.common.tooling.toolkit import Toolkit
-
-# Marks the images olf builds, so destroy removes those and not a user's lookalike (`local/host_images.py`).
-OWNER_LABEL = "io.openlakeforge.managed=true"
 
 
 def build_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str]) -> str:
@@ -27,10 +24,10 @@ def build_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: 
         tag=images.superset_image,
         file=config.paths.distribution_root / "images/superset/Dockerfile",
         build_args={"SUPERSET_BASE_IMAGE": images.superset_base_image},
-        extra_args=("--label", OWNER_LABEL),
         env=env,
         retry_policy=images.build_retry,
     )
+    host_images.record(config, images.superset_image)
     return images.superset_image
 
 
@@ -46,10 +43,10 @@ def build_platform_api_image(config: LocalDeploymentConfig, tools: Toolkit, *, e
         tag=images.platform_api_build_image,
         file=config.paths.distribution_root / "images/platform-api/Dockerfile",
         build_args={"PYTHON_BASE_IMAGE": images.project_code_python_base_image},
-        extra_args=("--label", OWNER_LABEL),
         env=env,
         retry_policy=images.build_retry,
     )
+    host_images.record(config, images.platform_api_build_image)
     return images.platform_api_build_image
 
 
@@ -76,10 +73,10 @@ def build_project_code_image(
             tag=images.project_code_build_image,
             file=build_context / "images/project-code/Dockerfile",
             build_args={"PYTHON_BASE_IMAGE": images.project_code_python_base_image},
-            extra_args=("--label", OWNER_LABEL),
             env=env,
             retry_policy=images.build_retry,
         )
+    host_images.record(config, images.project_code_build_image)
     return images.project_code_build_image
 
 
