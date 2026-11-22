@@ -34,7 +34,8 @@ def test_destroy_removes_the_images_prefetch_pulled_and_tagged(tmp_path: Path) -
     config = _config(tmp_path, profile=Profile.SLIM)
     runner = _UserHasImages(set())
     tools = _toolkit(runner)
-    prefetch.prefetch_images(config, tools, env={}, work_dir=tmp_path / "scratch")
+    # Catalog images are pulled in the nodes; the host path remains for images a node cannot pull itself.
+    prefetch.load_image_into_nodes(config, tools, prefetch.polaris_images("amd64", _CATALOG)[0], env={})
     pulled = [c.argv[2] for c in runner.calls if c.argv[1:2] == ["pull"]]
     assert pulled
 
@@ -47,10 +48,10 @@ def test_destroy_removes_the_images_prefetch_pulled_and_tagged(tmp_path: Path) -
 def test_an_image_the_user_had_before_is_never_removed(tmp_path: Path) -> None:
     config = _config(tmp_path, profile=Profile.SLIM)
     polaris = prefetch.polaris_images("amd64", _CATALOG)[0]
-    user_images = {_CATALOG["traefik"], prefetch.archive_reference(polaris)}
+    user_images = {prefetch.archive_reference(polaris)}
     runner = _UserHasImages(user_images)
     tools = _toolkit(runner)
-    prefetch.prefetch_images(config, tools, env={}, work_dir=tmp_path / "scratch")
+    prefetch.load_image_into_nodes(config, tools, polaris, env={})
 
     host_images.prune(config, tools, env={})
 
