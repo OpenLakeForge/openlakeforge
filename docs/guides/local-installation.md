@@ -51,10 +51,17 @@ These are the tested sizes; smaller machines are untested. The CI Slim smoke tes
 DEV+PROD deployment both pass on a GitHub-hosted runner with 4 vCPUs and 16 GB
 of memory. The Slim smoke deploy adds about 33 GB to the runner's disk:
 built images, the kind nodes and the `olf` toolchain. With Full and two stages
-running, the host used about 9 GB of memory and Docker held about 100 GB: about
-15 GB of images and about 84 GB in the three kind nodes' volumes, which keep a
-copy of every image. Most of the disk is container images, not data. On Docker
-Desktop, raise its memory and disk limits to these values.
+running, the host used about 9 GB of memory. Most of the disk is container
+images, not data: the kind nodes pull the catalog images themselves, so each
+worker keeps its images once unpacked (16 GB) next to 1.4 GB of compressed
+layers. On the nightly runner, a Full DEV+PROD deployment used 87 GB of the
+root disk, 40.77 GB of it in the three kind nodes' volumes
+([run 45053002752](https://github.com/OpenLakeForge/openlakeforge/actions/runs/45053002752)).
+The same deployment on main with images imported from the host's Docker
+([run 44934519070](https://github.com/OpenLakeForge/openlakeforge/actions/runs/44934519070)) used 113 GB,
+52.08 GB in the volumes, because each worker also held 14 GB of uncompressed
+layers. The kind nodes need access to the image registries, not only the host.
+On Docker Desktop, raise its memory and disk limits to these values.
 
 ## Install `olf`
 
