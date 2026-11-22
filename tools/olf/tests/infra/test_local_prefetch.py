@@ -73,7 +73,7 @@ def test_selected_images_slim_profile_excludes_governance_and_analytics() -> Non
     assert any(i.startswith("apache/polaris:1.8.0") for i in images)
     # Floe runs in-process in the project-code image; there is no runner image to load.
     assert not any("floe" in image for image in images)
-    assert any(image.startswith("postgres:16-alpine@sha256:57c72fd2") for image in images)
+    assert any(image.startswith("postgres:18.7-alpine@sha256:0115267a") for image in images)
 
 
 def test_dex_is_prefetched_only_for_the_github_issuer() -> None:

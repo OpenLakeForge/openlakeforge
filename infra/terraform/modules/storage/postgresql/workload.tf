@@ -1,5 +1,5 @@
 # Init script runs on first start and creates the additional users + databases.
-# Uses postgres:16-alpine's /docker-entrypoint-initdb.d/ hook (shell files are executed
+# Uses the postgres image's /docker-entrypoint-initdb.d/ hook (shell files are executed
 # as the postgres superuser before the server becomes available to clients).
 resource "kubernetes_config_map_v1" "init_scripts" {
   metadata {
@@ -35,7 +35,7 @@ resource "kubernetes_stateful_set_v1" "postgresql" {
       spec {
         container {
           name  = "postgresql"
-          image = "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
+          image = "postgres:18.7-alpine@sha256:0115267ab5a509022df9319c77be365cef335adb71556c75f60f5360ee247e71"
 
           port {
             container_port = 5432
@@ -55,6 +55,8 @@ resource "kubernetes_stateful_set_v1" "postgresql" {
               }
             }
           }
+          # Explicit, because the 18+ images default PGDATA to /var/lib/postgresql/<major>/docker. A data directory
+          # of another major does not start: olf infra deploy refuses that apply (require_no_postgres_major_change).
           env {
             name  = "PGDATA"
             value = "/var/lib/postgresql/data/pgdata"
