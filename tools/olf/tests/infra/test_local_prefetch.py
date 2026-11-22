@@ -103,7 +103,7 @@ def test_prefetch_follows_the_profiles_metrics_setting(tmp_path: Path, profile: 
 
     prefetch.prefetch_images(config, _toolkit(runner), env={}, work_dir=tmp_path / "scratch")
 
-    pulls = [c.argv for c in runner.calls if c.argv[:2] == ["docker", "pull"]]
+    pulls = [c.argv for c in runner.calls if "crictl" in c.argv and "pull" in c.argv]
     for name in ("prometheus", "kube_state_metrics"):
         assert any(_CATALOG[name] in argv for argv in pulls) is pulled
 
@@ -213,24 +213,38 @@ def test_prefetch_images_skips_images_already_present_on_every_node(tmp_path: Pa
     assert not any(c.argv[:2] == ["docker", "pull"] for c in runner.calls)
 
 
-def test_prefetch_images_pulls_saves_and_imports_digest_pinned_image(tmp_path: Path) -> None:
+def test_prefetch_pulls_catalog_images_in_the_node_not_through_the_host(tmp_path: Path) -> None:
     config = _config(tmp_path, profile=Profile.SLIM)
     runner = _ScriptedRunner(image_already_present=set())
-    tools = _toolkit(runner)
 
-    prefetch.prefetch_images(config, tools, env={}, work_dir=tmp_path / "scratch")
+    prefetch.prefetch_images(config, _toolkit(runner), env={}, work_dir=tmp_path / "scratch")
 
+    # A `docker save` import would keep uncompressed blobs the node never drops (#1373).
     polaris_image = prefetch.polaris_images("amd64", _CATALOG)[0]
-    tag_calls = [c for c in runner.calls if c.argv[:2] == ["docker", "tag"] and c.argv[2] == polaris_image]
-    assert len(tag_calls) == 1
-    assert tag_calls[0].argv[3] == prefetch.archive_reference(polaris_image)
+    assert ["docker", "exec", "node-a", "crictl", "pull", polaris_image] in [c.argv for c in runner.calls]
+    host_verbs = {c.argv[1] for c in runner.calls if c.argv[0] == "docker"}
+    assert not host_verbs & {"pull", "save", "tag"}
+    assert not any("import" in c.argv and "ctr" in c.argv for c in runner.calls)
 
-    save_calls = [c for c in runner.calls if c.argv[:2] == ["docker", "save"]]
-    assert any(c.argv[2] == prefetch.archive_reference(polaris_image) for c in save_calls)
 
-    import_calls = [c for c in runner.calls if "import" in c.argv and "ctr" in c.argv]
-    assert import_calls  # loaded onto the single node
-    assert import_calls[0].argv[1:4] == ["exec", "--privileged", "-i"]
+def test_a_node_pull_is_retried_then_fails_naming_the_image(tmp_path: Path) -> None:
+    class _FlakyNode(_ScriptedRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
+            if "crictl" in argv and "pull" in argv:
+                self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+                raise CommandExecutionError(argv, 1, stderr="registry unreachable")
+            return super().run(command, **kwargs)
+
+    environ = {"LOCAL_PREFETCH_PULL_ATTEMPTS": "3", "LOCAL_PREFETCH_PULL_RETRY_DELAY_SECONDS": "0"}
+    context = DeploymentContext.local(repo_root=tmp_path, profile=Profile.SLIM, distribution_root=_REPO_ROOT)
+    config = LocalDeploymentConfig.from_environment(environ, context=context)
+    runner = _FlakyNode()
+
+    with pytest.raises(DeploymentPreconditionError, match="registry unreachable"):
+        prefetch.prefetch_images(config, _toolkit(runner), env={}, work_dir=tmp_path / "scratch")
+
+    assert len([c for c in runner.calls if "crictl" in c.argv and "pull" in c.argv]) == 3
 
 
 class _OfflineNodeRunner(_ScriptedRunner):
@@ -276,10 +290,10 @@ def test_digest_pinned_prefetch_needs_no_registry_from_the_node(tmp_path: Path) 
     config = _config(tmp_path, profile=Profile.SLIM)
     runner = _OfflineNodeRunner()
     tools = _toolkit(runner)
-
-    prefetch.prefetch_images(config, tools, env={}, work_dir=tmp_path / "scratch")
-
     polaris_image = prefetch.polaris_images("amd64", _CATALOG)[0]
+
+    prefetch.load_image_into_nodes(config, tools, polaris_image, env={})
+
     assert prefetch.image_present_on_all_nodes(tools.docker, polaris_image, ["node-a"], env={})
     # The names containerd records for the import and CRI resolves for the pin, written out rather than derived.
     digest = polaris_image.split("@", 1)[1]
@@ -387,7 +401,7 @@ def test_selected_images_loads_the_published_example_only_when_deployed() -> Non
     )
 
 
-def test_prefetch_imports_into_workers_and_traefik_into_every_node(tmp_path: Path) -> None:
+def test_prefetch_pulls_into_workers_and_traefik_into_every_node(tmp_path: Path) -> None:
     nodes = ("openlakeforge-local-control-plane", "openlakeforge-local-worker", "openlakeforge-local-worker2")
 
     class _ThreeNodes(_ScriptedRunner):
@@ -402,26 +416,26 @@ def test_prefetch_imports_into_workers_and_traefik_into_every_node(tmp_path: Pat
     assert config.cluster.name == "openlakeforge-local"
     prefetch.prefetch_images(config, _toolkit(runner), env={}, work_dir=tmp_path)
 
-    imported = [c.argv[4] for c in runner.calls if "import" in c.argv and "ctr" in c.argv]
+    pulled = [c.argv[2] for c in runner.calls if "crictl" in c.argv and "pull" in c.argv]
     images = prefetch.selected_images(config.features, server_arch="amd64", catalog_images=_CATALOG, perimeter=False)
-    assert imported.count(nodes[1]) == imported.count(nodes[2]) == len(images)
-    assert imported.count(nodes[0]) == 1  # Traefik only
+    assert pulled.count(nodes[1]) == pulled.count(nodes[2]) == len(images)
+    assert pulled.count(nodes[0]) == 1  # Traefik only
 
 
 @pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="the smoke deadline is a POSIX interval timer")
-def test_smoke_deadline_interrupts_a_blocked_node_import(tmp_path: Path) -> None:
+def test_smoke_deadline_interrupts_a_blocked_node_pull(tmp_path: Path) -> None:
     from olf.infra.smoke import SmokeError, _deadline
 
-    class _BlockedImport(_ScriptedRunner):
+    class _BlockedPull(_ScriptedRunner):
         def run(self, command, **kwargs):  # type: ignore[override]
             argv = list(command.argv) if hasattr(command, "argv") else [str(p) for p in command]
-            if "import" in argv and "ctr" in argv:
+            if "pull" in argv and "crictl" in argv:
                 time.sleep(5)
             return super().run(command, **kwargs)
 
     started = time.monotonic()
     with pytest.raises(SmokeError), _deadline(1):
         prefetch.prefetch_images(
-            _config(tmp_path, profile=Profile.SLIM), _toolkit(_BlockedImport()), env={}, work_dir=tmp_path
+            _config(tmp_path, profile=Profile.SLIM), _toolkit(_BlockedPull()), env={}, work_dir=tmp_path
         )
     assert time.monotonic() - started < 3
