@@ -126,4 +126,4 @@ the project, and the user need not know that boundary exists. Enforced by:
   `--profile-only` gives an existing project its profile.
 - Undated: D1 changed: `openlakeforge-lakehouse-services` became the third
   published distribution (ADR 0021).
-- 2026-11-22: Rewritten in the standard form; no decision changed.
+- 2026-11-22 (#1387): Rewritten in the standard form; no decision changed.

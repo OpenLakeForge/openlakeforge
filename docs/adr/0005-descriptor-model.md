@@ -138,4 +138,4 @@ commands in `tools/olf/olf/common/scaffold/`.
   assets and inputs to what dbt and Floe declare.
 - 2026-11-17 (#1205): D1 changed: `alerts.yml` (`AlertPolicy` v1beta1) is the
   third descriptor.
-- 2026-11-22: Rewritten in the standard form; no decision changed.
+- 2026-11-22 (#1387): Rewritten in the standard form; no decision changed.

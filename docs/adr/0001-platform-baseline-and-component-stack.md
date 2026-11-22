@@ -116,4 +116,4 @@ Enforced by: `olf check components`.
   materialization, which replaced ADR 0005's dbt-duckdb Gold).
 - 2026-10-28 (#533): D5 changed: Floe runs as one Kubernetes Job per domain on
   the project-code image; the separate Floe runner image is removed.
-- 2026-11-22: Rewritten in the standard form; no decision changed.
+- 2026-11-22 (#1387): Rewritten in the standard form; no decision changed.

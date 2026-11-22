@@ -122,4 +122,4 @@ by: the v3 parser; the field rules are in
 - 2026-11-06 (#114): D7 changed: the v2 reader is removed and a `2.0.0`
   contract is refused; the v2 export to runtimes stays.
 - 2026-11-22 (#1385): D9 corrected: the local root runs one Trino per stage.
-- 2026-11-22: Rewritten in the standard form; no decision changed.
+- 2026-11-22 (#1387): Rewritten in the standard form; no decision changed.
