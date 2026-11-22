@@ -63,6 +63,12 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Apache Polaris, its admin tool and its Helm chart move from 1.8.0 to 1.9.0.
+  The relational JDBC schema stays at v6, so an existing metastore needs no
+  migration. Polaris now accepts up to 5 s of clock skew on a token's `iat`, so
+  stopping `systemd-timesyncd` is no longer a WSL2 prerequisite: `olf infra
+  doctor` reports a second time source as information and a local deploy no
+  longer warns about it.
 - **The shared PostgreSQL is PostgreSQL 18** (`postgres:18.7-alpine`, pinned by
   index digest; was the floating `postgres:16-alpine`). It serves Dagster,
   Polaris, Superset, OpenMetadata and Dex, and its image also runs Dagster's
