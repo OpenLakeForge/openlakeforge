@@ -130,14 +130,14 @@ def _describe(exc: BaseException, headers: Mapping[str, str]) -> str:
         seen.add(id(cause))
         parts.append(f"{type(cause).__name__}: {cause}")
         cause = cause.__cause__ or cause.__context__
-    text = " <- ".join(parts)[:600]
+    text = " <- ".join(parts)
     secrets = [headers.get("Authorization", "").removeprefix("Bearer ")]
     secrets += [
         pair.partition("=")[2] for pair in headers.get("X-Trino-Extra-Credential", "").split(",")
     ]
     for secret in filter(None, secrets):
         text = text.replace(secret, "***")
-    return text
+    return text[:600]
 
 
 @dataclass(frozen=True)

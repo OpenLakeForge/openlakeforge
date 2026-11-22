@@ -213,8 +213,11 @@ def test_the_failed_querys_id_is_read_from_the_error_and_searched_in_the_coordin
 
     printed: list[str] = []
     logs = "other\nQueryCompletedEvent 20261122_000000_00001_abcde"
-    monkeypatch.setattr(person, "kubectl", lambda cfg, args, **kw: logs)
+    asked: list[list[str]] = []
+    monkeypatch.setattr(person, "kubectl", lambda cfg, args, **kw: asked.append(args) or logs)
     monkeypatch.setattr(person.log, "info", printed.append)
     person.dump_query_route_state(None, "dev", "SHOW SCHEMAS", error)  # type: ignore[arg-type]
     assert printed[-1].endswith("QueryCompletedEvent 20261122_000000_00001_abcde")
     assert "other" not in printed[-1]
+    # A label selector shows only 10 lines per pod unless the tail is lifted.
+    assert "--tail=-1" in asked[-1]

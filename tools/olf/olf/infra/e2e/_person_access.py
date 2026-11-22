@@ -168,7 +168,9 @@ def dump_query_route_state(cfg: E2EConfig, stage: str, sql: str, error: str = ""
         # window is wider than the hop probes and a line may only appear when this is looked at again later.
         try:
             lines = kubectl(
-                cfg, ["logs", "-n", f"olf-{stage}", "-l", "app.kubernetes.io/name=trino", "--since=15m"], capture=True
+                cfg,
+                ["logs", "-n", f"olf-{stage}", "-l", "app.kubernetes.io/name=trino", "--since=15m", "--tail=-1"],
+                capture=True,
             )
             text = "\n".join(line for line in lines.splitlines() if query_id in line) or "(no line yet)"
         except Exception as exc:  # noqa: BLE001

@@ -193,3 +193,11 @@ def test_a_break_mid_run_keeps_the_exception_text_and_the_query_id_without_the_t
 def test_a_break_on_the_first_post_says_no_query_id_was_received() -> None:
     with pytest.raises(TrinoUnreachableError, match="no queryId received"):
         _client(FakeTrino(requests.exceptions.ConnectionError("reset"))).run("SELECT 1", bearer=lambda: SECRET)
+
+
+def test_a_token_crossing_the_length_cap_is_not_left_as_a_prefix() -> None:
+    long = requests.exceptions.ConnectionError("x" * 580 + SECRET)
+    with pytest.raises(TrinoUnreachableError) as raised:
+        _client(FakeTrino(long)).run("SELECT 1", bearer=lambda: SECRET)
+
+    assert "eyJ" not in str(raised.value)
