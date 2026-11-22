@@ -407,7 +407,7 @@ module "metrics" {
   # From the namespace resources, so kube-state-metrics' Roles are created after their namespaces.
   stage_namespaces = { for name, namespace in kubernetes_namespace_v1.stage : name => namespace.metadata[0].name }
   trino_targets    = { for name, namespace in local.stage_namespaces : name => "${local.trino_service.name}.${namespace}.svc:${local.trino_service.port}" }
-  # The SeaweedFS chart (4.48.0) starts every process with -metricsPort=9327 and names that port on its Services.
+  # The SeaweedFS chart (4.54.0) starts every process with -metricsPort=9327 and names that port on its Services.
   object_store_targets = {
     for service in ["master", "volume", "filer", "s3"] : service => "seaweedfs-${service}.${kubernetes_namespace_v1.shared.metadata[0].name}.svc:9327"
   }

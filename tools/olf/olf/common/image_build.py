@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
-from olf.common import config, log
+from olf.common import config, host_images, log
 from olf.common.deployment.context import DeploymentContext, Profile
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.deployment.project_code import project_code_build_context
@@ -27,6 +27,7 @@ def build_superset_image(config: LocalDeploymentConfig, tools: Toolkit, *, env: 
         env=env,
         retry_policy=images.build_retry,
     )
+    host_images.record(config, images.superset_image)
     return images.superset_image
 
 
@@ -45,6 +46,7 @@ def build_platform_api_image(config: LocalDeploymentConfig, tools: Toolkit, *, e
         env=env,
         retry_policy=images.build_retry,
     )
+    host_images.record(config, images.platform_api_build_image)
     return images.platform_api_build_image
 
 
@@ -74,6 +76,7 @@ def build_project_code_image(
             env=env,
             retry_policy=images.build_retry,
         )
+    host_images.record(config, images.project_code_build_image)
     return images.project_code_build_image
 
 

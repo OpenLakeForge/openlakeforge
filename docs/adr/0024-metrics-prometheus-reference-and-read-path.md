@@ -2,12 +2,13 @@
 
 ## Status
 
-Proposed, awaiting the owner's approval (#21). Slices M-a, M-b, M-c, M-d and M-e
-under "Build order" are built; the rest is not.
+Accepted by the maintainer as built (2026-11-22). Slices M-a, M-b, M-c, M-d and M-e
+under "Build order" are built; M-f, the acceptance with the 24-hour footprint,
+remains open (#21).
 This record decides the backend, the scrape
 baseline, the label policy, the read path through the platform API, the network
 and RBAC additions and the contract shape for `spec.observability.metrics`; the
-slices under "Build order" implement it once it is approved.
+slices under "Build order" implement it.
 
 Tags used below: **[V]** checked in this repository at `acba95b`, or in the
 pinned upstream artifact or page named beside it, on 2026-11-17; **[T]** a claim
@@ -39,13 +40,13 @@ What the tree has today:
 | --- | --- |
 | `spec.observability.metrics` takes `enabled` and `retention_days` (default 7, at most 3650); `enabled` follows the preset while unstated: `true` for Full, `false` for Slim | `_METRICS_FIELDS`, `DEFAULT_METRICS_RETENTION_DAYS`, `MAX_RETENTION_DAYS`, `_resolve_observability` in `tools/olf/olf/common/profile.py`; [deployment profile](../reference/deployment-profile.md#specobservability) **[V]** |
 | The contract carries `shared.observability.metrics` as `{enabled, retention_days, retention_supported, supported}`; `supported` and `retention_supported` come from each root's `observability_support` | `outputs.tf` and `variables.tf` in `infra/terraform/modules/contracts/provider-contract/` **[V]** |
-| All three roots report `metrics = false` and `metrics_retention = false`, so a Full profile reads as requested-but-unsupported; the local root's comment names #21 as the slice that flips them | `observability_support` in `infra/terraform/environments/{local,aws-poc,azure-poc}/contracts.tf` **[V]** |
+| The local root reports `metrics = true` and `metrics_retention = true` since M-a and M-b; AWS and Azure report `false`, so a Full profile there reads as requested-but-unsupported | `observability_support` in `infra/terraform/environments/{local,aws-poc,azure-poc}/contracts.tf` **[V]** |
 | AWS lists `observability.cloudwatch` and `observability.managed_prometheus` as future adapter shapes, Azure `observability.azure_monitor` and `observability.managed_prometheus`; every root sets `tracing_enabled = false` | `observability_contract` in the same three files **[V]** |
 | The contract validator rejects a field it does not know, so a new `metrics` field is a validator change | `_check_observability` in `tools/olf/olf/common/provider_contracts/_v3.py`; `_fields` in `_validation.py` **[V]** |
-| The health routes already carry a `metrics` integration whose status is never a health state: `available`, `disabled`, `unavailable` or `not_provided`; today it is always `not_provided` | `IntegrationStatus` in `packages/platform-api/openlakeforge_platform_api/models.py`; `_METRICS_NOT_PROVIDED` in `health_routes.py` **[V]** |
+| The health routes already carry a `metrics` integration whose status is never a health state: `available`, `disabled`, `unavailable` or `not_provided`, set from the profile, the provider and a probe query | `IntegrationStatus` in `packages/platform-api/openlakeforge_platform_api/models.py`; `metrics_routes.py` **[V]** |
 | Every API route has one row in the permission matrix: a role floor, `stages`, optional `role_stages` and `services`; a route without a row is refused | `packages/platform-api/openlakeforge_platform_api/permissions.toml` **[V]** |
 | The health routes' floor is `data-engineer` on every stage | `get_stage_health`, `get_stage_service_health` in `permissions.toml` **[V]** |
-| `olf-system` and each stage namespace are default-deny both ways; every flow is a row in `release/network-flows.yaml`, whose last id is F44; a `node` peer renders as the nodes' `/32` addresses | `release/network-flows.yaml`; `node_cidrs` in `infra/terraform/modules/security/network-policy/`; [ADR 0017](0017-local-network-policy-and-rbac.md) **[V]** |
+| Each stage namespace is default-deny both ways, and each `olf-system` workload the flow file lists is denied every flow its policy does not list; every flow is a row in `release/network-flows.yaml`, whose last id was F44 when this record was written; a `node` peer renders as the nodes' `/32` addresses | `release/network-flows.yaml`; `node_cidrs` in `infra/terraform/modules/security/network-policy/`; [ADR 0017](0017-local-network-policy-and-rbac.md) **[V]** |
 | The platform API holds no Kubernetes grant beyond a namespaced `list` of pods, Deployments and StatefulSets and a TokenReview `create` | `modules/access/platform-api/probe_rbac.tf`; [ADR 0021](0021-platform-api.md), decision 7 **[V]** |
 | Pins: Trino image `484` and chart `1.45.0`; Dagster chart and image `1.13.7`; SeaweedFS chart `4.48.0` and image `4.48`. No Prometheus, kube-state-metrics or collector image is pinned | `release/component-catalog.yaml` **[V]** |
 | kind is pinned at `0.32.0` and the foundation sets no node image, so nodes run kind's default, `kindest/node:v1.36.1` | `components.toolchain.kind` in the catalog; `infra/terraform/foundations/local-kind/main.tf`; `pkg/apis/config/defaults/image.go` at kind `v0.32.0` **[V]** |
@@ -564,6 +565,10 @@ in a 60 s step, too few for `increase()`, so the 1h and 6h charts were empty.
 2026-11-19: decision 4 names the stage health routes' `range` (#1260) as the
 same list as the metrics routes' ranges, one `RANGES` in code. Nothing about the
 metrics routes changed.
+
+2026-11-22: Accepted by the maintainer as built; M-f (24-hour footprint) remains open (#21).
+
+2026-11-22: Corrected to match the code: the local root reports `metrics = true` and `metrics_retention = true`, the health routes' `metrics` integration is no longer always `not_provided`, and `olf-system` is isolated per listed workload rather than default-deny. No decision changed.
 
 2026-11-22: the Trino pin moves to image 484 and chart 1.45.0. Nothing about
 the metrics read path changed.

@@ -5,7 +5,7 @@ A run's `run_results.json` names each test only by `unique_id`; the table, colum
 The product job writes the quality manifest to the ops bucket (`product_dagster._publish_quality_manifest`).
 
 The artifacts are the ones `product_dagster` uploads to `run-artifacts/dbt/<domain>/<product>/<run>/`, built for
-dbt-core 1.11.17 (run-results schema v6, manifest schema v12) with dagster-dbt 0.29.7. `merge_run_results` has
+dbt-core 1.11.17 (run-results schema v6, manifest schema v12) with dagster-dbt 0.29.31. `merge_run_results` has
 folded every generation's results into the one file, while `manifest.json` is the last invocation's, which holds
 the whole project. Data tests (generic and singular) are mapped; unit tests are not.
 
@@ -159,7 +159,7 @@ def _classify(status: Any, test: Mapping[str, Any]) -> tuple[QualityOutcome, Pip
     if status == "warn":
         return QualityOutcome.WARN, PipelineOutcome.CONTINUED
     if status == "fail":
-        # dagster-dbt 0.29.7 reports a failed test as an ERROR-severity check, and dbt's non-zero exit makes
+        # dagster-dbt 0.29.31 reports a failed test as an ERROR-severity check, and dbt's non-zero exit makes
         # invocation.stream() raise DagsterDbtCliRuntimeError, so the step fails; build_by_generation also
         # skips the test's dependents. dbt reports `fail` only for severity error (severity warn reports
         # `warn`), so another severity here is a manifest that disagrees with its results: not claimed as a block.

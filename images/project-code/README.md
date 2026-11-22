@@ -39,7 +39,7 @@ same UID with `runAsNonRoot`, `allowPrivilegeEscalation: false` and all
 capabilities dropped. A derived image that needs root for a build step must
 switch back with `USER 10001:10001`.
 The base image is configurable with `PROJECT_CODE_PYTHON_BASE_IMAGE`; AWS
-builds default this to `public.ecr.aws/docker/library/python:3.12-slim` to avoid
+builds default this to `public.ecr.aws/docker/library/python:3.12.16-slim` to avoid
 Docker Hub during `olf infra deploy --provider aws --phase artifacts`.
 dbt is bound the same way. The Docker build renders one `profiles.yml` from
 `openlakeforge_runtime/dbt/profiles/trino.yml` into `generated/dbt-profiles/` under
