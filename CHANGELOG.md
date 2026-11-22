@@ -353,6 +353,10 @@ The Dagster code location moved, which breaks a project created on
   collector before its spool limit is reached (ADR 0022).
 - The Prometheus and kube-state-metrics images carry HIGH findings fixed
   upstream but in no release yet, waived until 2027-01-15.
+- A profile without `spec.identity` has no authentication: the platform API
+  answers anonymous calls with the highest role, and every `lakehouse_<stage>`
+  catalog is readable and writable through Trino's Polaris credential (#1274,
+  #1278). Use it on a local test stack only.
 
 ### Migration
 
@@ -395,6 +399,12 @@ Other changes a 0.6.0-alpha.3 deployment notices:
   a `platform-admin` reads them.
 - A documented Gold column needs a `data_type`, or OpenMetadata drops that
   model's lineage.
+- **A profile without `spec.identity` is now open.** The next deploy adds the
+  platform API, which answers anonymous calls on a `*.localhost` origin with
+  the highest role, and switches each `lakehouse_<stage>` catalog to Trino's
+  Polaris credential, so anyone who reaches the stack can read and write
+  every stage (#1274, #1278). Add `spec.identity` before upgrading any stack
+  that is not a local test stack.
 
 ## [0.6.0-alpha.3] - 2026-11-13
 
