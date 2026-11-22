@@ -628,8 +628,31 @@ def test_run_release_check_fails_on_tag_mismatch() -> None:
 
 def test_run_release_check_without_tag_only_validates_catalog_shape() -> None:
     report = _readiness.run_release_check(ROOT)
-    version_result = next(r for r in report.results if "valid alpha semver" in r.name)
+    version_result = next(r for r in report.results if "valid alpha or beta semver" in r.name)
     assert version_result.ok
+
+
+@pytest.mark.parametrize(("version", "ok"), [("0.7.0-beta.1", True), ("0.6.0-alpha.3", True), ("0.7.0-rc.1", False)])
+def test_version_check_without_tag_validates_alpha_or_beta(version: str, ok: bool) -> None:
+    result = _readiness._check_version_matches_tag({"distribution": {"version": version}}, None)
+    assert result.ok is ok, result.detail
+
+
+def test_check_python_package_versions_expects_pep440_beta(tmp_path: Path) -> None:
+    for directory, name in {
+        "tools/olf": "openlakeforge",
+        "packages/core": "openlakeforge-core",
+        "packages/lakehouse-services": "openlakeforge-lakehouse-services",
+        "packages/runtime": "openlakeforge-runtime",
+        "images/project-code": "openlakeforge-project-code",
+    }.items():
+        (tmp_path / directory).mkdir(parents=True)
+        (tmp_path / directory / "pyproject.toml").write_text(f'[project]\nname = "{name}"\nversion = "0.7.0b1"\n')
+
+    result = _readiness._check_python_package_versions(tmp_path, {"distribution": {"version": "0.7.0-beta.1"}})
+
+    assert result.ok, result.detail
+    assert result.detail == "0.7.0b1"
 
 
 def test_release_workflow_disables_redundant_matrix_sbom_uploads() -> None:

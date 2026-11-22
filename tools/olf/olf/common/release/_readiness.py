@@ -17,6 +17,7 @@ from typing import Any
 
 import yaml
 
+from olf.common.distribution import RELEASE_VERSION_PATTERN, release_to_pep440
 from olf.common.release._compatibility import (
     _check_compatibility_matrix_up_to_date,
     _check_provider_using_terraform_roots_have_lockfiles,
@@ -40,7 +41,9 @@ _IMAGE_TAG_DIGEST_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
 def _check_version_matches_tag(catalog: dict[str, Any], tag: str | None) -> CheckResult:
     version = catalog_version(catalog)
     if tag is None:
-        return CheckResult("catalog version is valid alpha semver", True, version)
+        valid = RELEASE_VERSION_PATTERN.fullmatch(version) is not None
+        detail = version if valid else f"{version!r} is not <x.y.z>-alpha.<n> or <x.y.z>-beta.<n>"
+        return CheckResult("catalog version is valid alpha or beta semver", valid, detail)
     expected_tag = tag_for_version(version)
     if tag != expected_tag:
         return CheckResult(
@@ -54,19 +57,11 @@ def _check_version_matches_tag(catalog: dict[str, Any], tag: str | None) -> Chec
 _TOOLCHAIN_SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _TOOLCHAIN_PLATFORMS = ("darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64")
 _CHART_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-_RELEASE_ALPHA_PATTERN = re.compile(r"^(\d+\.\d+\.\d+)-alpha\.(\d+)$")
-
-
-def _pep440_release_version(version: str) -> str:
-    match = _RELEASE_ALPHA_PATTERN.fullmatch(version)
-    if match is None:
-        raise ValueError(f"unsupported release version {version!r}")
-    return f"{match.group(1)}a{match.group(2)}"
 
 
 def _check_python_package_versions(repo_root: Path, catalog: dict[str, Any]) -> CheckResult:
     """The published distributions, the project-code image and the catalog release are one version contract."""
-    expected = _pep440_release_version(catalog_version(catalog))
+    expected = release_to_pep440(catalog_version(catalog))
     paths = {
         "openlakeforge": repo_root / "tools/olf/pyproject.toml",
         "openlakeforge-core": repo_root / "packages/core/pyproject.toml",

@@ -43,10 +43,17 @@ def test_load_catalog_rejects_missing_file(tmp_path: Path) -> None:
         _manifest.load_catalog(tmp_path / "missing.yaml")
 
 
-def test_load_catalog_rejects_bad_version(tmp_path: Path) -> None:
-    path = _write_catalog(tmp_path, distribution={"version": "not-a-version"})
+@pytest.mark.parametrize("version", ["not-a-version", "0.7.0", "0.7.0-rc.1", "0.7.0-beta"])
+def test_load_catalog_rejects_bad_version(tmp_path: Path, version: str) -> None:
+    path = _write_catalog(tmp_path, distribution={"version": version})
     with pytest.raises(_manifest.ReleaseError):
         _manifest.load_catalog(path)
+
+
+@pytest.mark.parametrize("version", ["0.6.0-alpha.3", "0.7.0-beta.1"])
+def test_load_catalog_accepts_alpha_and_beta(tmp_path: Path, version: str) -> None:
+    path = _write_catalog(tmp_path, distribution={"version": version})
+    assert _manifest.catalog_version(_manifest.load_catalog(path)) == version
 
 
 def test_tag_for_version_and_back() -> None:

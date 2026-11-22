@@ -103,7 +103,8 @@ See [ADR 0008](../adr/0008-olf-owns-orchestration-and-toolchain.md).
 
 `olf check all` fails a release if:
 
-- `distribution.version` isn't a valid alpha semver, or (when `--tag` is
+- `distribution.version` isn't `<x.y.z>-alpha.<n>` or `<x.y.z>-beta.<n>`
+  (published to PyPI as `<x.y.z>a<n>` / `<x.y.z>b<n>`), or (when `--tag` is
   passed) the tag doesn't match it.
 - Any catalog image under `components.images` is missing an `@sha256:...`
   digest, or (for images with a Helm deployment source) doesn't match the

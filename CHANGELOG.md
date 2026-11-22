@@ -297,7 +297,7 @@ The Dagster code location moved, which breaks a project created on
 - `olf` and the project-code image pin `dbt-core` 1.11.17 and `sqlparse`
   0.6.1 (#1226).
 - Release tooling accepts `x.y.z-beta.N` versions alongside `x.y.z-alpha.N`; a
-  beta is published to PyPI as `x.y.zbN`.
+  beta is published to PyPI as `x.y.zbN` (#1375).
 - The Quickstart asks for about 35 GB of free disk for Slim, measured, instead
   of the Full figure of 100 GB (#1111).
 
