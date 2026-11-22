@@ -69,7 +69,7 @@ same file to validate the contract.
 | `viewer` | read-only | read | — | — | yes |
 
 `query_api` is the query service's `/v1` path, not a route of its own: the
-ingress routes `trino.<base_domain>/v1` to the `viewer` floor when people sign
+ingress routes `trino-<stage>.<base_domain>/v1` (`stage/<stage>/query_api`) to the `viewer` floor when people sign
 in with GitHub, while the Web UI keeps the `query` floor. What a person reads
 there is decided by Polaris, not this row ([ADR 0019](0019-data-plane-authorization-deferral.md)).
 The perimeter's `path_refs` give it a floor; `protected_routes` does not list it.
@@ -185,7 +185,7 @@ contract references (`oidc-client-<consumer>`, key `client-secret`).
 Two local-cluster risks were checked rather than assumed. `*.localhost` is
 loopback for some clients, so back-channel token and JWKS calls need the pod
 to reach Traefik at `*.<base_domain>` and trust the local CA; the local root
-does both (ADR 0013, decision 7). curl is such a client: it resolves
+does both (ADR 0013, decision 8). curl is such a client: it resolves
 `*.localhost` to loopback itself without asking DNS, while getaddrinfo-based
 clients get the Traefik address from cluster DNS. Single sign-on across hosts needs a cookie
 on `.<base_domain>`: curl (libpsl) and headless Chromium both accepted a
@@ -619,3 +619,5 @@ accepted audience is unchanged.
 2026-11-17: the platform API admits a service principal, `alert-evaluator`, authenticated by a projected ServiceAccount token
 and a TokenReview, not by the issuer (ADR 0021, decision 3). It holds no canonical role, in keeping with the class 2 rule
 that a workload is never a member of one, so the role precedence, the role mapping and the perimeter are unchanged.
+
+2026-11-22: Corrected to match the code: the `query_api` path is on each stage's `trino-<stage>` host, and in-cluster issuer resolution is ADR 0013 decision 8, not 7. No decision changed.

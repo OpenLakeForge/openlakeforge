@@ -21,7 +21,7 @@ resource "kubernetes_job_v1" "bootstrap" {
 
         container {
           name  = "bootstrap"
-          image = "postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
+          image = "postgres:18.7-alpine@sha256:0115267ab5a509022df9319c77be365cef335adb71556c75f60f5360ee247e71"
 
           command = ["/bin/sh", "-ec"]
           args = [<<-SCRIPT

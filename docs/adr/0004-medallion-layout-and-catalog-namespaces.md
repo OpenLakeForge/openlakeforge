@@ -237,9 +237,9 @@ model's temporary view can be dropped.
 2026-11-06 (#562): the stage catalogs are created by `olf`'s Polaris bootstrap
 after the platform apply; the Terraform Job that did it is deleted.
 
-2026-11-07 (#993): stage buckets are `<prefix>-<stage>-<layer>` on local, AWS
-and Azure, derived by the resolver; they were `lakehouse-<stage>-<layer>` on
-local and Azure and suffixed or legacy names on AWS.
+2026-11-07 (#993): stage buckets are `<prefix>-<stage>-<layer>` on local and
+Azure, derived by the resolver; they were `lakehouse-<stage>-<layer>`. AWS keeps
+its suffixed or legacy names ("AWS keeps a suffix" above).
 
 2026-11-12: Gold is one dbt project at `lakehouse_code/gold/`, with a folder
 per product under `models/`. Before this, each product had its own dbt project
@@ -255,3 +255,5 @@ dbt groups whose models are private by default.
 product's job from `governance.yml`, and `pipelines/products.py` holds the
 overrides. The modules differed only in a domain and product name that
 `governance.yml` already declares.
+
+2026-11-22: Corrected to match the code: the 2026-11-07 entry no longer says AWS stage buckets lost their random suffix. No decision changed.

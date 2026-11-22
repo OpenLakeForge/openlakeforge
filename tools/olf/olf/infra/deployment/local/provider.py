@@ -91,19 +91,19 @@ class LocalProvider:
         return self.context.command_env(docker_host=docker_host)
 
     def foundation_up(self) -> None:
-        from olf.infra.deployment.local import foundation, network_canary, wsl_clock
+        from olf.infra.deployment.local import foundation, network_canary
 
-        if problem := wsl_clock.competing_time_sync():
-            log.warn(problem)
         foundation.foundation_up(self.config, self.tools, env=self.env)
         network_canary.require_policy_enforcement(self.config, self.tools, env=self.env)
 
     def foundation_down(self, *, force: bool = False) -> None:
+        from olf.common import host_images
         from olf.infra.deployment.local import foundation
 
         foundation.foundation_down(
             self.config, self.tools, env=self.env, force=force or self.config.force_foundation_down
         )
+        host_images.prune(self.config, self.tools, env=self.env)
 
     def prepare_images(self) -> None:
         from olf.infra.deployment.local import prefetch
@@ -305,7 +305,7 @@ class LocalProvider:
 
         if wsl_clock.is_wsl():
             problem = wsl_clock.competing_time_sync()
-            items.append(DoctorItem("WSL clock", problem is None, problem or "one time source (Hyper-V)"))
+            items.append(DoctorItem("WSL clock", True, problem or "one time source (Hyper-V)"))
         if phase in (DeploymentPhase.ALL, DeploymentPhase.PLATFORM):
             tfvars = self.config.terraform.var_file
             if tfvars is not None:

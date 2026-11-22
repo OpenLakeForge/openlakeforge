@@ -32,10 +32,10 @@ from olf.common.deployment.project_code import published_example_image, split_pu
 from olf.common.tooling.process import ProcessRunner
 from olf.common.tooling.retry import RetryPolicy
 
-_DEFAULT_PYTHON_BASE_IMAGE_DIGEST = "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
+_DEFAULT_PYTHON_BASE_IMAGE_DIGEST = "sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b"
 _DEFAULT_PYTHON_BASE_IMAGE = {
-    "aws": f"public.ecr.aws/docker/library/python:3.12-slim@{_DEFAULT_PYTHON_BASE_IMAGE_DIGEST}",
-    "azure": f"python:3.12-slim@{_DEFAULT_PYTHON_BASE_IMAGE_DIGEST}",
+    "aws": f"public.ecr.aws/docker/library/python:3.12.16-slim@{_DEFAULT_PYTHON_BASE_IMAGE_DIGEST}",
+    "azure": f"python:3.12.16-slim@{_DEFAULT_PYTHON_BASE_IMAGE_DIGEST}",
 }
 
 

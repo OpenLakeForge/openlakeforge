@@ -132,11 +132,12 @@ then run the prefetch step again.
 ## Trino fails at random with Not authorized on WSL2
 
 Queries, dbt models or maintenance runs fail now and then with `Not authorized`
-or `Failed to load table`, each time in a different place. On WSL2 this means
+or `Failed to load table`, each time in a different place. On WSL2 this can mean
 two services set the clock: Hyper-V time sync and `systemd-timesyncd`. The clock
-steps back every half minute, and Polaris rejects the tokens it issued just
-before a step. `olf infra doctor` reports it as `WSL clock`. WSL takes its time
-from Windows, so stop the second service:
+steps back every half minute. Polaris accepts up to 5 s of skew on the tokens it
+issued, so a step larger than that makes it reject a token issued just before
+it. `olf infra doctor` lists a second time source under `WSL clock`. WSL takes
+its time from Windows, so stop the second service:
 
 ```bash
 sudo systemctl disable --now systemd-timesyncd
