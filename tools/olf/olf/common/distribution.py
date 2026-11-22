@@ -50,7 +50,9 @@ _PAYLOAD_FILES = (
 )
 _EXCLUDED_PARTS = frozenset({".terraform", ".tmp", "__pycache__", ".pytest_cache", ".venv", "dist", "build"})
 _CATALOG_VERSION = re.compile(r"^distribution:\s*$.*?^\s+version:\s*['\"]?([^'\"\s#]+)", re.MULTILINE | re.DOTALL)
-_ALPHA_VERSION = re.compile(r"^(\d+\.\d+\.\d+)-alpha\.(\d+)$")
+# The public release syntax, and the PEP 440 pre-release letter each stage publishes to PyPI under.
+RELEASE_VERSION_PATTERN = re.compile(r"^(\d+\.\d+\.\d+)-(alpha|beta)\.(\d+)$")
+_PEP440_PRERELEASE = {"alpha": "a", "beta": "b"}
 _MANIFEST_NAME = "payload-manifest.json"
 
 
@@ -59,11 +61,13 @@ class DistributionError(RuntimeError):
 
 
 def release_to_pep440(version: str) -> str:
-    """Map the public alpha release syntax to the matching PEP 440 version."""
-    match = _ALPHA_VERSION.fullmatch(version)
+    """Map the public release syntax (``0.7.0-beta.1``) to the matching PEP 440 version (``0.7.0b1``)."""
+    match = RELEASE_VERSION_PATTERN.fullmatch(version)
     if match is None:
-        raise DistributionError(f"unsupported distribution version {version!r}; expected <x.y.z>-alpha.<n>")
-    return f"{match.group(1)}a{match.group(2)}"
+        raise DistributionError(
+            f"unsupported distribution version {version!r}; expected <x.y.z>-alpha.<n> or <x.y.z>-beta.<n>"
+        )
+    return f"{match.group(1)}{_PEP440_PRERELEASE[match.group(2)]}{match.group(3)}"
 
 
 def _catalog_distribution_version(root: Path) -> str:
