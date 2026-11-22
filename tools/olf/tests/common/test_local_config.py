@@ -25,8 +25,8 @@ def test_full_profile_defaults(tmp_path: Path) -> None:
     assert config.images.project_code_image == "ghcr.io/openlakeforge/openlakeforge/project-code:local"
     assert config.images.superset_image == "ghcr.io/openlakeforge/superset:local"
     assert config.images.project_code_pull_policy == "Never"
-    assert config.charts["trino"].version == "1.42.2"
-    assert config.charts["trino"].package_path == context.paths.helm_cache_dir / "trino-1.42.2.tgz"
+    assert config.charts["trino"].version == "1.45.0"
+    assert config.charts["trino"].package_path == context.paths.helm_cache_dir / "trino-1.45.0.tgz"
     assert set(config.charts.settings) == {
         "trino",
         "dagster",

@@ -18,7 +18,7 @@ variable "chart_repository" {
 variable "chart_version" {
   description = "Trino Helm chart version."
   type        = string
-  default     = "1.42.2"
+  default     = "1.45.0"
 }
 
 variable "chart_package_path" {

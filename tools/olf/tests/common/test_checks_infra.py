@@ -69,6 +69,8 @@ def test_infra_templates_the_cached_tarball_not_the_repo_reference(
         "polaris-1.8.0",
         "trino-1.42.2",
         "dagster-1.13.31",
+        "trino-1.45.0",
+        "dagster-1.13.7",
         "superset-0.15.5",
         "traefik-41.6.1",
         "cert-manager-v1.21.3",

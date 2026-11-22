@@ -93,6 +93,11 @@ for how a release is cut and verified.
   `dagster-dbt` no longer installs dbt-core, so the project-code image pins
   `dbt-core==1.11.17` directly. `olf infra backup` and `olf infra restore`
   count a run in Dagster's new `SUSPENDED` state as in flight.
+- Trino 484 (chart 1.45.0), from 480 (chart 1.42.2). The 484 image has no
+  `sed`, so the coordinator-side Polaris token mint behind `olf infra query` and
+  the e2e Trino calls now parses with shell builtins. Catalogs set
+  `fs.s3.enabled`, the name Trino 481 gave `fs.native-s3.enabled`. Trino's Web
+  UI is the redesigned one at `/ui`; the previous UI is off.
 - Release tooling accepts `x.y.z-beta.N` versions alongside `x.y.z-alpha.N`;
   a beta is published to PyPI as `x.y.zbN`.
 - **The Dagster code location moved to `lakehouse_code.pipelines.definitions`,

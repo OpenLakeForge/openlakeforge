@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -230,8 +231,13 @@ def test_the_pod_mints_the_stage_token_and_fails_the_query_when_it_cannot(tmp_pa
     )
     for tool in ("trino", "curl"):
         (tmp_path / tool).chmod(0o755)
+    # The PATH holds only what the Trino 484 image has that the script and the fakes run: no sed, grep or awk.
+    (tmp_path / "cat").symlink_to(shutil.which("cat"))
+    shell = shutil.which("sh")
+    # The scope line is last and unterminated, as an edited properties file can leave it.
     (tmp_path / "lakehouse_dev.properties").write_text(
-        "iceberg.rest-catalog.oauth2.server-uri=http://polaris/tokens\niceberg.rest-catalog.oauth2.scope=S\n"
+        "connector.name=iceberg\niceberg.rest-catalog.oauth2.server-uri=http://polaris/tokens\n"
+        "iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL"
     )
     (tmp_path / "glue.properties").write_text("iceberg.catalog.type=glue\n")
 
@@ -240,11 +246,11 @@ def test_the_pod_mints_the_stage_token_and_fails_the_query_when_it_cannot(tmp_pa
         script = script.replace(trino.TRINO_CATALOG_DIR, str(tmp_path))
         # The coordinator holds no credential with a grant: the caller's stdin carries it.
         return sp.run(
-            ["sh", "-c", script, "trino", "--user", "u"],
+            [shell, "-c", script, "trino", "--user", "u"],
             input=credential,
             capture_output=True,
             text=True,
-            env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
+            env={"PATH": str(tmp_path)},
         )
 
     assert run("lakehouse_dev", trino.decode_credential("")).stdout.strip() == "--user u"  # no credential, no token
@@ -252,6 +258,7 @@ def test_the_pod_mints_the_stage_token_and_fails_the_query_when_it_cannot(tmp_pa
     assert ok.stdout.strip() == "--extra-credential token=polaris-token --user u"
     sent = (tmp_path / "curl.stdin").read_text()
     assert "client_secret=the-secret" in sent and "http://polaris/tokens" in sent
+    assert 'scope=PRINCIPAL_ROLE:ALL"' in sent
     assert run("glue").stdout.strip() == "--user u"  # no token endpoint: nothing to send
     assert run("absent").stdout.strip() == "--user u"
 
