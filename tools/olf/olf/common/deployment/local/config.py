@@ -117,7 +117,7 @@ class ImageSettings:
             project_code_python_base_image=_env(
                 environ,
                 "PROJECT_CODE_PYTHON_BASE_IMAGE",
-                "python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de",
+                "python:3.12.16-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b",
             ),
             project_code_published=bool(published),
             # A validated local profile always names an image; an unvalidated `provider-default` has none.

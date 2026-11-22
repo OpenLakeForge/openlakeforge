@@ -18,7 +18,7 @@ variable "chart_repository" {
 variable "chart_version" {
   description = "cert-manager Helm chart version."
   type        = string
-  default     = "v1.21.2"
+  default     = "v1.21.3"
 }
 
 variable "chart_package_path" {
