@@ -4,6 +4,7 @@ import contextlib
 import socket
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from _tooling_support import RecordedCall, RecordingRunner
@@ -168,6 +169,23 @@ def test_foundation_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) ->
 
     assert required == ["terraform", "kubectl", "docker", "kind"]
     assert health_calls == ["docker"]
+
+
+def test_doctor_reports_a_competing_wsl_time_source_without_failing(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    provider = LocalProvider.create(_config(tmp_path), toolkit=_toolkit(), environ={})
+    monkeypatch.setattr("olf.infra.deployment.local.provider.base_report", lambda **kwargs: [])
+    monkeypatch.setattr("olf.infra.deployment.local.provider.docker_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr("olf.infra.deployment.local.wsl_clock.is_wsl", lambda *args: True)
+    monkeypatch.setattr(
+        "olf.infra.deployment.local.wsl_clock.ProcessRunner",
+        lambda: SimpleNamespace(run=lambda *args, **kwargs: SimpleNamespace(ok=True)),
+    )
+
+    report = provider.doctor(DeploymentPhase.FOUNDATION)
+
+    clock = next(item for item in report.items if item is not None and item.name == "WSL clock")
+    assert clock.ok is True
+    assert "systemd-timesyncd" in clock.detail
 
 
 def test_artifacts_doctor_does_not_require_helm(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
