@@ -68,7 +68,7 @@ The exact version `.terraform.lock.hcl` pins for each root -- what a consumer of
 | seaweedfs | 4.48.0 |
 | superset | 0.15.5 |
 | traefik | 41.6.1 |
-| trino | 1.42.2 |
+| trino | 1.45.0 |
 
 ## Managed toolchain
 
@@ -111,7 +111,7 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 | superset_init | `apache/superset:dockerize@sha256:afe59523a6c8774c3b16d0f44146b2e52f327a7d26a47b4cc63b904fcdedf057` |
 | superset_redis | `docker.io/redis:7.4.12-bookworm@sha256:b6b6e3dc0c0952737748e55d5d885272840c7e42ba41ab1d5489f693419882f5` |
 | traefik | `docker.io/traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0` |
-| trino | `trinodb/trino:480@sha256:1565e8cac299a32dd9177a4da2d748da4ceb9f1560a9c409d1d18fd72ea5253e` |
+| trino | `trinodb/trino:484@sha256:2704eb53935af5e582d63d6033e9bf99d20c325e9b0e30b1016ef59a4773979f` |
 
 ## Cloud services (deployment targets)
 

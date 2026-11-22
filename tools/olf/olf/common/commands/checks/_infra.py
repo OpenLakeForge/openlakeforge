@@ -51,7 +51,7 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
     charts = (
         ("seaweedfs", "seaweedfs/seaweedfs", "4.48.0", "infra/helm/values/local/seaweedfs.yaml"),
         ("polaris", "polaris/polaris", "1.8.0", "infra/helm/values/local/polaris.yaml"),
-        ("trino", "trino/trino", "1.42.2", "infra/helm/values/local/trino.yaml"),
+        ("trino", "trino/trino", "1.45.0", "infra/helm/values/local/trino.yaml"),
         ("dagster", "dagster/dagster", "1.13.7", "infra/helm/values/local/dagster.yaml"),
         ("superset", "superset/superset", "0.15.5", "infra/helm/values/local/superset.yaml"),
         ("traefik", "traefik/traefik", "41.6.1", "infra/helm/values/local/traefik.yaml"),

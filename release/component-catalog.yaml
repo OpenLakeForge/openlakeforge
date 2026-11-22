@@ -68,8 +68,8 @@ components:
       trino:
         repository: https://trinodb.github.io/charts
         reference: trino/trino
-        version: 1.42.2
-        sha256: 0b33da82a36becd8913fef23d99f470bb6b87bce29bbc219089a5bbd4159266d
+        version: 1.45.0
+        sha256: 44d918d371fd68bded77725cf9bb1f85e6dec595d36ac156a1f42b135641f830
       dagster:
         repository: https://dagster-io.github.io/helm
         reference: dagster/dagster
@@ -125,7 +125,7 @@ components:
     superset_redis: docker.io/redis:7.4.12-bookworm@sha256:b6b6e3dc0c0952737748e55d5d885272840c7e42ba41ab1d5489f693419882f5
     polaris: apache/polaris:1.8.0@sha256:347615e736cab2c9be0d8c464552ac930be4755302bb0aeb745216bbae99ba5b
     polaris_admin_tool: apache/polaris-admin-tool:1.8.0@sha256:34dde19bb321aef5925a14ba90b69e26e982a5dcbda76a9d0cfc1aac1534ba4e
-    trino: trinodb/trino:480@sha256:1565e8cac299a32dd9177a4da2d748da4ceb9f1560a9c409d1d18fd72ea5253e
+    trino: trinodb/trino:484@sha256:2704eb53935af5e582d63d6033e9bf99d20c325e9b0e30b1016ef59a4773979f
     openmetadata_ingestion: docker.io/openmetadata/ingestion-base:1.13.6@sha256:29f8dcafc52bdbdb60dc3901569d9cd752cd10cb942375f5e08b53d38b05239e
     traefik: docker.io/traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
     portal: ghcr.io/openlakeforge/openlakeforge-portal:0.7.4@sha256:3ef9c4ca50feeecad6c028eb1fde138d0b764194a04f5d6f83e557c5e1a35043
