@@ -63,14 +63,10 @@ def test_infra_templates_the_cached_tarball_not_the_repo_reference(
     cache = tmp_path / ".tmp/check-helm/charts"
     cache.mkdir(parents=True)
     for name in (
-        "seaweedfs-4.48.0",
-        "polaris-1.9.0",
         "seaweedfs-4.54.0",
-        "polaris-1.8.0",
-        "trino-1.42.2",
-        "dagster-1.13.31",
+        "polaris-1.9.0",
         "trino-1.45.0",
-        "dagster-1.13.7",
+        "dagster-1.13.31",
         "superset-0.15.5",
         "traefik-41.6.1",
         "cert-manager-v1.21.3",
