@@ -63,6 +63,11 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Image pins: Dex v2.46.1, oauth2-proxy v7.15.6, cert-manager v1.21.3 (all
+  five images and the chart), Traefik v3.7.19 (chart stays 41.6.1), and
+  alpine/k8s 1.31.13 for the bootstrap Jobs and e2e probe pods. The Python
+  base is pinned to the explicit `python:3.12.16-slim` tag. Fluent Bit 5.2.0
+  and Redis 7.4.12 are repinned to their rebuilt digests.
 - Release tooling accepts `x.y.z-beta.N` versions alongside `x.y.z-alpha.N`;
   a beta is published to PyPI as `x.y.zbN`.
 - **The Dagster code location moved to `lakehouse_code.pipelines.definitions`,

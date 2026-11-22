@@ -13,7 +13,7 @@ variable "image" {
   description = "Fluent Bit image, pinned by digest (release/component-catalog.yaml, fluent_bit)."
   type        = string
   nullable    = false
-  default     = "fluent/fluent-bit:5.2.0@sha256:a48190bf67679495a332fd61025421a46e7e4d168380185a8e16da2e9acc3126"
+  default     = "fluent/fluent-bit:5.2.0@sha256:e2718c47aaab7d99587fdffe78818549bdd09dee5e30a9199d2ff3da6e2c7628"
 }
 
 variable "routes" {
