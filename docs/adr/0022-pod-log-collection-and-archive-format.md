@@ -2,17 +2,16 @@
 
 ## Status
 
-Decided; slice b is built. The Fluent Bit DaemonSet
+Decided; slices b, c and d are built (#1121, #1122, #1123). The Fluent Bit DaemonSet
 (`infra/terraform/modules/observability/log-collector`) writes archive format v2
-beside the polling CronJob's v1, in Slim and Full alike, with a write-only key.
-The CronJob and the v1 reader stay the only path the API reads until slices c
-and d land. The three delivery signals of Decision 2 are built (#1189): the probe sidecar,
+on local, in Slim and Full alike, with a write-only key; there the polling
+CronJob is not rendered, and AWS and Azure keep it as their only capture. One
+`LogArchive` reader reads v2 and v1. The three delivery signals of Decision 2 are built (#1189): the probe sidecar,
 the platform API's stage health route that reads it and lists the newest object,
-and the thresholds. Their failure-injection e2e (`_log_delivery.py`) is written
-but has not been run on a cluster (see Decision 2), so every [T] item it covers
-stays [T]. The retention of Decision 6 is built for local (#22): see the History entry for how it differs from a lifecycle rule.
-Every claim marked [T] is still untested: the kind smoke does not run here, and
-slice d (#1123) verifies them on a cluster. Tags used below: **[V]** checked in this
+and the thresholds. Their failure-injection e2e (`_log_delivery.py`) ran on a
+cluster in #1123 (see Decision 2 and History). The retention of Decision 6 is built for local (#22): see the History entry for how it differs from a lifecycle rule.
+Claims marked [T] were written before that run; what it checked is answered in
+History. Tags used below: **[V]** checked in this
 repository or in the upstream page cited; **[T]** a claim the implementing slice
 must test before relying on it.
 
@@ -459,3 +458,5 @@ checked and by each queued fetch before its GET; a cancelled read raises `Archiv
 flight complete. Callers that pass none are unchanged. The e2e footprint drill now writes its logs to the platform
 namespace, which the collector routes through the same pipeline, so the 375 MB it writes no longer lands in the stage
 hour the drill-down and screenshots read. The archive format is unchanged.
+
+2026-11-22: Corrected to match the code: the Status says slices c and d are built, the CronJob is not rendered where the collector runs, and the failure-injection e2e has run. No decision changed.

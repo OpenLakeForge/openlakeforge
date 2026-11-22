@@ -3,7 +3,7 @@
 ## Status
 
 Binding. The local root runs the ingress adapter and emits `access.ingress`
-with routes for Dagster and Superset per stage, Trino, OpenMetadata when
+with routes for Dagster, Superset and Trino per stage, OpenMetadata when
 governance is enabled, the portal landing page at the base domain, and `auth.<base_domain>` for the identity provider; the AWS and Azure roots still emit
 `access.kubectl_port_forward`.
 
@@ -47,7 +47,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    hostnames, so the profile is rejected at validation otherwise.
 2. **Routes sit one level under the base domain:** a stage service is
    `https://<service>-<stage>.<base_domain>` (`dagster-dev.olf.localhost`);
-   a shared service (OpenMetadata, Trino) drops the stage suffix. One
+   a shared service (OpenMetadata) drops the stage suffix. One
    wildcard level is all that most client certificates and edge providers
    cover (#340), so a single `*.<base_domain>` certificate serves every
    route. Stage names are the fixed set `dev`, `uat`, `prod` and the stage
@@ -123,7 +123,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    the perimeter (#176) denies what a role cannot open and sends an
    unauthenticated request to login, and the portal sits behind it like
    every other route.
-   Stage services sit under their stage; shared services (query, governance)
+   Stage services sit under their stage; shared services (governance)
    sit under a final "Shared" heading. The page omits itself and the identity
    route: Dex has no account page and GitHub owns accounts, so when the issuer
    is `github` it links to `https://<host>/orgs/<org>/teams` ("Manage your
@@ -267,3 +267,5 @@ answered by the proxy and is not a contract route.
 6): every namespace's certificate is now `*.<base_domain>`.
 The flat-hostname change also replaced the per-namespace certificates with one shared
 wildcard served as Traefik's default certificate (decision 6).
+
+2026-11-22: Corrected to match the code: Trino is a stage service in the Status, decision 2 and decision 7, not a shared one. No decision changed.

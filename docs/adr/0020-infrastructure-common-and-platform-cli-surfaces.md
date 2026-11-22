@@ -9,8 +9,8 @@ PR 2b), the platform session commands `olf login`, `whoami` and `logout`
 list|show`, `olf domain list` and `olf product list` (#669), and `olf report
 import|export` (#670). **Decided, not
 built:** the non-interactive authentication contract below. Platform
-commands are clients of the platform API, decided in
-[ADR 0021](0021-platform-api.md) and not built either, except where a
+commands are clients of the platform API
+([ADR 0021](0021-platform-api.md), built), except where a
 service accepts the person's token and the command calls its route directly.
 
 ## Context
@@ -39,9 +39,8 @@ client, a shared service-admin token or an implicit port-forward.
 
 Code follows the same split: `olf/common` imports neither `olf/infra` nor
 `olf/platform`, and `tools/olf/tests/common/test_package_boundaries.py` fails
-on a violation. `olf/cli.py` is the only module that imports both. When
-`olf/platform` exists it imports nothing from `olf/infra`, and the same test
-gains that rule. The service operations both surfaces need live in a library
+on a violation. `olf/cli.py` is the only module that imports both. `olf/platform` imports nothing from `olf/infra`, and the same test enforces
+that rule. The service operations both surfaces need live in a library
 the infra commands and the platform API share (ADR 0021, decision 4), not in
 either command package.
 
@@ -49,9 +48,9 @@ either command package.
 
 | Surface | Commands |
 | --- | --- |
-| Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report import\|export`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke` |
-| Common | `init`, `version`, `check *`, `release *`, `toolchain *`, `distribution *`, `profile validate\|resolve`, `source new`, `domain new`, `product new`, `project validate\|graph`, `report validate`, `contracts check`, `images build`, `layers enabled`, `diagnostics tree` |
-| Platform | `login`, `whoami`, `logout`, `query`, `jobs list`, `runs list\|show\|launch`, `logs`, `domain list`, `product list`, `report import\|export` |
+| Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report import\|export`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke`, `restore`, `backup`, `maintenance run`, `source bindings\|bind\|unbind` |
+| Common | `init`, `version`, `check *`, `release *`, `toolchain *`, `distribution *`, `profile validate\|resolve`, `source new`, `domain new`, `product new`, `project validate\|graph`, `report validate`, `contracts check`, `images build`, `layers enabled`, `diagnostics tree`, `alert explain` |
+| Platform | `login`, `whoami`, `logout`, `query`, `jobs list`, `runs list\|show\|launch`, `logs`, `domain list`, `product list`, `report import\|export`, `health`, `pipelines health`, `bucket *` |
 
 Groups that mix credentials exist on both sides: `olf project validate` is
 common and `olf infra project deploy` is infra.
@@ -168,3 +167,5 @@ the migration rule: their pre-2b aliases to `olf infra report import|export`
 ended, and the infra commands stay for operators. The import zips only
 `metadata.yaml` and the YAML under `datasets/`, `charts/` and `dashboards/`,
 so a report's `databases/` never leaves the machine.
+
+2026-11-22: Corrected to match the code: the platform API and `olf/platform` exist, and the command table lists `infra restore`, `backup`, `maintenance` and `source`, common `alert explain`, and platform `health`, `pipelines` and `bucket`. No decision changed.
