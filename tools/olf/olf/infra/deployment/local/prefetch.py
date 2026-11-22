@@ -20,6 +20,7 @@ from olf.common.deployment.errors import CommandExecutionError, DeploymentPrecon
 from olf.common.deployment.local.config import LocalDeploymentConfig
 from olf.common.release._manifest import load_catalog
 from olf.common.tooling.toolkit import Toolkit
+from olf.infra.deployment.local import host_images
 from olf.infra.deployment.local.images import containerd_name, split_digest_reference
 
 # arch -> (polaris image, polaris-admin-tool image), verbatim from
@@ -200,9 +201,12 @@ def _prefetch_one_image(
     else:
         log.step(f"Pulling {image}...")
         tools.docker.pull(image, env=env, retry_policy=config.prefetch.pull_retry)
+        host_images.record(config, image)
 
     archive_image = archive_reference(image)
     if archive_image != image:
+        if not tools.docker.image_exists(archive_image, env=env):
+            host_images.record(config, archive_image)
         tools.docker.tag(image, archive_image, env=env)
 
     archive = scratch_dir / archive_filename(image)

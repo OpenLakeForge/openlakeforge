@@ -289,6 +289,16 @@ history. `openlakeforge.yaml` and `lakehouse_code/` are not touched, and the
 next `olf infra deploy` rebuilds the same platform from them. With HTTPS, a rebuilt
 cluster has a new CA: run `olf infra access trust` again.
 
+Destroying the cluster (`olf infra destroy`, or `--phase foundation`) also
+removes the images on the host's Docker that `olf` created: the ones it built,
+which carry the label `io.openlakeforge.managed=true`, and the ones its image
+prefetch pulled, which it records in `olf-host-images.txt` under the work
+directory. An image you already had is not in that record and stays, as do
+containers, volumes and the build cache. The build cache is not pruned,
+because Docker cannot scope it to `olf`; reclaim it yourself with
+`docker builder prune`. The next `olf infra deploy` pulls or rebuilds the
+removed images.
+
 | To remove | Run |
 | --- | --- |
 | Only the platform, keeping the cluster | `olf infra destroy --phase platform` |
