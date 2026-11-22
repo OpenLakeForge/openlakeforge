@@ -70,7 +70,6 @@ images:
   - {name: portal, owner: malon64, expired_at: 2026-12-15, statement: "10 fixable HIGH/CRITICAL findings at first scan"}
   - {name: postgres, owner: malon64, expired_at: 2026-12-15, statement: "35 fixable HIGH/CRITICAL findings at first scan"}
   - {name: project_code_base, owner: malon64, expired_at: 2026-12-15, statement: "56 fixable HIGH/CRITICAL findings at first scan"}
-  - {name: seaweedfs, owner: malon64, expired_at: 2026-12-15, statement: "79 fixable HIGH/CRITICAL findings at first scan"}
   - {name: superset_base, owner: malon64, expired_at: 2026-12-15, statement: "570 fixable HIGH/CRITICAL findings at first scan"}
   - {name: superset_init, owner: malon64, expired_at: 2026-12-15, statement: "61 fixable HIGH/CRITICAL findings at first scan"}
   - {name: superset_redis, owner: malon64, expired_at: 2026-12-15, statement: "171 fixable HIGH/CRITICAL findings at first scan"}
