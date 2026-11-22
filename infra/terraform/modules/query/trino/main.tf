@@ -49,7 +49,7 @@ locals {
   ])
 
   s3_properties = join("\n", compact([
-    "fs.native-s3.enabled=true",
+    "fs.s3.enabled=true",
     var.storage_contract.endpoint == null ? "" : "s3.endpoint=${var.storage_contract.endpoint}",
     var.storage_contract.path_style_access == null ? "" : "s3.path-style-access=${var.storage_contract.path_style_access}",
     "s3.region=${var.storage_contract.region}",

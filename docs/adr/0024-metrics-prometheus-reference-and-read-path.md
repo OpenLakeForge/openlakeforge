@@ -48,7 +48,7 @@ What the tree has today:
 | The health routes' floor is `data-engineer` on every stage | `get_stage_health`, `get_stage_service_health` in `permissions.toml` **[V]** |
 | Each stage namespace is default-deny both ways, and each `olf-system` workload the flow file lists is denied every flow its policy does not list; every flow is a row in `release/network-flows.yaml`, whose last id was F44 when this record was written; a `node` peer renders as the nodes' `/32` addresses | `release/network-flows.yaml`; `node_cidrs` in `infra/terraform/modules/security/network-policy/`; [ADR 0017](0017-local-network-policy-and-rbac.md) **[V]** |
 | The platform API holds no Kubernetes grant beyond a namespaced `list` of pods, Deployments and StatefulSets and a TokenReview `create` | `modules/access/platform-api/probe_rbac.tf`; [ADR 0021](0021-platform-api.md), decision 7 **[V]** |
-| Pins: Trino image `480` and chart `1.42.2`; Dagster chart and image `1.13.7`; SeaweedFS chart `4.48.0` and image `4.48`. No Prometheus, kube-state-metrics or collector image is pinned | `release/component-catalog.yaml` **[V]** |
+| Pins: Trino image `484` and chart `1.45.0`; Dagster chart and image `1.13.7`; SeaweedFS chart `4.48.0` and image `4.48`. No Prometheus, kube-state-metrics or collector image is pinned | `release/component-catalog.yaml` **[V]** |
 | kind is pinned at `0.32.0` and the foundation sets no node image, so nodes run kind's default, `kindest/node:v1.36.1` | `components.toolchain.kind` in the catalog; `infra/terraform/foundations/local-kind/main.tf`; `pkg/apis/config/defaults/image.go` at kind `v0.32.0` **[V]** |
 | Full with DEV and PROD runs about thirty pods at steady state | [diagrams](../architecture/diagrams.md), chart 1 **[V]** |
 | `spec.storage.size` picks one row of `release/storage-sizes.yaml` (`small`, `medium`, `large`), read by Terraform and `olf` | `release/storage-sizes.yaml` **[V]** |
@@ -569,3 +569,6 @@ metrics routes changed.
 2026-11-22: Accepted by the maintainer as built; M-f (24-hour footprint) remains open (#21).
 
 2026-11-22: Corrected to match the code: the local root reports `metrics = true` and `metrics_retention = true`, the health routes' `metrics` integration is no longer always `not_provided`, and `olf-system` is isolated per listed workload rather than default-deny. No decision changed.
+
+2026-11-22: the Trino pin moves to image 484 and chart 1.45.0. Nothing about
+the metrics read path changed.

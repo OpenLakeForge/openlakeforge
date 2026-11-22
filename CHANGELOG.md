@@ -63,6 +63,11 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Trino 484 (chart 1.45.0), from 480 (chart 1.42.2). The 484 image has no
+  `sed`, so the coordinator-side Polaris token mint behind `olf infra query` and
+  the e2e Trino calls now parses with shell builtins. Catalogs set
+  `fs.s3.enabled`, the name Trino 481 gave `fs.native-s3.enabled`. Trino's Web
+  UI is the redesigned one at `/ui`; the previous UI is off.
 - Dagster 1.13.7 → 1.13.31: the `dagster/dagster` Helm chart, the
   `dagster-celery-k8s` control-plane image, and the `dagster` / `dagster-*`
   (0.29.31) pins of the project-code image and the `olf` Dagster test group.

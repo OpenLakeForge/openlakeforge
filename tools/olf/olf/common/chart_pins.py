@@ -26,7 +26,7 @@ class ChartDefault:
 
 
 CHART_DEFAULTS: Mapping[str, ChartDefault] = {
-    "trino": ChartDefault(chart_ref="trino/trino", repository="https://trinodb.github.io/charts", version="1.42.2"),
+    "trino": ChartDefault(chart_ref="trino/trino", repository="https://trinodb.github.io/charts", version="1.45.0"),
     "dagster": ChartDefault(
         chart_ref="dagster/dagster",
         repository="https://dagster-io.github.io/helm",
