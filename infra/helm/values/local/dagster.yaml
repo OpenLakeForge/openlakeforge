@@ -9,7 +9,7 @@
 dagsterWebserver:
   image:
     repository: docker.io/dagster/dagster-celery-k8s
-    tag: "1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee"
+    tag: "1.13.31@sha256:30b8078e9a1a100b5c02e842154c5a3d43e2181452a1578004f77e8ca16a6758"
   replicaCount: 1
   service:
     type: ClusterIP
@@ -50,7 +50,7 @@ dagsterDaemon:
     maxRuntimeSeconds: 14400
   image:
     repository: docker.io/dagster/dagster-celery-k8s
-    tag: "1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee"
+    tag: "1.13.31@sha256:30b8078e9a1a100b5c02e842154c5a3d43e2181452a1578004f77e8ca16a6758"
   resources:
     requests:
       cpu: 250m
@@ -68,7 +68,10 @@ postgresql:
     tag: 16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
 
 # The user-deployment wait (`until nslookup <service>`), pinned so prefetch can load it. 1.28 on purpose:
-# later busybox nslookup ignores the resolv.conf search list, so the short service name never resolves.
+# from 1.29 busybox nslookup queries the short name under every resolv.conf search domain and exits 1 if any
+# answers NXDOMAIN (networking/nslookup.c of 1.38.0), so in a pod the wait never ends. The chart (1.13.31 still
+# defaults to busybox 1.28) renders that init container only with dagster-user-deployments.enableSubchart,
+# which modules/orchestration/dagster turns off.
 busybox:
   image:
     repository: docker.io/busybox

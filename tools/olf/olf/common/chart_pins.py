@@ -30,7 +30,7 @@ CHART_DEFAULTS: Mapping[str, ChartDefault] = {
     "dagster": ChartDefault(
         chart_ref="dagster/dagster",
         repository="https://dagster-io.github.io/helm",
-        version="1.13.7",
+        version="1.13.31",
         repack=True,
         variant="no-schema",
     ),
