@@ -28,13 +28,13 @@ It is three phases, in two lifecycle categories. Those are different axes.
 ### Three ordered phases
 
 `olf infra platform apply -f openlakeforge.yaml` runs the static prefix in order.
-The deprecated `olf infra deploy --provider P` retains the old single-DEV path.
+`olf infra deploy` runs them in order, then artifacts; only its `--profile slim|full` shorthand, one DEV stage, is deprecated (ADR 0011).
 
 | Phase | Creates | Engine |
 | --- | --- | --- |
 | `foundation` | Kubernetes cluster and container registry — kind locally, EKS + ECR on AWS, AKS + ACR on Azure | Terraform |
 | `platform` | Kubernetes namespaces plus the long-lived platform services: SeaweedFS, PostgreSQL, Polaris, Trino, Dagster, and (analytics/governance enabled) Superset and OpenMetadata | Terraform + Helm, then `olf` bootstraps Polaris and OpenMetadata |
-| `artifacts` | Deprecated single-DEV compatibility path derived from `lakehouse_code/` | `olf` |
+| `artifacts` | A `ProjectRevision` built from `lakehouse_code/` and activated for one stage (`--stage`, default `dev`) | `olf` |
 
 `DeploymentPhase` (`tools/olf/olf/infra/deployment/engine.py`) also carries a
 `prefetch` value that runs between `foundation` and `platform`. It is a local
@@ -191,3 +191,5 @@ Merges the decisions previously recorded as ADR 0008 (two-phase deploy), 0017
 (shell/Python split), 0022 (Phase 2 catalog namespace reconciliation), 0025
 (`olf` owns the local lifecycle), and 0027 (`olf` owns the cloud lifecycles).
 Ownership of the orchestration itself is ADR 0008 in the current numbering.
+
+2026-11-22: Corrected to match the code: `olf infra deploy` and its artifacts phase are not deprecated; only the `--profile` shorthand is. No decision changed.
