@@ -73,8 +73,8 @@ components:
       dagster:
         repository: https://dagster-io.github.io/helm
         reference: dagster/dagster
-        version: 1.13.7
-        sha256: d49907a0eaa83cd1b1add8fdedf80e2bef2555d498bb07a2f9f6cf1e48a1d918
+        version: 1.13.31
+        sha256: c6a6768b114788737e9148596af8a4800103d2905919bb5e688eaad359727eea
       openmetadata:
         repository: https://helm.open-metadata.org
         reference: open-metadata/openmetadata
@@ -108,7 +108,7 @@ components:
     dagster-floe: 0.6.1
   images:
     k8s_bootstrap: alpine/k8s:1.31.13@sha256:7a319b15cfc99c9aaa27ec9891d6b4ca24632b795908591c7b0ba89b03549e0a
-    dagster_control_plane: docker.io/dagster/dagster-celery-k8s:1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee
+    dagster_control_plane: docker.io/dagster/dagster-celery-k8s:1.13.31@sha256:30b8078e9a1a100b5c02e842154c5a3d43e2181452a1578004f77e8ca16a6758
     dagster_busybox: docker.io/busybox:1.28@sha256:141c253bc4c3fd0a201d32dc1f493bcf3fff003b6df416dea4f41046e0f37d47
     opensearch: opensearchproject/opensearch:3.3.2@sha256:798cf28e226a32f5c928dd1ed9478dd3a33d2212176aad3679020088ad3afa1a
     project_code_base: python:3.12.16-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b

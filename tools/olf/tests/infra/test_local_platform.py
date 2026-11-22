@@ -397,7 +397,7 @@ class _PlatformScriptedRunner(RecordingRunner):
         if argv[0] == "helm" and "package" in argv:
             destination = Path(argv[argv.index("--destination") + 1])
             destination.mkdir(parents=True, exist_ok=True)
-            (destination / "dagster-1.13.7.tgz").write_bytes(b"fake-repacked-chart")
+            (destination / "dagster-1.13.31.tgz").write_bytes(b"fake-repacked-chart")
         return _ok()
 
 

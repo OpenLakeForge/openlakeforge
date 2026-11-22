@@ -25,8 +25,9 @@ from olf.infra.e2e._dagster import DAGSTER_WEBSERVER_SERVICE_NAME, _graphql_over
 POSTGRES_POD = "postgresql-0"
 POSTGRES_CONTAINER = "postgresql"
 POSTGRES_USER = "postgres"
-# Dagster's run states before a run ends; a daemon-less stage still has the started ones running.
-_IN_FLIGHT = ("QUEUED", "NOT_STARTED", "MANAGED", "STARTING", "STARTED", "CANCELING")
+# Dagster's run states before a run ends; a daemon-less stage still has the started ones running. SUSPENDED (1.13.31's
+# IN_PROGRESS_RUN_STATUSES) is a started run waiting on external work with no run worker: it has not ended either.
+_IN_FLIGHT = ("QUEUED", "NOT_STARTED", "MANAGED", "STARTING", "STARTED", "SUSPENDED", "CANCELING")
 _IN_FLIGHT_QUERY = """
 query InFlight($filter: RunsFilter) {
   runsOrError(filter: $filter, limit: 50) {
