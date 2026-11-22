@@ -55,7 +55,7 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
         ("dagster", "dagster/dagster", "1.13.7", "infra/helm/values/local/dagster.yaml"),
         ("superset", "superset/superset", "0.15.5", "infra/helm/values/local/superset.yaml"),
         ("traefik", "traefik/traefik", "41.6.1", "infra/helm/values/local/traefik.yaml"),
-        ("cert-manager", "jetstack/cert-manager", "v1.21.2", "infra/helm/values/local/cert-manager.yaml"),
+        ("cert-manager", "jetstack/cert-manager", "v1.21.3", "infra/helm/values/local/cert-manager.yaml"),
     )
     repos = (
         ("seaweedfs", "https://seaweedfs.github.io/seaweedfs/helm"),

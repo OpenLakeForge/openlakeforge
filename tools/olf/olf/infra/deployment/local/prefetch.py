@@ -1,9 +1,9 @@
 """Local kind image prefetch.
 
 Port of `scripts/local/cluster/prefetch-images.sh`: pre-pulls heavy images
-directly into every kind node's containerd store so Helm releases don't time
-out on first deploy. A digest-pinned image is saved under its tag and given
-its digest name in each node with `ctr images tag` - see `_prefetch_one_image`.
+into every kind node's containerd store so Helm releases don't time out on
+first deploy. Catalog images are pulled by each node through CRI; the rest go
+through the host's Docker - see `_prefetch_one_image`.
 """
 
 from __future__ import annotations
@@ -11,10 +11,10 @@ from __future__ import annotations
 import platform as _platform
 import tempfile
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from olf.common import log
+from olf.common import host_images, log
 from olf.common.deployment.context import DeploymentFeatures
 from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
@@ -158,16 +158,32 @@ def prefetch_images(
     control_plane = f"{config.cluster.name}-control-plane"
     workers = [node for node in nodes if not node.startswith(control_plane)] or nodes
     targets = {image: nodes if image == catalog_images["traefik"] else workers for image in images}
+    # The project-code image may sit in a private registry whose credentials only the host's Docker holds.
+    host_pulled = catalog_images.get("project_code")
 
     if work_dir is not None:
         work_dir.mkdir(parents=True, exist_ok=True)
         for image in images:
-            _prefetch_one_image(image, tools, nodes=targets[image], env=env, scratch_dir=work_dir, config=config)
+            _prefetch_one_image(
+                image,
+                tools,
+                nodes=targets[image],
+                env=env,
+                scratch_dir=work_dir,
+                config=config,
+                in_node=image != host_pulled,
+            )
     else:
         with tempfile.TemporaryDirectory(prefix="olf-prefetch-") as scratch:
             for image in images:
                 _prefetch_one_image(
-                    image, tools, nodes=targets[image], env=env, scratch_dir=Path(scratch), config=config
+                    image,
+                    tools,
+                    nodes=targets[image],
+                    env=env,
+                    scratch_dir=Path(scratch),
+                    config=config,
+                    in_node=image != host_pulled,
                 )
 
     log.step("All images pre-loaded.")
@@ -190,19 +206,36 @@ def _prefetch_one_image(
     env: Mapping[str, str],
     scratch_dir: Path,
     config: LocalDeploymentConfig,
+    in_node: bool = False,
 ) -> None:
     if image_present_on_all_nodes(tools.docker, image, nodes, env=env):
         log.step(f"Image already present on every kind node: {image}")
         return
+
+    # An image the host's Docker already holds needs no network at all, so it takes the host path.
+    if in_node and not tools.docker.image_exists(image, env=env):
+        # A CRI pull keeps the compressed layer blobs and, with the node image's `discard_unpacked_layers`, drops
+        # them once unpacked. `ctr images import` of a `docker save` archive stores uncompressed blobs and keeps
+        # them, so each worker held every image twice (#1373). The pull is anonymous and uses neither the host's
+        # registry mirrors, proxy nor `docker login` (#757), so a failure (a Docker Hub 429, a node with no
+        # egress) falls back to the host path, which has the full pull retry policy.
+        try:
+            _run_on_nodes(nodes, lambda node: _pull_in_node(image, tools, node, env=env))
+            return
+        except DeploymentPreconditionError as exc:
+            log.warn(f"{exc} Pulling {image} through the host's Docker instead.")
 
     if tools.docker.image_exists(image, env=env):
         log.step(f"Using existing local image {image}...")
     else:
         log.step(f"Pulling {image}...")
         tools.docker.pull(image, env=env, retry_policy=config.prefetch.pull_retry)
+        host_images.record(config, image)
 
     archive_image = archive_reference(image)
     if archive_image != image:
+        if not tools.docker.image_exists(archive_image, env=env):
+            host_images.record(config, archive_image)
         tools.docker.tag(image, archive_image, env=env)
 
     archive = scratch_dir / archive_filename(image)
@@ -220,7 +253,6 @@ def _prefetch_one_image(
             _pull_on_node(image, tools, node, cause=exc, env=env)
         return
 
-    errors: list[BaseException] = []
     if archive_image != image:
         repository, digest = split_digest_reference(image)
         # `docker save` of a reference with no tag names the image `:latest`, as `docker tag` did.
@@ -228,41 +260,55 @@ def _prefetch_one_image(
         digest_names = [containerd_name(tagged), containerd_name(f"{repository}@{digest}")]
 
     def load(node: str) -> None:
+        log.step(f"Loading {image} into kind node '{node}'...")
         try:
-            log.step(f"Loading {image} into kind node '{node}'...")
-            try:
-                tools.docker.exec_(
-                    node,
-                    ["ctr", "--namespace=k8s.io", "images", "import", "--snapshotter=overlayfs", "-"],
-                    privileged=True,
-                    interactive=True,
-                    stdin_path=archive,
-                    env=env,
-                )
-            except CommandExecutionError as exc:
-                _pull_on_node(image, tools, node, cause=exc, env=env)
-                return
-            if archive_image != image:
-                # The import names only the tag. `crictl pull` would add the digest name too, but it resolves
-                # the digest against the registry first, which fails on a node with no egress (#757).
-                tools.docker.exec_(
-                    node, ["ctr", "--namespace=k8s.io", "images", "tag", "--force", *digest_names], env=env
-                )
+            tools.docker.exec_(
+                node,
+                ["ctr", "--namespace=k8s.io", "images", "import", "--snapshotter=overlayfs", "-"],
+                privileged=True,
+                interactive=True,
+                stdin_path=archive,
+                env=env,
+            )
+        except CommandExecutionError as exc:
+            _pull_on_node(image, tools, node, cause=exc, env=env)
+            return
+        if archive_image != image:
+            # The import names only the tag. `crictl pull` would add the digest name too, but it resolves
+            # the digest against the registry first, which fails on a node with no egress (#757).
+            tools.docker.exec_(node, ["ctr", "--namespace=k8s.io", "images", "tag", "--force", *digest_names], env=env)
+
+    _run_on_nodes(nodes, load)
+    # Every node holds its own copy now; keeping the archive until the run ends doubled the disk use.
+    archive.unlink(missing_ok=True)
+
+
+def _run_on_nodes(nodes: list[str], fn: Callable[[str], None]) -> None:
+    errors: list[BaseException] = []
+
+    def guarded(node: str) -> None:
+        try:
+            fn(node)
         except BaseException as exc:  # noqa: BLE001 - re-raised on the main thread below
             errors.append(exc)
 
     # Each node unpacks into its own containerd, so loading them together is ~1.7x faster than one by one.
     # Daemon threads joined by hand, not an executor: a signal deadline (`olf smoke`) interrupts `join` on
     # the main thread, where an executor's exit would first wait out the blocked `docker exec` calls.
-    threads = [threading.Thread(target=load, args=(node,), daemon=True) for node in nodes]
+    threads = [threading.Thread(target=guarded, args=(node,), daemon=True) for node in nodes]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
     if errors:
         raise errors[0]
-    # Every node holds its own copy now; keeping the archive until the run ends doubled the disk use.
-    archive.unlink(missing_ok=True)
+
+
+def _pull_in_node(image: str, tools: Toolkit, node: str, *, env: Mapping[str, str]) -> None:
+    log.step(f"Pulling {image} in kind node '{node}'...")
+    result = tools.docker.exec_(node, ["crictl", "pull", image], env=env, check=False)
+    if not result.ok:
+        raise DeploymentPreconditionError(f"kind node '{node}' could not pull {image}: {result.stderr.strip()}.")
 
 
 def _pull_on_node(

@@ -2,7 +2,7 @@
 
 ## Status
 
-Decided, **build step 1 done, build steps 3, 4 and 5 begun**: `packages/lakehouse-services`
+Decided, **build steps 1 to 6 done, except decision 5's discovery document** (`olf login` reads the Deployment Profile instead): `packages/lakehouse-services`
 holds every service client — the HTTP transport, Dagster, OpenMetadata and
 Superset — and the operations built on them: Superset report import and export
 (`openlakeforge_services.reports`) and OpenMetadata metadata deployment
@@ -935,3 +935,5 @@ pages, objects and records, and starts none of its queued fetches. The 20-second
 the read, so time queued never shortens it; a read that waits more than 5 seconds for a worker is answered 503 with
 `Retry-After: 5`, so a request takes at most 25 seconds. `list_logs`, previously unbounded, is held to the same
 deadline (502 past it). Response bodies and permission rows are unchanged; the 503 is in the OpenAPI document.
+
+2026-11-22: Corrected to match the code: build steps 1 to 6 are done except the discovery document; the committed OpenAPI document lists 36 paths and 39 operations, and `permissions.toml` has 39 rows, not the 18 routes the #1063 entry counted. No decision changed.
