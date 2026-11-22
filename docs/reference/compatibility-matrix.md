@@ -65,7 +65,7 @@ The exact version `.terraform.lock.hcl` pins for each root -- what a consumer of
 | openmetadata | 1.13.6 |
 | openmetadata-dependencies | 1.13.6 |
 | polaris | 1.8.0 |
-| seaweedfs | 4.48.0 |
+| seaweedfs | 4.54.0 |
 | superset | 0.15.5 |
 | traefik | 41.6.1 |
 | trino | 1.42.2 |
@@ -105,7 +105,7 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 | postgres | `postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777` |
 | project_code_base | `python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de` |
 | prometheus | `prom/prometheus:v3.13.5@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9` |
-| seaweedfs | `chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d` |
+| seaweedfs | `chrislusf/seaweedfs:4.54@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15` |
 | superset | `ghcr.io/openlakeforge/openlakeforge/superset:0.5.1-alpha.3@sha256:e884c3ee1c3fa9ad78685a6867b9b809a125661df76b65f19dc17e2057b3698b` |
 | superset_base | `apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705` |
 | superset_init | `apache/superset:dockerize@sha256:afe59523a6c8774c3b16d0f44146b2e52f327a7d26a47b4cc63b904fcdedf057` |

@@ -18,7 +18,7 @@ variable "chart_repository" {
 variable "chart_version" {
   description = "SeaweedFS Helm chart version."
   type        = string
-  default     = "4.48.0"
+  default     = "4.54.0"
 }
 
 variable "chart_package_path" {
@@ -46,7 +46,7 @@ variable "storage_sizes_file" {
 variable "image_tag" {
   description = "SeaweedFS image tag used by the chart and bucket jobs."
   type        = string
-  default     = "4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d"
+  default     = "4.54@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15"
 }
 
 variable "bucket_names" {
