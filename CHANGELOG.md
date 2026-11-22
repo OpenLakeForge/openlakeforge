@@ -63,6 +63,8 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Release tooling accepts `x.y.z-beta.N` versions alongside `x.y.z-alpha.N`;
+  a beta is published to PyPI as `x.y.zbN`.
 - **The Dagster code location moved to `lakehouse_code.pipelines.definitions`,
   and a product no longer has a module of its own.** `lakehouse_code/definitions.py`
   and `pipelines/dagster/<product>.py` are gone. `pipelines/definitions.py` builds

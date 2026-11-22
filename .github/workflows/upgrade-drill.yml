@@ -94,7 +94,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${BASE_TAG}" ]; then
-            # versionsort.suffix puts v0.6.0 after v0.6.0-alpha.1.
+            # versionsort.suffix puts v0.6.0 after v0.6.0-alpha.1 and v0.6.0-beta.1; two
+            # pre-releases of one x.y.z compare as text, so beta sorts after alpha.
             BASE_TAG="$(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname | head -n 1)"
           fi
           [ -n "${BASE_TAG}" ] || { echo "::error::no release tag to upgrade from"; exit 1; }

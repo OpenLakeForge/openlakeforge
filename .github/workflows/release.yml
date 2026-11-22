@@ -258,6 +258,7 @@ jobs:
           work_dir="$(mktemp -d)"
           package_version="${{ needs.prepare.outputs.version }}"
           package_version="${package_version/-alpha./a}"
+          package_version="${package_version/-beta./b}"
           UV_TOOL_DIR="${tool_root}" UV_TOOL_BIN_DIR="${tool_bin}" \
             uv tool install --find-links dist/python/core --find-links dist/python/lakehouse-services --find-links dist/python/runtime \
               --find-links dist/python/openlakeforge "openlakeforge==${package_version}" --python 3.12

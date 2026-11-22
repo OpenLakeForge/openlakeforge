@@ -65,10 +65,25 @@ def _manager(home: Path) -> DistributionManager:
     return manager
 
 
-def test_release_version_conversion() -> None:
-    assert release_to_pep440("0.2.0-alpha.1") == "0.2.0a1"
+@pytest.mark.parametrize(
+    ("release", "pep440"),
+    [
+        ("0.2.0-alpha.1", "0.2.0a1"),
+        ("0.6.0-alpha.3", "0.6.0a3"),
+        ("0.7.0-beta.1", "0.7.0b1"),
+        ("1.10.2-beta.12", "1.10.2b12"),
+    ],
+)
+def test_release_version_conversion(release: str, pep440: str) -> None:
+    assert release_to_pep440(release) == pep440
+
+
+@pytest.mark.parametrize(
+    "version", ["0.7.0", "0.7.0-rc.1", "0.7.0-beta", "0.7.0-alpha", "v0.7.0-beta.1", "0.7.0-beta.1 ", "0.7.0b1"]
+)
+def test_release_version_conversion_rejects_other_shapes(version: str) -> None:
     with pytest.raises(DistributionError, match="unsupported"):
-        release_to_pep440("0.2.0")
+        release_to_pep440(version)
 
 
 def test_payload_archive_is_deterministic_for_the_same_checkout(tmp_path: Path) -> None:

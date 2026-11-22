@@ -18,8 +18,9 @@ from typing import Any
 
 import yaml
 
+from olf.common.distribution import RELEASE_VERSION_PATTERN
+
 DEFAULT_CATALOG_PATH = "release/component-catalog.yaml"
-VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+-alpha\.\d+$")
 SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 ACTION_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_DIGEST_SUFFIX_PATTERN = re.compile(r"@sha256:[0-9a-f]{64}$")
@@ -69,10 +70,10 @@ def load_catalog(catalog_path: str | Path = DEFAULT_CATALOG_PATH) -> dict[str, A
         raise ReleaseError(f"component catalog at {path} is missing kind: ComponentCatalog")
     distribution = data.get("distribution") or {}
     version = distribution.get("version")
-    if not isinstance(version, str) or not VERSION_PATTERN.match(version):
+    if not isinstance(version, str) or not RELEASE_VERSION_PATTERN.fullmatch(version):
         raise ReleaseError(
             f"component catalog distribution.version {version!r} does not match "
-            f"the expected alpha semver pattern (e.g. 0.1.0-alpha.1)"
+            f"the expected alpha or beta semver pattern (e.g. 0.6.0-alpha.3, 0.7.0-beta.1)"
         )
     return data
 
