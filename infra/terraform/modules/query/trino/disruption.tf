@@ -1,7 +1,8 @@
 # Workers are the only replicated Trino pods (spec.query.size medium and large).
 # One at a time keeps a node drain from taking every worker; the coordinator is
 # a single replica and gets no budget, because minAvailable=1 on one pod would
-# block the drain (#351). The chart renders no PodDisruptionBudget of its own.
+# block the drain (#351). The chart renders one only from worker.podDisruptionBudget,
+# left empty here so this stays the only budget.
 resource "kubernetes_pod_disruption_budget_v1" "worker" {
   count = try(var.query_sizing.workers, 0) > 0 ? 1 : 0
 

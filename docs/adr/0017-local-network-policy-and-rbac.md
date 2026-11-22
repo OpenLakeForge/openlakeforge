@@ -20,7 +20,7 @@ touched while writing this.
 
 ## Context
 
-No `NetworkPolicy` object exists in the tree [V]. Every pod reaches every
+Before this record no `NetworkPolicy` object existed in the tree [V]. Every pod reached every
 Service: Postgres (per-service passwords only), Polaris, SeaweedFS, Dex's
 whole HTTP surface, Dagster's unauthenticated GraphQL API, and Trino (which
 trusts `X-Trino-User`, [ADR 0016](0016-trino-workload-authentication.md)). The
@@ -70,8 +70,9 @@ and the apiserver rows of the flow table are CNI-sensitive.
 1. **Dataplane gate.** `olf infra deploy` fails before any policy is applied unless
    the cluster enforces policy, and the e2e re-proves it with a canary on every
    run. Policy objects without enforcement never count as done (#46).
-2. **Default-deny ingress and egress** in `olf-system` and every stage
-   namespace, DNS allowed, every other flow an explicit row in one file,
+2. **Default-deny ingress and egress** in every stage namespace and for each
+   `olf-system` workload the flow file lists (the rest of `olf-system` stays
+   unisolated), DNS allowed, every other flow an explicit row in one file,
    `release/network-flows.yaml`, read by Terraform and by `olf e2e` (the
    `release/identity-roles.yaml` precedent [V]).
 3. **A stage namespace is one trust domain; `olf-system` is not.** Inside a
@@ -714,3 +715,5 @@ when the profile enables metrics.
 `openlakeforge-platform-api-alerts`, `Read` and `List` on the alert evaluator's `alerts/state/` and nothing else,
 mounted by the platform API for its alert incidents route. It renders only with the platform API and alert receivers,
 and reuses the platform API's existing S3 flow, so no network row changed.
+
+2026-11-22: Corrected to match the code: the Context no longer says the tree has no NetworkPolicy; decision 2's namespace-wide deny covers stage namespaces only, while `olf-system` has per-workload policies for the listed workloads (`modules/security/network-policy`); and F52 publishes with the stage's quality-writer bot token since #1322, not the ingestion bot's the #797 entry names. No decision changed.

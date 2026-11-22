@@ -12,13 +12,13 @@ variable "release_name" {
 variable "image" {
   description = "oauth2-proxy image, pinned by digest (release/component-catalog.yaml, oauth2_proxy)."
   type        = string
-  default     = "quay.io/oauth2-proxy/oauth2-proxy:v7.15.5@sha256:8498b0d0ef0a7b29686414000a08aee467f02d0299c9ed1e006a8f33fc017916"
+  default     = "quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048"
 }
 
 variable "bootstrap_job_image" {
   description = "Image with kubectl, used by the Job that creates the cookie secret (release/component-catalog.yaml, k8s_bootstrap)."
   type        = string
-  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
+  default     = "alpine/k8s:1.31.13@sha256:7a319b15cfc99c9aaa27ec9891d6b4ca24632b795908591c7b0ba89b03549e0a"
 }
 
 variable "base_domain" {

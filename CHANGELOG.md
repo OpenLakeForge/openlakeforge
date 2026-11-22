@@ -30,8 +30,12 @@ metrics, alerts to a webhook chosen by a project's `alerts.yml`, and Floe and
 dbt quality results published to OpenMetadata. The metrics backend's 24-hour
 footprint per size is still to be measured (#21); the [metrics
 reference](docs/reference/metrics.md#to-be-measured) lists the missing figures.
-The Dagster code location moved, which breaks a project created on
-0.6.0-alpha.3; Migration below lists the steps.
+The platform images move to their latest stable versions, including
+PostgreSQL 18, Trino 484, Dagster 1.13.31, Polaris 1.9.0 and SeaweedFS 4.54.
+PostgreSQL 18 cannot start on a PostgreSQL 16 volume, so a local stack from an
+earlier release must be destroyed and redeployed, and its data is not carried
+over. The Dagster code location moved, which breaks a project created on
+0.6.0-alpha.3. Migration below lists the steps for both.
 
 ### Added
 
@@ -235,6 +239,41 @@ The Dagster code location moved, which breaks a project created on
 
 ### Changed
 
+- Trino 484 (chart 1.45.0), from 480 (chart 1.42.2). The 484 image has no
+  `sed`, so the coordinator-side Polaris token mint behind `olf infra query` and
+  the e2e Trino calls now parses with shell builtins. Catalogs set
+  `fs.s3.enabled`, the name Trino 481 gave `fs.native-s3.enabled`. Trino's Web
+  UI is the redesigned one at `/ui`; the previous UI is off.
+- Dagster 1.13.7 → 1.13.31: the `dagster/dagster` Helm chart, the
+  `dagster-celery-k8s` control-plane image, and the `dagster` / `dagster-*`
+  (0.29.31) pins of the project-code image and the `olf` Dagster test group.
+  `dagster-dbt` no longer installs dbt-core, so the project-code image pins
+  `dbt-core==1.11.17` directly. `olf infra backup` and `olf infra restore`
+  count a run in Dagster's new `SUSPENDED` state as in flight.
+- SeaweedFS 4.48 → 4.54 (image `chrislusf/seaweedfs:4.54`, Helm chart 4.48.0 →
+  4.54.0). Putting or deleting a bucket's lifecycle rules now needs `Admin`, and
+  its CORS or versioning configuration an action of its own, instead of `Write`;
+  no OpenLakeForge identity calls them.
+- Apache Polaris, its admin tool and its Helm chart move from 1.8.0 to 1.9.0.
+  The relational JDBC schema stays at v6, so an existing metastore needs no
+  migration. Polaris now accepts up to 5 s of clock skew on a token's `iat`, so
+  stopping `systemd-timesyncd` is no longer a WSL2 prerequisite: `olf infra
+  doctor` reports a second time source as information and a local deploy no
+  longer warns about it.
+- **The shared PostgreSQL is PostgreSQL 18** (`postgres:18.7-alpine`, pinned by
+  index digest; was the floating `postgres:16-alpine`). It serves Dagster,
+  Polaris, Superset, OpenMetadata and Dex, and its image also runs Dagster's
+  `check-db-ready` wait, the bootstrap Jobs and the backup's `pg_dump` /
+  `pg_restore`. PostgreSQL 19 waits for consumers released after its 19.0
+  (2026-11-19). The AWS preview's RDS `engine_version` stays `16`. `olf infra
+  deploy` refuses to roll a PostgreSQL 16 StatefulSet onto 18 and says to
+  redeploy, instead of leaving `postgresql-0` crash-looping on an incompatible
+  data directory until the apply times out. See the migration note.
+- Image pins: Dex v2.46.1, oauth2-proxy v7.15.6, cert-manager v1.21.3 (all
+  five images and the chart), Traefik v3.7.19 (chart stays 41.6.1), and
+  alpine/k8s 1.31.13 for the bootstrap Jobs and e2e probe pods. The Python
+  base is pinned to the explicit `python:3.12.16-slim` tag. Fluent Bit 5.2.0
+  and Redis 7.4.12 are repinned to their rebuilt digests.
 - **The Dagster code location moved to `lakehouse_code.pipelines.definitions`,
   and a product no longer has a module of its own.** `lakehouse_code/definitions.py`
   and `pipelines/dagster/<product>.py` are gone. `pipelines/definitions.py` builds
@@ -359,6 +398,17 @@ The Dagster code location moved, which breaks a project created on
   #1278). Use it on a local test stack only.
 
 ### Migration
+
+PostgreSQL 18: a local stack deployed before this release must be destroyed
+and redeployed (`olf infra destroy`, then `olf infra deploy`). PostgreSQL 18
+cannot start on the PostgreSQL 16 data directory and olf carries no
+`pg_upgrade`; `olf infra deploy` stops before the apply and says so. The
+destroy deletes the shared and stage namespaces with their volumes, so the
+Dagster run history, the Polaris catalog, Superset dashboards, OpenMetadata
+entities and Dex state are not carried over, and neither are the SeaweedFS
+buckets with the tables' data. An `olf infra backup` taken on the previous
+release does not help: `olf infra restore` only restores onto the release that
+took it. After the redeploy, run the pipelines again to rebuild the tables.
 
 The code location move, for a project created before it:
 

@@ -2,7 +2,7 @@
 image:
   registry: docker.io
   repository: traefik
-  tag: "v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0"
+  tag: "v3.7.19@sha256:a6c0194dda77bcb804824580f36fa7edc56e315b1acfe933366c8b52844a78a4"
 
 # kind publishes the control-plane node's 80/443 on the host
 # (infra/kind/local/kind-cluster.yaml); Traefik takes them as hostPorts there.

@@ -74,7 +74,7 @@ variable "postgresql_ssl_mode" {
 variable "bootstrap_job_image" {
   description = "Image used by the OpenMetadata fernet-key Kubernetes Job."
   type        = string
-  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
+  default     = "alpine/k8s:1.31.13@sha256:7a319b15cfc99c9aaa27ec9891d6b4ca24632b795908591c7b0ba89b03549e0a"
 }
 
 variable "om_http_port" {

@@ -12,13 +12,13 @@ variable "release_name" {
 variable "image" {
   description = "Dex image, pinned by digest (release/component-catalog.yaml)."
   type        = string
-  default     = "ghcr.io/dexidp/dex:v2.46.0@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777"
+  default     = "ghcr.io/dexidp/dex:v2.46.1@sha256:65b72ca0f4b0bf6d4ada84ec21da8851782563404ac7b8f926923d27ceced9ab"
 }
 
 variable "bootstrap_job_image" {
   description = "Image of the Job that creates the client Secrets when missing, pinned by digest (release/component-catalog.yaml)."
   type        = string
-  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
+  default     = "alpine/k8s:1.31.13@sha256:7a319b15cfc99c9aaa27ec9891d6b4ca24632b795908591c7b0ba89b03549e0a"
 }
 
 variable "hostname" {

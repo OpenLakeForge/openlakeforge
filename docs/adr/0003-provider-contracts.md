@@ -57,10 +57,11 @@ names distinct storage identities and a catalog per stage (#114).
 Unknown versions, fields, missing/extra stages, cross-stage bindings,
 duplicate physical identities (including storage bucket names, not only
 physical IDs), unknown or mismatched catalog type/provider pairs, and
-provider/region/topology mismatches fail closed. Trino query
+provider/region/topology mismatches fail closed. On AWS and Azure, Trino query
 connectivity is a deliberate exception to stage isolation: `shared.query` is
 one service used by every enabled stage, isolated by catalog rather than by
-endpoint.
+endpoint. The local root runs one Trino per stage (ADR 0019 section 9): each
+stage carries its own `query_endpoint`, and `shared.query` names the selected stage's.
 
 `query.catalog_name` is also the Trino catalog name (v2 kept this separate as
 `trino_catalog_name`, deployed as the fixed value `iceberg` before #114). Every
@@ -95,6 +96,9 @@ contracts can omit the field. The adapter that offers it owns publishing and
 workload availability; project descriptors remain provider-neutral.
 
 ## History
+
+2026-11-22: Corrected to match the code: on the local root `shared.query` is not one
+service for every stage; each stage has its own Trino. No decision changed.
 
 2026-11-06: Removed the v2 reader. Platform state written before v0.3 is no
 longer supported; a `2.0.0` contract is refused, and the v2 export to runtimes

@@ -1,6 +1,6 @@
 """Trino's config.properties lines as Terraform renders them, evaluated without any provider.
 
-Chart 1.42.2 reads free-form config.properties lines only from the top-level
+Chart 1.45.0 reads free-form config.properties lines only from the top-level
 additionalConfigProperties; a coordinator-level list is ignored. query.max-stage-count
 once rode in such a list, so Trino kept its default of 150 and refused a Gold
 query over 75 tables at 152 stages (#706).

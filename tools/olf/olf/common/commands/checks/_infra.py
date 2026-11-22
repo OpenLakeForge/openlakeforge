@@ -49,13 +49,13 @@ def infra(repo_root: str = typer.Option("", "--repo-root", help="Checkout root t
     for module in sorted({test.parent.parent for test in module_tests}):
         _test_module(root, module, terraform=terraform, tools=tools, env=env)
     charts = (
-        ("seaweedfs", "seaweedfs/seaweedfs", "4.48.0", "infra/helm/values/local/seaweedfs.yaml"),
-        ("polaris", "polaris/polaris", "1.8.0", "infra/helm/values/local/polaris.yaml"),
-        ("trino", "trino/trino", "1.42.2", "infra/helm/values/local/trino.yaml"),
-        ("dagster", "dagster/dagster", "1.13.7", "infra/helm/values/local/dagster.yaml"),
+        ("seaweedfs", "seaweedfs/seaweedfs", "4.54.0", "infra/helm/values/local/seaweedfs.yaml"),
+        ("polaris", "polaris/polaris", "1.9.0", "infra/helm/values/local/polaris.yaml"),
+        ("trino", "trino/trino", "1.45.0", "infra/helm/values/local/trino.yaml"),
+        ("dagster", "dagster/dagster", "1.13.31", "infra/helm/values/local/dagster.yaml"),
         ("superset", "superset/superset", "0.15.5", "infra/helm/values/local/superset.yaml"),
         ("traefik", "traefik/traefik", "41.6.1", "infra/helm/values/local/traefik.yaml"),
-        ("cert-manager", "jetstack/cert-manager", "v1.21.2", "infra/helm/values/local/cert-manager.yaml"),
+        ("cert-manager", "jetstack/cert-manager", "v1.21.3", "infra/helm/values/local/cert-manager.yaml"),
     )
     repos = (
         ("seaweedfs", "https://seaweedfs.github.io/seaweedfs/helm"),
