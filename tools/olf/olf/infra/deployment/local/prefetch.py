@@ -14,7 +14,7 @@ import threading
 from collections.abc import Mapping
 from pathlib import Path
 
-from olf.common import log
+from olf.common import host_images, log
 from olf.common.deployment.context import DeploymentFeatures
 from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
@@ -200,9 +200,12 @@ def _prefetch_one_image(
     else:
         log.step(f"Pulling {image}...")
         tools.docker.pull(image, env=env, retry_policy=config.prefetch.pull_retry)
+        host_images.record(config, image)
 
     archive_image = archive_reference(image)
     if archive_image != image:
+        if not tools.docker.image_exists(archive_image, env=env):
+            host_images.record(config, archive_image)
         tools.docker.tag(image, archive_image, env=env)
 
     archive = scratch_dir / archive_filename(image)
