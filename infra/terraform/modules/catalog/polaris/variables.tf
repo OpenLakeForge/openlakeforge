@@ -18,7 +18,7 @@ variable "chart_repository" {
 variable "chart_version" {
   description = "Polaris Helm chart version."
   type        = string
-  default     = "1.8.0"
+  default     = "1.9.0"
 }
 
 variable "chart_package_path" {
@@ -103,7 +103,7 @@ variable "bootstrap_job_image" {
 variable "metastore_bootstrap_job_image" {
   description = "Version-matched Polaris Admin Tool image used to initialize the relational metastore."
   type        = string
-  default     = "apache/polaris-admin-tool:1.8.0@sha256:34dde19bb321aef5925a14ba90b69e26e982a5dcbda76a9d0cfc1aac1534ba4e"
+  default     = "apache/polaris-admin-tool:1.9.0@sha256:9ec2467615132f6a837b13fcbb8be23d770c0ffa5a8bb90faf8ebdf513ab14a0"
 }
 
 variable "om_credentials_secret_name" {

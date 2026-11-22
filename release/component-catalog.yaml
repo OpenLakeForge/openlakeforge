@@ -63,8 +63,8 @@ components:
       polaris:
         repository: https://downloads.apache.org/polaris/helm-chart
         reference: polaris/polaris
-        version: 1.8.0
-        sha256: 75cfd96dce07fdd88b7c5d882f73bf952063cea49ce02f346dd2de1e85c65938
+        version: 1.9.0
+        sha256: 2defe4444729505db47c8aea84b2287a06a760d3de79197b83ffee1f87876f8f
       trino:
         repository: https://trinodb.github.io/charts
         reference: trino/trino
@@ -123,8 +123,8 @@ components:
     prometheus: prom/prometheus:v3.13.5@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9
     kube_state_metrics: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0@sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b
     superset_redis: docker.io/redis:7.4.12-bookworm@sha256:b6b6e3dc0c0952737748e55d5d885272840c7e42ba41ab1d5489f693419882f5
-    polaris: apache/polaris:1.8.0@sha256:347615e736cab2c9be0d8c464552ac930be4755302bb0aeb745216bbae99ba5b
-    polaris_admin_tool: apache/polaris-admin-tool:1.8.0@sha256:34dde19bb321aef5925a14ba90b69e26e982a5dcbda76a9d0cfc1aac1534ba4e
+    polaris: apache/polaris:1.9.0@sha256:bc548500f5ba8e798b7f8e107ad0b8fbd5b5c6d0c5437f56c5ca101219b796d0
+    polaris_admin_tool: apache/polaris-admin-tool:1.9.0@sha256:9ec2467615132f6a837b13fcbb8be23d770c0ffa5a8bb90faf8ebdf513ab14a0
     trino: trinodb/trino:480@sha256:1565e8cac299a32dd9177a4da2d748da4ceb9f1560a9c409d1d18fd72ea5253e
     openmetadata_ingestion: docker.io/openmetadata/ingestion-base:1.13.6@sha256:29f8dcafc52bdbdb60dc3901569d9cd752cd10cb942375f5e08b53d38b05239e
     traefik: docker.io/traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
