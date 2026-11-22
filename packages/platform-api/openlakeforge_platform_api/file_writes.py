@@ -137,7 +137,7 @@ def _delete_keys(
 
 # A move is pinned to what was looked at. The existence checks before it are a courtesy; the copy carries
 # If-None-Match: * (the destination must still be absent) and x-amz-copy-source-if-match (the source must still be
-# the object whose ETag was read), and the original is deleted only while it still has that ETag. SeaweedFS 4.48
+# the object whose ETag was read), and the original is deleted only while it still has that ETag. SeaweedFS 4.54
 # evaluates the copy's conditions under the destination's write lock (`weed/s3api/s3api_object_handlers_copy.go`) and
 # a delete's If-Match, or a batch entry's ETag, under the source's (`s3api_object_handlers_delete.go`). What is left:
 # the source can still be overwritten between the copy's check and its delete's check, which the delete then refuses

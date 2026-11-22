@@ -83,6 +83,10 @@ for how a release is cut and verified.
   stopping `systemd-timesyncd` is no longer a WSL2 prerequisite: `olf infra
   doctor` reports a second time source as information and a local deploy no
   longer warns about it.
+- SeaweedFS 4.48 → 4.54 (image `chrislusf/seaweedfs:4.54`, Helm chart 4.48.0 →
+  4.54.0). Putting or deleting a bucket's lifecycle rules now needs `Admin`, and
+  its CORS or versioning configuration an action of its own, instead of `Write`;
+  no OpenLakeForge identity calls them.
 - Release tooling accepts `x.y.z-beta.N` versions alongside `x.y.z-alpha.N`;
   a beta is published to PyPI as `x.y.zbN`.
 - **The Dagster code location moved to `lakehouse_code.pipelines.definitions`,

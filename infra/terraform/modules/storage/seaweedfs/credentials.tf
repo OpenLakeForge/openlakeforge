@@ -66,7 +66,7 @@ locals {
       # Bronze/Silver/Gold are wholly stage-exclusive buckets, so the
       # bucket-level grant is already scoped. The ops bucket is shared across
       # every stage's activation artifacts, so its grant is further scoped to
-      # this stage's own prefix. SeaweedFS 4.48 matches an action with
+      # this stage's own prefix. SeaweedFS 4.54 matches an action with
       # wildcard.MatchesWildcard, where `*` also matches `/`, so the grant
       # ends at `activations/<stage>/*`: without the slash, `activations/dev*`
       # would also reach a stage named `dev2`.
@@ -126,7 +126,7 @@ locals {
       actions   = [for action in ["Read", "List"] : "${action}:${var.alert_state_reader_credentials.ops_bucket_name}/${var.alert_state_reader_credentials.prefix}*"]
     }],
     # Write only, under one prefix: the platform API stores audit records and
-    # can neither read nor list them back. SeaweedFS 4.48 also gates overwrite
+    # can neither read nor list them back. SeaweedFS 4.54 also gates overwrite
     # and delete on Write (weed/s3api/s3api_server.go), so this is not
     # append-only; ADR 0021 decision 3 says what that leaves.
     var.audit_writer_credentials == null ? [] : [{
@@ -137,7 +137,7 @@ locals {
     }],
     # Write only, on each v2 archive prefix: the log collector (ADR 0022) puts
     # objects and can neither read nor list them. As with the audit key,
-    # SeaweedFS 4.48 gates overwrite and delete on Write, so the archive is not
+    # SeaweedFS 4.54 gates overwrite and delete on Write, so the archive is not
     # append-only.
     var.log_collector_credentials == null ? [] : [{
       name      = "openlakeforge-log-collector"
