@@ -47,8 +47,8 @@ dev = [
 # The runtime tests that importorskip the Dagster stack. Versions are the ones the project-code image installs
 # (images/project-code/pyproject.toml and requirements.lock; Floe's also in release/component-catalog.yaml).
 dagster = [
-  "dagster==1.13.7",
-  "dagster-dbt==0.29.7",
+  "dagster==1.13.31",
+  "dagster-dbt==0.29.31",
   "dagster-floe[floe]==0.6.1",
   "dbt-core==1.11.17",
   "dbt-trino==1.10.2",

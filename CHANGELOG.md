@@ -63,6 +63,12 @@ for how a release is cut and verified.
 
 ### Changed
 
+- Dagster 1.13.7 → 1.13.31: the `dagster/dagster` Helm chart, the
+  `dagster-celery-k8s` control-plane image, and the `dagster` / `dagster-*`
+  (0.29.31) pins of the project-code image and the `olf` Dagster test group.
+  `dagster-dbt` no longer installs dbt-core, so the project-code image pins
+  `dbt-core==1.11.17` directly. `olf infra backup` and `olf infra restore`
+  count a run in Dagster's new `SUSPENDED` state as in flight.
 - SeaweedFS 4.48 → 4.54 (image `chrislusf/seaweedfs:4.54`, Helm chart 4.48.0 →
   4.54.0). Putting or deleting a bucket's lifecycle rules now needs `Admin`, and
   its CORS or versioning configuration an action of its own, instead of `Write`;

@@ -61,7 +61,7 @@ The exact version `.terraform.lock.hcl` pins for each root -- what a consumer of
 | Chart | Version |
 | --- | --- |
 | cert-manager | v1.21.3 |
-| dagster | 1.13.7 |
+| dagster | 1.13.31 |
 | openmetadata | 1.13.6 |
 | openmetadata-dependencies | 1.13.6 |
 | polaris | 1.9.0 |
@@ -91,7 +91,7 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 | cert_manager_startupapicheck | `quay.io/jetstack/cert-manager-startupapicheck:v1.21.3@sha256:1c519d4afca1413d1e4ccd78bdc756184418ab55a34569a3b3de39d32f9974e1` |
 | cert_manager_webhook | `quay.io/jetstack/cert-manager-webhook:v1.21.3@sha256:055ac8e9de6a0ba6763794838fe38944acc650f68ebe1b01dd8be079e580f458` |
 | dagster_busybox | `docker.io/busybox:1.28@sha256:141c253bc4c3fd0a201d32dc1f493bcf3fff003b6df416dea4f41046e0f37d47` |
-| dagster_control_plane | `docker.io/dagster/dagster-celery-k8s:1.13.7@sha256:7e9fa5d3f9724bdf382932f34294dbfe5c9ca550641795dff793d6b59f3cc4ee` |
+| dagster_control_plane | `docker.io/dagster/dagster-celery-k8s:1.13.31@sha256:30b8078e9a1a100b5c02e842154c5a3d43e2181452a1578004f77e8ca16a6758` |
 | dex | `ghcr.io/dexidp/dex:v2.46.1@sha256:65b72ca0f4b0bf6d4ada84ec21da8851782563404ac7b8f926923d27ceced9ab` |
 | fluent_bit | `fluent/fluent-bit:5.2.0@sha256:e2718c47aaab7d99587fdffe78818549bdd09dee5e30a9199d2ff3da6e2c7628` |
 | k8s_bootstrap | `alpine/k8s:1.31.13@sha256:7a319b15cfc99c9aaa27ec9891d6b4ca24632b795908591c7b0ba89b03549e0a` |
