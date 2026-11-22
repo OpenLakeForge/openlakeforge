@@ -12,7 +12,7 @@ what a tagged release publishes as of the last catalog update.
 regenerate it whenever release/component-catalog.yaml changes.
 -->
 
-# OpenLakeForge 0.6.0-alpha.3 compatibility matrix
+# OpenLakeForge 0.7.0-beta.1 compatibility matrix
 
 Generated from `release/component-catalog.yaml`. Every version below is the exact input pinned for this release; see [docs/reference/component-catalog.md](component-catalog.md) for the update process.
 
@@ -125,6 +125,6 @@ A Polaris catalog reads only with the credentials Polaris vends through the obje
 
 ## Supported upgrade paths
 
-OpenLakeForge is in the Alpha lifecycle stage (see [releasing.md](../release/releasing.md#lifecycle-stages)): breaking changes are allowed between alpha releases, with migration notes published in `CHANGELOG.md` for every tag. Until Beta, only the latest alpha tag is maintained; there is no supported upgrade path guarantee prior to `v0.1.0-alpha.1`.
+OpenLakeForge is in the Beta lifecycle stage (see [releasing.md](../release/releasing.md#lifecycle-stages)): forward migration within the beta line is best effort, with migration notes published in `CHANGELOG.md` for every tag, and the upgrade drill gates each tag. The promise covers the `local` provider only; `aws` and `azure` are preview. Until the stable support window is declared, only the latest pre-release is maintained; there is no supported upgrade path guarantee prior to `v0.1.0-alpha.1`.
 
 Platform state written before v0.3 is not supported: `olf` refuses its schema `2.0.0` provider contract. Upgrade from state written by v0.3 or later. Older state keeps its shared services in the `lakehouse` namespace, which the platform apply refuses to replace: migrate the SeaweedFS, PostgreSQL and Polaris data into the current shared namespace by hand, then run `olf infra deploy --phase platform`, or run it with `--allow-stage-removal` to start over and lose that data.
