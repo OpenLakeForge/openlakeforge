@@ -222,4 +222,4 @@ profile does, so the nightly keeps exercising the TLS routes. Enforced by:
   API reach Dex at `internal_url`; the rewrite stays for OpenMetadata and Superset.
 - Undated: D9 changed: the local CA is backed up only with `local-ca`.
 - 2026-11-22 (#1385): Status, D2 and D7 corrected: Trino is a stage service.
-- 2026-11-23: Rewritten in the standard form; no decision changed.
+- 2026-11-23 (#1392): Rewritten in the standard form; no decision changed.
