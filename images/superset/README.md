@@ -36,7 +36,7 @@ The image also patches Superset's Trino engine spec for local Iceberg previews.
 Superset otherwise treats Trino Iceberg `$partitions` metadata columns as table
 partition columns and generates invalid SQL Lab preview filters.
 
-`olf_trino.py` sends a signed-in user's Dex token to Trino (ADR 0019 D11):
+`olf_trino.py` sends a signed-in user's Dex token to Trino (ADR 0019 section 9):
 a `DB_CONNECTION_MUTATOR` that sets the `token` extra credential and the email
 user, and a patch of Superset's refresh so a refresh token Dex refuses ends in a
 new sign-in. `openlakeforge_oidc` wires both, with per-user result caching, when

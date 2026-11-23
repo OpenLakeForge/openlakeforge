@@ -1,4 +1,4 @@
-"""Per-user Trino access from the signed-in user's Dex token (ADR 0019 D11).
+"""Per-user Trino access from the signed-in user's Dex token (ADR 0019 section 9).
 
 Inert until a database is imported with `impersonate_user` and a Trino URL:
 without a bearer in the connection the mutator changes nothing. Superset and

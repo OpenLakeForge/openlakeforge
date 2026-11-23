@@ -86,7 +86,7 @@ LEGACY_VIZ_TYPES = [
 
 
 def trino_settings(cfg: dict, client_secret: str) -> dict:
-    """Superset's per-user Trino sign-in on the same client as the login (ADR 0019 D11)."""
+    """Superset's per-user Trino sign-in on the same client as the login (ADR 0019 section 9)."""
     issuer = cfg["issuer_url"].rstrip("/")
     return {
         "DATABASE_OAUTH2_CLIENTS": {

@@ -15,7 +15,7 @@ class_patch = """\
 
     @classmethod
     def _is_iceberg_database(cls, database: Database) -> bool:
-        # The people database (ADR 0019 D11) names the stage catalog,
+        # The people database (ADR 0019 section 9) names the stage catalog,
         # which Superset's config lists beside the shared `iceberg` one.
         catalogs = app.config.get("OLF_ICEBERG_CATALOGS", ["iceberg"])
         return str(database.sqlalchemy_uri).rstrip("/").rsplit("/", 1)[-1] in catalogs
