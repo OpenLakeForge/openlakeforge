@@ -1,938 +1,274 @@
 # ADR 0021: The platform API — one backend for the portal, `olf` and agents
 
-## Status
+| | |
+| --- | --- |
+| Status | Binding |
+| Built | local ✔, except D5's discovery document (`olf login` reads the Deployment Profile instead) and D1's catalog pin (no release has published the image; `olf` builds it) · AWS ✘ · Azure ✘ (only `environments/local` deploys the API) |
 
-Decided, **build steps 1 to 6 done, except decision 5's discovery document** (`olf login` reads the Deployment Profile instead): `packages/lakehouse-services`
-holds every service client — the HTTP transport, Dagster, OpenMetadata and
-Superset — and the operations built on them: Superset report import and export
-(`openlakeforge_services.reports`) and OpenMetadata metadata deployment
-(`openlakeforge_services.governance`). `olf/infra` keeps only what resolves
-endpoints and credentials from a deployment. The platform API in
-`packages/platform-api` has token validation, the permission matrix,
-`/api/healthz`, `/api/v1/whoami` and the first read endpoints: Dagster jobs and
-runs per stage, each stage's archived pod logs, read with a read-only
-object-store key scoped to the stages' log prefixes, and OpenMetadata domains
-and data products with the caller's token forwarded. `olf jobs list`, `olf runs
-list|show`, `olf domain list` and `olf product list` read through it with the
-signed-in person's token. The local provider deploys it with `spec.identity`
-(`modules/access/platform-api`), from an image `olf` builds, since no release
-has published one to pin. Its first state-changing route launches a DEV run,
-audited as decision 3 says, with a write-only key the deployment mounts;
-`olf runs launch` calls it. A files explorer reads and manages the objects in
-each stage's lakehouse buckets (decision 3), with a key of its own; `olf bucket`
-and the portal's Files page are its clients.
-What binds today is the direction: the platform surface of [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)
-reaches services through one backend, written in Python in this repository,
-and new code that would duplicate a platform operation in another language or
-another host follows the split below.
+The routes, their permission rows and what each route does are in the
+[platform API reference](../reference/platform-api.md).
 
 ## Context
 
-ADR 0020 decided a platform surface: commands a person, or their local agent,
-runs with a Dex session and no kubeconfig. It assumed each platform command
-would call each service's public route itself. The operations that surface
-needs — read pipeline runs and jobs, read domains, data products and glossary
-from OpenMetadata, read and move Superset reports, read archived logs — are
-also what the portal ([openlakeforge-portal](https://github.com/OpenLakeForge/openlakeforge-portal))
-needs to grow from a route index into a platform UI. Calling every service
-from the CLI would put that logic in `olf` and again in the portal.
+[ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)'s platform
+surface lets a person, or their local agent, work with a Dex session and no
+kubeconfig. The operations it needs (read runs and jobs, read domains and data
+products, move Superset reports, read archived logs) are also what the portal
+needs to grow from a route index into a platform UI. The portal is a React
+Router application on Node and cannot import the Python that already does
+them, so calling every service from each client would write that logic twice.
 
-The logic already exists, in Python, under the infra surface:
-
-| Operation | Today | How it authenticates | Does the service accept the person's token? |
-| --- | --- | --- | --- |
-| Superset report import and export | `olf/infra/superset.py` | Port-forward (`superset_base_url`), the admin password from the `superset-credentials` Secret (`admin_password_for`), the stage's Trino password from its Secret | No. The REST API signs callers in with `provider: "db"` on `/api/v1/security/login` ([identity-service-permissions.md](../architecture/identity/identity-service-permissions.md)); accepting an external issuer's token would need a custom security manager (#536, out of scope) |
-| OpenMetadata domains | `olf infra openmetadata list-domains`, `openlakeforge_services/openmetadata.py` | Port-forward, the automation bot's JWT from its Secret (`olf/infra/openmetadata/_auth.py`) | **Yes.** It trusts Dex's signing keys (`publicKeyUrls` lists `<issuer>/keys`), names the caller by `preferred_username` (`jwtPrincipalClaims`), and authorizes by that user's own OpenMetadata roles, which the role sync sets ([ADR 0014](0014-identity-and-authorization.md)); `infra/terraform/modules/governance/openmetadata/main.tf` |
-| Dagster runs and jobs | `openlakeforge_services/dagster.py`, used only by `olf e2e` | None: Dagster's GraphQL API is unauthenticated ([ADR 0017](0017-local-network-policy-and-rbac.md)) | No: Dagster has no authentication or authorization of its own |
-| Archived logs | Written by `openlakeforge_runtime/k8s_log_archive.py` to `OPENLAKEFORGE_LOG_BASE_URI` (default `s3://openlakeforge-ops/logs`) | Object-store credentials | No: no module under `infra/terraform/modules/storage/` configures an OIDC issuer |
-
-Two facts shape the decision. The portal is a React Router application on Node, so
-it cannot import this code. And the services split in two: Superset, Dagster
-and the object store cannot take a person's token, so a call there needs a
-service credential and someone else must decide access; OpenMetadata takes the
-person's token and decides access itself, per user.
-
-The #536 spike (comment "Spike results", OpenMetadata 1.13.6 read from source,
-not run against a deployment) adds two facts about that OpenMetadata path:
-
-- OpenMetadata's `JwtFilter` checks a token's signature and expiry, not its
-  `aud` or `iss`. Any token Dex signed passes it, so the perimeter's audience
-  check is the only audience check on this path. This holds for browser
-  tokens today too.
-- OpenMetadata derives the user from `preferred_username` and refuses a token
-  without it, so a caller must request the `profile` scope (ADR 0014 already
-  requires it of the `olf-cli` client). The spike notes Dex's GitHub connector
-  sets the claim and its mock connectors do not, so the e2e stub path needs
-  checking.
+The services split in two. Trino, through Polaris, and OpenMetadata validate a
+person's token and authorize by it. Superset signs API callers in with its
+database provider, Dagster checks nothing, and the object store takes no OIDC
+token: a call there needs a service credential, and something else must decide
+access. OpenMetadata checks a token's signature and expiry but not its `aud`,
+and names the user by `preferred_username` (#536 spike, OpenMetadata 1.13.6).
 
 ## Decision
 
-### 1. One backend: the platform API
-
-A Python service, the **platform API**, serves the platform operations over a
-versioned HTTP API (`/api/v1`). The portal's pages, `olf`'s platform commands
-and agents are its clients. It is a platform-phase component
+**D1. One Python backend, the platform API, serves the platform operations
+to the portal, `olf`'s platform commands and agents.** It serves a versioned
+HTTP API (`/api/v1`) and is a platform-phase component
 ([ADR 0002](0002-deployment-lifecycle.md)): Terraform deploys it, pinned by
 digest in `release/component-catalog.yaml`, and it reads no user code at
-startup.
+startup. It lives in this repository as the `openlakeforge-platform-api`
+distribution in `packages/platform-api/` with its image in
+`images/platform-api/`; it is not published to PyPI and keeps its own locked
+environment, so FastAPI and uvicorn never enter `olf`'s. The same image hosts
+the alert evaluator's entrypoint ([ADR 0023](0023-alert-evaluation-and-webhook-delivery.md)),
+run as a separate process. It is served at `https://<base_domain>/api/`, a path
+on the portal's host behind the perimeter's lowest role floor, so a browser
+session reaches it without CORS. It accepts only audience `olf-cli`: a browser
+session's ID token carries it through Dex cross-client trust
+([ADR 0014](0014-identity-and-authorization.md)), and a Traefik middleware on
+this route alone passes it on. With an external issuer there is no such token,
+the settings render `person_query: false`, and a browser cookie alone gets 401;
+without `spec.identity`, D8 applies. The portal stays in its own repository as
+a thin same-origin client that holds no data-plane authorization. Enforced by:
+`infra/terraform/modules/access/platform-api`.
 
-It lives in this repository, beside the code it reuses and the contracts it
-versions with: the `openlakeforge-platform-api` distribution in
-`packages/platform-api/`, next to the two packages it builds on, and an image
-defined in `images/platform-api/`, as `project-code` and `superset` are. A
-top-level `services/` directory would be a third layout for first-party Python.
-Unlike the other packages it is not published to PyPI; it ships only as the
-image. It keeps its own locked environment (`packages/platform-api/uv.lock`),
-so FastAPI and uvicorn never enter `olf`'s.
+**D2. The identity a call carries follows the service.** Where a service
+validates the person's token and authorizes by it, the call carries that
+token: Trino through Polaris grants ([ADR 0019](0019-data-plane-authorization-deferral.md)),
+and OpenMetadata by the user's own OpenMetadata roles. A CLI command may call
+the service's public route directly, as `olf query` reaches Trino's
+`query_api`, or the API forwards the token unchanged, so the CLI and the portal
+share one client. The API holds no OpenMetadata credential and never reads
+table data with a stage principal. Superset, Dagster and the object store
+cannot take the token, so the API calls them with its own credentials and
+decides access itself (D3). On the OpenMetadata path someone in front of
+OpenMetadata checks the audience (the perimeter on a direct call, the API's
+token validation on a forwarded one), and every caller requests the `profile`
+scope; a person OpenMetadata has never seen is registered once through
+self-signup with their own token, then the read is retried. A person's call to
+the API, and a forwarded call onward, are class 1; a call onward with a
+service credential is class 2 ([identity-classes.md](../architecture/identity/identity-classes.md)).
+Enforced by: `openlakeforge_platform_api/reads.py`, `queries.py`, and
+`tools/olf/olf/platform/session.py` (scopes).
 
-It is served at `https://<base_domain>/api/` behind the perimeter, the same
-origin as the portal, so a browser session reaches it without CORS. The route
-is a path on the portal's host, not a `shared.access.routes` entry, and sits
-behind the perimeter's lowest role floor: every canonical role clears it, and
-the API's own permission matrix decides above that. It accepts only audience
-`olf-cli`, which a browser session's ID token carries through Dex cross-client
-trust (ADR 0014): the perimeter's proxies return it as `Authorization: Bearer`
-and a Traefik middleware used on this route alone copies it to the API, so no
-other service sees it. With an external issuer, or no `spec.identity`, there is
-no such token: the settings render `person_query: false` and a browser's
-cookie alone gets 401 from the API.
+**D3. The platform API is the enforcement point for its service-credential
+calls.** Whoever reaches the API reaches what its credentials can do, so:
 
-The portal stays in its own repository and is a React Router (framework mode,
-Node SSR) app. It is still a thin same-origin client of this API: it holds no
-data-plane authorization, and what a person may read or run is decided by the
-services behind the API.
+- It validates every token itself: signature against the issuer's keys,
+  issuer, expiry, and an audience from an explicit list. A perimeter header is
+  not proof of identity. A token it forwards is validated first, since on that
+  hop the API is the only audience check, and it relays no request it cannot
+  attribute.
+- It derives the canonical role as ADR 0014 maps it and checks each operation
+  against a permission matrix kept as data and tested: the lowest role, the
+  stages, and an optional `role_stages` limiting a named role to some of them,
+  in the monotonic-floor style of ADR 0014. A route without a row is refused.
+- It admits one service principal besides people, the alert evaluator
+  (ADR 0023, decision 11), by a TokenReview that names exactly its
+  ServiceAccount and audience, and only on a row that lists it. That row is the
+  services-only health route. The review fails closed (503), and the token is
+  never forwarded.
+- It holds the narrowest credential each service offers, mounted from a
+  Secret (architectural rule 7): a non-admin Superset service user that co-owns
+  the report assets it may overwrite, no OpenMetadata credential, and one
+  object-store key per purpose (log reader, quality reader, alert state reader,
+  audit writer, files), each with its own client.
+- It reaches Dagster over its own rows in `release/network-flows.yaml`; the
+  matrix is the only check on what it asks there.
+- It audits before it acts: every operation that changes state stores an
+  `attempted` record naming the person, the operation, the stage and the
+  target, and answers 503 without acting if it cannot. Outcomes and refusals
+  follow; a caller with no valid token is logged to stdout only. The records
+  are tamper-evident against everyone but the API, not append-only.
+- It guards the files explorer, since the files key decides nothing: the audit
+  prefix is read-only through the API, a key the store would normalise into
+  another is refused, and every object write is conditional, so no single key
+  is silently overwritten. `platform-admin` uses every enabled stage,
+  `data-engineer` only `dev`, and `analyst` and `viewer` nothing, reads
+  included.
+- It refuses cross-site writes without tokens or a session store: a foreign
+  `Origin`, a cross-site `Sec-Fetch-Site`, or a body type other than the one the
+  route takes. It serves no CORS headers.
+- It is stateless with a read-only root filesystem. Saved queries or history
+  would bring the shared PostgreSQL in as a decision of their own.
 
-### 2. The identity a call carries follows the service
+Enforced by: `openlakeforge_platform_api/permissions.toml` and
+`packages/platform-api/tests/test_permissions.py`, `test_audit.py`,
+`test_csrf.py`, `test_files_writes.py`, `test_service_tokens.py`.
 
-**Where a service validates the person's token and authorizes by it, the call
-carries that token.** Service credentials are used only where the service
-cannot accept the person's token. Per service:
+**D4. One library, two hosts.** The service clients and the operations built
+on them live in `packages/lakehouse-services/`, and an operation takes a client
+and credentials and never resolves them itself: no `typer`, no `os.environ`, no
+Kubernetes Secret read, no port-forward. `olf infra` supplies port-forwards and
+Secrets read with the caller's kubeconfig; the API supplies in-cluster Service
+DNS and its mounted Secrets, or the person's token (D2). The API calls the
+library concurrently, so it holds no module-level state. The artifacts phase
+keeps calling the library directly with infra credentials: routing it through
+the API would make every deployment depend on the API and give CI a platform
+credential, which ADR 0020's non-interactive authentication contract governs
+and which is not built. Enforced by: review; no test checks the library's
+imports yet.
 
-| Service | Operations | Identity on the service call | Who decides access |
-| --- | --- | --- | --- |
-| Trino, through Polaris | Reading or writing table data: `olf query`, a query page in the portal | The person's Dex token, end to end ([ADR 0019](0019-data-plane-authorization-deferral.md)) | Polaris grants |
-| OpenMetadata | Domains, data products, glossary | The person's Dex token, end to end | The perimeter's floor on the route the call entered by, then **OpenMetadata**, by the user's own OpenMetadata roles |
-| Superset | Report export and import | The platform API's Superset service credential | **The platform API** |
-| Dagster | Runs and jobs | None (Dagster checks nothing); the platform API reaches it over its own flow rows | **The platform API** |
-| Object store | Archived log reads | The platform API's read-only key for the log prefix | **The platform API** |
-| Object store | Open alert incidents and their delivery | The platform API's read-only alert state key | **The platform API** |
-| Object store | The files explorer: list, download, upload, create folders, rename and delete, in the enabled stages' layer buckets and the ops bucket | The platform API's files key | **The platform API** |
-| Object store | A run's retained quality reports, the ones its quality manifest names under the stage's activation prefix | The platform API's files key | **The platform API** |
+**D5. The OpenAPI document is the contract between the API and its clients.**
+It is committed as `docs/schema/platform-api.openapi.json` and checked against
+the app in CI, so a change to an endpoint is a reviewed change to a schema; the
+portal generates its types from it, and a breaking change is a new path
+version, so the two repositories need not merge in lockstep. If most portal
+changes come to need a paired backend change, moving the portal into this
+repository is reconsidered. The API also serves a discovery document (the
+issuer, the `olf-cli` client id, the API and `query_api` URLs, and each stage
+with its catalog), so `olf login <base URL>` needs nothing else. Not built: no
+route serves it. Enforced by: `packages/platform-api/tests/test_openapi.py`.
 
-A call that carries the person's token takes one of two routes. A CLI command
-may call the service's public route directly, as `olf query` reaches Trino's
-`query_api` route. Or the platform API forwards the token unchanged: `olf
-domain list` and `olf product list` read OpenMetadata through the API's
-`/api/v1/domains` and `/api/v1/data-products`, so the CLI and the portal share
-one client and one first-time-user remedy, and the portal's query page will
-reach Trino the same way. Either way the
-platform API holds no OpenMetadata credential to act on a person's behalf, and
-never reads table data with a stage principal: either would replace the
-service's per-user decision with its own.
-
-Two conditions bind every caller on the OpenMetadata path:
-
-- **Someone in front of OpenMetadata checks the audience.** OpenMetadata
-  checks signature and expiry, not `aud` (see Context). On a direct call that
-  is the perimeter: it admits a bearer token only if it was issued to
-  `olf-cli` (an extra audience on the proxy's own verifier with Dex's `internal_url`,
-  `--extra-jwt-issuers=<issuer>=olf-cli` for an external issuer;
-  `infra/terraform/modules/access/perimeter/main.tf`) or, per the #536 spike,
-  to the perimeter's own client, and enforces the route's role floor on it.
-  The platform API reaches OpenMetadata over in-cluster Service DNS
-  (decision 4), around the perimeter, so on a forwarded call its own token
-  validation (decision 3: an audience from an explicit list) takes that
-  place. A path with neither would accept any token Dex signed, including one
-  issued to Superset or Trino.
-- **The caller requests the `profile` scope**, because OpenMetadata keys users
-  on `preferred_username`. `tools/olf/olf/platform/session.py` requests
-  `openid email profile groups offline_access`.
-
-A person who has never opened OpenMetadata's UI has no user there, and a
-bearer request from them fails. The remedy (#536) registers the caller once
-through `POST /v1/users`, which self-signup
-(`enableSelfSignup = true`) allows for exactly the caller, then retries; the
-role sync assigns roles on its next run. A platform API endpoint that forwards
-a person's token to OpenMetadata does the same.
-
-Under the classification rule in
-[identity-classes.md](../architecture/identity/identity-classes.md), a person's
-call to the platform API is class 1. A forwarded call onward stays class 1:
-the service sees the person. A call onward to Superset, Dagster or the object
-store is class 2: a workload with a service credential, acting after it has
-checked a class 1 identity.
-
-### 3. The platform API is an enforcement point for its service-credential calls
-
-On a call it forwards with the person's token, the platform API decides
-nothing: the service does, as it would for a direct call. It still validates
-the token as below — signature, issuer, expiry and audience — before
-forwarding it: on that hop it is the only audience check (decision 2), and it
-never relays a request it cannot attribute.
-
-A call to Superset, Dagster or the object store carries a service credential,
-so whoever reaches the platform API reaches what those credentials can do.
-For those calls it therefore:
-
-- **validates every token itself**: signature against the issuer's keys,
-  issuer, expiry, and an audience from an explicit list. A header set by the
-  perimeter is not proof of identity on its own;
-- **derives the canonical role** from the role claim exactly as
-  [ADR 0014](0014-identity-and-authorization.md) maps it, and checks each
-  operation against a **permission matrix kept as data and tested** — an
-  operation, the lowest role allowed, and the stages it applies to — in the
-  monotonic-floor style of ADR 0014's perimeter. A row's `stages` apply to every
-  role at or above its floor; an optional `role_stages` limits a named role to
-  some of them (`role_stages = { data-engineer = ["dev"] }`), and a role it does
-  not name keeps `stages`. Its keys are checked against the role precedence when
-  the matrix loads;
-- **admits one service principal besides people**: `alert-evaluator`, the alert
-  evaluator's CronJob (ADR 0023, decision 11). Its pod projects a ServiceAccount
-  token for the audience `openlakeforge-platform-api`, valid ten minutes and
-  refreshed by the kubelet. A bearer token whose unverified `iss` is not the
-  issuer's goes to a TokenReview, made with the API's own ServiceAccount; the
-  token is accepted only if the API server authenticates it for that audience
-  and names exactly the ServiceAccount in the settings' `service_callers`
-  (`system:serviceaccount:<namespace>:<name>`). The result is a principal with
-  no canonical role, which the matrix admits only where a row lists it in
-  `services`. Today that is `get_stage_service_health`, `GET
-  /api/v1/stages/{stage}/health/services`: the services half of the stage
-  health, from the probes alone, and nothing else, every stage, no write and no
-  audit entry. It is a route of its own because the full health route also
-  reads Dagster, several calls of up to 30 seconds each, so it can outlast the
-  evaluator exactly when Dagster is down; the services route is bounded by the
-  probes' own timeout (5 seconds). An invalid token, a
-  wrong audience or another ServiceAccount is a 401, a ServiceAccount that has
-  no row for the route a 403, and an API server that cannot answer the review a
-  503: the review fails closed and never falls back to the issuer's path or to
-  an anonymous caller. The token is never forwarded to a service. The issuer's
-  tokens are routed by their `iss` and never sent to the API server;
-- **holds the narrowest credential each service offers**, mounted from a
-  Secret (architectural rule 7): a Superset service user rather than `admin`
-  wherever Superset's API allows the operation, a read-only object-store key
-  for the log prefix, and no OpenMetadata credential. The object store has a
-  third key besides that one and the audit writer's: the **files key**, identity
-  `openlakeforge-platform-api-files`, with `Read`, `Write` and `List` on the
-  enabled stages' layer buckets (bronze, silver and gold) and on the ops bucket,
-  minted in-cluster like the others, mounted from its own Secret, and used by
-  its own client, never the log reader's. The object store cannot narrow it
-  below a bucket and cannot tell one person from another, so the API decides
-  access (the files explorer below). The alert incidents route reads the
-  evaluator's state with a fourth, the **alert state key**, identity
-  `openlakeforge-platform-api-alerts`, `Read` and `List` on `alerts/state/*` of
-  the ops bucket only ([ADR 0023](0023-alert-evaluation-and-webhook-delivery.md),
-  decision 3);
-- **reaches Dagster's GraphQL API through its own rows in
-  `release/network-flows.yaml`**, and its permission matrix is the only check
-  on what it asks there, since Dagster checks nothing;
-- **writes an audit record** naming the person for every operation that
-  changes state: who (the token's subject, email and canonical role), the
-  operation, the stage, its target, and the outcome. Each record is one JSON
-  line on stdout and, for an authenticated person, one object in the ops
-  bucket under `audit/platform-api/date=<day>/`, written with a key that may
-  only `Write` there. The API stores an `attempted` record before it acts and
-  answers 503 without acting if it cannot; the outcome follows, and a lost
-  outcome is logged rather than undoing what was done. A refusal of an
-  authenticated person is stored too; one of a caller without a valid token
-  goes to stdout only, so no anonymous caller can fill the bucket. The request
-  id in each record and key is the API's own. SeaweedFS's `Write` also
-  overwrites and deletes (`weed/s3api/s3api_server.go`, 4.48), so the records
-  are tamper-evident against everyone but the API itself, not append-only. The
-  files key can write and delete anywhere in the ops bucket for the same reason,
-  so the API keeps the audit prefix read-only itself: a files write that reaches
-  it, or a folder that contains it, is refused with 403 and the refusal is
-  stored;
-- **runs the files explorer on its own rows, since the files key decides
-  nothing.** Routes under `/api/v1/stages/{stage}/buckets` list buckets and the
-  folders and files under a prefix (paged with a cursor), download, upload,
-  create a folder, rename and delete; `GET /api/v1/file-capabilities` returns
-  the stages and operations the caller may use. Every row is `data-engineer` with
-  `role_stages` limiting that role to `dev`, so `platform-admin` may use every
-  enabled stage, `data-engineer` only `dev`, and `analyst` and `viewer` nothing,
-  reads included: for them `file-capabilities` lists no stage, which is how a
-  client knows to hide its Files page. A bucket not among the stage's layer
-  buckets is a 404, and so is the ops bucket for anyone below `platform-admin`,
-  which sees it under every stage. Keys travel as query parameters, since they
-  contain `/`, and a folder is a key prefix ending in `/`; a key with a `.` or
-  `..` segment, an empty segment (`//`), a backslash, a leading `/`, a control
-  character or more than 1024 bytes is a 422, because SeaweedFS normalises such
-  a key into another one (`audit//x` into `audit/x`) and the audit-prefix check
-  must speak about the key the store acts on.
-  Downloads and uploads are streamed, never held whole: an upload goes up in one
-  call, or as a multipart upload past one 8 MiB part that is aborted on any
-  failure, needs a `Content-Length` (411) and is refused above
-  `files_max_upload_bytes`, 1 GiB unless the settings say otherwise (413). It
-  does not replace an existing key unless asked (409): the final `PutObject` or
-  `CompleteMultipartUpload` carries `If-None-Match: *`, which SeaweedFS 4.48
-  evaluates under the object's write lock (`weed/s3api/s3api_object_handlers_put.go`,
-  `weed/s3api/filer_multipart.go`), so two uploads racing for a new key have one
-  winner. S3 has no atomic rename, so a rename copies and then deletes, and a
-  folder moves or deletes at most 1000 keys (422 above that). Each object write
-  is conditional, so no single key can be silently overwritten: the copy
-  carries `If-None-Match: *` for the destination and `x-amz-copy-source-if-match`
-  with the ETag the rename read from the source, the original is deleted with
-  `If-Match` (per-key ETags in the batch delete of a folder), and a failed move
-  removes the copies it made with each copy's own ETag, leaving any a different
-  writer has since replaced. A folder's marker key is a directory in SeaweedFS
-  4.48, which cannot be copied (NoSuchKey) and has no ETag to compare, so a
-  rename writes the destination marker with `If-None-Match: *` instead, and a
-  delete or rollback never pins an ETag on a marker and removes markers after
-  what is under them. A source that changed during the move stays, with 409. Only the multi-key folder move is not atomic: a failure midway leaves the
-  keys already deleted moved and the rest in place, and a delete reports each
-  key's outcome instead of failing as a whole. The existence look before a
-  rename or a new folder is a courtesy; a folder is created by a plain `PutObject`
-  of its marker, so two requests for the same new folder can both succeed. A
-  request cancelled during an upload closes its audit record as `succeeded` if
-  the final write had landed and as `failed` otherwise. The buckets come from `file_buckets` and `ops_bucket` in the settings,
-  which the local environment's Terraform renders from each stage's bucket
-  bindings (`infra/terraform/environments/local/main.tf`), so no name is
-  hardcoded; without them or without the key every files route answers 503, as
-  it does on the environments that do not wire them yet. Every write is audited as above;
-- **is stateless** with a read-only root filesystem until a feature needs
-  storage; saved queries or history bring the shared PostgreSQL in as their
-  own decision;
-- **refuses cross-site writes** (#799) without tokens or a session store:
-  on POST, PUT, PATCH and DELETE it refuses an `Origin` other than the
-  configured `public_origin` (unset: any `Origin`), a `Sec-Fetch-Site` other
-  than `same-origin` or `none`, and a body that is not JSON (`application/zip`
-  for report import, `application/octet-stream` for a files upload, the only
-  other). A request with no `Origin` is a non-browser client and
-  passes. It serves no CORS headers.
-
-### 4. One library, two hosts
-
-The service clients and operations move out of `olf` into a
-library package, `packages/lakehouse-services/`, following the
-`packages/core` precedent. Its rule is **inject, don't fetch**: an
-operation takes a client and credentials and never resolves them itself — no
-`typer`, no `os.environ`, no `k8s.secret_value`, no port-forward. Each host
-supplies its own resolver:
-
-| Host | Reaches a service through | Credentials from |
-| --- | --- | --- |
-| `olf infra` (deploy, artifacts phase, e2e) | Port-forward or the applied contract's endpoint | Kubernetes Secrets with the caller's kubeconfig |
-| The platform API | In-cluster Service DNS | Secrets mounted into its pod, or the person's token, forwarded unchanged, for a service that authorizes it (decision 2) |
-
-`olf` stays a single-operator CLI (AGENTS.md, Non-goals). The library does not
-inherit that: the platform API calls it concurrently, so it holds no
-module-level state.
-
-**The artifacts phase keeps calling the library directly**, with infra
-credentials. `olf infra deploy --phase artifacts` imports reports and metadata
-through `olf/infra/deployment/artifact_steps.py`; routing that through the
-platform API would make every deployment depend on the API being up and give
-CI a platform credential, which ADR 0020's non-interactive authentication
-contract governs and which is not built. It is revisited when that exchange
-exists.
-
-### 5. The contract between the API and its clients
-
-The API's OpenAPI document is committed under `docs/schema/` and checked
-against the code in CI, so a change to an endpoint is a reviewed change to a
-schema, as the descriptor and contract schemas already are. The portal
-generates its types from it. A breaking change is a new path version, so the
-two repositories do not have to merge in lockstep; if most portal changes come
-to need a paired backend change, moving the portal into this repository is
-reconsidered.
-
-The platform API also serves a discovery document: the issuer, the `olf-cli`
-client id, the API and `query_api` URLs, and each stage with its catalog.
-`olf login <base URL>` needs nothing else. The platform surface cannot read
-Terraform state or `OPENLAKEFORGE_QUERY_TRINO_CATALOG`, which `olf infra query`
-gets from the applied contract today.
-
-### 6. What stays infra
-
-Deployment and recovery stay infra and never go through the platform API:
+**D6. Deployment and recovery stay infra and never go through the API.**
 `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`,
 `auth`, `secrets rotate`, `k8s`, `project build|deploy|image`, `diagnostics
-collect`, `e2e`. The platform API has no Kubernetes or cloud permission beyond
-reading its own mounted Secrets and the read-only listing in decision 7, so
-`platform-admin` in the UI still grants no cluster rights (ADR 0020).
+collect` and `e2e` are infra commands. The API holds no Kubernetes or cloud
+permission beyond reading its own mounted Secrets, D7's listing and D3's
+TokenReview, so `platform-admin` in the UI grants no cluster rights
+(ADR 0020).
 
-### 7. Platform health reads the cluster through a namespaced Role
+**D7. Platform health reads the cluster through a namespaced Role for the
+API's own ServiceAccount.** In each stage namespace the API may `list` pods,
+Deployments and StatefulSets, and nothing else: no `get` or `watch`, nothing in
+`olf-system`, no `secrets`, `pods/log`, `pods/exec` or `events`; the module
+refuses `kube-system` and the API's own namespace. The grant, the mounted token
+and the F20 egress to the API server land only together with a route that uses
+them, and `environments/local` requires `probe_namespaces` to name a stage
+namespace whenever it deploys the API. Its one ClusterRole is `tokenreviews`
+`create`, for D3's service principal. A probe that times out, errors or is
+refused is `unknown`, a component the deployment leaves out is `disabled`, a
+200 never counts alone, and a selector that matches nothing is `unknown`. The
+names on each service row are part of the contract, and `last_success_at`
+reports only a component's own evidence, never the probe time. Enforced by:
+`modules/access/platform-api/probe_rbac.tf` and its Terraform tests,
+`packages/platform-api/tests/test_service_probes.py`.
 
-Health (#798) needs desired against ready pods, restarts and unschedulable
-state. Two ways to get it were weighed: a probe component with its own
-identity, or a Role for the API's own ServiceAccount. The Role is chosen: a
-second Deployment is a second image, pin, NetworkPolicy and failure to explain
-for a footprint-sensitive audience, and the exposure it would avoid is small
-because the grant is read-only and namespaced. What a compromised API gains is
-the names, labels, environment values and status of pods and controllers in
-the stage namespaces; no Secret, log, exec or write. The probe component is
-the fallback if a later signal needs more than this list. The grant, the
-token and the F20 egress to the API server land together with their caller
-(#1156): `environments/local` sets `probe_namespaces` from the stage namespace
-resources, the pod mounts its token, F20 names the platform API, and the stage
-health route runs the probes. A mounted token or an open egress with no route
-using it would widen a compromised API's reach for nothing. The F20 row is
-static: it is open whenever the platform API is deployed. `environments/local`,
-the only root that deploys it, guarantees the token and the Roles always
-accompany it with a precondition that `probe_namespaces` names at least one
-stage namespace.
+**D8. With authentication off, every caller is one anonymous principal
+holding the highest role.** A local profile with `spec.access` and no
+`spec.identity`, which profile validation allows only on a `*.localhost` base
+domain, deploys the API with no issuer and `anonymous_role`. A call with no
+token is `anonymous` with that role and the matrix applies unchanged; an issuer
+token is refused with 401, and D3's service principal is still checked. The API
+refuses to start with `anonymous_role` beside an issuer or audiences, or with a
+`public_origin` off `*.localhost`. Changes are audited as `anonymous`, and the
+OpenMetadata routes are not configured. Queries run as the Trino user
+`anonymous` with no bearer: the stage catalogs are not keyless here
+(ADR 0019, section 9), each stage Trino's catalog credential serves every
+request, and `olf`'s Polaris bootstrap grants it `CATALOG_MANAGE_CONTENT` on its
+catalog; with identity the grant is removed. `olf` reaches the API over the
+routes' own scheme. Enforced by: `openlakeforge_platform_api/settings.py` and
+`packages/platform-api/tests/test_anonymous.py`.
 
-| Where | apiGroup | Resources | Verbs |
-| --- | --- | --- | --- |
-| Each stage namespace, as a `Role` and `RoleBinding` | core | `pods` | `list` |
-| Each stage namespace | `apps` | `deployments`, `statefulsets` | `list` |
-
-Nothing else for probes: no `get` or `watch`, nothing in `olf-system`
-(the object store is probed over S3, not through Kubernetes), no `secrets`,
-`pods/log`, `pods/exec` or `events`. The module's `probe_namespaces` creates
-the Roles and mounts the ServiceAccount token only when it is non-empty, so a
-deployment without it is as before; it refuses `kube-system` and the API's own
-namespace. Terraform tests assert the exact rules. The one ClusterRole the API
-holds is not a probe's: with `service_callers` set, `tokenreviews` `create` in
-`authentication.k8s.io` (decision 3), bound to the API's ServiceAccount, which
-then mounts its token even with no `probe_namespaces`. A TokenReview is a
-cluster-scoped create, so it cannot be a namespaced Role; it reads nothing and
-cannot act as the token's holder. Restarts are judged over a
-recent window, never the lifetime `restartCount`, which does not reset.
-
-The probes live in `openlakeforge_platform_api.service_probes`, behind the
-stage health route. Each emits a SERVICE `Signal` (`openlakeforge_core.health`) with
-`observed_at` and an expiry. A timeout, transport error or refused permission
-is `unknown`; a component the deployment leaves out is `disabled` and not
-probed. A 200 never counts alone:
-
-| Probe | Display name | Service | Proves | Does not prove |
-| --- | --- | --- | --- | --- |
-| `dagster.workloads`, `trino.workloads` | Dagster workloads, Trino workloads | `dagster`, `trino` | pods ready, schedulable, not crash looping, restarts below 3 | that the service answers |
-| `dagster.read-api` | Dagster API | `dagster` | the webserver answers GraphQL and a code location is loaded | that a run would launch |
-| `trino.readiness` | Trino coordinator | `trino` | the coordinator finished starting (`/v1/info`) | workers, catalogs, Polaris |
-| `polaris.readiness` | Polaris catalog | `polaris` | the catalog's management port answers `/q/health/ready` with no credential (F43, [ADR 0017](0017-local-network-policy-and-rbac.md)); a DOWN answer is `critical` | that a catalog read works, that a grant holds, or that the stage's catalog exists: the probe holds no Polaris credential and never touches the REST API |
-| `object-store.list` | Object storage | `object-store` | the endpoint is reachable and the key may list the bucket | that a write is durable |
-| `log-archive.spool-age`, `log-archive.spool-size` | Log spool age, Log spool size | `log-archive` | how old the collector's oldest unsent file is and how full its spool is, worst over every collector pod (F42; [ADR 0022](0022-pod-log-collection-and-archive-format.md), decision 2) | that an object reached the bucket |
-| `log-archive.newest-object` | Newest archived log | `log-archive` | the age of the newest object under the stage's `logs/v2/namespace=<ns>/`, listed with the log reader's key; its `LastModified` is served as `last_success_at` | that the stage logs anything: an idle stage reads the same as a stalled collector |
-| `quality-sync.publication` | Quality publication | `quality-sync` | the quality reconciler's last summary, read with the files key: how long ago its last pass ended, how old the oldest unpublished result is, whether any gave up; its `last_success_at` is served as is | that the data passed its checks, or that OpenMetadata shows a given result |
-| `service-probes` | Service probes | `platform-api` | sent alone, `unknown`, when the probes themselves raised | anything about a service |
-
-Each row of the health routes' `services` (`ServiceHealth`) carries the
-`component` id, which stays the stable key, and beside it `display_name`,
-`service` and `service_display_name` from one map in `service_probes.py`, so a
-client groups rows by `service` (worst state per service) without parsing ids
-and keeps no copy of the names. The names are part of the contract: `service`
-is an enum in the committed OpenAPI document, renaming a display name is a
-reviewed change, and no name carries a host, namespace or container. A test
-fails when a component the probes can emit has no name; the route does not
-fall back to the raw id. `last_success_at` is the time the component last did
-its job by its own evidence, which `observed_at` (when the probe ran) is not.
-Only the two probes above that have such evidence set it; it is null when there
-is none (no archive object in the days listed, no result published), when the
-read failed, and whenever the state is `unknown` or `disabled`. It is never the
-probe time and never a default.
-
-The controllers of Dagster and Trino are found by label
-(`app.kubernetes.io/name=dagster` and `=trino`, overridable per stage); a
-selector that matches nothing is `unknown`, not healthy.
-
-### 8. Authentication off: one anonymous principal
-
-A profile with `spec.access` and no `spec.identity` turns authentication off,
-which profile validation allows only on `local` with a `*.localhost` base
-domain. The portal, Superset (public admin) and the other routes are then open
-to anyone who reaches loopback, and the platform API follows them:
-
-- It is deployed with no issuer and the setting `anonymous_role`, the highest
-  canonical role. A call with no token is the principal `anonymous` holding
-  that role, and the permission matrix applies to it unchanged. A call with an
-  issuer token is refused with 401; the service principal's token
-  (decision 3) is still checked.
-- The API refuses to start with `anonymous_role` beside an issuer or
-  audiences, or with a `public_origin` that is not on `*.localhost`. That is
-  the provider's rule, enforced again where it matters.
-- Changes are audited as `anonymous`. OpenMetadata authorizes the caller's own
-  token (decision 2), so its routes are not configured.
-- Queries run as the Trino user `anonymous` with no bearer. No caller has a
-  token, so the stage catalogs are not keyless (ADR 0019, section 9) here:
-  each stage Trino's catalog credential, `trino-catalog-<stage>`, serves every
-  request (`session=NONE`), and `olf`'s Polaris bootstrap grants it
-  `CATALOG_MANAGE_CONTENT` on its catalog. That covers the whole platform at
-  once: the Trino Web UI, Superset, the API and the pipelines. With identity,
-  the grant is removed and the catalogs are keyless again. The whole platform
-  then holds what `platform-admin` holds. This is a local test stack, and
-  restricting a caller who cannot sign in protects nothing.
-- `olf` reaches the API with the routes' own scheme: plain HTTP under
-  `access.tls: none`.
+**D9. Log reads are bounded.** Both archived-log routes read the archive on one
+shared pool of two workers. A read gets 20 seconds from when a worker takes it
+(502 past that), a read that waits more than 5 seconds for a worker is answered
+503 with `Retry-After: 5`, and a client that disconnects cancels its read. The
+bound is what holds the API inside its memory limit. The archive format is
+[ADR 0022](0022-pod-log-collection-and-archive-format.md)'s; this decision owns
+how the routes read it. Enforced by: `openlakeforge_platform_api/log_reads.py`
+and `packages/platform-api/tests/test_log_reads.py`.
 
 ## Consequences
 
 - Platform logic is written once, in Python, and the portal, `olf` and agents
-  share it through one API.
-- The platform API holds service credentials for Superset and the object
-  store (its files key reaches every enabled stage's buckets), and is the authorization point for them and for Dagster. Its
-  permission matrix and token validation carry the review weight the
-  perimeter carries today.
-- OpenMetadata keeps its per-user authorization on every platform path, and
-  the platform API holds one credential fewer. The price is that the
-  perimeter's audience check is the only one in front of OpenMetadata, and
-  every caller on that path handles a first-time user's registration.
-- One more pod in `olf-system`, with `spec.access`, recorded in
-  ADR 0013's table. Its memory was measured in Docker, not yet on kind.
-- The extraction of `packages/lakehouse-services` is a refactor with no
-  behaviour change and can land before any of the API.
-- AGENTS.md's repository map gains `packages/lakehouse-services/` and the
-  platform API's source and image directories when they exist.
+  share it.
+- The API holds service credentials for Superset and the object store (its
+  files key reaches every enabled stage's buckets) and is the authorization
+  point for them and for Dagster: its matrix and token validation carry the
+  review weight the perimeter carries for the UIs.
+- OpenMetadata keeps its per-user authorization on every path, at the price
+  that the audience check in front of it is the only one, and every caller on
+  that path handles a first-time user's registration.
+- Only the multi-key folder move of the files explorer is not atomic: a
+  failure midway leaves part of the folder moved.
+- No per-person limit on queries in flight: it would need state shared between
+  replicas.
+- One more pod in `olf-system` with `spec.access`, recorded in
+  [ADR 0013](0013-service-access-and-ingress.md)'s table.
+- A compromised API learns the names, labels, environment values and status of
+  pods and controllers in the stage namespaces (D7); no Secret, log, exec or
+  write.
 
-## Open items
+## Boundaries
 
-Items 1 and 2 are settled (decision 1 and History); the numbering of the
-remaining ones is kept. Item 4 closed with #1156.
+| Not decided here | Where |
+| --- | --- |
+| Routes, permission rows, per-route limits and status codes | [Platform API reference](../reference/platform-api.md) |
+| Roles, the role claim and the perimeter's floors | [ADR 0014](0014-identity-and-authorization.md) |
+| What a person may read and write in the data plane | [ADR 0019](0019-data-plane-authorization-deferral.md) |
+| Command surfaces and which command calls the API | [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md) |
+| The API's network flows | [ADR 0017](0017-local-network-policy-and-rbac.md), `release/network-flows.yaml` |
+| The log archive's format and collection | [ADR 0022](0022-pod-log-collection-and-archive-format.md) |
+| Alert evaluation, its state and its service principal | [ADR 0023](0023-alert-evaluation-and-webhook-delivery.md) |
+| The metrics series and ranges | [ADR 0024](0024-metrics-prometheus-reference-and-read-path.md) |
+| Health states and the probe components | [Health signals](../reference/health-signals.md) |
 
-| # | Item | Why it is open |
-| --- | --- | --- |
-| 3 | The narrowest credential per service | Settled for Superset (#670, see History): a non-admin service user, role `olf_platform_api`, can import and export. It must co-own the report assets to overwrite them, and needs data access to export them |
-| 4 | NetworkPolicy for the probes | Closed (#1156, see History): the F20 row for the API's egress to the API server landed with the token and the routes. Trino's coordinator needed none (F36 is not conditional on `person_query`), and F32 and F33 already cover Dagster and the object store |
+## Alternatives rejected
 
-## Build order
-
-Each step is one pull request within AGENTS.md's size rule.
-
-1. Extract `packages/lakehouse-services` from `olf/common/clients`,
-   `olf/infra/superset.py` and `olf/infra/openmetadata`; `olf infra` uses it.
-   No behaviour change.
-2. Platform API skeleton on the local provider: token validation, the
-   permission matrix, `/healthz`, the discovery document; its Terraform
-   module, flow rows and catalog pin.
-3. Read endpoints: Dagster runs and jobs and archived logs with service
-   credentials; OpenMetadata domains and products forwarding the person's
-   token.
-4. `olf login`, `whoami`, `logout` and the read commands as clients of the API,
-   except where a command calls a service's route directly with the person's
-   token, as `olf query` does Trino's (step 6).
-5. State-changing endpoints — report export and import, launching a run — with
-   audit records.
-6. Platform `olf query` on ADR 0019's person path (ADR 0020 D5).
+| Option | Why not |
+| --- | --- |
+| Each platform command calls each service's public route itself (ADR 0020 as first written) | The same logic again in the portal, which cannot import Python |
+| A top-level `services/` directory for the API | A third layout for first-party Python |
+| An OpenMetadata bot credential in the API (#665) | Replaces OpenMetadata's per-user decision with the API's |
+| The Superset `admin` account | Broader than import and export need; a non-admin service user can do both |
+| A probe component with its own identity for health (D7) | A second image, pin, NetworkPolicy and failure to explain, to avoid a small, read-only, namespaced grant; kept as the fallback if a signal needs more |
+| The artifacts phase through the API (D4) | Every deployment would depend on the API, and CI would need a platform credential |
+| An unbounded log read per request (D9) | A read the browser had cancelled kept running beside its retry until the API was OOMKilled |
 
 ## History
 
-New record. Rewrites ADR 0020's platform row: platform commands reach the
-platform API, not each service's public route.
-
-Build step 1, first part: the transport and the Dagster client moved to
-`packages/lakehouse-services`, a third published distribution (ADR 0009).
-
-Build step 1, second part: the OpenMetadata and Superset clients followed;
-`olf/common/clients` no longer exists.
-
-Build step 1, third part: Superset report import and export moved to
-`openlakeforge_services.reports`; `olf infra` keeps the stage resolution, the
-port-forward and the Secret reads, and passes its `log` module as the
-operations' progress reporter.
-
-Build step 1, last part: OpenMetadata payloads, upserts and the deploy
-sequence moved to `openlakeforge_services.governance`; `olf infra` keeps the
-contract and descriptor resolution, the port-forward, the Secrets, the
-ingestion Jobs, SSO and role sync. Domain listing needed no move: it was
-already `OpenMetadataClient.list_domains`.
-
-Build step 2, first part (#666): the service skeleton in
-`packages/platform-api`, which settles open item 4 (where the source and image
-live, decision 1). The proposed `services/platform-api/` was not used.
-Second and third parts: the image and its release build, then the Terraform
-module, flow rows and local wiring behind the perimeter.
-
-Decision 2 rewritten (#665): the identity on a service call follows the
-service, not a data-plane/control-plane split. OpenMetadata, which validates
-the person's token and authorizes by it, gets that token, directly from the
-CLI or forwarded by the API; service credentials remain for Superset, Dagster
-and the object store. Decision 3 now applies to those service-credential
-calls only, the OpenMetadata bot credential is dropped, and the context table
-records which services accept the person's token.
-
-Build step 3, first part (#668): Dagster jobs and runs under
-`/api/v1/stages/{stage}/`, at the Dagster route's `data-engineer` floor, with
-no credential; OpenMetadata domains and data products at the `viewer` floor,
-forwarding the caller's token unchanged. Archived logs, first-time user
-registration on the OpenMetadata path, and the endpoints' e2e through the
-perimeter remain.
-Second part: the local root renders each stage's Dagster GraphQL URL and
-OpenMetadata's URL into the API's settings, and ADR 0017's F32 lets the API
-reach them.
-
-Build step 4, read commands (#669): `olf jobs list`, `olf runs list|show`,
-`olf domain list` and `olf product list` call the platform API with the stored
-session's token, and the API's refusal below a floor names the role it needs.
-`olf domain list` reads OpenMetadata through the API rather than OpenMetadata's
-own route, as decision 2 had planned, so the CLI and the portal share one client
-and one first-time-user remedy.
-
-Build step 3, archived logs (#668): the platform API reads each stage's pod log
-archive with its own SeaweedFS identity, `Read` and `List` on the stages' log
-prefixes only, minted in-cluster and mounted from a Secret as decision 3 says,
-at the `data-engineer` floor.
-
-Build step 5, first part (#670): decision 3 now says where audit records go. A
-pod log is lost with the pod and nothing archives `olf-system`, so the durable
-copy is an object of its own, written before the API acts. The permission
-matrix marks an operation `changes_state`, and every such operation runs inside
-the audit; without an audit key it answers 503. No operation is marked yet: the
-first, launching a run, and the write-only key's deployment follow.
-Second part: `POST /api/v1/stages/{stage}/runs` launches a job as the
-signed-in person, at `data-engineer` and on DEV only, as #670 asks. Dagster
-checks nothing, so the row is the only control. The run is tagged with who asked
-for it and with the API's request id, by which a launch whose response was lost
-is found rather than launched twice. The job is looked up among the jobs the
-read endpoint lists, so an unknown name is answered at once instead of waiting
-on, and reloading, code locations as the e2e's launch does.
-A name that two code locations both define is refused with 409, naming them,
-rather than launching whichever is listed first (#670 follow-up).
-Third part: the SeaweedFS credentials Job mints the API's audit key in
-`olf-system`, identity `openlakeforge-platform-api-audit` with `Write` on
-`audit/platform-api/` only, never generated by Terraform (#400). The pod reads it
-under its own variable names, beside the log reader's key, and the local root
-sets `audit_base_uri` from the same prefix as the grant. `olf runs launch` posts
-the launch with the stored session's token and does not retry it.
-
-Open item 3, Superset, checked against the 6.1.0 source (#670):
-`ImportExportRestApi` is an Alpha view, not an Admin one
-(`security/manager.py`), so a role of its own can hold `can_import_` there. The
-import overwrites every asset with permission checks on: it needs `can_write`
-on each type, and an existing dataset, chart or dashboard may be overwritten
-only by an owner or an admin. Export filters charts by data access alone
-(`charts/filters.py`), so the role needs the report schemas' `schema_access`.
-The import form's `sparse=true` resolves databases already in Superset by uuid,
-so the API sends no database: the service user holds no `can_write` on
-databases, the API needs no Trino credential, and an uploaded report cannot
-replace a stage's connection. The role is created from data by Superset's init
-script (`fab import-roles`, which only adds permissions); the user's password is
-minted in `olf-system` by one Job that copies it into each stage namespace.
-The artifacts phase making the user a co-owner of what it imports and granting
-the role `schema_access`, the API's mount and its flow to Superset follow.
-The API reads each stage's Superset URL from its settings and that stage's
-service-user password from a variable mounted from the Secret in `olf-system`,
-and reaches Superset over ADR 0017's F35.
-The artifacts phase, still importing as `admin` (decision 4), now also makes the
-service user a co-owner of every dashboard it imports, with its charts and
-datasets, keeping every other owner, and grants `olf_platform_api` the report
-schemas in the step that grants `olf_data_access` them. An import keeps owners
-and adds the importer, so the user stays an owner across later imports; without
-the platform API there is no such user or role, and both steps do nothing.
-
-Build step 5, report routes (#670): `POST /api/v1/stages/{stage}/reports` takes a
-report directory zipped from its root and imports it into that stage's Superset
-as the service user, at `data-engineer` and on DEV only: the user co-owns every
-report asset, so an import elsewhere could overwrite any dashboard and bypass
-the repository and the artifacts phase. The upload's databases are dropped and
-the import is sparse, so it cannot replace a connection; a report reading a
-schema the report roles were not granted is refused with 409, since only the
-artifacts phase grants. It is audited like a launch.
-`GET /api/v1/stages/{stage}/reports/{dashboard}/export` returns one dashboard
-as a stage-neutral bundle, at `data-engineer` on every stage. The service user
-signs in with Superset's database provider, which the login endpoint honours
-whatever the AUTH_TYPE (Flask-AppBuilder 5.0.2), so OIDC sign-in does not stop it.
-Every import posts with a CSRF token, so the role also holds `can_read` on
-`SecurityRestApi` (`security/api.py`), the view behind `/api/v1/security/csrf_token/`;
-the e2e's first import found it missing.
-
-Build step 3, last part (#668): a caller OpenMetadata has never seen, such as a
-person who has only used the CLI, is registered on first use. OpenMetadata
-answers such a token 404 "user instance for <name> not found"; the API then
-creates exactly that user with the caller's own token (`POST /api/v1/users`,
-which self-signup allows) and reads again, as decision 2 decided. The name is
-the one OpenMetadata derives: its `jwtPrincipalClaims` is `preferred_username`
-(`modules/governance/openmetadata`), taken before any `@` and lowercased
-(1.13.6, `SecurityUtil.findUserNameFromClaims`), and the API reads that claim
-from the validated token, never from the request. OpenMetadata itself refuses a
-self-signup under any other name with 403 `OTHER_USER_SIGN_UP`
-(`UserResource.createUser`), so a mismatch fails closed. Registration is not
-audited: it is the first-use side effect a browser sign-in has, not an operation
-the person asked for. The e2e calls every read route through the perimeter for
-every role, which is how the missing registration was found.
-
-Issue #799, first part: the cross-site write guard (`csrf.py`), the
-`public_origin` and `person_query` settings, and the dependency that derives a
-person's Trino identity from the validated token (`query_identity.py`). Open
-items 1 and 2 stay open until the identity wiring lands.
-
-Issue #799, second part: open items 1 and 2 are settled by Dex cross-client
-trust, with no change to any service's accepted audience. `olf-cli` lists the
-perimeter in `trustedPeers`; the perimeter requests the `olf-cli` audience and
-`federated:id`, and the middleware on `/api` passes the ID token on. The
-settings render `public_origin` from the portal route's scheme and host (`http`
-under `access.tls: none`) and `person_query` true only for Dex with the
-people catalogs. Not yet run: that Dex keeps the `olf-cli` audience when the
-proxy refreshes the session (every 4 minutes), that the proxy accepts the login
-token with `--oidc-extra-audience`, and that Trino and Polaris accept it. The
-e2e's browser-session check covers the sign-in and an API read; none waits out a
-refresh.
-
-Issue #801: `GET /api/v1/query-capabilities` and the per-person schema and table
-listings (`discovery.py`). The `query_endpoints` setting maps each stage to its
-Trino statement URL and catalog (`lakehouse_<stage>`). Both are in the committed
-OpenAPI document of decision 5 (#1063).
-
-Issue #800: `POST /api/v1/stages/{stage}/queries`, `GET` and `DELETE` on
-`.../queries/{id}`, and `GET .../queries/{id}/export?format=csv|json`
-(`queries.py`), at the `viewer` floor: Polaris decides the data. Every Trino
-call is the person's, as discovery's. A submit may name `schema` in its body
-(printable ASCII, at most 128 characters, else 400): Trino calls for that query,
-the read-only check and the export re-run included, carry it as
-`X-Trino-Schema`, so unqualified names resolve in it; without it names stay
-qualified, as in discovery, which never sets one. The `id` and `cursor` are
-HMAC-signed records of Trino's query id and continuation path, the stage, the
-schema if named, and the token `sub`, so any replica resumes a query, no one
-resumes another person's, and a value that does not verify is a 404; the key is mounted from a Secret
-(`OPENLAKEFORGE_QUERY_SIGNING_KEY`, 32 characters or more) and without it
-query execution answers 503. The MVP is
-read-only and Trino enforces it: a statement runs only if Trino accepts it as
-a table expression in `SELECT * FROM (<sql>)` (checked with `EXPLAIN (TYPE
-VALIDATE)`, which runs nothing), so SHOW, DESCRIBE, EXPLAIN and every write
-are refused with 403. Being read-only, these operations are not
-`changes_state`: decision 3's audit-before-action does not apply, and nothing
-about the SQL is logged or audited. The id also carries the statement, because Trino gives a result out once and
-an export therefore runs it again. A response carries at most `query_page_rows`
-rows and an export at most `query_export_max_rows`, else 413; CSV cells that a
-spreadsheet would read as formulas are prefixed with a quote.
-There is no per-person limit on queries in flight: it would need state shared
-between replicas, which this API does not have.
-
-Issue #1114: the files explorer, decision 3's files key and rows. The matrix
-gained `role_stages`, generic so a later row may use it, the files rows are
-its first users, and the object-store row of decision 2 has a third key. The
-ops bucket is listed for `platform-admin` only, and its audit prefix is
-read-only through the API because SeaweedFS's `Write` also deletes.
-`olf bucket` and the portal's Files page are its clients. The infrastructure is
-in the tree: the `openlakeforge-platform-api-files` identity and its Secret in
-`infra/terraform/modules/storage/seaweedfs/credentials.tf`, and
-`OPENLAKEFORGE_FILES_ACCESS_KEY_ID`, `OPENLAKEFORGE_FILES_SECRET_ACCESS_KEY`
-and `file_buckets` in `modules/access/platform-api` and the local environment.
-The aws-poc and azure-poc environments do not wire the files key. Run against a
-local Slim deployment (SeaweedFS 4.48): each role's access, uploads up to a 20 MiB
-multipart, a racing upload to a new key (one 201, one 409), folder and file
-renames, the rejected key aliases and the read-only audit prefix. Review changed three things: an
-upload's `overwrite=false` is enforced on the final write with `If-None-Match`,
-keys the store would normalise are refused, and the upload runs its audit and
-S3 calls off the event loop.
-
-Decision 1 rewritten: the portal is no longer Astro. It is a React Router
-(framework mode, Node SSR) app in its own repository
-(openlakeforge-portal #10 to #12), and the sentence about React islands is gone.
-
-Issue #799 and #800, deployment wiring: the platform API module renders
-`query_endpoints` (each stage's in-cluster Trino statement URL, on the
-coordinator's HTTPS port, and its people catalog) into `settings.json` only
-with `person_query`, so the URL never leaves the server. The same condition mounts
-`OPENLAKEFORGE_QUERY_SIGNING_KEY` from a Secret one Job mints in `olf-system`,
-kept on redeploy and never held by Terraform. ADR 0017 adds flow F36 for the
-API's egress to the coordinator. Not yet run: a query through the deployed API;
-there is no cluster in the change's environment.
-
-Issue #800 follow-up: a query may name its default schema (`schema` in the
-submit body, the Portal's Schema selector). This reverses the earlier rule that
-queries never set `X-Trino-Schema`; discovery still does not.
-
-Issue #1063: decision 5's document now exists, as
-`docs/schema/platform-api.openapi.json`, listing the 18 routes with Pydantic
-response models (`models.py`). The app still serves no `/openapi.json`; the file
-is rendered by `openlakeforge_platform_api.openapi`, and `tests/test_openapi.py`
-fails when it differs from the app, naming the regeneration command
-(`cd packages/platform-api && uv run --locked python -m
-`openlakeforge_platform_api.openapi`). Its `version` is the path version (`v1`),
-not the release, so a release bump does not change it.
-
-Issue #1126, decision 7: platform health reads the cluster through a Role per
-stage namespace for the API's own ServiceAccount (`list` on pods, deployments
-and statefulsets), not through a probe component. Decision 6's "no Kubernetes
-permission" now has this one exception. The adapter
-(`openlakeforge_platform_api.service_probes`) landed first, still unwired.
-
-Issue #1126, flows: open item 4 stays open. ADR 0017 gains an RBAC inventory
-row for the Role and a corrected F36 row; Trino needs no new row, because F36's
-8080 row was never conditional on `person_query`, and F32 and F33 cover Dagster
-and the object store. The F20 row for the API's egress to the API server is
-**not** added: it would open an egress for an internet-facing pod that has no
-token and no caller. `environments/local` does not set `probe_namespaces`
-either. #1156 adds the F20 row and sets `probe_namespaces` (built from the stage
-namespace resources) together with the routes, which closes decision 7's
-condition. Nothing has run against a cluster.
-
-Issue #1156, decision 7 and open item 4: the probe grant, the token and the F20
-egress are wired together with the stage health route that calls them, and open
-item 4 is closed. The F20 row is static, so `environments/local` carries a
-precondition that `probe_namespaces` is non-empty whenever the platform API
-renders; the token and the Roles therefore always accompany the egress. It
-sets `probe_namespaces` from the stage namespace resources, so each Role is created after its namespace; the module
-renders the same map as the settings' `stage_namespaces`, with `trino_urls`
-(each coordinator's base URL, not the statement URL). `GET
-/api/v1/stages/{stage}/health` builds `ServiceProbes` once at startup, runs the
-probes and the Dagster read on worker threads (the probes block for up to their
-5-second timeout), lists the answers as `services` and folds them into the stage
-state. A probe that fails is `unknown`; a stage with no namespace is not probed
-and reports `services` as `disabled`. The object-store probe lists the stage's
-first files bucket with the files key, because the log reader's key is scoped to
-the archive prefixes. Nothing has run against a cluster.
-
-Issue #1167 (ADR 0023): the image also hosts the alert evaluator's entrypoint,
-`python -m openlakeforge_platform_api.alerting`, run as a CronJob in
-`olf-system`. The API itself stays stateless: the evaluator is a separate
-process and keeps its state as objects in the ops bucket, not in the API.
-Nothing is built.
-
-Issue #798, decision 7: `polaris.readiness` is added as an unauthenticated
-check of the catalog's own readiness (`GET /q/health/ready` on the management
-port 8182, F43). It was chosen over a catalog read because a read needs a
-Polaris principal and a grant the platform API does not hold, and ADR 0019
-defers data-plane authorization. A profile that deploys no catalog leaves
-`polaris_health_url` out and the signal is `disabled`. Polaris is one service
-for every stage, so each stage's health reads the same answer.
-
-2026-11-17: alert policy slice AP-c, service identity (ADR 0023, decision 11). The platform API gains a second
-authentication branch for a service principal, `alert-evaluator`: a projected ServiceAccount token checked with a
-TokenReview, admitted only for the evaluator's exact ServiceAccount and only on the services-only `get_stage_service_health` (decision 3). It
-needs the API's first ClusterRole, `tokenreviews` `create` (decision 7), and F44 from the evaluator to the API
-(ADR 0017). A TokenReview that cannot be made answers 503, where a review of an unknown identity answers 401 or 403.
-
-2026-11-17: `GET /api/v1/stages/{stage}/health/services` (`get_stage_service_health`) added, returning the stage and the
-`services` list of `get_stage_health` without a Dagster read. The alert evaluator's service principal is admitted there
-and no longer on `get_stage_health`, whose Dagster reads are unbounded across calls (decision 3).
-
-2026-11-18: decision 8 (#1270). Without `spec.identity` the local provider deploys the API as well, with no issuer,
-and serves every caller as the anonymous principal holding the highest role. Until then it deployed the API only with
-`spec.identity`, so `olf`'s anonymous path reached nothing, and called it over `https` under `access.tls: none`.
-
-2026-11-18: #21 slice M-d ([ADR 0024](0024-metrics-prometheus-reference-and-read-path.md), decision 4). The settings
-gain `metrics_enabled`, `metrics_url` and `metrics_retention_days`, rendered by `modules/access/platform-api` from the
-profile and the metrics module's `query_url`; the API reads Prometheus over F45 with no credential, through
-`openlakeforge_services.prometheus`. The health routes' `metrics` integration is no longer fixed at `not_provided`: it
-is `disabled`, `not_provided`, `unavailable` or `available` by whether the backend answers a query, and is never
-folded into the stage's state.
-
-2026-11-18: #21 slice M-d. `GET /api/v1/stages/{stage}/metrics/{series}?range=` (`get_stage_metric`) and `GET
-/api/v1/platform/metrics/{series}?range=` (`get_platform_metric`) serve the named series of ADR 0024's catalog over its
-four ranges, at the health routes' floor, read-only and not audited. No route takes a query, start, end or step.
-
-2026-11-18: #21 slice M-d. `GET /api/v1/stages/{stage}/metrics` (`list_stage_metrics`) lists the stage's series of ADR
-0024's catalog with each one's ranges and availability, at the same floor.
-
-2026-11-18: decision 8 extended. Without an issuer the local provider renders `person_query` and the query
-endpoints, so the portal's query page offers the stages, and the anonymous principal's queries reach Trino as the
-user `anonymous` with no bearer. The stage catalogs are not keyless without an issuer: Trino's catalog credential
-serves every request and holds the catalog's content, so the Web UI and Superset read too.
-
-2026-11-18: decision 7, #798 and #1262. `ServiceHealth` gains four additive fields on both health routes:
-`display_name`, `service` (an enum: `dagster`, `trino`, `polaris`, `object-store`, `log-archive`, `quality-sync`,
-`platform-api`) and `service_display_name` from one map beside each component's `source`, so no client keeps its own
-copy of the names; and `last_success_at`, the newest archive object's write time for `log-archive.newest-object` and
-the reconciler's last published result for `quality-sync.publication`, null otherwise. The probe table gains the
-display name and service columns and the `quality-sync.publication` and `service-probes` rows. The alert evaluator,
-which keys on `component`, is unchanged.
-
-2026-11-18: #1257. `GET /api/v1/stages/{stage}/health/quality` (`get_stage_quality_health`) added at the health routes'
-floor, read-only and not audited: per product pipeline, the outcome counts of the quality manifest behind its `quality`
-signal, read in the same `read_stage_pipelines` pass as `list_pipeline_health`, and their sum. Counts and run ids only;
-an absent or unusable manifest has no counts rather than zeros. The whole read is held to a 20-second deadline. ADR
-0023's quality manifest and signal are unchanged.
-
-2026-11-18: #1259. `GET /api/v1/monitoring-capabilities` (`monitoring_capabilities`) added beside the query and files
-capability documents, row `viewer` with no stages, read-only and not audited: the enabled stages on which the caller's
-role allows at least one monitoring route, by the matrix and its `role_stages`, the routes it allows there, and each
-stage's sources (`dagster`, `services`, `quality`, `quality-sync`, `logs`, `metrics`, `alerts`) in the health routes'
-`available`, `disabled`, `unavailable` and `not_provided` vocabulary. It is built from the settings alone, so it says a
-source is configured, never that it answers, and names no host, URI or bucket.
-
-2026-11-18: #1258. `GET /api/v1/stages/{stage}/alerts/incidents` (`list_alert_incidents`) added at the health routes'
-floor, read-only and not audited, with no acknowledgement: the stage's open incidents from the alert evaluator's
-`state.json`, each with its latest notification's delivery, from payload-allowlist fields and counts only. A new read-only
-object-store identity, the alert state key (`Read` and `List` on `alerts/state/*`), joins decision 3's list and the
-service table. A missing, unreadable or unparsable state is `unavailable` with no incidents, and a state older than two
-evaluator runs is `stale`. The read is held to a 10-second deadline, and the API never writes the state.
-
-2026-11-19: #1273. `HealthSignal` gains `due`, additive and nullable on the same path version (decision 5): the
-occurrence the core signal judged, copied from it. Only `expected_run` sets it, and only when a run was actually
-expected at that occurrence; it is null on every other kind and on an `expected_run` that judged none, and is never
-filled from `schedule.last_expected_at` or `observed_at`. Freshness does not set it, so ADR 0023 is unchanged.
-`get_stage_health` and the alert evaluator are unchanged.
-
-2026-11-19: #1271. `GET /api/v1/stages/{stage}/runs/{run_id}/failure` (`get_run_failure`) added beside `get_run`, at
-its floor, read-only and not audited. It answers at most five failed steps in event order (`steps_truncated` past
-them), each with its step key, the innermost cause's class and the first line of its message, redacted and then cut to
-300 characters; the run's own failure message when no step failed; and the rejected and accepted rows from the run's
-ADR 0023 quality manifest, taken once per table and summed. A successful run has no steps and no message; an
-unreadable event log gives `steps: null` and an absent or unreadable manifest `rows: null`, never an empty list or
-zeros. The Dagster read never selects `stack` and is the one `poll` uses for CI diagnostics; the redactor
-(`openlakeforge_services.redact`) removes URL userinfo and queries, Bearer and Basic credentials, `key=value` secrets
-and access-key lookalikes. The read is held to a 20-second deadline. The health routes still carry no error text.
-
-2026-11-19: #1272. Each Dagster job maps to the domain and data product it loads, from its job definition's tags: a
-product job declares `openlakeforge/product` beside `openlakeforge/silver-domain`, and the Dagster job read selects
-definition tags, so a job that has never run is mapped. `Job`, `StagePipelineState` and `PipelineHealth` gain
-`domain` and `product`, plain names (the quality manifest key's segment rule) and `null` for a job of no product, for
-a tag that is not a plain name, and for the product of a job deployed before the product tag; the job is listed
-either way and its tags are never answered. The quality signal and `get_stage_quality_health` read the same tags, so
-`PipelineQuality.product` is nullable and the `_pipeline` suffix rule is gone. `AlertIncident` gains `job`, the job
-the incident is scoped to, and its `domain` and `product` are now that job's, read from the stage's Dagster job list
-when the route answers, `null` when Dagster cannot be read in 10 seconds. The core `Scope`, whose `product` holds the
-job name, and ADR 0023's incident fingerprints and notification payload are unchanged; ADR 0004 is unchanged.
-
-2026-11-19: #1260. `get_stage_health` and `list_pipeline_health` take `range`, one of `1h`, `6h`, `24h` and `7d`
-(default `24h`), the list of [ADR 0024](0024-metrics-prometheus-reference-and-read-path.md)'s decision 4 and the same
-`RANGES` in code; any other value is a 400. The range scopes counts only: `failed_runs`, now the failed runs created
-in the window, on each pipeline of both routes and summed on each answer, from `window.covered_from` when that is set,
-so the sum covers the span every job's count is complete over. `state`, the signals and `services` stay the current
-evaluation, read from each job's 25 newest runs at every range. Both answers gain `window` (`range`, `from`, `to`,
-`covered_from`), and each pipeline of `list_pipeline_health` its own `covered_from`: where a job's 25 runs do not
-reach back to `from`, one stage-wide read of the runs created since then fills the count, held to ADR 0024's 500 runs,
-and a read that reaches the cap sets `covered_from` to where the count starts rather than answering it as the whole
-window. A Dagster that is absent or cannot be read gives `failed_runs: null`, never 0; a failed stage-wide read gives
-`null` counts where it was needed and leaves the pipelines, state and signals as read. `get_stage_service_health`, the
-alert evaluator's reads and the permission rows are unchanged.
-
-2026-11-20: #1325. `GET /api/v1/stages/{stage}/runs/{run_id}/quality` (`get_run_quality`) added beside `get_run`, at
-its floor, read-only and not audited: every check of the run's ADR 0023 quality manifest (engine, check id, table,
-column, engine severity, outcome, pipeline outcome, and the rows, accepted, rejected, violations or failures the engine
-recorded, `null` where it recorded none), the manifest's `complete` flag and outcome counts, the reports it names, and a
-`runbook` that stays `null` until the health-signal catalog names one. A separate route, not fields on `get_run_failure`:
-a run that passed has checks too, and the failure answer stays a bounded summary. The manifest is read as
-`get_run_failure` reads it and never re-run; without a usable one `checks` and `counts` are `null`, never an empty
-list or passes. `GET .../runs/{run_id}/quality/reports/{report_id}` (`get_run_quality_report`) streams a report the
-manifest names, with the files key, as a JSON attachment: the id is derived from the manifest's `artifact_uri`, never
-an object key from the client, and a URI outside the stage's activation prefix is a 404, since the files key reaches
-every stage. Its row is `list_logs`'s (`data-engineer` on DEV only), because a Floe run report or dbt's run results can
-quote values the run read; `href` is `null` where the caller may not download or the API holds no files key. No
-presigned URL is handed out. Both reads are held to `get_run_failure`'s 20-second deadline. `get_run_quality` joins the
-operations `monitoring_capabilities` lists.
-
-2026-11-20: #1324, #1327, #1328. `monitoring_capabilities` lists `get_run` and `get_run_failure` among a stage's
-operations, by their existing rows. `MonitoringStage` gains `log_retention_days`, additive and nullable: the provider
-contract's `logs.archive.retention_days` when `retention_supported` is true, rendered into the settings as
-`log_archive_retention_days`, and null on a stage with no archive or a provider that applies none. It is still built
-from settings alone. `RunFailure` gains `domain` and `product`, additive and nullable, as on `Job`, from the run's job
-definition tags. The job list is now read once per request, whether or not the stage has a quality reader, within the
-same 20-second deadline; null when it cannot be read in time.
-
-2026-11-20: #794. `get_run_quality.runbook` is populated from the new `runbook_base_url` setting: the alert runbook
-section for the condition the run would alert on, `#quality` when a check ended in `error`, else `#run_failed` for a
-failed run, `null` for a run that passed or only warned or where the deployment sets no `runbook_base_url` (the same
-page the alert evaluator links, ADR 0023). The response shape is unchanged.
-
-2026-11-20: #1326. `GET /api/v1/stages/{stage}/runs/{run_id}/logs` (`list_run_logs`) reads the archived lines of a run's
-start-to-end window across at most three UTC days of event time (v1 also one day past the cut, by the archiver's
-lookback), paged by an opaque `next` cursor passed back as `after`, within a 20 s deadline that the archive read itself
-checks between pages, objects and records, with `list_logs`'s matrix row.
-
-2026-11-20: #1347. `list_logs` and `list_run_logs` take `q`: lines whose message contains it, ignoring case, as a plain
-substring (1 to 200 characters; a control character is refused with 422 before anything is read). `limit`, `truncated`
-and `next` count matching lines only. A run read still stops at `MAX_RUN_LOG_DAYS`, so a sparse search can answer fewer
-than `limit` lines, or none, with `next` set. `severity`, an at-or-above floor on each line's `level` on both routes
-since #1326, already met the issue's level filter, so no `level` parameter is added. The search text is not logged, and
-the permission rows are unchanged.
-
-2026-11-21: #1346. On `GET /api/v1/stages/{stage}/health/quality`, a pipeline whose run ended before its quality checks
-finished reads `unknown` with that run's id, its partial counts (`complete: false`) or `null`, and the reason "the run
-failed before its quality checks finished", never the older complete run's result. The response schema is unchanged.
-
-2026-11-21: #1344. `AlertIncident` gains `runbook`, additive and nullable: the alert runbook section for the incident's
-condition, built from `runbook_base_url` as `get_run_quality.runbook` is and equal to the notification's
-`links.runbook` (ADR 0023); `null` where the deployment sets no `runbook_base_url`. The route, its floor and permission
-row are unchanged.
-
-2026-11-21: after full e2e run 44912147653's platform API was OOMKilled while a read the browser had already cancelled
-kept running beside its replacement, `list_logs` and `list_run_logs` run their archive read on one shared pool of two
-workers and stop it when the client disconnects: the archive reader checks a cancellation with its deadline, between
-pages, objects and records, and starts none of its queued fetches. The 20-second deadline starts when a worker takes
-the read, so time queued never shortens it; a read that waits more than 5 seconds for a worker is answered 503 with
-`Retry-After: 5`, so a request takes at most 25 seconds. `list_logs`, previously unbounded, is held to the same
-deadline (502 past it). Response bodies and permission rows are unchanged; the 503 is in the OpenAPI document.
-
-2026-11-22: Corrected to match the code: build steps 1 to 6 are done except the discovery document; the committed OpenAPI document lists 36 paths and 39 operations, and `permissions.toml` has 39 rows, not the 18 routes the #1063 entry counted. No decision changed.
+- Undated: New record. Rewrote ADR 0020's platform row: platform commands
+  reach the platform API, not each service's public route.
+- Undated (#665): D2 rewritten: the identity follows the service, not a
+  data-plane/control-plane split; D3 applies to service-credential calls only,
+  and the API's OpenMetadata bot credential was dropped.
+- Undated (#666): D1's location settled as `packages/platform-api` and
+  `images/platform-api`.
+- Undated (#670): D3 gained audit-before-act with durable objects under a
+  write-only key, and the non-admin Superset service user `olf_platform_api`
+  (formerly open item 3).
+- Undated (#799): D1: a browser session reaches the API through Dex
+  cross-client trust (formerly open items 1 and 2); D3 gained the cross-site
+  write guard.
+- Undated: D1: the portal is a React Router app, no longer Astro.
+- 2026-11-16 (#1126, #1156): D7 added; D6 gained its exception; the grant,
+  token and F20 egress land only with their caller.
+- 2026-11-16 (#1114): D3 gained the files key, the files explorer's guards and
+  `role_stages`.
+- 2026-11-16 (#1167): D1: the image also hosts the alert evaluator's
+  entrypoint, as a separate process.
+- 2026-11-17 (ADR 0023 slice AP-c): D3 admits the alert evaluator as a service
+  principal on the services-only health route; D7 gained the `tokenreviews`
+  ClusterRole.
+- 2026-11-18 (#1258): D3 gained the read-only alert state key.
+- 2026-11-18 (#1262): D7: the service rows' names are part of the contract,
+  and `last_success_at` reports only a component's own evidence.
+- 2026-11-18 (#1270): D8 added, then extended the same day so anonymous
+  queries read through each stage's catalog credential.
+- 2026-11-20 (#1325): D2: the files key also reads a run's retained quality
+  reports under the stage's activation prefix.
+- 2026-11-21 (#1365): Log reads bounded by a shared two-worker pool, a
+  20-second deadline and a 503 with `Retry-After`; stated as D9 since the
+  rewrite below.
+- 2026-11-23: Rewritten in the standard form. Decisions 1 to 8 are D1 to D8;
+  the log-read bound is D9; routes, permission rows, per-route behaviour and
+  the files explorer's mechanics moved to the
+  [platform API reference](../reference/platform-api.md), and the probe table
+  to [Health signals](../reference/health-signals.md). No decision changed.

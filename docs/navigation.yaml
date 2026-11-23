@@ -63,6 +63,7 @@ sections:
       - docs/reference/descriptors.md
       - docs/reference/alert-policy.md
       - docs/reference/runtime-api.md
+      - docs/reference/platform-api.md
       - docs/reference/health-signals.md
       - docs/reference/metrics.md
       - docs/reference/components.md

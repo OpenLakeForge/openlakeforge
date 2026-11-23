@@ -27,7 +27,7 @@ Pod logs reach the ops bucket today through one CronJob per stage namespace:
 | The v1 object is `<base>/k8s/namespace=<ns>/date=<D>/hour=<HH>/k8s-logs-<stamp>.ndjson.gz`, a record per line carrying `schema: openlakeforge.k8s_log.v1`; `<base>` is `s3://<ops>/activations/<stage>/logs` | `k8s_log_archive.py`; `stage_log_prefixes` in `infra/terraform/environments/local/main.tf` |
 | `olf logs` calls `GET /api/v1/stages/{stage}/logs`; the API's `list_logs` runs `LogArchive.read`, which lists the v1 prefix of one namespace and day and skips records of another schema | `tools/olf/olf/platform/reads.py`, `reads.py` in `packages/platform-api`, `openlakeforge_services/logs.py` |
 | The API reads with `openlakeforge-platform-api-logs`: `Read` and `List` on `activations/<stage>/logs/k8s/*` | `modules/storage/seaweedfs/credentials.tf`; ADR 0017 F33 |
-| `olf-system` is not archived at all | ADR 0021, build step 5 |
+| `olf-system` is not archived at all | ADR 0021, decision 3 (audit records) |
 
 [#22](https://github.com/OpenLakeForge/openlakeforge/issues/22) sets the scope
 and its 2026-11-16 comment fixes the direction: a lightweight collector writes
@@ -307,7 +307,7 @@ second layout.
 | Same response | `ArchivedLogLine` keeps `archived_at`, `namespace`, `pod`, `container`, `line`, `error`; for v2, `line` is `message` and `archived_at` is `time`. New fields (`stage`, `component`, `domain`, `product`, `run_id`, `stream`, `missing`, `source`) are additive and optional, so `olf logs` output and the API's OpenAPI document change only by additions. `timestamp` (v2 `time`, or the kubelet timestamp a v1 line opens with) and `level` (read by `level_of` from a bounded set of message shapes) are additive and null when the source recorded none |
 | Overlap | While the CronJob and the collector both run, a v1 line is dropped only when v2 holds a record with the same namespace, pod, container, timestamp and text; every unmatched v1 line is kept, including a container's history from before the collector's first record. The v1 `line` begins with the kubelet timestamp (`timestamps=True` in `k8s_log_archive.py` [V]); that it equals the CRI `time` byte for byte is [T], and where it does not the line is shown from both sources, with `source` (`v1` or `v2`) set on each so a duplicate is visible, never a loss. The CronJob is removed by its own change once the failed-Floe-pod acceptance of #22 passes on v2 |
 | Duplicates | Within v2, a record whose `dedup_key` was already returned is dropped |
-| Authorization | Unchanged: `stage` stays the path segment the permission matrix checks. The read key widens from `logs/k8s/` to `logs/` of each stage, which changes ADR 0017 F33 and ADR 0021 build step 3 in the same slice |
+| Authorization | Unchanged: `stage` stays the path segment the permission matrix checks. The read key widens from `logs/k8s/` to `logs/` of each stage, which changes ADR 0017 F33 and ADR 0021 decision 3 in the same slice |
 
 ## Decision 6: pinning
 

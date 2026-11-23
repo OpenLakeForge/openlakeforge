@@ -36,7 +36,7 @@ STAGE_NEUTRAL_SQLALCHEMY_URI = "trino://superset@trino:8080/iceberg"
 # Superset creates this role empty (images/superset/olf_oidc.py); analysts and
 # viewers read nothing until it holds the imported schemas.
 DATA_ACCESS_ROLE = "olf_data_access"
-# The platform API's Superset service user and role (ADR 0021, open item 3), created by Superset's init script
+# The platform API's Superset service user and role (ADR 0021, decision 3), created by Superset's init script
 # (infra/terraform/modules/analytics/superset and access/platform-api, which name them the same). Re-importing a
 # report asset needs ownership, so the import makes this user a co-owner of what it imports; exporting one needs
 # data access, so the role gets the same schemas as DATA_ACCESS_ROLE.

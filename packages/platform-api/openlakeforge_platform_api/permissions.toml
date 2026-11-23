@@ -150,7 +150,7 @@ role = "data-engineer"
 stages = ["dev"]
 changes_state = true
 
-# Superset reports, as each stage's non-admin service user (ADR 0021, open item 3).
+# Superset reports, as each stage's non-admin service user (ADR 0021, decision 3).
 # Import is DEV only: the service user co-owns every report asset, so an import
 # here could overwrite any dashboard and bypass the repository and the artifacts
 # phase; other stages take reports only from there. data-engineer, as for
