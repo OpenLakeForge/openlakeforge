@@ -19,7 +19,7 @@ TABLES = {"silver": "sales_silver.orders", "gold": "sales_gold.revenue"}
 
 
 class Polaris:
-    """Decides as the catalog roles the bootstrap derives from a row do (ADR 0019, section 5), not from
+    """Decides as the catalog roles the bootstrap derives from a row do (ADR 0019 D5), not from
     `expected`: olf-write, olf-read, or olf-gold-read with grants on Gold namespaces only."""
 
     def __init__(

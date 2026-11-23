@@ -252,7 +252,7 @@ Enforced by: the four documents, and the e2e checks each one names.
 | Not decided here | Where |
 | --- | --- |
 | What a person reads and writes in the lakehouse (`data_access`, Polaris grants, people's queries) | [ADR 0019](0019-data-plane-authorization-deferral.md) |
-| Whether Polaris authenticates with the issuer | [ADR 0015](0015-polaris-identity-provider-evaluation.md), ADR 0019 |
+| Whether Polaris authenticates with the issuer | [ADR 0019](0019-data-plane-authorization-deferral.md) D7, D13 |
 | Trino workload authentication and its Web UI user | [ADR 0016](0016-trino-workload-authentication.md) |
 | Why GitHub and Dex | [ADR 0018](0018-github-is-the-forge.md) |
 | Ingress, routes, TLS, in-cluster resolution of the issuer | [ADR 0013](0013-service-access-and-ingress.md) |

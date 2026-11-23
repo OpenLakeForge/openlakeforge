@@ -62,7 +62,7 @@ class OlfSecurityManager(SupersetSecurityManager):
 
     def set_oauth_session(self, provider, oauth_response):
         super().set_oauth_session(provider, oauth_response)
-        # The sign-in token is also the user's Trino token (ADR 0019 section 9).
+        # The sign-in token is also the user's Trino token (ADR 0019 D11).
         g.olf_login_token = oauth_response
 
     def auth_user_oauth(self, userinfo):

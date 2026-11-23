@@ -41,7 +41,7 @@ because sign-in redirects need the route hostnames. Field reference:
 **D2. A route sits one level under the base domain: `<service>-<stage>` for a
 stage service, `<service>` for a shared one, and the portal at the apex.** The
 stage services are `dagster`, `superset` and `trino` (one Trino per stage,
-ADR 0019 section 9, refs `stage/<stage>/query` and `stage/<stage>/query_api`,
+ADR 0019 D8, refs `stage/<stage>/query` and `stage/<stage>/query_api`,
 the `/v1` path); a shared service such as OpenMetadata drops the stage suffix;
 the portal (D7) is `<base_domain>` itself. One wildcard level is what most
 client certificates and edge providers cover, so one `*.<base_domain>`

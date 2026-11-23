@@ -202,7 +202,7 @@ are revoked from a stage that drops governance. Enforced by:
 | Not decided here | Where |
 | --- | --- |
 | The quality manifest's content and its ops-bucket location | ADR 0023 |
-| How the Trino crawl authenticates (its Polaris token) | ADR 0016 D1, ADR 0019 section 9 |
+| How the Trino crawl authenticates (its Polaris token) | ADR 0016 D1, ADR 0019 D12 |
 | The quality reconciler's network flows (F52, F53) | ADR 0017, `release/network-flows.yaml` |
 | Publication health and the re-sync runbook | [health signals](../reference/health-signals.md#quality-publication-to-openmetadata), [service health](../guides/operations/service-health.md#quality-syncpublication) |
 

@@ -156,7 +156,7 @@ variable "web_ui_fixed_user" {
 }
 
 variable "keyless" {
-  description = "Whether each Polaris request carries the caller's own token (ADR 0019 section 9, session USER). false only where authentication is off (ADR 0021, decision 8): every request then uses the catalog's credential (session NONE), which olf's Polaris bootstrap grants the catalog's content."
+  description = "Whether each Polaris request carries the caller's own token (ADR 0019 D9, session USER). false only where authentication is off (ADR 0021, decision 8): every request then uses the catalog's credential (session NONE), which olf's Polaris bootstrap grants the catalog's content."
   type        = bool
   default     = true
 }

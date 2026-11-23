@@ -444,7 +444,7 @@ to anyone who reaches loopback, and the platform API follows them:
 - Changes are audited as `anonymous`. OpenMetadata authorizes the caller's own
   token (decision 2), so its routes are not configured.
 - Queries run as the Trino user `anonymous` with no bearer. No caller has a
-  token, so the stage catalogs are not keyless (ADR 0019, section 9) here:
+  token, so the stage catalogs are not keyless (ADR 0019 D9) here:
   each stage Trino's catalog credential, `trino-catalog-<stage>`, serves every
   request (`session=NONE`), and `olf`'s Polaris bootstrap grants it
   `CATALOG_MANAGE_CONTENT` on its catalog. That covers the whole platform at
