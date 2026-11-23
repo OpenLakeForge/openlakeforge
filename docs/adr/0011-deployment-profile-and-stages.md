@@ -25,7 +25,7 @@ A fourth profile concept, **sizing**, was added later (#323): how large the
 shared query engine and the self-hosted object storage are.
 
 `--profile` names the preset but reads as an environment; ADR 0002 already
-warns "`--profile` is not a phase," and ADR 0009 called the project-root
+warned that `--profile` is not a phase, and ADR 0009 called the project-root
 `openlakeforge.yaml` "a structural marker pending its semantic resolver."
 Neither record gave the four concepts distinct types. This ADR does.
 

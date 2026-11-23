@@ -27,6 +27,18 @@ as you through the platform API, while `olf infra report import|export` move
 every bundle as the stage's Superset admin. See
 [ADR 0020](../adr/0020-infrastructure-common-and-platform-cli-surfaces.md).
 
+### Commands by surface
+
+The surface a command sits on follows the credential it needs (ADR 0020 D1):
+infra needs cluster or cloud permissions, common needs none, and platform
+needs an `olf login` session.
+
+| Surface | Commands |
+| --- | --- |
+| Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report import\|export`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke`, `restore`, `backup`, `maintenance run`, `source bindings\|bind\|unbind` |
+| Common | `init`, `version`, `check *`, `release *`, `toolchain *`, `distribution *`, `profile validate\|resolve`, `source new`, `domain new`, `product new`, `project validate\|graph`, `report validate`, `contracts check`, `images build`, `layers enabled`, `diagnostics tree`, `alert explain` |
+| Platform | `login`, `whoami`, `logout`, `query`, `jobs list`, `runs list\|show\|launch`, `logs`, `domain list`, `product list`, `report import\|export`, `health`, `pipelines health`, `bucket *` |
+
 ## Options shared by lifecycle commands
 
 `olf infra deploy`, `destroy`, `status`, `forward`, `doctor` and `plan` take:
@@ -44,6 +56,9 @@ every bundle as the stage's Superset admin. See
 `--profile slim|full` is a deprecated shorthand for a single-DEV profile; use
 `spec.preset` in `openlakeforge.yaml` instead. A stack deployed with it is
 validated with the same flag: `olf infra e2e run --env local --profile slim`.
+Pass it consistently: `--phase artifacts` with the default `full` against a
+Slim platform renders governance manifests for services that are not
+deployed. See [ADR 0011](../adr/0011-deployment-profile-and-stages.md).
 
 ## Create a project
 
@@ -70,6 +85,7 @@ All `new` commands validate the result before writing and accept
 | `olf infra source bind <source> --stage dev -f openlakeforge.yaml` | Bind the source's declared runtime keys; `--set KEY=VALUE`, `--secret-from-env KEY=VAR`, or `--secret-from-file KEY=PATH`. `--partial` keeps existing declared keys; `--dry-run` prints key names without writing. |
 | `olf infra source bindings --stage dev -f openlakeforge.yaml` | Report bound, missing and extra keys for every source. Reads Secret key names only; exits 1 for missing or unreadable bindings. |
 | `olf infra source unbind <source> --stage dev -f openlakeforge.yaml` | Delete the source's ConfigMap and Secret in the selected stage. |
+| `olf infra catalog sync-namespaces [--dry-run] [--prune]` | Reconcile the stage's catalog namespaces (Polaris) or databases (Glue) with the domain descriptors; the artifacts phase runs it first, before any table is written. An undeclared OpenLakeForge-managed namespace is reported and kept unless `--prune`, or `OPENLAKEFORGE_CATALOG_PRUNE_NAMESPACES` in the artifacts phase, asks to drop it. A prune drops catalog metadata only; object-store files stay. A namespace without the `openlakeforge.io/managed-by` property is never pruned or relocated. Creates run before drops. `--dry-run` prints the plan and changes nothing. |
 | `olf infra plan` | Show the Terraform plan of the foundation or platform. `--detailed-exitcode` exits 2 when changes are pending; `--json` for [JSON](#json-reports). |
 | `olf infra product run <product>` | Launch a product's pipeline in a stage and wait for it (`--stage`, `-f`). `--full-refresh bronze\|gold` asks that run only for a full refresh; see [Full refresh](descriptors.md#full-refresh). |
 | `olf infra maintenance run --layer silver\|gold` | Launch the stage's Iceberg maintenance job and wait for it (`--stage`, `--dry-run`, `--json`, `-f`); prints per-table snapshots and orphans. See [Silver table maintenance](../architecture/floe-validation.md#silver-table-maintenance). |
