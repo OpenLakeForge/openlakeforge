@@ -3,7 +3,7 @@
 Replaces `scripts/test/check-contracts.sh`'s source-text grepping with
 structured checks: parsed Terraform HCL, the canonical domain model plus
 JSON Schema, and the Floe project layout, and parsed Helm values. There is no shell left to
-cover — `olf check structure` rejects tracked `.sh` files (ADR 0008). Deploy
+cover — `olf check structure` rejects tracked `.sh` files (ADR 0008 D2). Deploy
 phase ordering is covered separately by
 `tools/olf/tests/infra/test_deployment_engine.py`, not by this module.
 """

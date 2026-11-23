@@ -514,7 +514,8 @@ def test_azure_bridge_tolerates_azurerm_option_flags_on_account_commands(
 def test_azure_bridge_rejects_unsupported_commands_before_resolving_credentials(
     monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    """ADR 0008 binds the bridge to four commands. Anything else must be
+    """ADR 0008 D6 keeps the bridge minimal: it answers the four commands the
+    AzureRM provider sends for account metadata and tokens. Anything else must be
     refused with that message and without a credential/network call, so the
     operator sees the contract violation rather than an unrelated auth error.
     """
