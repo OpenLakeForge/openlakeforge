@@ -118,7 +118,7 @@ def _other_enabled_stages(cfg: E2EConfig, stages: Iterable[str]) -> list[str]:
 def _expect_trino_denied(cfg: E2EConfig, *, user: str, sql: str, what: str, sibling: str) -> None:
     """Require the query to fail because this stage's Trino cannot see the sibling's catalog.
 
-    Each stage's coordinator holds only its own catalogs (ADR 0019 section 9),
+    Each stage's coordinator holds only its own catalogs (ADR 0019 D8),
     so the sibling's is either hidden by the access rules or absent: Trino
     answers "Access Denied" or "Catalog ... not found". `trino_query` raises
     the same `E2EError` for those and for an unrelated failure (a broken pod,
