@@ -1,8 +1,10 @@
 """Delivery health of the pod-log archive's S3 output (ADR 0022, decision 2).
 
-The Fluent Bit S3 plugin buffers every chunk into its `store_dir` and reports success to the engine, so the engine's
-output error counters stay at zero while the object store is down. Delivery is judged from the spool instead: how old
-its oldest file is, and how full it is against `store_dir_limit_size`. Like `health`, nothing here performs I/O.
+The Fluent Bit S3 plugin buffers every chunk into its `store_dir` before it uploads, so the engine's output error and
+retry counters say nothing about loss: they rise while the object store is down, counting failed upload attempts on
+chunks that are still spooled (#1123). Delivery is judged from the spool instead, how old its oldest file is and how
+full it is against `store_dir_limit_size`, and from the newest archive object's age. Like `health`, nothing here
+performs I/O.
 """
 
 from __future__ import annotations
