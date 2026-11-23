@@ -172,21 +172,33 @@ outside the Secret inventory, and needs no Kubernetes API access. Mechanics:
 Enforced by: `infra/terraform/modules/identity/dex`,
 `tools/olf/olf/common/profile.py`.
 
-**D10. Dex's token lifetimes are pinned to the session policy, and the
-person's GitHub session is GitHub's.** ID tokens last 5 minutes, refresh
-tokens 30 minutes unused and 10 hours absolute, and `reuseInterval` is kept
-because the floor-specific proxies can redeem one cookie's refresh token
-concurrently. Team membership is re-read at every login and refresh. For this
-adapter two bounds of the session policy are revised: the 10-hour bound ends
-the OpenLakeForge refresh chain, but a new chain starts without a prompt
-while the GitHub session is valid, so re-authentication and 2FA are governed
-by GitHub and the organisation; and sign-out ends the perimeter cookie and
-the native Superset and OpenMetadata sessions, so a second person on the
-browser never reaches the first one's session, but OpenLakeForge does not end
-the GitHub session, which Dex cannot do. The signed-out page links to GitHub's
-sign-out and says so. Enforced by: `expiry` in
-`infra/terraform/modules/identity/dex/main.tf`; the adapter's e2e, including
-parallel refreshes.
+**D10. Dex's token lifetimes are pinned to the session policy, sign-out ends
+the perimeter session only, and the person's GitHub session is GitHub's.** ID
+tokens last 5 minutes, refresh tokens 30 minutes unused and 10 hours
+absolute, and `reuseInterval` is kept because the floor-specific proxies can
+redeem one cookie's refresh token concurrently. Team membership is re-read at
+every login and refresh. The 10-hour bound ends the OpenLakeForge refresh
+chain, but a new chain starts without a prompt while the GitHub session is
+valid, so re-authentication and 2FA are governed by GitHub and the
+organisation. Sign-out is the perimeter's `/oauth2/sign_out`, which clears
+the perimeter cookie and lands on the portal's unprotected
+`/signed-out.html`; the portal's Sign out link uses it, and Superset's Logout
+ends Superset's own session first and then uses it. It guarantees only that
+the next request to a protected route needs a new sign-in. It does not revoke
+Dex's refresh token, which lapses after 30 minutes unused; it does not end an
+OpenMetadata session, whose logout is not tied to the perimeter, or a
+Superset session when started from the portal, each of which lasts until its
+native bound (D12); and it does not end the GitHub session, since Dex has no
+end-session endpoint. On a shared browser the next sign-in therefore silently
+reuses the GitHub account still signed in there. With `issuer: external`
+there is no sign-out address and the portal shows no Sign out link.
+Mechanics:
+[reference](../architecture/identity/identity-sessions-and-recovery.md#logout).
+Enforced by: `expiry` in `infra/terraform/modules/identity/dex/main.tf`;
+`sign_out_url` in `infra/terraform/environments/local/contracts.tf`;
+`OlfAuthOAuthView.logout` in `images/superset/olf_security.py`
+(`tools/olf/tests/infra/test_superset_oidc.py`); the adapter's e2e, including
+parallel refreshes. No runtime test covers sign-out.
 
 **D11. OpenMetadata roles follow GitHub teams through a role-sync CronJob,
 only for `issuer: github`, and the sync changes nothing when a mapped team has
@@ -303,3 +315,5 @@ Enforced by: the four documents, and the e2e checks each one names.
 - 2026-11-23: Rewritten in the standard form; seams 1 to 3 kept as D1 to D3;
   adapter and perimeter mechanics moved to
   `docs/architecture/identity/identity-perimeter-and-adapter.md`; no decision changed.
+- 2026-11-23: D10 corrected to match the code: sign-out ends the perimeter
+  session only.
