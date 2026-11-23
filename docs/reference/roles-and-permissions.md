@@ -1,8 +1,8 @@
 # Roles and permissions
 
 The four OpenLakeForge roles and what each can do in every service. The roles
-are fixed for v0.5-alpha and defined in `release/identity-roles.yaml`; this
-page is derived from that file.
+are defined by the product in `release/identity-roles.yaml`, not by a
+deployment, and this page is derived from that file.
 
 A person holds the highest role among the GitHub teams they belong to, and
 GitHub teams are mapped to roles in `spec.identity`

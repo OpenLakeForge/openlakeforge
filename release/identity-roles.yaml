@@ -1,6 +1,6 @@
-# Canonical OpenLakeForge role model (ADR 0014). Product-level and fixed for
-# v0.5-alpha: every provider renders this file into shared.identity.roles and
-# `olf` rejects a contract that differs from it.
+# Canonical OpenLakeForge role model (ADR 0014). Product-level, not
+# deployment-configurable: every provider renders this file into
+# shared.identity.roles and `olf` rejects a contract that differs from it.
 #
 # precedence: highest role first.
 # grants: route service name (last segment of the route's contract ref) ->
