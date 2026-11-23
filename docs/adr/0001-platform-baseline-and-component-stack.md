@@ -50,6 +50,12 @@ Iceberg) -> dbt-trino (Gold Iceberg) -> Trino -> Superset`. Enforced by:
 | Metadata database | In-cluster PostgreSQL · Amazon RDS; for Dagster, OpenMetadata, Superset and Polaris |
 | Governance | OpenMetadata, optional (ADR 0007) |
 | Dashboards | Superset, optional (D8) |
+| Ingress | Traefik, the one ingress for every route (ADR 0013); local, when the profile sets `spec.access` |
+| Certificates | cert-manager, issuing route certificates and Trino's internal certificate (ADR 0013, ADR 0016); local, when the profile sets `spec.access` |
+| Sign-in issuer | Dex, federating GitHub teams (ADR 0014); local, when `spec.identity.issuer` is `github` |
+| Perimeter | oauth2-proxy, checking a person's sign-in and role in front of the routes (ADR 0014); local, when the profile sets `spec.identity` |
+| Pod log collection | Fluent Bit, a DaemonSet archiving pod logs to the ops bucket (ADR 0022); local, Slim and Full |
+| Metrics, optional | Prometheus with a restricted kube-state-metrics (ADR 0024); local, on by default in Full, or with `spec.observability.metrics.enabled` |
 
 **D6. Trino is the Gold compute engine.** Gold dbt models run through Trino's
 Iceberg connector with `table` materialization and `on_table_exists:
@@ -117,3 +123,4 @@ Enforced by: `olf check components`.
 - 2026-10-28 (#533): D5 changed: Floe runs as one Kubernetes Job per domain on
   the project-code image; the separate Floe runner image is removed.
 - 2026-11-22 (#1387): Rewritten in the standard form; no decision changed.
+- 2026-11-23: D5 lists the access, identity and observability components.
