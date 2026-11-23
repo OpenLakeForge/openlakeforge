@@ -245,6 +245,26 @@ run "portal_image_must_be_pinned_by_digest" {
   expect_failures = [var.portal_image]
 }
 
+run "the_e2e_edge_is_reached_from_the_f4_stage_pods_only" {
+  command = plan
+
+  variables {
+    access_tls             = "external"
+    access_test_edge       = true
+    access_trusted_proxies = ["10.244.0.0/16"]
+  }
+
+  assert {
+    condition     = one([for f in local.policy_flows : f.from if f.id == "F-edge-stage"]) == { scope = "stage", pods = { app = "superset" } }
+    error_message = "the edge forwards to the Dex route too, so a stage reaches it from F4's pods only, never namespace-wide"
+  }
+
+  assert {
+    condition     = alltrue([for stage in ["dev", "prod"] : anytrue([for key in keys(module.network_policy.stage_pod_policy_names) : startswith(key, "${stage}/f4-")])])
+    error_message = "F4 renders as a pod-narrowed policy in every stage"
+  }
+}
+
 run "the_default_issuer_serves_plain_http" {
   command = plan
 

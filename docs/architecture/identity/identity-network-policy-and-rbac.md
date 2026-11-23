@@ -110,8 +110,12 @@ repository: `olf infra break-glass` uses the operator's own kubeconfig
 - Anything running in a stage namespace can reach everything that namespace may
   reach.
 - Any pod allowed to reach Traefik can request the Dex route, `auth.<base_domain>`,
-  because the network cannot name a path. Flow F4 lets every pod in a stage
-  namespace reach Traefik, so stage pods, run pods included, can reach it.
+  because the network cannot name a path. In a stage namespace flow F4 lets
+  only Superset's web pods (`app=superset`) reach Traefik, for their calls to
+  the issuer's public URL; Dagster and run pods cannot, and `olf e2e` checks
+  that a pod with the run-pod label is dropped. User code that sets
+  `app=superset` on a pod still gets through: the label narrows, it does not
+  isolate.
 - `kubectl port-forward`, `exec` and `logs` are RBAC paths, not network paths,
   and policy does not apply to them. A cluster administrator stays trusted.
 - Resource limits, Pod Security Standards, hostname-based egress filtering,

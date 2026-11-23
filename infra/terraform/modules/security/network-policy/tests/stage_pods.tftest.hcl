@@ -95,3 +95,50 @@ run "declared_ports_reach_only_run_pods_of_the_declaring_stage" {
     error_message = "the namespace-wide policy must not carry the pod-narrowed row"
   }
 }
+
+# F4: a stage reaches the ingress from the pods the row names, never
+# namespace-wide, and the ingress admits those pods only.
+run "ingress_is_reached_only_from_the_named_stage_pods" {
+  command = plan
+
+  variables {
+    workloads = { traefik = { "app.kubernetes.io/name" = "traefik", "app.kubernetes.io/instance" = "traefik-olf-system" } }
+    flows = [
+      {
+        id    = "F4"
+        from  = { scope = "stage", pods = { app = "superset" } }
+        to    = { scope = "shared", pods = { "app.kubernetes.io/name" = "traefik", "app.kubernetes.io/instance" = "traefik-olf-system" } }
+        ports = [8443, 8000]
+        tag   = "V"
+      },
+    ]
+  }
+
+  assert {
+    condition     = toset(keys(kubernetes_network_policy_v1.stage_pods)) == toset(["dev/f4-0", "prod/f4-0"])
+    error_message = "F4 must be its own pod-narrowed policy in every stage"
+  }
+
+  assert {
+    condition     = kubernetes_network_policy_v1.stage_pods["dev/f4-0"].spec[0].pod_selector[0].match_labels == tomap({ app = "superset" })
+    error_message = "F4 must select Superset's web pods only"
+  }
+
+  assert {
+    condition     = kubernetes_network_policy_v1.stage_pods["dev/f4-0"].spec[0].egress[0].to[0].pod_selector[0].match_labels == tomap({ "app.kubernetes.io/name" = "traefik", "app.kubernetes.io/instance" = "traefik-olf-system" })
+    error_message = "F4 must reach the Traefik pods"
+  }
+
+  assert {
+    condition     = length(kubernetes_network_policy_v1.allow["dev"].spec[0].egress) == 1
+    error_message = "the namespace-wide policy must not open the ingress to every stage pod"
+  }
+
+  assert {
+    condition = (
+      kubernetes_network_policy_v1.workload["traefik"].spec[0].ingress[0].from[0].pod_selector[0].match_labels == tomap({ app = "superset" }) &&
+      kubernetes_network_policy_v1.workload["traefik"].spec[0].ingress[0].from[0].namespace_selector[0].match_expressions[0].key == "openlakeforge.io/stage"
+    )
+    error_message = "Traefik must admit the named pods of the stage namespaces only"
+  }
+}

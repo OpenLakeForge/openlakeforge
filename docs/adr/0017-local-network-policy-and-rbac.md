@@ -179,7 +179,7 @@ port [D]).
 | F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 (80 hostPort) only in plain-HTTP mode, `tls: none`, but the policy allows it in both | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
 | F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` | V |
 | F3 | Traefik | Dex, portal, platform API 8080, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` and `ingress_routes` (the platform API's `/api` path) in `contracts.tf` | V |
-| F4 | OpenMetadata | Traefik 8443 (8000 when `tls: none`) | 8443, 8000 | the issuer's public URL through the CoreDNS rewrite: OpenMetadata's discovery and token requests (the oauth2-proxy, Polaris and platform API calls moved to F31, #991); Superset's sign-in calls until #1092 (stage rule) | V; Superset (stage rule) is built; the Trino and OpenMetadata rows **T** |
+| F4 | OpenMetadata; Superset's web pods (`app=superset`, stage) | Traefik 8443 (8000 when `tls: none`) | 8443, 8000 | the issuer's public URL through the CoreDNS rewrite: OpenMetadata's discovery and token requests (the oauth2-proxy, Polaris and platform API calls moved to F31, #991); Superset's sign-in, and its per-user Trino token's exchange and refresh, until #1092. No other stage pod calls a public route, so the stage row names Superset's web pods, not the namespace | V; the Superset row is built; the OpenMetadata row **T** |
 | F5 | all managed pods | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP/TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik | V |
 | F6 | Dex, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
 | F7 | Polaris | SeaweedFS S3 | 8333 | table metadata is written to the warehouse bucket; not traced in the module | **T** |
@@ -249,8 +249,12 @@ Traefik and the stage's own namespace.
 
 **Known leak the network cannot close.** Any pod allowed to reach Traefik
 (F4 sources) can request `https://auth.<base_domain>`, which routes the whole
-Dex service, which has no admin console ([ADR 0014](0014-identity-and-authorization.md)). Dagster and run pods are not given F4, so user code cannot; narrowing
-the route is the follow-up that ADR already names.
+Dex service, which has no admin console ([ADR 0014](0014-identity-and-authorization.md)). Dagster and run pods are not given F4: its stage row names
+Superset's web pods, `olf check flows` rejects a row that opens the ingress to a
+whole stage namespace, and the e2e probes the ingress from a pod with the
+run-pod label and expects a drop. The label narrows, it does not isolate
+(decision 4): user code that sets `app=superset` on a pod still gets F4.
+Narrowing the route is the follow-up that ADR already names.
 
 ## RBAC inventory
 
@@ -304,6 +308,7 @@ denied pairs, the RBAC expectations). Probe pods use the `k8s_bootstrap` image
 | Canary | deny-all namespace pair, above | blocked, and the control pair connects |
 | Negative, outside | a pod in a fresh namespace `olf-e2e-untrusted` with no OLF labels and no policies | TCP connect times out to Postgres 5432, Polaris 8181 and 8182, Trino 8080, Dagster 80 in each stage, Superset 8088, Dex 5556, SeaweedFS 8333 and 9333, OpenMetadata 8585 |
 | Negative, inside | a pod in a stage namespace and one in `olf-system`, both without an allowing label | blocked towards Dex, Postgres (from `olf-system` pods outside F6), the other stage, SeaweedFS master and filer |
+| Ingress from a stage | in a stage namespace, a pod with F4's stage labels and one with the run-pod label `app.kubernetes.io/component=run_worker` | the first connects to Traefik on F4's ports, the second times out |
 | Positive control | the same probe from the same namespace to Traefik 8443 (F1), and a pod carrying an allowed workload's labels (for example Superset's in a stage namespace) to Trino | connects, so a broken probe or DNS cannot pass the negatives vacuously |
 | Authorized flows | the unchanged `olf infra e2e run --env local`: pipelines, Silver and Gold through Trino, dashboards, OpenMetadata assets, artifacts | pass with every policy on. This is the "unattended pipelines still work" evidence and needs no new code |
 | kindnet semantics (Option A) | the canary's pairs extended with: an `ipBlock` allow and an `ipBlock` `except`; a kubelet probe and an API-server-to-webhook call into a default-deny pod (node-sourced traffic); a policy naming a pod port reached through a ClusterIP Service (DNAT order); a named port | each behaves as the flow table assumes; a failure here is a reason to build B |
@@ -717,3 +722,5 @@ mounted by the platform API for its alert incidents route. It renders only with 
 and reuses the platform API's existing S3 flow, so no network row changed.
 
 2026-11-22: Corrected to match the code: the Context no longer says the tree has no NetworkPolicy; decision 2's namespace-wide deny covers stage namespaces only, while `olf-system` has per-workload policies for the listed workloads (`modules/security/network-policy`); and F52 publishes with the stage's quality-writer bot token since #1322, not the ingestion bot's the #797 entry names. No decision changed.
+
+2026-11-23: F4 narrowed: its stage row named the whole namespace, so Dagster and run pods reached Traefik, and through it the Dex route, although this ADR said they could not. The only stage pods that call a public route are Superset's web pods (`app=superset`): the sign-in, and the per-user Trino token's exchange and refresh, at the issuer's public URL. The worker runs no per-user query (`allow_run_async` is false, and alerts, reports and thumbnails are off), and Dagster, run pods, Floe Jobs, the coordinator and the ingestion Job call in-cluster Services only. The row now names those pods, so the module renders it as its own policy, `olf-flows-f4`, and Traefik admits only them; the e2e edge's stage row (`F-edge-stage`) takes the same labels. `olf check flows` rejects a row that opens the ingress to a whole stage namespace, and the e2e adds the ingress check to the conformance table.
