@@ -514,7 +514,8 @@ def test_azure_bridge_tolerates_azurerm_option_flags_on_account_commands(
 def test_azure_bridge_rejects_unsupported_commands_before_resolving_credentials(
     monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    """ADR 0008 binds the bridge to four commands. Anything else must be
+    """ADR 0008 D6 keeps the bridge minimal: it answers the four commands the
+    AzureRM provider sends for account metadata and tokens. Anything else must be
     refused with that message and without a credential/network call, so the
     operator sees the contract violation rather than an unrelated auth error.
     """
@@ -602,7 +603,7 @@ def test_aws_instance_profile_takes_precedence_over_a_saved_browser_session(
     environment variable `_uses_aws_automation` can see - unlike every other
     AWS automation source. Without checking IMDS directly, a saved OLF
     browser session on the same host would silently outrank the workload
-    identity ADR 0008 requires to win, breaking unattended deployment when
+    identity docs/guides/cloud/deploy-to-aws.md documents as winning, breaking unattended deployment when
     the session is stale or deploying as the wrong principal when it is not.
     """
     env = {"OLF_HOME": str(tmp_path)}

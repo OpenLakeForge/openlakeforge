@@ -553,7 +553,7 @@ locals {
     provider              = local.local_provider_name
     implementation        = "observability.object_log_archive"
     adapter               = "observability.object_log_archive"
-    metrics_enabled       = false
+    metrics_enabled       = local.metrics_enabled
     tracing_enabled       = false
     logs_mode             = "s3-compatible-object-archive"
     log_base_uri          = local.log_base_uri

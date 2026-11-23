@@ -291,7 +291,7 @@ Each stage's pass is confined to that stage:
   Nothing can connect to its pods, and it holds no Kubernetes API token.
 - It publishes as the stage's own OpenMetadata bot, `olf-quality-writer-<stage>`,
   which may read tables and write test definitions, cases and results, and
-  nothing else (ADR 0007, Identity). Its token is read from the
+  nothing else (ADR 0007 D13). Its token is read from the
   `openmetadata-quality-writer-<stage>` Secret and is never an argument, a
   literal environment value or a log line. The Secret is deleted when the
   stage loses governance, including when every stage does. OpenMetadata
@@ -306,11 +306,45 @@ kubectl -n olf-system create job --from=cronjob/quality-reconciler-dev quality-r
 kubectl -n olf-system logs job/quality-reconciler-dev-now
 ```
 
-Until `olf infra openmetadata bootstrap` has written the ingestion-bot
-Secret, a pass's pod cannot start (`CreateContainerConfigError`) and its Job
+Until `olf infra openmetadata bootstrap` has written the stage's
+`openmetadata-quality-writer-<stage>` Secret, a pass's pod cannot start (`CreateContainerConfigError`) and its Job
 fails at the 240-second deadline; passes publish once the Secret exists. The
 AWS and Azure roots do not deploy the reconciler yet, so there the command
 below is the only way to publish.
+
+### OpenMetadata 1.13.6 limits and routes
+
+What the publisher works around on OpenMetadata 1.13.6 (ADR 0007 D8 to D12).
+The publisher is `QualityCatalog` and `QualityPublisher` in
+`packages/lakehouse-services/openlakeforge_services/quality_publisher.py`; the
+status mapping and names are in `packages/core/openlakeforge_core/quality_sync.py`.
+`tools/olf/tests/common/test_quality_publisher.py` fakes these routes, and
+`tools/olf/olf/infra/e2e/_quality_publication.py` checks them against a real
+OpenMetadata.
+
+| Limit on 1.13.6 | What the publisher does |
+| --- | --- |
+| A result status is only `Success`, `Failed` or `Aborted` (`OmStatus`; `Queued` is never sent) | PASS is `Success`, ERROR is `Failed`, WARN is `Aborted` by default (`om_status`, `warn_status`); `not_run` and `unknown` publish nothing. The OLF outcome, engine severity and pipeline outcome travel in `testResultValue` (`result_body`) |
+| `Failed` opens an incident (`TestCaseResultRepository.setTestCaseResultIncidentId`) | That is why WARN is not `Failed`; an operator who wants incidents for WARN passes `--warn-status Failed` to `olf infra openmetadata quality-sync`, or sets the reconciler module's `warn_status` |
+| `FullyQualifiedName.add` quotes a segment that contains a dot, and case names (`olf.<engine>.<check id>`, `case_name`) do | The case FQN is `<table>."<name>"`, or `<table>.<column>."<name>"` for a column check. `upsert_case` takes the FQN from OpenMetadata's response and addresses the case by it; the e2e builds the same form with `case_fqn` |
+| Tables are never auto-created | `table_columns` looks the table up first; an unknown table or column leaves the result pending with `table not registered in OpenMetadata` (or `column ...`), and nothing is created. Each attempt backs off; after `MAX_ATTEMPTS` (10) the result is `failed` until a replay with `--retry-failed` |
+| Native dbt `run_results.json` ingestion is not used (open-metadata/OpenMetadata#29824) | Results come only from the quality manifest (ADR 0007 D8) |
+| A result's `timestamp` is epoch milliseconds, and a repeated timestamp on a case is a duplicate | The timestamp is the engine's observation time (`epoch_millis`). Before adding, `has_result` reads the case's results within 24 hours of it and skips the add when the timestamp or the `olf_identity` value matches, so a replay, or a manifest restamped for the same execution, adds nothing |
+
+The routes the publisher calls, and no others:
+
+| Method | Route | Used for |
+| --- | --- | --- |
+| `GET` | `/api/v1/tables/name/{table FQN}?fields=columns` | The table exists in this stage's root, and its columns |
+| `PUT` | `/api/v1/dataQuality/testDefinitions` | Create or update `olf_<engine>_table` / `olf_<engine>_column` |
+| `PUT` | `/api/v1/dataQuality/testCases` | Create or update the case, by entity link |
+| `GET` | `/api/v1/dataQuality/testCases/testCaseResults/{case FQN}?startTs=&endTs=` | Whether this execution is already there |
+| `POST` | `/api/v1/dataQuality/testCases/testCaseResults/{case FQN}` | Add the result |
+
+FQNs in a path are percent-encoded whole (`quote(fqn, safe="")`), so the quotes
+and slashes of a name are escaped. When results wait or give up, the re-sync
+runbook is
+[service health § quality-sync.publication](../guides/operations/service-health.md#quality-syncpublication).
 
 ### Publication health
 

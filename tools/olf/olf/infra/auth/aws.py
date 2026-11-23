@@ -57,8 +57,8 @@ def _aws_instance_profile_available() -> bool:
     web identity token, an ECS/EKS-agent container role - sets an environment
     variable `_uses_aws_automation` can see. A bare EC2 instance profile,
     discovered through IMDS, sets none of them; without this check a saved
-    OLF browser session would silently outrank the workload identity ADR 0008
-    requires to win. Bounded to a short timeout and a single attempt: IMDS is
+    OLF browser session would silently outrank the workload identity that
+    docs/guides/cloud/deploy-to-aws.md documents as winning. Bounded to a short timeout and a single attempt: IMDS is
     unreachable (not merely absent) off EC2, and this must not add a
     multi-second stall to every interactive deploy that has a saved session.
     """

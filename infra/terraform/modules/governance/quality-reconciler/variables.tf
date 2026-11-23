@@ -54,7 +54,7 @@ variable "openmetadata_url" {
 }
 
 variable "writer_secret_prefix" {
-  description = "Prefix of each stage's quality-writer Secret in `namespace`, `<prefix><stage>`, holding the JWT of that stage's olf-quality-writer-<stage> OpenMetadata bot (ADR 0007, Identity). `olf infra openmetadata bootstrap` writes it after the apply (olf.infra.openmetadata._quality_writer); until then a run stays in CreateContainerConfigError."
+  description = "Prefix of each stage's quality-writer Secret in `namespace`, `<prefix><stage>`, holding the JWT of that stage's olf-quality-writer-<stage> OpenMetadata bot (ADR 0007 D13). `olf infra openmetadata bootstrap` writes it after the apply (olf.infra.openmetadata._quality_writer); until then a run stays in CreateContainerConfigError."
   type        = string
   default     = "openmetadata-quality-writer-"
 }

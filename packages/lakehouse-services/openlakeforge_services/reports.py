@@ -25,11 +25,6 @@ import yaml
 from .progress import SILENT, Progress
 from .superset import SupersetClient
 
-# Where the superset module mounts the `olf-local-ca` ConfigMap in the Superset pods.
-SUPERSET_QUERY_CA = "/etc/olf/query-ca/ca.crt"
-# Superset's per-database `extra` while Trino serves HTTPS (ADR 0016). Export
-# strips exactly these keys, so they live beside the code that adds them.
-TLS_EXTRA = {"engine_params": {"connect_args": {"http_scheme": "https", "verify": SUPERSET_QUERY_CA}}}
 # What every imported database carries (ADR 0019 section 9): the viewer's own token reaches Trino, cached
 # per user, with no shared credential. A background query has no request to take a token from.
 PER_USER_DATABASE = {"impersonate_user": True, "allow_run_async": False}
@@ -123,16 +118,6 @@ def build_report_bundle(
 
 def _neutral_database(document: dict[str, Any]) -> None:
     document["sqlalchemy_uri"] = STAGE_NEUTRAL_SQLALCHEMY_URI
-    extra = document.get("extra")
-    engine_params = extra.get("engine_params") if isinstance(extra, dict) else None
-    connect_args = engine_params.get("connect_args") if isinstance(engine_params, dict) else None
-    if not isinstance(engine_params, dict) or not isinstance(connect_args, dict):
-        return
-    for key, value in TLS_EXTRA["engine_params"]["connect_args"].items():
-        if connect_args.get(key) == value:
-            del connect_args[key]
-    if not connect_args:
-        del engine_params["connect_args"]
 
 
 def _export_member(relative: PurePosixPath, content: bytes, schema_prefix: str) -> bytes:
