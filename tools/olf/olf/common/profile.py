@@ -120,9 +120,10 @@ class DeploymentProfileError(ValueError):
     """Raised when a Deployment Profile is invalid."""
 
 
-# Object-store bucket names are `<prefix>-<stage>-<layer>` on every provider (ADR 0004) and the prefix is
-# `metadata.name`. S3 and Azure cap a bucket name at 63 characters, so the prefix budget is what remains after the
-# longest suffix, `-prod-bronze`.
+# Object-store bucket names are `<prefix>-<stage>-<layer>` (ADR 0004) and the prefix is `metadata.name`; AWS
+# appends `-<suffix>`, the aws-s3 module's 8-character random suffix, because S3 names are global (ADR 0004,
+# "AWS keeps a suffix"). S3 and Azure cap a bucket name at 63 characters, so the prefix budget is what remains
+# after the longest stage and layer, `-prod-bronze`; it does not count the AWS suffix.
 BUCKET_LAYERS = ("bronze", "silver", "gold")
 _BUCKET_NAME_LIMIT = 63
 BUCKET_PREFIX_MAX_LENGTH = _BUCKET_NAME_LIMIT - max(

@@ -65,7 +65,7 @@ class _FakeProvider:
         self.calls.append("forward")
 
 
-def test_deploy_all_runs_phases_in_adr_0008_order(tmp_path: Path) -> None:
+def test_deploy_all_runs_phases_in_adr_0002_order(tmp_path: Path) -> None:
     provider = _FakeProvider(_runnable_project(tmp_path))
     engine = DeploymentEngine(provider)
 
@@ -123,7 +123,7 @@ def test_deploy_all_refuses_before_the_first_phase_mutates_anything(tmp_path: Pa
 @pytest.mark.parametrize(
     "phase", [DeploymentPhase.FOUNDATION, DeploymentPhase.PREFETCH, DeploymentPhase.PLATFORM]
 )
-def test_static_phases_stay_descriptor_free_under_adr_0008(phase: DeploymentPhase, tmp_path: Path) -> None:
+def test_static_phases_stay_descriptor_free_under_adr_0002(phase: DeploymentPhase, tmp_path: Path) -> None:
     provider = _FakeProvider(tmp_path)
 
     DeploymentEngine(provider).deploy(phase)

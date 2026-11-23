@@ -93,6 +93,11 @@ export AZURE_TFVARS_FILE="$(pwd)/azure.tfvars"
 Keep `AZURE_TFVARS_FILE` exported for every later command, including
 `olf infra destroy`: the foundation cannot be read without it.
 
+The file configures the foundation only. Azure's platform apply never takes a
+tfvars file, because the platform root declares none of the foundation's
+variables; a `--var-file` given to `olf infra deploy` reaches the foundation
+and never the platform phase.
+
 Other settings are environment variables:
 
 | Variable | Default | Meaning |

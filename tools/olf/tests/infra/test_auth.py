@@ -603,7 +603,7 @@ def test_aws_instance_profile_takes_precedence_over_a_saved_browser_session(
     environment variable `_uses_aws_automation` can see - unlike every other
     AWS automation source. Without checking IMDS directly, a saved OLF
     browser session on the same host would silently outrank the workload
-    identity ADR 0008 requires to win, breaking unattended deployment when
+    identity docs/guides/cloud/deploy-to-aws.md documents as winning, breaking unattended deployment when
     the session is stale or deploying as the wrong principal when it is not.
     """
     env = {"OLF_HOME": str(tmp_path)}

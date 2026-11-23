@@ -306,8 +306,8 @@ kubectl -n olf-system create job --from=cronjob/quality-reconciler-dev quality-r
 kubectl -n olf-system logs job/quality-reconciler-dev-now
 ```
 
-Until `olf infra openmetadata bootstrap` has written the ingestion-bot
-Secret, a pass's pod cannot start (`CreateContainerConfigError`) and its Job
+Until `olf infra openmetadata bootstrap` has written the stage's
+`openmetadata-quality-writer-<stage>` Secret, a pass's pod cannot start (`CreateContainerConfigError`) and its Job
 fails at the 240-second deadline; passes publish once the Secret exists. The
 AWS and Azure roots do not deploy the reconciler yet, so there the command
 below is the only way to publish.

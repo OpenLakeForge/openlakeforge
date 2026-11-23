@@ -34,6 +34,12 @@ and its own pinned tools.
 | An existing AWS profile | `olf infra auth login --provider aws --profile <name>` |
 | IAM Identity Center (SSO) | `olf infra auth login --provider aws --start-url <portal URL> --sso-region <region>` |
 
+Automation credentials outrank a session saved by `olf infra auth login`, so
+an unattended deploy on a host that also holds a saved session runs as the
+host's workload identity. That includes an EC2 instance profile, which sets no
+environment variable: `olf` asks the instance metadata service for it before
+it uses a saved session.
+
 For IAM Identity Center, the start URL is your AWS access portal URL, and
 `--sso-region` is the region of your Identity Center instance, which can
 differ from the region you deploy to. The command opens a browser to approve

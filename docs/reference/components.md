@@ -17,7 +17,8 @@ the [Compatibility matrix](compatibility-matrix.md).
 | [Apache Superset](https://superset.apache.org/) | Dashboards over Gold tables, one instance per stage with `analytics` on | 6.1.0 | Full | Full | Full |
 | [OpenMetadata](https://open-metadata.org/) | Governance: domains, data products and lineage, with an [OpenSearch](https://opensearch.org/) 3.3.2 index | 1.13.6 | Full | Full | Full |
 | [Traefik](https://traefik.io/) and [cert-manager](https://cert-manager.io/) | Ingress and route certificates | v3.7.19, v1.21.3 | with `spec.access` | no | no |
-| [Dex](https://dexidp.io/) and [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) | GitHub sign-in and the role-checking perimeter | v2.46.1, v7.15.6 | with `spec.identity` | no | no |
+| [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) | The role-checking perimeter | v7.15.6 | with `spec.identity` | no | no |
+| [Dex](https://dexidp.io/) | GitHub sign-in | v2.46.1 | when `spec.identity.issuer` is `github` | no | no |
 
 ## Data tooling
 
