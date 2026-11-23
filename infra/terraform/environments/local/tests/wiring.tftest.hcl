@@ -384,6 +384,11 @@ run "a_profile_without_metrics_renders_no_prometheus" {
     )
     error_message = "the local provider supports metrics, but publishes no endpoint for a backend it did not deploy"
   }
+
+  assert {
+    condition     = !local.observability_contract.metrics_enabled
+    error_message = "the observability contract reports metrics off when no Prometheus is deployed"
+  }
 }
 
 run "a_profile_with_metrics_deploys_prometheus_and_publishes_it" {
@@ -417,6 +422,11 @@ run "a_profile_with_metrics_deploys_prometheus_and_publishes_it" {
       && output.provider_contracts.shared.observability.metrics.retention_supported
     )
     error_message = "the contract names the Prometheus Service, and retention is enforced"
+  }
+
+  assert {
+    condition     = local.observability_contract.metrics_enabled
+    error_message = "the observability contract reports metrics on when Prometheus is deployed"
   }
 }
 

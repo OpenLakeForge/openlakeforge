@@ -124,8 +124,8 @@ resource "helm_release" "openmetadata" {
   ]
 }
 
-# OpenMetadata encrypts the credentials it stores (the Trino password, ADR 0016)
-# with a Fernet key, and the chart's default is public. The key is created
+# OpenMetadata encrypts the credentials it stores (a stage's Superset service
+# connection password) with a Fernet key, and the chart's default is public. The key is created
 # in-cluster, only if missing, so Terraform never holds it (#181,
 # docs/architecture/identity/identity-credentials.md) and a redeploy does not rotate it:
 # rotating would make every stored credential undecryptable. A Fernet key is 32

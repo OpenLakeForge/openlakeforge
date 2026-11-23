@@ -12,11 +12,16 @@ reconciliation. Product-owned descriptors contain logical identities only.
 
 ## Versions and deployment phases
 
-Every Terraform root (local, AWS, Azure) now emits native `3.0.0` contracts.
-`olf` retains a v2 adapter that lifts a flat `2.0.0` contract to a single
-DEV-stage v3 view, but only to keep reading a contract from state a pre-v3
-deploy already produced — no current root's Terraform emits that shape.
-Unknown versions fail closed.
+Every Terraform root (local, AWS, Azure) emits native `3.0.0` contracts, and
+`olf` parses `3.0.0` only (`SUPPORTED_SCHEMA_VERSIONS` in
+`tools/olf/olf/common/contract_validation.py`, ADR 0003 D7). A `2.0.0`
+contract, left in state by a pre-v0.3 deploy, is refused with the remedy:
+migrate the shared services' data out of the old `lakehouse` namespace by
+hand, or start over with `--allow-stage-removal`, before redeploying the
+platform phase. Unknown versions fail closed. The flat `2.0.0` shape survives
+only as an export: `StageContract.as_v2_environment_contract` renders one
+selected stage of a parsed v3 contract into the environment the runtimes
+read.
 
 `3.0.0` is the binding stage-aware shape, represented by strict schema, typed
 parser, and local, Azure, and AWS fixtures. A native v3 runtime must select a
@@ -345,8 +350,7 @@ output in any root `.tf` file and a secret-named field in a root's
 applies the same field rule to an applied contract, and the fixture suite
 applies it to every fixture.
 
-The v2 adapter is intentionally temporary. It lifts a flat deployed contract
-to one DEV stage without changing current v0.2 environment output. A v3
+There is no v2 reader: a `2.0.0` contract fails with the remedy above. A v3
 contract is not permitted to choose DEV implicitly: callers must select the
 stage they are configuring.
 
@@ -392,6 +396,37 @@ unchanged, and the release carries the new value.
 - Per-source isolation within one job would need a pod per step, and is not
   enforced.
 - Run-pod sizing is not a stage binding yet (#323, #325).
+
+## Ops bucket layout
+
+The ops bucket (`shared.ops_storage`, `<prefix>-ops`; suffixed on AWS) sits
+outside the medallion split ([ADR 0004](../adr/0004-medallion-layout-and-catalog-namespaces.md) D13).
+Everything a stage writes lives under its activation prefix,
+`stages.<name>.activation.prefix`, which the parser requires to be
+`activations/<stage>`; a stage's storage identity is scoped to that prefix, so
+the runtime's `OPENLAKEFORGE_ARTIFACT_BASE_URI`, `_LOG_BASE_URI` and
+`_RUN_ARTIFACT_BASE_URI` are all derived from it
+(`StageContract.as_v2_environment_contract`). The other prefixes sit at the
+bucket root, outside every stage's grant.
+
+| Prefix | Holds | Written by |
+| --- | --- | --- |
+| `project/revisions/sha256/<digest>/` | Published project revisions ([ADR 0012](../adr/0012-project-revisions-and-promotion.md)) | `olf infra project build`, with the shared ops identity |
+| `activations/<stage>/revisions/sha256/<digest>/ACTIVATION.json`, `activations/<stage>/ACTIVE.json` | Activation records and the stage's pointer | `olf infra project deploy` |
+| `activations/<stage>/floe/reports/<domain>/` | Floe run reports, keyed by domain | Floe Jobs |
+| `activations/<stage>/run-artifacts/dbt/<domain>/<product>/` | dbt run artifacts | The product's run pod |
+| `activations/<stage>/run-artifacts/quality/<domain>/<product>/<run>/manifest.json` | Quality evidence | The product's run pod |
+| `activations/<stage>/quality-sync/` | The quality publisher's state and `summary.json` | The quality reconciler ([ADR 0007](../adr/0007-governance-and-lineage.md)) |
+| `activations/<stage>/logs/` | Dagster compute logs (`dagster/compute`), archived pod logs, and the collector's `v2/` archive | Dagster, the log archiver, the log collector ([ADR 0022](../adr/0022-pod-log-collection-and-archive-format.md)) |
+| `platform/logs/v2/` | `olf-system` pod logs | The log collector |
+| `audit/platform-api/` | Platform API audit records | The platform API's audit identity ([ADR 0021](../adr/0021-platform-api.md)) |
+| `alerts/` | Alert evaluator state | The alert evaluator ([ADR 0023](../adr/0023-alert-evaluation-and-webhook-delivery.md)) |
+
+The prefixes are derived in one place each: `openlakeforge_core.inventory`
+(Floe reports, dbt artifacts), `openlakeforge_core.project_revision` and
+`project_activation`, `openlakeforge_core.quality`, and the `locals` of each
+environment root (logs, audit, alerts), which share each prefix with the
+identity whose grant it bounds.
 
 ## Stable capability interfaces
 

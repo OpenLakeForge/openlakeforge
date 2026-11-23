@@ -196,10 +196,8 @@ Traefik, cert-manager and the Dex identity issuer run on the local profile only
 (ADR 0013, ADR 0014); AWS and Azure still use port-forward. OpenLineage is live, not deferred — Floe and dbt-trino emit lineage
 events directly to OpenMetadata's native `openlineage` endpoint. The governance bootstrap
 creates the endpoint credentials; runners receive them only through Secret references.
-[ADR 0007](../adr/0007-governance-and-lineage.md) covers the full history:
-a normalising proxy first hid upstream correctness problems, lineage was then
-deferred while those were fixed, and native emission was restored once Floe
-and dbt-trino could target OpenMetadata's endpoint directly. The proxy and a
+[ADR 0007](../adr/0007-governance-and-lineage.md) D6 binds it: lineage comes
+only from the engine that performed the write. A normalising proxy and a
 custom REST push both remain rejected.
 
 ## Three phases, one CD boundary
