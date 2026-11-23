@@ -34,9 +34,11 @@ run "each_prefix_gets_a_ttl_and_is_checked" {
 
   variables {
     object_retention = {
-      bucket   = "ops"
-      days     = 30
-      prefixes = ["activations/dev/logs/v2/", "platform/logs/v2/"]
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2/" = 30
+        "platform/logs/v2/"        = 30
+      }
     }
   }
 
@@ -54,14 +56,52 @@ run "each_prefix_gets_a_ttl_and_is_checked" {
   }
 }
 
+run "each_prefix_keeps_its_own_days" {
+  command = plan
+
+  variables {
+    object_retention = {
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2/" = 420
+        "alerts/history/"          = 30
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      strcontains(kubernetes_job_v1.object_retention[0].spec[0].template[0].spec[0].container[0].args[0], "fs.configure -locationPrefix=/buckets/ops/activations/dev/logs/v2/ -ttl=14M -apply")
+      && strcontains(kubernetes_job_v1.object_retention[0].spec[0].template[0].spec[0].container[0].args[0], "fs.configure -locationPrefix=/buckets/ops/alerts/history/ -ttl=30d -apply")
+      && strcontains(kubernetes_job_v1.object_retention[0].spec[0].template[0].spec[0].container[0].args[0], "No 30d retention rule for alerts/history/")
+      && strcontains(kubernetes_job_v1.object_retention[0].spec[0].template[0].spec[0].container[0].args[0], "No 14M retention rule for activations/dev/logs/v2/")
+    )
+    error_message = "each prefix is given, and checked for, the TTL of its own days"
+  }
+}
+
+run "at_least_one_prefix_is_given" {
+  command = plan
+
+  variables {
+    object_retention = {
+      bucket         = "ops"
+      days_by_prefix = {}
+    }
+  }
+
+  expect_failures = [var.object_retention]
+}
+
 run "a_prefix_must_end_in_a_slash" {
   command = plan
 
   variables {
     object_retention = {
-      bucket   = "ops"
-      days     = 30
-      prefixes = ["activations/dev/logs/v2"]
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2" = 30
+      }
     }
   }
 
@@ -73,9 +113,10 @@ run "days_are_a_whole_number_of_at_least_one" {
 
   variables {
     object_retention = {
-      bucket   = "ops"
-      days     = 0
-      prefixes = ["activations/dev/logs/v2/"]
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2/" = 0
+      }
     }
   }
 
@@ -87,9 +128,10 @@ run "retention_of_30_days_renders_30d" {
 
   variables {
     object_retention = {
-      bucket   = "ops"
-      days     = 30
-      prefixes = ["activations/dev/logs/v2/"]
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2/" = 30
+      }
     }
   }
 
@@ -104,9 +146,10 @@ run "retention_of_255_days_renders_255d" {
 
   variables {
     object_retention = {
-      bucket   = "ops"
-      days     = 255
-      prefixes = ["activations/dev/logs/v2/"]
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2/" = 255
+      }
     }
   }
 
@@ -121,9 +164,10 @@ run "retention_of_256_days_renders_37w" {
 
   variables {
     object_retention = {
-      bucket   = "ops"
-      days     = 256
-      prefixes = ["activations/dev/logs/v2/"]
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2/" = 256
+      }
     }
   }
 
@@ -138,9 +182,10 @@ run "retention_of_365_days_renders_1y" {
 
   variables {
     object_retention = {
-      bucket   = "ops"
-      days     = 365
-      prefixes = ["activations/dev/logs/v2/"]
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2/" = 365
+      }
     }
   }
 
@@ -155,9 +200,10 @@ run "retention_of_420_days_renders_14M" {
 
   variables {
     object_retention = {
-      bucket   = "ops"
-      days     = 420
-      prefixes = ["activations/dev/logs/v2/"]
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2/" = 420
+      }
     }
   }
 
@@ -172,9 +218,10 @@ run "retention_of_3650_days_renders_10y" {
 
   variables {
     object_retention = {
-      bucket   = "ops"
-      days     = 3650
-      prefixes = ["activations/dev/logs/v2/"]
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2/" = 3650
+      }
     }
   }
 
@@ -189,9 +236,10 @@ run "days_are_at_most_the_profile_limit" {
 
   variables {
     object_retention = {
-      bucket   = "ops"
-      days     = 3651
-      prefixes = ["activations/dev/logs/v2/"]
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2/" = 3651
+      }
     }
   }
 
@@ -205,9 +253,10 @@ run "the_job_is_admitted_to_the_master_and_filer" {
 
   variables {
     object_retention = {
-      bucket   = "ops"
-      days     = 30
-      prefixes = ["activations/dev/logs/v2/"]
+      bucket = "ops"
+      days_by_prefix = {
+        "activations/dev/logs/v2/" = 30
+      }
     }
   }
 

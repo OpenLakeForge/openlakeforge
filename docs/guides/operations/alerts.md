@@ -13,6 +13,12 @@ receivers. It needs no Prometheus, Loki or Grafana, and it exists only when
 the profile declares at least one receiver. The design is
 [ADR 0023](../../adr/0023-alert-evaluation-and-webhook-delivery.md).
 
+Under `alerts/`, the history of incidents and delivery attempts
+(`alerts/history/`) expires 30 days after each record is written, whatever the
+log archive's retention. The state (`alerts/state/`: open incidents, the
+notifications still to deliver and each stage's last good policy) never
+expires.
+
 > [!WARNING]
 > **Product alerts are silent unless `lakehouse_code/alerts.yml` declares
 > them.** A project without that file gets only the platform alerts

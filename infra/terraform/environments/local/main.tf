@@ -78,6 +78,17 @@ locals {
   alerts_enabled = length(var.observability.alert_receivers) > 0
   # Shared by the alerts identity's grant and the evaluator's state_base_uri, which must agree.
   alerts_prefix = "alerts/"
+  # The profile's archive retention (spec.observability.logs.archive.retention_days) on every v2 prefix the collector
+  # writes, and ADR 0023's 30 days on alert history. v1 (`k8s/`) is not given one: nothing writes it on this provider
+  # any more, and a rule never shortens existing objects. `alerts/state/` is never expired: it holds the open incidents
+  # and the outbox.
+  object_retention = {
+    bucket = var.ops_bucket_name
+    days_by_prefix = merge(
+      { for route in values(local.log_collector_routes) : route.key_prefix => var.observability.archive_retention_days },
+      { "${local.alerts_prefix}history/" = 30 },
+    )
+  }
   # The guide on main, not at the release tag (#1344): main keeps the last release's version until the next one is
   # prepared, so the tag is older than every build after it and 404s on a page added since. Only the latest
   # pre-release is maintained, and the anchors are the AlertKind values, which do not change.
@@ -255,13 +266,7 @@ module "seaweedfs" {
       ops_bucket_name         = var.ops_bucket_name
     }
   }
-  # The profile's archive retention (spec.observability.logs.archive.retention_days) on every v2 prefix the collector writes.
-  # v1 (`k8s/`) is not given one: nothing writes it on this provider any more, and a rule never shortens existing objects.
-  object_retention = {
-    bucket   = var.ops_bucket_name
-    days     = var.observability.archive_retention_days
-    prefixes = [for route in values(local.log_collector_routes) : route.key_prefix]
-  }
+  object_retention = local.object_retention
   log_reader_credentials = local.platform_api_enabled ? {
     namespace               = kubernetes_namespace_v1.shared.metadata[0].name
     credentials_secret_name = "platform-api-log-reader-s3-creds"

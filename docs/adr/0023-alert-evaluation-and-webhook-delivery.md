@@ -6,7 +6,7 @@ Partly built. The evaluator, its incident state and the webhook adapter are
 built on the local provider by slices #1168 to #1173 (see "Build order"): a
 CronJob in `olf-system`, state kept as objects in the ops bucket, and one
 generic HTTPS webhook adapter. Local reports `alerts.supported = true`; AWS and
-Azure keep `false`. Not built: the history retention rule (see "Retention"). The alert policy is
+Azure keep `false`. History is expired after 30 days (see "Retention"). The alert policy is
 built (slices AP-a to AP-d), documentation included.
 
 The alert policy is decided: a project's `lakehouse_code/alerts.yml` declares
@@ -834,13 +834,16 @@ answers the evaluator but fails the API's probe can be reported.
 
 ## Retention
 
-`alerts/history/` is kept for **30 days**; `alerts/state/` is never expired. Like
-ADR 0022, decision 6, retention is a lifecycle rule on the prefix through the ops
-bucket contract, and whether SeaweedFS 4.48 honours bucket lifecycle rules is
-**[T]**: no lifecycle rule reaches any prefix today **[V: the
-`logs_archive_retention` comment in `environments/local/contracts.tf`]**. Until
-a test shows it does, the 30 days is a request, not a guarantee, and the
-evaluator does not delete history itself.
+`alerts/history/` is kept for **30 days**; `alerts/state/` is never expired. On
+local it is the mechanism of ADR 0022, decision 6: a SeaweedFS filer path TTL
+(`fs.configure -ttl=30d`) on `alerts/history/` of the ops bucket, set by the
+seaweedfs module's retention Job beside the log archive's rules **[V:
+`object_retention` in `environments/local/main.tf`; its `wiring.tftest.hcl`
+pins 30 days on `alerts/history/` and no rule on `alerts/` or
+`alerts/state/`]**. The 30 days do not follow the log archive's
+`retention_days`. Like every path TTL it reaches only objects written after it
+is set, so history written before it never expires. The evaluator does not
+delete history itself.
 
 ## Open items
 
@@ -1119,3 +1122,8 @@ from `GET /api/v1/stages/{stage}/alerts/incidents` carries `runbook`, the same `
 notification's `links.runbook`, or `null` without a runbook page; it is the one link the answer carries.
 
 2026-11-22: Corrected to match the code: the local root reports `alerts = true`, `olf-system` is isolated per listed workload rather than default-deny, and the evaluator module exists. No decision changed.
+
+2026-11-23: Retention is built. Alert history was never expired: the seaweedfs module's path TTL took one number of
+days for every prefix and the local root gave it only the log archive's. Its `object_retention` now maps each prefix to
+its own days, and the local root adds `alerts/history/` at 30 days whatever the archive's retention; `alerts/state/`
+gets no rule. The 30 days are unchanged; what changed is that they are applied rather than requested.
