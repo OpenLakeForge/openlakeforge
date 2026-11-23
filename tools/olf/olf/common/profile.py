@@ -255,7 +255,7 @@ class GitHubSpec:
 
 @dataclass(frozen=True)
 class IdentitySpec:
-    """Which OIDC issuer signs people in (ADR 0014 seam 2). `github` is the
+    """Which OIDC issuer signs people in (ADR 0014 D2). `github` is the
     Dex adapter OpenLakeForge deploys; `external` points at an existing
     issuer and must say how its claims map to canonical roles. Credentials never
     appear here: client secrets are Secret references in the provider contract."""

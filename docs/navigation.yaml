@@ -60,6 +60,7 @@ sections:
       - docs/reference/cli.md
       - docs/reference/deployment-profile.md
       - docs/reference/roles-and-permissions.md
+      - docs/reference/perimeter-and-identity-adapter.md
       - docs/reference/descriptors.md
       - docs/reference/alert-policy.md
       - docs/reference/runtime-api.md

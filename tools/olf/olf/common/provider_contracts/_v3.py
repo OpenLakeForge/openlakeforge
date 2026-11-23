@@ -371,7 +371,7 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
 
 
 def _parse_perimeter(value: object, *, routes: Mapping[str, Any], base_domain: str, scheme: str) -> None:
-    """shared.access.perimeter (ADR 0014 seam 3): which routes sit behind authentication.
+    """shared.access.perimeter (ADR 0014 D3): which routes sit behind authentication.
 
     A claim that a route is protected is only worth having if nothing
     user-facing is silently left out, so the set must be exactly the enabled

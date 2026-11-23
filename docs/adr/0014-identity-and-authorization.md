@@ -1,623 +1,305 @@
-# ADR 0014: Identity and authorization — canonical roles, per-seam adapters
+# ADR 0014: Identity and authorization — canonical roles, issuer and perimeter
 
-## Status
-
-Partly binding. **Binding today:** the canonical role model (seam 1) —
-`release/identity-roles.yaml`, rendered into `shared.identity.roles` by all
-three roots and validated by `olf` (#175); the `identity.oidc` contract shape
-(seam 2); and the local Dex adapter, which the local root deploys for
-`spec.identity.issuer: github` and which emits `identity.oidc` (#384). The AWS and Azure roots still
-emit their existing `identity` implementations
-(`identity.aws_pod_identity`, `identity.azure_workload_identity_ready`).
-The local perimeter (seam 3, #176) enforces the route grants; how far it has
-been run on a cluster is recorded in `docs/architecture/identity/identity-sessions-and-recovery.md`.
-**Built for `issuer: github`:** GitHub teams as the source of people and
-roles, with Dex as the issuer adapter ([ADR 0018](0018-github-is-the-forge.md)).
-Keycloak, the earlier adapter, is removed (#384): `spec.identity.issuer` is
-`github` or `external`, and has no default. The Dex adapter ran once against the
-`OpenLakeForge` organisation (qualification run 1 on #384). **Seam 4 is removed:** user
-and role administration is GitHub's; `olf users`, the `shared.identity.admin`
-contract and `bootstrap_admins` no longer exist (#383).
+| | |
+| --- | --- |
+| Status | Binding |
+| Built | local ✔ (Dex for `issuer: github`, #384; perimeter, #176) · AWS, Azure: role model only, no issuer or perimeter (#180) |
 
 ## Context
 
-v0.5-alpha is the first release in which a person logs in and their role
-decides which services they reach. Until #175 that model lived nowhere:
-baseline roles were a bullet inside the Keycloak issue (#24), which would have
-made the authorization model an adapter detail and broken ADR 0003 — consumers
-depend on capability contracts, never on the implementation behind them.
+A person signs in, and their role decides which services they reach. Until
+#175 that model lived nowhere: the baseline roles were a bullet inside the
+Keycloak issue (#24), which would have made authorization an adapter detail
+and broken ADR 0003, under which consumers depend on capability contracts,
+never on the implementation behind them. The platform also has to run on
+local, on-prem and two clouds whose identity systems share nothing, and the
+team it serves already keeps the list of who works there in its GitHub
+organisation ([ADR 0018](0018-github-is-the-forge.md)). So the role model, the
+issuer that says who a person is, and the perimeter that enforces the grants
+are three separate seams, each with its own adapter, and none leaks into
+another.
 
 ## Decision
 
-### One principle
+**D1. Canonical OpenLakeForge roles are the only vocabulary, and the role
+model is `release/identity-roles.yaml`.** Every provider-specific thing is a
+mapping keyed by a canonical role, never the reverse. The file is product-level
+and fixed, like the component catalog, and is not deployment-configurable;
+every root renders it into `shared.identity.roles` unchanged. Its grants are
+keyed by the service name the access routes use (the last segment of a
+route's contract ref), and a grant's value is the in-service role it maps to.
+No entry means the perimeter denies. Grants are monotonic: a role may hold a
+service's grant only if every higher-precedence role does, so several held
+roles are a union equal to the highest. An authenticated person with no
+recognised role is denied everywhere with a "no OpenLakeForge role assigned"
+answer, not a broken page. A grant applies on every enabled stage. `identity`
+and `portal` carry no grant. `query_api`, Trino's `/v1` path on
+`trino-<stage>.<base_domain>`, is a grant row with no route of its own,
+held at the `viewer` floor when people sign in with GitHub. `olf` fails
+closed when `shared.identity.roles` is absent, names a role outside
+`precedence`, names a service no route can publish, is not monotonic, or
+differs in any way from the release file read from the distribution root.
+The file's `data_access` rows obey the same rules, plus one of their own:
+each stage row is a shape a Polaris catalog role can express. What they grant
+is [ADR 0019](0019-data-plane-authorization-deferral.md)'s.
+Enforced by: `release/identity-roles.yaml`, validated in
+`tools/olf/olf/common/provider_contracts/_v3.py` and
+`docs/schema/provider-contracts.schema.json`.
 
-Canonical OpenLakeForge roles are the only vocabulary. Every provider-specific
-thing is a mapping **keyed by** a canonical role, never the reverse. Three seams
-each have their own adapter and none leaks into another:
+**D2. The issuer is reached only through the `identity.oidc` contract, and the
+profile names it as `issuer: github` or `issuer: external`, with no
+default.** The contract carries `issuer_url`, `role_claim`, `role_mapping`
+keyed by canonical role, and exactly four `clients`: `perimeter`, `superset`
+and `openmetadata`, each a `client_id` and a `secret_ref{name,key}`, and the
+public `olf-cli` with a `client_id` only. Nothing in it is issuer-specific,
+and the only credential-shaped data is a `secret_ref`: a secret value is
+rejected, there is no free-form block, and an adapter that needs more adds a
+typed field. Optional `adapter` (required as `dex` when the profile selects
+`github`), `internal_url` (only for an issuer OpenLakeForge deploys) and
+`capabilities` let an issuer say what it lacks, so consumers degrade rather
+than break. `issuer_url` is https, except with `spec.access.tls: none` on
+`*.localhost`. A `spec.identity` block without an issuer is rejected, because
+`github` needs `spec.identity.github` and `external` needs the issuer fields,
+and neither can be chosen for the operator. `external` deploys no issuer: the
+operator provides the client Secrets the contract names. Secrets an adapter
+generates are created in-cluster, never in Terraform state, outputs, the
+contract, logs or CI. A new issuer is a checklist, not a schema change
+([reference](../reference/perimeter-and-identity-adapter.md#adding-an-issuer-adapter)).
+Enforced by: `tools/olf/olf/common/provider_contracts/_v3.py`,
+`tools/olf/olf/common/profile.py`.
 
-| Seam | Contract location | Local / on-prem adapter | Later adapters |
-| --- | --- | --- | --- |
-| 1. Role model: what each role may reach | `shared.identity.roles` | none; identical on every provider | identical |
-| 2. Issuer: who you are, which roles you hold (Dex **built** for local, #384) | `shared.identity` as `identity.oidc` | Dex with the GitHub connector, or an existing external OIDC issuer | Cognito, Entra ID, IAM Identity Center, Okta as other `identity.oidc` issuers |
-| 3. Perimeter: enforce route grants before the service (**built** for local, #176) | `shared.access.perimeter` | Traefik `forwardAuth` to oauth2-proxy | cloud gateway or ALB OIDC action (#180). Measured on kind, CI runner: a Superset dashboard load (3 charts) adds 8-13 ms median and 132-149 ms p95 (the e2e fails above 100 ms added median; p95 is reported only) |
+**D3. Every published route except the login surface sits behind the
+perimeter, which enforces the role floor before a request reaches the
+service.** oauth2-proxy runs behind Traefik `forwardAuth`, with one instance
+per distinct role floor (the lowest role holding a service's grant), admitting
+the claim values of every role at or above it. Route grants are read from
+`release/identity-roles.yaml` and nowhere else. The protected set is derived,
+never listed: every route of `shared.access.routes` except `shared/identity`,
+and `olf` rejects a contract whose `protected_routes` differs. Exempt,
+exhaustively: `auth.<base_domain>` and `oauth2.<base_domain>/oauth2/*`. A
+request with no session gets a redirect to the issuer from a browser and 401
+on an API path, never an HTML login page; a role not permitted gets 403. The
+perimeter fails closed: it extends no session it cannot refresh, and with the
+proxy down Traefik answers an error, never the service. It protects ingress
+only: internal Services bypass it by design (port-forward fallback,
+break-glass), and containing that traffic is
+[ADR 0017](0017-local-network-policy-and-rbac.md)'s. For Dagster, which has no
+authorization of its own, the perimeter is the only human access control.
+Mechanics:
+[reference](../reference/perimeter-and-identity-adapter.md#the-perimeter).
+Enforced by: `infra/terraform/modules/access/perimeter`, `olf infra e2e run
+--env local` (`e2e/_perimeter.py`).
 
-### Seam 1 — the role model (built)
+**D4. User and role administration is GitHub organisation and team
+membership; OpenLakeForge has no administration seam.** Inviting someone,
+changing their role and offboarding them are GitHub team and organisation
+changes, made in GitHub, with `gh` or with the client's own GitHub Terraform,
+under GitHub's audit log and 2FA policy, and they need no `olf` command and no
+apply. The first `platform-admin` is whoever is in the team mapped to it. Only
+mapped teams count: being an organisation owner or a repository admin grants
+nothing. Why GitHub, and why Dex rather than GitHub OAuth in each service, is
+[ADR 0018](0018-github-is-the-forge.md)'s. Steps:
+[manage members](../guides/identity/manage-members.md). Enforced by: the Dex
+connector's `orgs` in `infra/terraform/modules/identity/dex/main.tf`; there is
+no user command in `tools/olf/olf/cli.py`.
 
-A profile with no `spec.identity` block deploys no issuer and no perimeter
-(#399); on the local provider, `spec.identity` requires `spec.access` (ADR 0013); the cloud roots read no `spec.access`.
-Authentication off is allowed only where nothing is published beyond the
-operator's machine: on `local` with no `spec.access` or a `*.localhost` base
-domain, and on `aws` or `azure` with no `spec.access`, since those roots
-publish no routes and are reached only through `olf infra forward`. A cloud
-`spec.access` asks for routes, so it requires `spec.identity`. The role model does
-not depend on an issuer, so the contract still carries `shared.identity.roles`
-and validates it, with `implementation: identity.none` and no `issuer_url`,
-`role_claim`, `role_mapping` or `clients`. `shared.access` then has no
-`perimeter`. A consumer that needs an issuer must treat `identity.none` as
-"unauthenticated, local only".
+**D5. Authentication is off only where nothing is published beyond the
+operator's machine.** A profile with no `spec.identity` deploys no issuer and
+no perimeter. That is allowed on `local` with no `spec.access` or a
+`*.localhost` base domain, and on `aws` or `azure` with no `spec.access`,
+since those roots publish no routes and are reached only through `olf infra
+forward`. A cloud `spec.access` asks for routes, so it requires
+`spec.identity`; on `local`, `spec.identity` requires `spec.access`. The
+contract still carries and validates `shared.identity.roles`, with
+`implementation: identity.none` and no issuer fields, and `shared.access` has
+no `perimeter`; a consumer treats `identity.none` as "unauthenticated, local
+only". Superset then signs every visitor in as its local admin, and `olf`
+shows OpenMetadata's default admin login, since it has no anonymous mode. Enforced by: `tools/olf/olf/common/profile.py`.
 
-`release/identity-roles.yaml` is product-level and fixed for v0.5-alpha, like
-the component catalog; it is not deployment-configurable. Terraform reads it
-with `yamldecode(file(...))` in each root's `contracts.tf`; `olf` reads the
-same file to validate the contract.
+**D6. OpenLakeForge roles are never cloud IAM.** Canonical roles govern which
+platform services a person uses, identically on every provider; cloud IAM
+governs what a workload may call in a cloud API and is the provider roots'.
+A workload never holds a canonical role. A person's data access reaches
+Polaris catalog roles through `data_access` instead (ADR 0019). Enforced by:
+`infra/terraform/environments/*/contracts.tf`, which render the release file
+and map no role to IAM.
 
-| Role (highest first) | Superset (`reporting`) | OpenMetadata (`governance_service`) | Dagster (`orchestration`) | Trino UI (`query`) | Trino `/v1` for `olf query` (`query_api`) |
-| --- | --- | --- | --- | --- | --- |
-| `platform-admin` | Admin | Admin | full | yes | yes |
-| `data-engineer` | Alpha | write | full | yes | yes |
-| `analyst` | Gamma | read | — | — | yes |
-| `viewer` | read-only | read | — | — | yes |
+**D7. The perimeter accepts a bearer token only for the `olf-cli` audience,
+and the role floor still decides.** Every instance that accepts bearer tokens
+starts with `--skip-jwt-bearer-tokens=true`; a token is checked for issuer,
+audience, signature and expiry, then meets the instance's `--allowed-group`
+like a session. A token issued to any other client gets 401; the perimeter's
+own client is accepted as well, which neither oauth2-proxy mechanism can
+exclude. With an `internal_url` (Dex) the proxy's own verifier accepts the
+`olf-cli` audience (`--oidc-extra-audience`). For an `external` issuer,
+`--extra-jwt-issuers=<issuer_url>=<olf-cli client_id>` is set only when
+`role_claim` is `groups`, because oauth2-proxy reads an extra issuer's roles
+from a hard-coded `groups` claim; with any other claim a bearer token gets
+401. With Dex, `olf-cli` lists `perimeter` in `trustedPeers` and the
+perimeter requests the `olf-cli` audience, so the browser session's ID token
+is one Trino, Polaris and the platform API accept; `aud` `olf-cli` therefore
+no longer means the CLI asked, and `azp` names the client that did. Enforced
+by: `bearer_args` in `infra/terraform/modules/access/perimeter/main.tf`;
+`tests/browser_token.tftest.hcl`.
 
-`query_api` is the query service's `/v1` path, not a route of its own: the
-ingress routes `trino-<stage>.<base_domain>/v1` (`stage/<stage>/query_api`) to the `viewer` floor when people sign
-in with GitHub, while the Web UI keeps the `query` floor. What a person reads
-there is decided by Polaris, not this row ([ADR 0019](0019-data-plane-authorization-deferral.md)).
-The perimeter's `path_refs` give it a floor; `protected_routes` does not list it.
+**D8. Identity headers are stripped before the perimeter decides, and only the
+platform API's route receives the ID token.** The `olf-strip-identity`
+middleware deletes every inbound `X-Forwarded-*` and `X-Auth-Request-*`
+identity header, and `olf-auth-<floor>` copies only the proxy's own
+`X-Auth-Request-*` headers upstream, so the decision is the proxy's, from its
+own cookie. The proxies put `Authorization: Bearer <ID token>` on the auth
+response, and the one middleware that copies it upstream is attached only to
+the platform API's `/api` route ([ADR 0021](0021-platform-api.md), decision
+1). Superset, OpenMetadata, Dagster, Trino and the portal never receive it.
+Enforced by: `infra/terraform/modules/access/perimeter/main.tf`;
+`tests/browser_token.tftest.hcl`.
 
-Rules that bind:
+**D9. For `issuer: github` the issuer is Dex with its GitHub connector, which
+admits only members of the mapped teams.** The profile maps each canonical
+role to team slugs; the root renders `role_mapping` as `<organisation>:<slug>`
+with `role_claim: groups`, so no consumer reads roles differently. The
+connector lists the organisation with every mapped team, so a GitHub user in
+none of them is refused by Dex before any token exists. Team slugs are
+lowercased; the organisation is kept exactly as written, because Dex compares
+it with GitHub's case-preserving login. The perimeter, Superset and
+OpenMetadata request the `groups` and `offline_access` scopes; without them
+every user is denied and no refresh re-reads teams. The upstream app's
+credentials live only in the `oauth_app_secret_ref` Secret, never in the
+profile or state. Dex stores its refresh tokens, upstream token and keys in
+its own `dex` database on the platform PostgreSQL, not in custom resources
+outside the Secret inventory, and needs no Kubernetes API access. Mechanics:
+[reference](../reference/perimeter-and-identity-adapter.md#the-github-adapter-through-dex).
+Enforced by: `infra/terraform/modules/identity/dex`,
+`tools/olf/olf/common/profile.py`.
 
-| Rule | Consequence |
-| --- | --- |
-| Grants are keyed by the service name the access routes already use: the last segment of a route's contract ref | the perimeter derives authorization mechanically: route ref, to service, to allowed roles |
-| A grant's value is the in-service role it maps to | one table answers both "may an analyst open Dagster" and "what Superset role does an analyst get" |
-| No entry means the perimeter denies | Dagster OSS has no authorization of its own; the denied route is the control |
-| Grants are **monotonic**: a role may hold a service's grant only if every higher-precedence role does | the union of held roles equals the highest held role, so the perimeter and every service agree without precedence code |
-| Multi-role = union | a user holding several roles gets the highest one's reach |
-| No recognised role = deny | the user is authenticated but denied everywhere, with a "no OpenLakeForge role assigned — ask a platform-admin" response rather than a broken page |
-| A grant applies to the service on **every enabled stage** | stage-scoped human roles are deferred |
-| Matrix is fixed for v0.5-alpha | configurable authorization is more to build, test, and document, and can follow once the fixed model is proven |
-| `identity` and `portal` carry no grant | the login surface is never behind the perimeter, and the portal is the landing page every authenticated user reaches |
-| Grafana has no column | #210 adds the row when Grafana is integrated |
+**D10. Dex's token lifetimes are pinned to the session policy, and the
+person's GitHub session is GitHub's.** ID tokens last 5 minutes, refresh
+tokens 30 minutes unused and 10 hours absolute, and `reuseInterval` is kept
+because the floor-specific proxies can redeem one cookie's refresh token
+concurrently. Team membership is re-read at every login and refresh. For this
+adapter two bounds of the session policy are revised: the 10-hour bound ends
+the OpenLakeForge refresh chain, but a new chain starts without a prompt
+while the GitHub session is valid, so re-authentication and 2FA are governed
+by GitHub and the organisation; and sign-out ends the perimeter cookie and
+the native Superset and OpenMetadata sessions, so a second person on the
+browser never reaches the first one's session, but OpenLakeForge does not end
+the GitHub session, which Dex cannot do. The signed-out page links to GitHub's
+sign-out and says so. Enforced by: `expiry` in
+`infra/terraform/modules/identity/dex/main.tf`; the adapter's e2e, including
+parallel refreshes.
 
-`olf` fails closed when `shared.identity.roles` is absent, names a role
-outside `precedence`, names a service no route can publish, is not monotonic,
-or differs in any way from `release/identity-roles.yaml` (read from the
-distribution root, so an installed payload ships it). The published schema
-`docs/schema/provider-contracts.schema.json` covers the shape.
+**D11. OpenMetadata roles follow GitHub teams through a role-sync CronJob,
+only for `issuer: github`, and the sync changes nothing when a mapped team has
+child teams.** OpenMetadata cannot map the role claim itself, so
+`openmetadata-role-sync` runs every 5 minutes, within the 15-minute native
+bound, with the GitHub App's installation token from the
+`oauth_app_secret_ref` Secret. It sets `isAdmin` for `platform-admin`, the
+`DataSteward` role for `data-engineer`, and neither for anyone else, a user in
+no mapped team included; `admin`, `olf-automation` and bots are left alone.
+GitHub's team-members API includes child teams' members, which would hand a
+parent's role to them, hence the stop. A hand-made OAuth App, an `external`
+issuer or authentication off gets no sync, and users stay at the read
+baseline. With sign-in on, `adminPrincipals` is empty and the local `admin` is
+demoted, so an issuer login named `admin` is not an administrator. Mechanics:
+[reference](../reference/perimeter-and-identity-adapter.md#openmetadata-role-sync).
+Enforced by: `tools/olf/olf/infra/openmetadata/_role_sync.py`,
+`role_sync_script.py`.
 
-The same file carries `data_access`, the person's data access by stage and
-medallion layer ([ADR 0019](0019-data-plane-authorization-deferral.md)): the
-mapping keyed by canonical role that the boundary below reserves. It is held
-to the same rules (closed vocabulary, monotonic on every stage and layer,
-equal to the release file) plus one of its own: each stage row is a shape a
-Polaris catalog role can express. Polaris enforces it for a person's own
-queries (`olf query`): each row becomes the catalog role the person's role holds
-on that stage's catalog, and the storage credentials a query reads with are
-vended for the tables that role reaches (ADR 0019, sections 4 and 5).
-
-### Boundary: OpenLakeForge roles versus cloud IAM
-
-| | OpenLakeForge roles | Cloud IAM (AWS IAM, Azure managed identity) |
-| --- | --- | --- |
-| Governs | which platform services a **human** may use | what a **workload** (pod) may call in a cloud API |
-| Defined by | this ADR | the provider roots (#178, #45) |
-| Portable | identical on local, on-prem, AWS, Azure | provider-specific by nature |
-
-End-user roles are never expressed in cloud IAM; that would make the product
-non-portable. Per-user data access binds canonical roles to Polaris catalog
-roles instead, the fifth mapping keyed by canonical role (`data_access`, ADR
-0019), and Polaris vends the storage credentials. It is built for the local
-provider; the AWS root is to follow with Polaris rather than Glue and Lake
-Formation (#681).
-
-### Seam 2 — issuer (GitHub through Dex built for local)
-
-`shared.identity` with `implementation: identity.oidc` carries, beside
-`roles`:
-
-| Field | Meaning |
-| --- | --- |
-| `issuer_url` | https issuer; the token `iss` must equal it. The one exception is `spec.access.tls: none` (ADR 0013, development on `*.localhost`), where Dex issues `http://auth.<base_domain>`, oauth2-proxy sets `--cookie-secure=false` and its callback is `http://oauth2.<base_domain>/oauth2/callback` |
-| `internal_url` | optional; Dex's in-cluster Service base URL, set only for an issuer OpenLakeForge deploys. In-cluster consumers fetch keys (`/keys`) and redeem codes (`/token`) here over plain HTTP and compare the token's `iss` with `issuer_url` as a string. Absent or null for `external`, which is reached at `issuer_url` |
-| `role_claim` | the claim holding role values (`groups`, `cognito:groups`, ...) |
-| `role_mapping` | canonical role to a list of claim values; keys outside `precedence` are rejected |
-| `clients` | exactly `perimeter`, `superset`, `openmetadata`, each `client_id` plus `secret_ref{name,key}`, and `olf-cli`, a public client: `client_id` only, no `secret_ref` |
-
-Nothing in these fields is Dex-specific. Dex: `groups` holding
-`<organisation>:<team-slug>`. Entra ID: group object IDs. Cognito:
-`cognito:groups` as the claim. The test fixtures include a Cognito-style issuer to prove an
-external issuer satisfies the contract unchanged. A secret value in a client
-is rejected by the parser and by the #181 secret-value check; credentials
-reach pods only through `secretKeyRef`/`envFrom`.
-
-Optional, so an issuer that lacks something says so and consumers degrade
-rather than break: `adapter` (provenance only for consumers, e.g. `dex`;
-the validator requires `adapter: "dex"` when the profile selects `github`,
-to correlate that profile with its binding; external profiles need none) and `capabilities` (`groups_in_token`, `logout_endpoint`,
-`email_delivery`, each boolean; absent means not declared). `email_delivery`
-says the issuer can send account recovery mail. It carries no host or
-credential; Dex declares it false.
-
-The contract carries no free-form block: the only credential-shaped data is a
-`secret_ref{name,key}`. If a cloud adapter later needs adapter-specific data,
-it adds a typed field then.
-
-**Adding a cloud adapter (Cognito or IAM Identity Center, Entra ID, GCP,
-generic OIDC) is a checklist, not a schema change:**
-
-1. Emit `implementation: identity.oidc` with the adapter in `adapter`.
-2. Provide `issuer_url`, `role_claim`, and `role_mapping` keyed by canonical
-   role, in the issuer's own claim values.
-3. Provide all four `clients`: `perimeter`, `superset` and `openmetadata`
-   with `client_id` and `secret_ref{name,key}`, and the public `olf-cli`
-   with `client_id` only (a `secret_ref` on it is rejected); secret values never enter Terraform outputs, the provider contract, logs
-   or CI. Secrets the adapter generates are created in-cluster by a bootstrap
-   Job, not by Terraform, so they are not in Terraform state.
-4. Declare `capabilities` honestly.
-5. Add a perimeter adapter only if the cloud has its own (#176, #180).
-6. Add a fixture beside `identity-oidc-dex.json`; the conformance test
-   runs every fixture through the same consumer-facing validation.
-
-The Deployment Profile gains `spec.identity`: `issuer: github | external`,
-which is required. A block without an issuer is rejected, because neither
-choice can be made for the operator: `github` needs `spec.identity.github`
-(organisation, teams, OAuth App Secret) and `external` needs `issuer_url`,
-`role_claim` and `role_mapping`. Leaving out the block still means no issuer and
-no perimeter (a quickstart). `external` takes optional `client_ids`
-(issuer-assigned client ids by consumer, default the consumer name).
-
-### Local cluster notes for any issuer
-
-`spec.identity.issuer: external` deploys no issuer: the contract comes from the
-profile, and the operator provides the three client Secrets under the names the
-contract references (`oidc-client-<consumer>`, key `client-secret`).
-
-Two local-cluster risks were checked rather than assumed. `*.localhost` is
-loopback for some clients, so back-channel token and JWKS calls need the pod
-to reach Traefik at `*.<base_domain>` and trust the local CA; the local root
-does both (ADR 0013, decision 8). curl is such a client: it resolves
-`*.localhost` to loopback itself without asking DNS, while getaddrinfo-based
-clients get the Traefik address from cluster DNS. Single sign-on across hosts needs a cookie
-on `.<base_domain>`: curl (libpsl) and headless Chromium both accepted a
-`Domain=.olf.localhost` cookie and sent it to a sibling host, and both
-rejected `Domain=.localhost`. Firefox and Safari were not tested.
-
-### The GitHub adapter through Dex (built for local; #384)
-
-The local issuer is Dex with its GitHub connector
-([ADR 0018](0018-github-is-the-forge.md)). People and their roles live in
-the client's GitHub organisation; the profile only says which team holds which
-canonical role:
-
-```yaml
-spec:
-  identity:
-    issuer: github
-    github:
-      organization: acme
-      teams:                      # canonical role -> team slugs
-        platform-admin: [data-platform]
-        data-engineer: [data-eng]
-        analyst: [analysts]
-        viewer: [dashboards]
-      oauth_app_secret_ref:       # Dex's upstream GitHub OAuth App
-        name: github-oauth-app
-        client_id_key: client-id          # default
-        client_secret_key: client-secret  # default
-      host: github.example.com    # optional: GitHub Enterprise Server; absent is github.com
-```
-
-Keys outside `precedence` are rejected, as for `role_mapping`. The
-team slugs are lowercased by `olf`, because GitHub slugs are always lowercase.
-The organisation is kept exactly as written and must match its GitHub login's
-case: GitHub preserves the case of a login, and Dex compares each team's
-organisation login with the configured name exactly, so `openlakeforge` for the
-`OpenLakeForge` organisation refuses every member (observed on Dex v2.46.0).
-A role with no team is held by nobody. Being an organisation owner or a
-repository admin grants nothing: only the mapped teams count.
-
-| Piece | How |
-| --- | --- |
-| Upstream app | A GitHub OAuth App owned by the organisation with the one callback `https://auth.<base_domain>/callback`. Dex's connector requests `user:email` (it reads the primary, possibly private, address) and `read:org` (teams); both appear on the authorize page and in an organisation's approval request. The operator creates it and stores its client id and secret in the Secret named by `oauth_app_secret_ref` (a Secret name and two distinct keys); neither value enters the profile or state. This is Dex's upstream client, distinct from the four downstream consumer clients of `identity.oidc`. An organisation that restricts third-party access must approve the app |
-| GitHub App instead of OAuth App | `olf infra github connect` (#420) creates a GitHub App from a manifest in the browser and stores `client-id`, `client-secret` and `private-key` in the `oauth_app_secret_ref` Secret. Dex's connector works with a GitHub App's client credentials: the user-to-server token ignores scopes, `/user/orgs` and `/user/teams` accept it with no extra permission, and `/orgs/{org}/members/{user}` and team visibility need the app's *Members: read* permission with the app installed on the organisation; refresh re-reads teams with the refresh token. `private-key` is stored for the role sync (#25); whether that sync reads this Secret or keeps `members_app_secret_ref` is decided there. The manual OAuth App remains supported |
-| Admission | The connector's `orgs` lists the organisation with every mapped team. A GitHub user in none of them is refused by Dex at login, before any token exists, so an uninvited identity never reaches the perimeter |
-| GitHub Enterprise | `host` is rendered as the connector's `hostName`, so Dex uses `https://<host>/login/oauth/*` and `https://<host>/api/v3/*`. Dex requires `rootCA` with `hostName`; the smallest input is no new field: Dex trusts the platform CA from the `olf-local-ca` ConfigMap (public certificate only, local profile). A GHE server behind a different private CA needs a CA input, left until a client has one |
-| E2E without GitHub | CI cannot sign in to github.com. `olf infra e2e run` runs a stub GHE (`olf/infra/e2e/github_stub.py`, a throwaway pod with a local-CA certificate) when Dex's `hostName` is `olf-e2e-github.<shared namespace>.svc`, and drives the perimeter role decisions through Dex's real connector with throwaway users per team, plus one in no mapped team who must be refused at login. Otherwise those checks skip |
-| Groups claim | `teamNameField: slug`; the `groups` claim carries `<organisation>:<team-slug>` |
-| `role_mapping` | rendered by the root from `spec.identity.github`: each canonical role to `<organisation>:<slug>` of its teams, `role_claim: groups`. The `identity.oidc` shape does not change, so no consumer changes how it reads roles |
-| Scopes | Dex returns the `groups` claim only for the `groups` scope and a refresh token only for `offline_access`. The perimeter's default `--scope=openid email profile` becomes `openid email profile groups offline_access` for Dex, and so do the Superset and OpenMetadata clients; without it every user is denied and no refresh re-reads teams. For Dex the perimeter alone also requests `federated:id audience:server:client_id:olf-cli` (module variable `login_audience`), so its ID token carries `aud` `olf-cli` and the connector id Polaris names the principal by (ADR 0019). An external issuer gets neither scope |
-| Token lifetimes | Pinned to the session policy, not Dex's defaults (24 h ID tokens): `expiry.idTokens: 5m`, `expiry.refreshTokens.validIfNotUsedFor: 30m`, `expiry.refreshTokens.absoluteLifetime: 10h`, and `reuseInterval` kept (Dex default 3s) because the floor-specific oauth2-proxy instances can redeem the same cookie's refresh token concurrently. Asserted by the adapter's e2e, including parallel refreshes. **Revises the 10 h absolute bound for this adapter:** it ends the OpenLakeForge session chain, but a new one starts without a prompt while the person's GitHub session is valid, because Dex cannot force GitHub to re-authenticate. Re-authentication frequency and 2FA are therefore governed by GitHub and the organisation's policy, not by the platform |
-| Clients | `perimeter`, `superset`, `openmetadata` as static Dex clients, secrets from the existing bootstrap Job (#181); `olf-cli` as a public static client (`public: true`, no secret, no `redirectURIs`), for which Dex accepts loopback redirects (`127.0.0.1`, `localhost`, `[::1]`) on any port and issues refresh tokens without a secret. Dex does not enforce PKCE: the client must send it. `olf-cli` lists `perimeter` and `superset` in `trustedPeers` (module variable `trusted_peers`), so the perimeter's login, and Superset's per-user data access (#968, scope `audience:server:client_id:olf-cli`, token `aud` `[olf-cli, superset]`), may ask for a token whose audience is `olf-cli`: the browser session's token is then the one Trino, Polaris and the platform API accept, and none of them lists the perimeter's client id. `aud` `olf-cli` no longer implies the token was issued to the CLI; `azp` says which client asked |
-| Login entry | The portal at the base domain is the front door. An unauthenticated visit is sent by the perimeter (`--skip-provider-button`) to Dex; with one connector and `alwaysShowLoginScreen` off, Dex goes straight to GitHub, and `skipApprovalScreen` removes its consent page. The person sees GitHub's authorize page once per app, then lands back on the portal. Dex's own login page is never shown, so it needs no branding |
-| Single sign-on | Dex keeps no browser session of its own by default; GitHub's session is what makes the next login silent. A native Superset or OpenMetadata login bounces through Dex to GitHub and back without a prompt while the GitHub session lasts. To be verified with the adapter |
-| Logout | **Revises the platform-wide logout policy for this adapter.** Sign-out still ends the perimeter cookie and the native Superset and OpenMetadata sessions, so user B never reaches a surviving session of user A. Dex has no end-session endpoint and the GitHub session belongs to the person, not the platform: OpenLakeForge does not end it. The signed-out page links to GitHub's sign-out, and states that on a shared browser the next sign-in reuses the GitHub account still signed in there |
-| Storage | Dex's `postgres` storage on its own `dex` database in the platform PostgreSQL, replacing the removed `keycloak` database. Refresh tokens, the upstream GitHub token and the signing keys stay in a database with the same exposure class, instead of plain `dex.coreos.com` custom resources that the Secret inventory and the exposure scan do not cover. Dex needs no Kubernetes API access, so no RBAC exception; the `identity-credentials.md` inventory gains the `dex` database row with the adapter (#384) |
-| Network | Dex calls `github.com` (token exchange) and `api.github.com` (user and team lookups) at every login and refresh. ADR 0017 has no internet egress today; the adapter adds that flow row, scoped to Dex, before default-deny egress is enforced (#384) |
-| Revocation | team membership is read at login and again on each refresh; the perimeter refreshes at most every 4 min, so removing someone from a team or the organisation ends perimeter access within the #177 bound. Measured once (qualification run 1): a member moved to another team lost the old role on the first request after the 4 min refresh point |
-| Mail | none. Dex sends no mail, and the profile has no `smtp` setting |
-| Break-glass | the issuer-outage procedure of `identity-sessions-and-recovery.md` for Dex: the cluster administrator's kubeconfig, the Superset and OpenMetadata in-pod CLIs, Dagster and Trino through their internal Services. Dex has no admin account; the recovery drill runs in the local e2e (#177, #520) |
-
-A member of several mapped teams holds the union of their roles, which by the
-monotonic rule is the highest one. Whether membership of a child team counts
-for a parent team mapped here is to be verified on the adapter; until then,
-map the teams people are direct members of.
-
-### Seam 3 — perimeter (built for local; #176)
-
-`modules/access/perimeter` runs oauth2-proxy behind Traefik `forwardAuth`.
-Route grants are read from `release/identity-roles.yaml` and nowhere else.
-
-| Piece | How |
-| --- | --- |
-| Role floor | Grants are monotonic, so what a service admits is a prefix of `precedence`, fully described by its lowest role. The module computes each protected route's floor from its service name (`portal` has none: the lowest role) |
-| Instances | One oauth2-proxy Deployment per distinct floor, started with `--allowed-group` for the `role_mapping` claim values of every role at or above it. Today: `oauth2-proxy-viewer` (any recognised role: portal, Superset, OpenMetadata, Trino `/v1` with people's access) and `oauth2-proxy-data-engineer` (Dagster, Trino UI). A new service is a row in the matrix; a new floor is a new instance without new code |
-| Middleware | Traefik file-provider middlewares (a `Middleware` CRD cannot be planned before the Traefik release installs it): `olf-strip-identity` deletes every inbound `X-Forwarded-*` / `X-Auth-Request-*` identity header, then `olf-auth-<floor>` forwards to that floor's proxy and copies only the proxy's `X-Auth-Request-*` headers upstream. The proxies run with `--set-authorization-header=true`, which puts `Authorization: Bearer <ID token>` on the auth response; the one extra middleware, `olf-auth-<lowest floor>-api`, copies it upstream and is attached only to the platform API's `/api` route (ADR 0021, decision 1). Superset, OpenMetadata, Dagster, Trino and the portal never receive the ID token |
-| Ingress | One `Ingress` per namespace and floor (`openlakeforge-routes[-<floor>]`) carrying the middleware annotation; the namespace's one wildcard certificate is still issued from a single primary `Ingress` (ADR 0013 decision 6) |
-| Protected set | Every route of `shared.access.routes` except `shared/identity`, derived, never listed. `olf` rejects a contract whose `shared.access.perimeter.protected_routes` differs |
-| Login callback | One host, `oauth2.<base_domain>/oauth2/*`, answered by the any-role instance and not behind the perimeter; the `perimeter` client has that single redirect URI, and the cookie on `.<base_domain>` carries the session to every route |
-| Cookie secret | Created by an in-cluster Job only if missing (`oauth2-proxy-cookie`); Terraform never reads it. Rotation: delete the Secret, replace the Job, restart the proxies (signs everyone out once) |
-| Client secret | `secretKeyRef` to `identity.oidc.clients.perimeter.secret_ref` |
-| Bearer tokens | Every instance starts with `--skip-jwt-bearer-tokens=true`. With an `internal_url` (Dex) the proxy runs `--skip-oidc-discovery` with `--login-url=<issuer_url>/auth`, `--redeem-url=<internal_url>/token` and `--oidc-jwks-url=<internal_url>/keys`, and its own verifier accepts bearer tokens of the `olf-cli` audience (`--oidc-extra-audience`). For an `external` issuer it starts with `--extra-jwt-issuers=<issuer_url>=<olf-cli client_id>` (discovery at the public URL), and the forwardAuth middleware passes the `Authorization` header on. A bearer token issued to `olf-cli` is checked for issuer, audience, signature and expiry, then meets the instance's `--allowed-group` like a session, so the role floor still decides. A token issued to a client other than `olf-cli` or `perimeter` gets 401. The `perimeter` client's own tokens are accepted as well, which neither mechanism can exclude. With Dex each instance also starts with `--oidc-extra-audience=olf-cli`, so the session's ID token, whose `aud` is `olf-cli`, passes the proxy's own verification when it refreshes the session. With an `internal_url` the proxy's own verifier reads the roles of a bearer token from `--oidc-groups-claim`, so any `role_claim` works. An extra issuer's bearer token is read from a hardcoded `groups` claim, so for an `external` issuer `--skip-jwt-bearer-tokens` and `--extra-jwt-issuers` are set only when `role_claim` is `groups`; with any other claim a bearer token gets 401 |
-
-Behaviour, all decided by the proxy before a request reaches a service:
-
-| Request | Answer |
-| --- | --- |
-| No session, browser | 302 to the issuer's login (the one login page for every service); after login back to the original URL |
-| No session, `Accept: application/json`, `X-Requested-With`, or path under `/api`, `/graphql`, `/v1` | 401, never an HTML login page |
-| `Authorization: Bearer` token issued to `olf-cli`, role permitted | 2xx from the service |
-| That token, role not permitted | 403 |
-| Bearer token expired, with a tampered signature, or issued to another client (`superset`) | 401 on an API path |
-| Session, role not permitted, or no recognised role | 403 with the "Access is role-restricted" page and a link to the portal. The proxy clears the session cookie on this path, so the next page load passes silently through the issuer's SSO session |
-| Issuer down | A session the proxy cannot refresh expires with its 5 min access token and is not extended; a new login fails |
-| Proxy down | forwardAuth cannot reach it and Traefik answers an error, never the service |
-| Forged `X-Forwarded-*` / `X-Auth-Request-*` | Deleted before forwardAuth; the decision is the proxy's, from its own cookie |
-
-Exempt from the perimeter, exhaustively: `auth.<base_domain>` (Dex's login,
-callback, token and JWKS endpoints) and `oauth2.<base_domain>/oauth2/*`.
-Nothing else is. Dex has no admin console to expose on that route.
-
-The perimeter protects ingress only. Internal Services are reached directly
-and bypass it by design; a pod, or an operator holding `pods/portforward`,
-needs no session. That is the documented development fallback
-(`kubectl port-forward`, `OLF_PORT_FORWARD=1`) and the break-glass path in
-[`identity-sessions-and-recovery.md`](../architecture/identity/identity-sessions-and-recovery.md).
-`olf` itself takes it for every protected route (`olf.infra.access.service_url`);
-only the perimeter and ingress e2e checks go through the public hostnames.
-Containing internal traffic is #46 ([ADR 0017](0017-local-network-policy-and-rbac.md)). Dagster in particular has no native
-authentication or per-user authorization, so the perimeter is its only human
-access control and anyone admitted has full Dagster capability; the boundary
-and its internal paths are in
-[`identity-callers.md`](../architecture/identity/identity-callers.md#dagster-boundary).
-
-`olf infra e2e run --env local` exercises the seam (`e2e/_perimeter.py`): per route,
-an unauthenticated request is redirected to the issuer (or gets 401 with
-`Accept: application/json`), also with forged identity headers; signed in as
-per-team stub users for each mapped role and one in no mapped team (refused
-by Dex at login), each route
-answers as `release/identity-roles.yaml` says, a denial is the 403
-role-restricted page with a portal link, and a direct API call carrying only a
-denied user's session cookie is refused too.
-
-Session settings are the policy document's: cookie `--cookie-expire=30m`,
-re-issued on every refresh (Traefik `addAuthCookiesToResponse` carries the
-refreshed cookie to the browser), refresh at most every 4 min; Dex sets
-ID tokens 5 min, refresh tokens unused 30 min, absolute 10 h. The 10 h absolute
-bound is the refresh token's absolute lifetime ending the refresh chain, not a
-cookie lifetime.
-
-### Catalog credentials (Polaris)
-
-Polaris keeps its own OAuth client-credentials model in v0.5-alpha. Whether
-the `identity.oidc` issuer could authenticate the catalog callers was
-evaluated and deferred in
-[ADR 0015](0015-polaris-identity-provider-evaluation.md), which also records
-where table-level policy would be enforced for Polaris and for Glue with Lake
-Formation (the different-mechanism case the "fifth mapping" above refers to).
-
-### User and role administration — GitHub
-
-There is no admin seam. Inviting someone, changing their role and offboarding
-them are GitHub team and organisation changes, made in GitHub's web UI, with
-`gh`, or with the client's own GitHub Terraform, under GitHub's audit log and
-the organisation's 2FA policy. They need no `olf` command and no apply. The
-first `platform-admin` is whoever is in the team mapped to it. OpenMetadata
-cannot read roles from the token (`identity-service-permissions.md`), so its
-roles follow a role sync, built by #25 as a
-CronJob that `olf infra openmetadata deploy-metadata` applies. It runs only for
-`issuer: github`: an `external` issuer or authentication off does not sync (OIDC
-alone cannot enumerate members), so those users stay at the read baseline. With SSO on, OpenMetadata's `adminPrincipals` is empty and `deploy-metadata` clears `isAdmin` on the local `admin` user, so an issuer login named `admin` is not an admin (OM-11, closed by #25).
-
-| Piece | Decision |
-| --- | --- |
-| Credential | the GitHub App `olf infra github connect` created, read from the `oauth_app_secret_ref` Secret (`app-id`, `private-key`), so there is no second Secret reference; a hand-made OAuth App has neither key and gets no sync. The job mints a short-lived installation token per run and reads each mapped team's members with it (*Members: read*) |
-| Where it runs | `openmetadata-role-sync`, a CronJob in `olf-system` on the pinned `openmetadata_ingestion` image, the OLF-owned ingestion CronJob's image. The Python script is mounted from a ConfigMap because that image has no `olf`; it imports the standard library only and carries a copy of `github_app.app_jwt`'s signing, using the image's `cryptography` or else the `openssl` CLI, and exits naming what is missing. The App Secret and the `olf-automation` token reach it as secretKeyRefs, so the Secret read needs no RBAC. A project-code image was rejected: it is stage-scoped and exists only with user code |
-| GitHub Enterprise | the job calls `https://<host>/api/v3` and trusts only the image's public CAs; a server behind a private CA is not supported by the sync yet |
-| Child teams | GitHub's team-members API includes the members of child teams, which would hand a parent team's role to its children's people. The sync therefore stops, changing nothing, when a mapped team has child teams ("map direct teams only"). The precedence between roles is read from `release/identity-roles.yaml` and passed to the job |
-| Reconciliation | for every non-bot OpenMetadata user except `admin` and `olf-automation`: `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, neither otherwise, including a user in no mapped team. Other roles are left alone. A person who has not signed in yet has no user and starts at the baseline |
-| Interval | every 5 minutes (`*/5 * * * *`), inside the 15 min native-service revocation bound of `identity-sessions-and-recovery.md`; removing someone from a team revokes within one interval plus the job's run. Not yet measured on a cluster: the maintainer qualification moves a member out of a mapped team and checks the demotion |
-| Network | one flow, F30 in `release/network-flows.yaml`: the job to `api.github.com` on 443; its calls to OpenMetadata ride F13 |
-
-| Action | In GitHub |
-| --- | --- |
-| Invite as `analyst` | add the person to the organisation and to a team mapped to `analyst` |
-| Change role | move them between mapped teams |
-| Revoke every role | remove them from every mapped team: they can still sign in to GitHub, but Dex refuses them |
-| Offboard | remove them from the organisation |
-| List who holds what | `gh api --paginate orgs/<org>/teams/<slug>/members` per mapped team |
-
-## Policy documents
-
-Four written gates bind the implementation of seam 3 and the
-credential-producing work. They are policy for #176, #25, #26 and #46 to
-implement; the perimeter part of the sessions gate is built (seam 3), the rest
-is not.
-
-| Gate | Decision | Document |
-| --- | --- | --- |
-| Credentials (#181) | Identity credentials are generated by an idempotent in-cluster bootstrap Job, reused on redeploy, never read by Terraform. The client secrets are created this way | [`identity-credentials.md`](../architecture/identity/identity-credentials.md) |
-| Sessions (#177) | Perimeter cookie 30 min idle, 10 h absolute; access token 5 min; revocation delay at most 5 min at the perimeter and 15 min in native Superset and OpenMetadata sessions; platform-wide logout; fail closed on issuer outage; cluster-administrator recovery works with the issuer down | [`identity-sessions-and-recovery.md`](../architecture/identity/identity-sessions-and-recovery.md) |
-| Callers (#178) | Every authentication path is human (class 1), in-cluster or automation workload (class 2), or cloud workload (class 3). Workstation and CI automation reaches services by RBAC-authorized port-forward or in-cluster execution, never through the perimeter or as a human account. The one in-cluster caller of the platform API, the alert evaluator, is a service principal: a projected ServiceAccount token checked by TokenReview, never a canonical role ([ADR 0021](0021-platform-api.md), decision 3) | [`identity-callers.md`](../architecture/identity/identity-callers.md); Trino callers: [ADR 0016](0016-trino-workload-authentication.md) |
-| Service permissions (#25) | Per canonical role, what Superset and OpenMetadata allow and deny, the native roles that implement each grant, how roles reach the service, and how each meets the native session bound. Superset sign-in built (client, role mapping, 15 min bound); OpenMetadata sign-in built, role sync specified | [`identity-service-permissions.md`](../architecture/identity/identity-service-permissions.md) |
+**D12. Four policy documents bind the identity implementation.** Credentials:
+identity secrets are generated by an idempotent in-cluster bootstrap Job,
+reused on redeploy and never read by Terraform
+([`identity-credentials.md`](../architecture/identity/identity-credentials.md)).
+Sessions: perimeter cookie 30 minutes idle and 10 hours absolute, access token
+5 minutes, revocation within 5 minutes at the perimeter and 15 minutes in
+native Superset and OpenMetadata sessions, fail closed on an issuer outage,
+and cluster-administrator recovery that works with the issuer down
+([`identity-sessions-and-recovery.md`](../architecture/identity/identity-sessions-and-recovery.md)).
+Callers: every authentication path is human (class 1), in-cluster or
+automation workload (class 2) or cloud workload (class 3); workstation and CI
+automation reach services by RBAC-authorized port-forward or in-cluster
+execution, never through the perimeter or as a person
+([`identity-callers.md`](../architecture/identity/identity-callers.md)).
+Service permissions: per canonical role, what Superset and OpenMetadata allow
+and deny and which native roles implement it
+([`identity-service-permissions.md`](../architecture/identity/identity-service-permissions.md)).
+Enforced by: the four documents, and the e2e checks each one names.
 
 ## Consequences
 
-- The `identity` binding of every v3 contract gains a required `roles`
-  object, so a contract emitted before this change no longer parses. The AWS and Azure
-  `implementation` strings are unchanged. The local root's moves from
-  `identity.local_development_credentials` to `identity.oidc` (#24): the
-  validator still accepts a legacy-implementation contract that carries `roles`,
-  but the local root no longer emits one.
 - The role model is a release artifact: changing a grant changes
-  `release/identity-roles.yaml`, and every root picks it up on the next
-  apply. `olf` rejects a platform whose contract was rendered from a
-  different file.
-- The local Dex adds one always-on pod to `olf-system` and a `dex` database in
-  the platform PostgreSQL (input to the #171 fixed-cost budget). Its footprint
-  has not been measured; the Keycloak figures this ADR carried (768Mi memory
-  request, about 640 MiB resident) went with Keycloak.
-- The provider-binding digest recorded at activation covers `shared.identity`,
-  so the first activation after upgrading reads as a binding change.
+  `release/identity-roles.yaml`, every root picks it up on the next apply, and
+  `olf` rejects a platform whose contract was rendered from another file. A
+  grant cannot be configured per deployment.
+- Human roles are not stage-scoped: a grant holds on every enabled stage.
+  Grafana has no column; #210 adds it when Grafana is integrated.
+- Every v3 contract's `identity` binding requires `roles`, and the
+  provider-binding digest covers `shared.identity`, so the first activation
+  after an upgrade reads as a binding change.
+- Anyone who holds a kubeconfig reaches every service through its internal
+  Service; a role limits people, not cluster access.
+- Anyone admitted to Dagster has its full capability.
 - Platform users need a GitHub account in the mapped organisation, and the
-  cluster needs to reach `github.com`; ADR 0018 records the trade-offs.
+  cluster must reach `github.com` and `api.github.com` (flow F28); ADR 0018
+  records the trade-offs. Whether a child team's members count for a mapped
+  parent team at sign-in is not verified, so map direct teams.
+- The local Dex adds one always-on pod to `olf-system` and a `dex` database to
+  the platform PostgreSQL; its footprint is not measured (#171).
+- AWS and Azure have no issuer or perimeter yet (#180); `docs/technical-debt.md`
+  tracks it.
+
+## Boundaries
+
+| Not decided here | Where |
+| --- | --- |
+| What a person reads and writes in the lakehouse (`data_access`, Polaris grants, people's queries) | [ADR 0019](0019-data-plane-authorization-deferral.md) |
+| Whether Polaris authenticates with the issuer | [ADR 0015](0015-polaris-identity-provider-evaluation.md), ADR 0019 |
+| Trino workload authentication and its Web UI user | [ADR 0016](0016-trino-workload-authentication.md) |
+| Why GitHub and Dex | [ADR 0018](0018-github-is-the-forge.md) |
+| Ingress, routes, TLS, in-cluster resolution of the issuer | [ADR 0013](0013-service-access-and-ingress.md) |
+| NetworkPolicy and flows (F28 Dex egress, F30 role sync) | [ADR 0017](0017-local-network-policy-and-rbac.md), `release/network-flows.yaml` |
+| The platform API's role matrix and its service principals | [ADR 0021](0021-platform-api.md) |
+| Which identity class each `olf` command uses | [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md) |
+| What each role opens, by service | [Roles and permissions](../reference/roles-and-permissions.md) |
+
+## Alternatives rejected
+
+| Option | Why not |
+| --- | --- |
+| Roles defined inside the issuer adapter (#24 as first scoped) | Makes authorization an adapter detail; consumers would depend on the implementation (ADR 0003) |
+| End-user roles expressed in cloud IAM | Not portable across providers |
+| A deployment-configurable authorization matrix | More to build, test and document; can follow once the fixed model is proven |
+| Keycloak as the issuer, with SMTP invitations, `olf users` and an admin seam (#331) | Removed (#383, #384): a second user directory beside GitHub (ADR 0018) |
+| Lowercasing the organisation name (#388) | Dex compares GitHub's case-preserving login exactly and refused every member (#397) |
+| Dex storage as Kubernetes custom resources | Outside the Secret inventory and the exposure scan |
+| Traefik `Middleware` CRDs for the perimeter | Cannot be planned before the Traefik release installs the CRD |
+| A second Secret reference and an `olf` command for the role sync | The GitHub App's credentials are already in `oauth_app_secret_ref`; a CronJob needs no command |
+| The project-code image for the role sync | Stage-scoped, and exists only with user code |
 
 ## History
 
-In-cluster issuer endpoints (#991): `identity.oidc` gains the optional `internal_url`; the perimeter proxy, Polaris and the platform API (`jwks_url` setting) use it instead of the public URL. The bearer-token row changes accordingly. OpenMetadata (1.13.6 has no token-URL override) and Superset (its image change waits for #1092, behind the image source-drift guard) keep the public URL through the CoreDNS rewrite and `olf-local-ca`.
-
-OpenMetadata bootstrap in `olf` (#562): the Terraform bootstrap Job is deleted;
-`olf` creates the admin automation bot after the platform apply. The sign-in
-paragraph also names the command that switches OpenMetadata to the issuer,
-`deploy-metadata`, where it named the Job.
-
-Fifth OIDC consumer (#536): `olf-cli` joins `identity.oidc.clients` as a public
-client, so the command-line client can sign a person in with Authorization Code
-and PKCE on a loopback redirect, with no distributable secret. The perimeter
-accepts the bearer tokens it issues and keeps enforcing each route's role floor.
-An external issuer registers it like the other consumers (`client_ids` may
-override the id) as a public client with loopback redirects, the `profile`,
-`groups` and, for refresh, `offline_access` scopes; OpenMetadata keys users on
-`preferred_username`, so the issuer must emit it. No `olf` command uses the
-client yet.
-
-Issuer-outage drill (#177, #520): the local e2e scales Dex to zero, checks sign-in fails closed, reaches Trino and
-Dagster through recorded break-glass sessions, restores Dex, and checks the ingresses are unchanged and sign-in works.
-
-OpenMetadata's local `admin` (#25): with SSO on, `adminPrincipals` is empty and the local `admin` user is
-demoted, so an issuer login named `admin` is not an admin (OM-11 closed).
-
-Authentication off on the clouds: #421 required `spec.identity` on `aws` and
-`azure`, but their roots publish no routes and emit no `identity.oidc`, so a
-cloud profile carried a placeholder `external` block nothing read. The rule is
-now "nothing published beyond the operator's machine": a cloud profile may
-omit `spec.identity` while it declares no `spec.access`, and needs it again
-once it asks for routes.
-
-OpenMetadata role sync (#25): a CronJob reads the mapped teams' members with the GitHub App's installation token and patches `isAdmin` and `DataSteward`. The `members_app_secret_ref` field and the `olf openmetadata sync-roles` command this ADR planned were dropped: the App's credentials are already in `oauth_app_secret_ref`.
-
-Inline GitHub connect (#428): with a missing OAuth App Secret, an interactive
-`olf deploy` runs the `olf github connect` flow itself instead of refusing;
-CI, piped runs and `--no-github-connect` keep the refusal. The flow runs
-before the foundation apply (#448), so the rest of the deploy is unattended; the
-converted App stays in memory until the Secret is written, and the end-of-deploy
-summary asks GitHub whether the App is installed. Bootstraps keep
-their class-2 workload identities.
-
-Keycloak removed (#384 slice c): `modules/identity/keycloak`, its `keycloak`
-database, the `keycloak` and `keycloak-config-cli` catalog pins, `spec.identity.smtp`
-(with its deploy-time Secret check and `OLF_SMTP_*` variables), the
-`email_delivery` consistency check, the Keycloak e2e (admin API, throwaway
-users, email delivery against the Mailpit sink) and the `e2e_mail_sink` pin are
-deleted. `spec.identity.issuer` accepts `github` and `external` only. **It has
-no default**: the old default, Keycloak, had no replacement that needs no
-further input, since `github` requires a `github` block, so a block without an
-issuer is now an error and omitting the block still means no issuer. The
-nightly applies `openlakeforge.conformance.yaml`, which selects `github` with
-`host: olf-e2e-github.olf-system.svc`; it creates a dummy `github-oauth-app`
-Secret (any client id and secret, since the e2e stub never checks them) after a
-first `olf platform apply` has created the shared namespace and stopped, then
-applies again (`docs/setup/github-oauth-app.md`, `local-full-e2e.yml`). The
-entries below that name Keycloak describe the code that existed then.
-Because #421 requires a profile on a cloud provider to declare `spec.identity`,
-the cloud profiles in the tests carry an `external` block; the AWS and Azure
-roots emit no `identity.oidc` yet, so the check that an external profile meets
-an `identity.oidc` contract applies to the local provider only.
-
-#418 made a profile without `spec.identity` the explicit "authentication off"
-mode: accepted only for `provider: local` with no `spec.access` or a
-`*.localhost` base domain. Superset then signs every visitor in as its local admin (an anonymous
-`Admin` role is not enough: Superset needs a real user as the owner of saved
-objects); OpenMetadata has no anonymous mode, so `olf status`
-shows its default admin login. With `spec.identity` nothing changes.
-
-#403 added the http issuer exception to `issuer_url` for `spec.access.tls: none`.
-
-New record (#175). Seam 1 is built; seams 2–4 record the direction for #24,
-#176, and #331, which rewrite this ADR as they land.
-
-Seam 2 contract (#24 part a): `identity.oidc` fields fixed and validated in
-`olf` and the schema; profile `spec.identity` added; realm-as-code decided as
-a `keycloak-config-cli` Job. The Keycloak adapter is #24 part b.
-
-Keycloak adapter (#24 part b): the local root deploys Keycloak, applies the
-realm with `keycloak-config-cli`, routes `auth.<base_domain>` and emits
-`identity.oidc`; `spec.identity.issuer: external` skips the deployment.
-
-Policy gates (#181, #177, #178): the credential inventory and bootstrap target,
-the session and recovery policy, and the caller inventory are recorded in
-`docs/architecture/`; see "Policy documents". Design only; no behaviour changed.
-
-Identity credentials (#181): the Keycloak admin password and the four OIDC
-client secrets are created by an in-cluster bootstrap Job only if missing, not
-by `random_password`, so Terraform state no longer holds them.
-
-Outbound SMTP (#24): `spec.identity.smtp`, the `email_delivery` capability, the
-realm `smtpServer` and the deploy-time Secret check are built. The shared
-namespace is created by the platform apply, so a first deploy supplies the
-login through `OLF_SMTP_USERNAME`/`OLF_SMTP_PASSWORD` (#331, slice 2; see "The
-Deployment Profile gains `spec.identity`" above) or creates the Secret by hand
-after a first deploy without `smtp`.
-
-Email delivery check (#24): `olf e2e run` starts a throwaway Mailpit (catalog
-`e2e_mail_sink`, digest-pinned; never part of the stack), creates a throwaway
-realm pointed at it, asks Keycloak for an `UPDATE_PASSWORD` action email for a
-test user and asserts it reaches the sink; a second send with SMTP pointed at a
-closed port must come back as HTTP 500 `Failed to send execute actions email`
-and leave nothing in the sink. A throwaway realm is used because replacing a
-realm's `smtpServer` through the admin API drops the stored password, which
-would break a real relay. The deployed realm is only read, to require that
-`resetPasswordAllowed` and `verifyEmail` equal `capabilities.email_delivery`.
-This proves Keycloak's mail path, not an operator's relay.
-
-Perimeter (#176): seam 3 is built for the local root. oauth2-proxy instances
-per role floor, Traefik file-provider middlewares, one `Ingress` per namespace
-and floor (ADR 0013 decision 6 rewritten accordingly), a single login callback
-host, `shared.access.perimeter` in the contract, realm token and SSO lifespans
-set, and `olf` clients port-forward to protected routes. Runtime verification
-and what remains (logout; the issuer-outage drill now runs in the local e2e, #520) are tracked in
-`docs/architecture/identity/identity-sessions-and-recovery.md`.
-
-Admin client (#331, slice 1): seam 4's contract is built. The realm gains the
-service-account-only `olf-users` client with `view-users` and `manage-users`,
-its secret is created by the credentials Job, the adapter emits
-`shared.identity.admin` and declares `admin_api`, and the realm records admin
-events without details. `olf e2e run` asserts that the client authenticates by
-client credentials, lists users and groups, and cannot read or write realm
-settings, list clients, read events or reach another realm.
-
-Dagster boundary and Polaris (#26): the Dagster paragraph in seam 3 and the
-"Catalog credentials" section point at `identity-callers.md` and ADR 0015.
-Documentation only.
-
-User commands (#331, slice 1): `olf users` roles, list, grant, revoke, disable and enable.
-
-Invitations (#331, slice 2): `olf users invite`, `resend` and `cancel`. `olf e2e
-run` points the deployed realm's `smtpServer` at the throwaway mail sink for the
-step (skipped when the realm has its own SMTP, which a realm update would
-corrupt), completes onboarding through the mailed link as the new member,
-and empties `smtpServer` again.
-
-Trino workload authentication (#26 decision gate, #983): Trino has no
-authentication of its own ([ADR 0016](0016-trino-workload-authentication.md)).
-Every caller sends its own Polaris token as the `token` extra credential, and
-the Web UI signs in as the fixed user `olf-web` behind the perimeter; AWS's
-shared coordinator keeps claim-based rules for Glue. The Dex `trino` client,
-which served only the Web UI's OAuth2 sign-in, is gone, so `clients` names
-four consumers; no other seam here changed.
-
-Service permissions (#25 specification): the allowed and denied actions per
-role for Superset and OpenMetadata, the exact native roles behind `Alpha`,
-`Gamma`, `read-only`, `write` and `read`, and the session alignment are in
-`docs/architecture/identity/identity-service-permissions.md`. It records that
-OpenMetadata 1.13.6 cannot map the canonical claim to roles itself. Design
-only; no behaviour changed.
-
-Bootstrap administrators and first-deploy SMTP (#331, slice 2): `spec.identity.bootstrap_admins`
-is built (see seam 4). A first deploy can create the SMTP Secret from
-`OLF_SMTP_USERNAME`/`OLF_SMTP_PASSWORD`, which `olf` removes from its own
-process environment at start so no child process inherits them.
-
-GitHub as the source of people (ADR 0018): the default local issuer is decided
-as Dex with the GitHub connector, roles mapped to organisation teams in
-`spec.identity.github`. Seam 4 is removed: `olf users`, the
-`shared.identity.admin` contract and `capabilities.admin_api`, the Keycloak
-`olf-users` client and `spec.identity.bootstrap_admins` are deleted, and
-invitation, role assignment and offboarding are GitHub's. Keycloak stays
-deployed until the Dex adapter replaces it.
-
-Organisation login case (#397): the organisation is no longer lowercased.
-Lowercasing it (#388, from a review finding that holds for team slugs only)
-made Dex refuse every member of `OpenLakeForge`, because GitHub preserves the
-case of a login and Dex compares it exactly. Team slugs stay lowercased.
-
-Dex adapter (#384 slice b1): `modules/identity/dex` deploys a digest-pinned Dex
-for `spec.identity.issuer: github` (postgres storage on a `dex` database, the
-GitHub connector limited to the mapped teams, the four static clients with
-secrets from an in-cluster Job) and the root emits `identity.oidc` with
-`adapter: dex`. The perimeter requests `groups offline_access` for it, and
-`olf deploy` refuses to start the platform phase without the OAuth App Secret
-(an interactive run instead creates the GitHub App inline, #428; CI and `--no-github-connect` still refuse).
-Dex's static clients match redirect URIs exactly, so the OpenMetadata client
-carries the Keycloak wildcard URI until it is wired to OIDC (#25), and the
-Trino client carries `https://trino.<base_domain>/oauth2/callback` (ADR 0016);
-the Superset client already has its callback,
-`https://superset-<stage>.<base_domain>/oauth-authorized/olf`. Keycloak's removal, the stub-upstream e2e and the
-NetworkPolicy flow are separate slices.
-
-OpenMetadata sign-in (#25 slice b): OpenMetadata authenticates through the
-issuer as a confidential `custom-oidc` client with the principal taken from
-`preferred_username`. `olf infra openmetadata deploy-metadata` applies it
-through the security configuration API because 1.13.6 keeps that configuration
-in its database after the first boot; an admin automation bot, which `olf`'s
-OpenMetadata bootstrap creates after the platform apply, replaces basic login
-for `olf`. 1.13.6
-has no claim-based admin mapping, so every signed-in person starts at the read
-baseline until the role sync lands. Details in
-`docs/architecture/identity/identity-service-permissions.md`.
-
-Data access (ADR 0019, build step 1): `release/identity-roles.yaml` gains
-`data_access`, rendered into `shared.identity.roles` with the rest of the file
-and validated by `olf`; nothing enforces it yet.
-
-Per-operation classes (#536, [ADR 0020](0020-infrastructure-common-and-platform-cli-surfaces.md)):
-"every `olf` call is class 2" is replaced by a rule per operation. Commands
-that need cluster or cloud permissions live under `olf infra` and stay class 2;
-commands that need none (`init`, `check`, scaffolding) have no identity; a
-platform surface that signs a person in through Dex, and so is class 1, is
-decided and not built.
-
-`query_api` grant row: Trino's `/v1` at the `viewer` floor for `olf query`,
-routed at the ingress without a contract route (ADR 0019, build step 6).
-
-Data access enforced (ADR 0019, build steps 2-8): `data_access` is no longer
-carried only. With `spec.identity.issuer: github` on the local provider, a
-person's own queries (`olf query`, through the `query_api` route with an
-`olf-cli` token) reach what their role's row grants, enforced by Polaris
-catalog roles and vended storage credentials. Every workload keeps its stage
-principal. The boundary above records Polaris, not cloud IAM, as the place
-canonical roles reach data.
-
-Browser identity (#799): the browser session's ID token now reaches the platform
-API as a bearer, carrying the audience Trino and Polaris already require,
-through Dex cross-client trust (not yet run against them). `olf-cli` lists `perimeter` in `trustedPeers`, the perimeter requests
-`audience:server:client_id:olf-cli` and `federated:id` for Dex only, passes
-`--oidc-extra-audience=olf-cli` and `--set-authorization-header=true`, and only
-the platform API's route has a middleware that copies `Authorization` on. The
-tokens' audience is therefore no longer issued by the CLI alone; the services'
-accepted audience is unchanged.
-
-2026-11-17: the platform API admits a service principal, `alert-evaluator`, authenticated by a projected ServiceAccount token
-and a TokenReview, not by the issuer (ADR 0021, decision 3). It holds no canonical role, in keeping with the class 2 rule
-that a workload is never a member of one, so the role precedence, the role mapping and the perimeter are unchanged.
-
-2026-11-22: Corrected to match the code: the `query_api` path is on each stage's `trino-<stage>` host, and in-cluster issuer resolution is ADR 0013 decision 8, not 7. No decision changed.
+- 2026-10-13 (#175): New record. D1 built; the issuer and perimeter seams
+  recorded as direction. D12's credentials gate added (#181).
+- 2026-10-14 (#24): D2's `identity.oidc` fields and `spec.identity` fixed, with
+  a Keycloak adapter.
+- 2026-10-16 (#383): The administration seam (`olf users`, the admin contract,
+  bootstrap administrators) removed; D4 makes administration GitHub's
+  (ADR 0018).
+- 2026-10-16 (#397): D9 keeps the organisation's case.
+- 2026-10-18 (#403, #418): D2 allows an http issuer with `tls: none`; D5
+  added, local only.
+- 2026-10-19 (#419): Keycloak removed; D2's issuer is `github` or `external`
+  with no default.
+- 2026-10-21 (#384): D9 and D10: Dex with the GitHub connector is the local
+  issuer.
+- 2026-10-22 (#515): D5 extended to `aws` and `azure` with no `spec.access`.
+- 2026-10-22 (#25): D11 added; OpenMetadata signs in through the issuer.
+- 2026-10-23 (#176, #177, #178): D3 built for local; D12's sessions and
+  callers gates added.
+- 2026-11-01 (#536): `olf-cli` joins D2's clients; D7 added.
+- 2026-11-04 (#799): D7's Dex audience and D8's ID token on `/api` only.
+- 2026-11-09 (#983): the Dex `trino` client removed; D2 names four clients.
+- 2026-11-11 (#991): D2 gains `internal_url`; D7's Dex verification uses it.
+- 2026-11-22 (#1385): Corrected to match the code; no decision changed.
+- 2026-11-23: Rewritten in the standard form; seams 1 to 3 kept as D1 to D3;
+  adapter and perimeter mechanics moved to
+  `docs/reference/perimeter-and-identity-adapter.md`; no decision changed.

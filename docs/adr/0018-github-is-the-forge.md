@@ -74,7 +74,7 @@ people is a connector.
   a separate free organisation used only for platform access is an option.
 - Signing out of OpenLakeForge does not sign the person out of GitHub; on a
   shared browser the next sign-in reuses that GitHub account (ADR 0014,
-  "Logout").
+  D10).
 - The cluster must reach `github.com` and `api.github.com` for logins and
   refreshes (flow F28 in `release/network-flows.yaml`). A GitHub outage blocks
   new logins; existing sessions run to their bound.

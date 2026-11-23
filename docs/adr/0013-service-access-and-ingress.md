@@ -77,7 +77,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    its contract has one, and port-forward when it has none (the AWS and
    Azure contracts today), when `OLF_PORT_FORWARD` is set, or when the route
    is in `shared.access.perimeter.protected_routes` of an enabled perimeter
-   (ADR 0014 seam 3), because the ingress answers a request with no session
+   (ADR 0014 D3), because the ingress answers a request with no session
    by redirecting to login. Only a caller that tests the ingress itself passes
    `through_ingress=True`. They resolve
    `*.localhost` to `127.0.0.1` in-process and, for the `local-ca` issuer,
@@ -106,7 +106,7 @@ URL or trusted TLS. v0.4 (#20) replaces it for local and on-premises installs.
    enables TLS on the router and names no Secret. Routes are standard `Ingress` objects, which need no
    CRD at plan time. Traefik attaches middleware per `Ingress`, so a
    namespace has one `Ingress` per access group (the role floor, ADR 0014
-   seam 3); only one in the shared namespace carries the issuer annotation
+   D3); only one in the shared namespace carries the issuer annotation
    and names the TLS Secret. The `Ingress` without a group holds the routes
    behind no middleware: the identity route and the perimeter's login
    callback.
