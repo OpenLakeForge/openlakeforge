@@ -26,7 +26,7 @@ REFRESH_SCHEDULE = "0 * * * *"
 _TOKEN_ENV = "OM_BOT_JWT"
 _TOKEN_PLACEHOLDER = "__OM_BOT_JWT__"
 # Trino carries no policy of its own: the crawl presents the `openmetadata` Polaris principal's token as the `token`
-# extra credential (ADR 0019 section 9). The pod mints it from the principal's client credentials just before the
+# extra credential (ADR 0019 D12). The pod mints it from the principal's client credentials just before the
 # crawl, so the token is in neither the Job spec nor the stored service; the 3600 s deadline fits its one hour.
 POLARIS_SECRET = "polaris-om-creds"
 _POLARIS_TOKEN_PLACEHOLDER = "__POLARIS_TOKEN__"

@@ -476,7 +476,7 @@ module "platform_api" {
   public_origin = "${local.route_scheme}://${local.base_domain}"
   person_query  = local.api_query_enabled
   # Trino's plain HTTP port: it has no authentication of its own, and the
-  # person's token rides each request for Polaris (ADR 0019 section 9).
+  # person's token rides each request for Polaris (ADR 0019 D9).
   # Read server-side only.
   query_endpoints = {
     for stage in keys(local.enabled_stages) : stage => {
@@ -734,7 +734,7 @@ module "polaris" {
 }
 
 # One coordinator per stage, in the stage's namespace, holding only that
-# stage's catalogs and its own object-store identity (ADR 0019 section 9).
+# stage's catalogs and its own object-store identity (ADR 0019 D8).
 module "trino" {
   source   = "../../modules/query/trino"
   for_each = local.enabled_stages
@@ -748,7 +748,7 @@ module "trino" {
   # The module takes maps because AWS and Azure still serve every stage from
   # one coordinator; here each names only its own stage.
   stage_catalog_contracts = { (each.key) = local.stage_catalog_contracts[each.key] }
-  # Trino has no authentication of its own (ADR 0019 section 9): the UI signs
+  # Trino has no authentication of its own (ADR 0019 D9): the UI signs
   # in as a fixed user and the perimeter (or no access) gates its route.
   web_ui_fixed_user = "olf-web"
   # Authentication off: no caller has a token, so the catalog's credential serves every request (ADR 0021,

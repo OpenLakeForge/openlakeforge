@@ -42,7 +42,7 @@ REQUIRED_CATALOG_PROPERTIES: Mapping[str, str] = {DROP_WITH_PURGE: "true", NAMES
 MANAGE_CONTENT = "CATALOG_MANAGE_CONTENT"
 MANAGE_METADATA = "CATALOG_MANAGE_METADATA"
 MANAGE_ACCESS = "CATALOG_MANAGE_ACCESS"
-# The OpenMetadata crawler reads data and properties and writes nothing (ADR 0019, section 9). Polaris 1.8.0 refuses
+# The OpenMetadata crawler reads data and properties and writes nothing (ADR 0019 D12). Polaris 1.8.0 refuses
 # LOAD_TABLE without TABLE_READ_DATA even for a table's columns, so the data read stays.
 OPENMETADATA_PRIVILEGES = (
     "TABLE_READ_DATA",
@@ -59,7 +59,7 @@ PERSON_CATALOG_ROLES: Mapping[str, tuple[str, ...]] = {
 # Removed on every run: Gold writes through Trino, and pre-migration deployments had a dbt principal.
 LEGACY_DBT_PRINCIPAL = "dbt"
 LEGACY_DBT_SECRET = "polaris-dbt-creds"
-# A stage's principals before `olf-<stage>-processing` (ADR 0019, section 9): a Trino one and a Floe one, each with
+# A stage's principals before `olf-<stage>-processing` (ADR 0019 D10): a Trino one and a Floe one, each with
 # its own principal role and catalog role. A stage keeps none of them.
 LEGACY_ROLES = (("data-engineer", "catalog-admin"), ("data-writer", "catalog-writer"))
 # What a removed stage leaves in Polaris, which `--allow-stage-removal` revokes: the principal name of each kind.
@@ -113,7 +113,7 @@ class StageCatalog:
     processing: Credential
     deployer: Credential
     # The stage Trino's catalog credential, trino-catalog-<stage>. It holds no grant: Trino uses it only for the
-    # catalog's configuration call, and every table request carries the caller's own token (ADR 0019 section 9).
+    # catalog's configuration call, and every table request carries the caller's own token (ADR 0019 D9).
     # With authentication off it serves every request and holds the catalog's content (BootstrapPlan.anonymous).
     catalog: Credential
     # The Trino and Floe credentials of earlier deployments, removed once the stage has `processing`.

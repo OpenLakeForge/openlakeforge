@@ -1,4 +1,4 @@
-"""Per-person data access (ADR 0019, verification item 10): a person's Dex token, sent to Trino's query route
+"""Per-person data access (ADR 0019 D1, D6): a person's Dex token, sent to Trino's query route
 the way `olf query` sends it, reaches exactly what the role's `data_access` row grants, and Polaris decides.
 
 Each role reads a table of every layer on the run's stage, lists every stage's schemas, and writes a probe

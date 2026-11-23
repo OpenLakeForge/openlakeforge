@@ -8,6 +8,8 @@ import yaml
 
 import olf.common.profile as profile_module
 from olf.common.profile import (
+    AWS_BUCKET_PREFIX_MAX_LENGTH,
+    AWS_BUCKET_SUFFIX_LENGTH,
     BUCKET_LAYERS,
     BUCKET_PREFIX_MAX_LENGTH,
     AccessSpec,
@@ -27,6 +29,7 @@ from olf.common.profile import (
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "profiles"
 SCHEMAS = Path(__file__).resolve().parents[4] / "docs" / "schema"
+AWS_S3_MODULE = Path(__file__).resolve().parents[4] / "infra" / "terraform" / "modules" / "storage" / "aws-s3"
 
 
 def _load_fixture(name: str) -> dict:
@@ -312,6 +315,45 @@ def test_longest_bucket_name_fits_the_provider_limit() -> None:
     prefix = "a" * BUCKET_PREFIX_MAX_LENGTH
 
     assert max(len(bucket_name(prefix, stage, layer)) for stage in StageName for layer in BUCKET_LAYERS) == 63
+
+
+def test_longest_aws_bucket_name_with_its_suffix_fits_the_s3_limit() -> None:
+    prefix = "a" * AWS_BUCKET_PREFIX_MAX_LENGTH
+    suffix = "-" + "x" * AWS_BUCKET_SUFFIX_LENGTH
+
+    assert max(len(bucket_name(prefix, stage, layer) + suffix) for stage in StageName for layer in BUCKET_LAYERS) == 63
+
+
+def test_the_aws_suffix_length_matches_the_aws_s3_module() -> None:
+    main_tf = (AWS_S3_MODULE / "main.tf").read_text(encoding="utf-8")
+    suffix_block = main_tf.split('resource "random_string" "bucket_suffix"', 1)[1].split("}", 1)[0]
+
+    assert f"length  = {AWS_BUCKET_SUFFIX_LENGTH}" in suffix_block
+
+
+def test_a_maximum_length_name_is_accepted_on_local(tmp_path: Path) -> None:
+    document = _load_fixture("valid_slim_local.yaml")
+    document["metadata"]["name"] = "a" * BUCKET_PREFIX_MAX_LENGTH
+
+    assert validate_deployment_profile(document).name == "a" * BUCKET_PREFIX_MAX_LENGTH
+    assert not _schema_errors(document, tmp_path)
+
+
+def test_a_name_too_long_for_the_aws_suffix_is_rejected_on_aws(tmp_path: Path) -> None:
+    document = _load_fixture(_AWS)
+    document["metadata"]["name"] = "a" * BUCKET_PREFIX_MAX_LENGTH
+
+    with pytest.raises(DeploymentProfileError, match=r"is 51 characters.* would be 72 characters, over the 63"):
+        validate_deployment_profile(document)
+    assert _schema_errors(document, tmp_path)
+
+
+def test_a_name_within_the_aws_budget_is_accepted_on_aws(tmp_path: Path) -> None:
+    document = _load_fixture(_AWS)
+    document["metadata"]["name"] = "a" * AWS_BUCKET_PREFIX_MAX_LENGTH
+
+    assert validate_deployment_profile(document).name == "a" * AWS_BUCKET_PREFIX_MAX_LENGTH
+    assert not _schema_errors(document, tmp_path)
 
 
 def test_no_access_or_identity_block_means_a_quickstart_with_neither() -> None:

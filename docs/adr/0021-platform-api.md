@@ -170,7 +170,7 @@ refuses to start with `anonymous_role` beside an issuer or audiences, or with a
 `public_origin` off `*.localhost`. Changes are audited as `anonymous`, and the
 OpenMetadata routes are not configured. Queries run as the Trino user
 `anonymous` with no bearer: the stage catalogs are not keyless here
-(ADR 0019, section 9), each stage Trino's catalog credential serves every
+(ADR 0019 D9), each stage Trino's catalog credential serves every
 request, and `olf`'s Polaris bootstrap grants it `CATALOG_MANAGE_CONTENT` on its
 catalog; with identity the grant is removed. `olf` reaches the API over the
 routes' own scheme. Enforced by: `openlakeforge_platform_api/settings.py` and

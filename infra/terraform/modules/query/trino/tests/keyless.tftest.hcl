@@ -1,6 +1,6 @@
 # A keyless catalog with no static key falls back to the AWS SDK default chain
 # (environment, IRSA, instance profile) for anything outside vended credentials
-# (#963), so the coordinator must carry none of them (ADR 0019 section 9). The
+# (#963), so the coordinator must carry none of them (ADR 0019 D4). The
 # instance metadata endpoint is closed by the stage's default-deny policy:
 # tools/olf/tests/infra/test_trino_ambient_credentials.py.
 
