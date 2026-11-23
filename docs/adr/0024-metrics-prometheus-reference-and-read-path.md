@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Accepted as built (maintainer, 2026-11-22): D1 to D6 bind. D7 to D17 and the open items are proposed, awaiting the maintainer's ruling |
+| Status | Accepted (maintainer, 2026-11-22 and 2026-11-23): D1 to D17 bind. Open: M-f's 24-hour footprint per size (#21) |
 | Built | local ✔ (slices M-a to M-e, #21; M-f's 24-hour footprint per size is open) · AWS ✘ · Azure ✘ (unsupported, D6) |
 
 ## Context
@@ -67,8 +67,7 @@ storage, both bounded. Every job sets `sample_limit`, `label_limit`,
 `limit`, so a misbehaving target fails its scrape (`up` 0, read as
 `unavailable`) instead of growing the database. The series budget is 10,000
 head series on the reference deployment: an operating target the e2e asserts,
-not a bound Prometheus enforces. Head series above the budget for 30 minutes
-is a `warning` on the metrics integration. Values:
+not a bound Prometheus enforces. Values:
 [metrics reference](../reference/metrics.md#labels-and-limits). Enforced by:
 `modules/observability/metrics/rules.tf` and `main.tf`;
 `tools/olf/tests/infra/test_metrics_recording_rules.py`;
@@ -92,19 +91,18 @@ by: `packages/core/openlakeforge_core/metrics.py`,
 `packages/platform-api/openlakeforge_platform_api/metrics_routes.py`,
 `permissions.toml`, `tools/olf/tests/common/test_metrics_catalog.py`.
 
-**D5 (proposed, awaiting ruling). Network and RBAC: Prometheus and
-kube-state-metrics run in `olf-system`, Prometheus reaches the stage
-namespaces only for the Trino coordinators, and its kubelet grant is
-`nodes/metrics`, never `nodes/proxy`.** Stage pods' CPU and memory come from
-the kubelet on the node, not from the pods. Prometheus's ClusterRole holds
-`nodes` `get`/`list`/`watch` and `nodes/metrics` `get` and nothing else
-(`nodes/proxy` is exec-equivalent); kube-state-metrics holds a Role per OLF
-namespace (`list`, `watch` on four resources) and no ClusterRole. The one
-ingress row is the platform API. Every flow is a row of
+**D5. Network and RBAC: Prometheus and kube-state-metrics run in `olf-system`,
+Prometheus reaches the stage namespaces only for the Trino coordinators, and
+its kubelet grant is `nodes/metrics`, never `nodes/proxy`.** Stage pods' CPU
+and memory come from the kubelet on the node, not from the pods. Prometheus's
+ClusterRole holds `nodes` `get`/`list`/`watch` and `nodes/metrics` `get` and
+nothing else (`nodes/proxy` is exec-equivalent); kube-state-metrics holds a
+Role per OLF namespace (`list`, `watch` on four resources) and no ClusterRole.
+The one ingress row is the platform API. Every flow is a row of
 `release/network-flows.yaml` (F45 to F51), rendered only when the module is
-deployed; rows and grants are in
-[network policy and RBAC](../architecture/identity/identity-network-policy-and-rbac.md).
-Enforced by: `release/network-flows.yaml`, `modules/observability/metrics`.
+deployed; rows and grants are in [network policy and
+RBAC](../architecture/identity/identity-network-policy-and-rbac.md). Enforced
+by: `release/network-flows.yaml`, `modules/observability/metrics`.
 
 **D6. The profile names a capability, never a product, and AWS and Azure are
 unsupported.** No profile field selects Prometheus. AWS and Azure report
@@ -114,82 +112,69 @@ An external adapter, and any profile field to select one, is a contract change
 with its own issue. Enforced by: `observability_support` in
 `infra/terraform/environments/{local,aws-poc,azure-poc}/contracts.tf`.
 
-### Awaiting the maintainer's ruling
+**D7. Terraform `kubernetes_*` resources, not the community chart.** The
+module writes the Deployment, PVC, ConfigMap and RBAC with pinned images, as
+the log collector and alert evaluator do; the chart bundles subcharts, a reload
+sidecar and a cluster-wide ClusterRole.
 
-The maintainer's acceptance (2026-11-22) does not approve the items below. Each
-is built as written and stays so until ruled on; the open item it answers is
-named.
+**D8. Prometheus's shape and hardening.** One replica with `strategy: Recreate`
+and a standalone PVC; a 30 s scrape; retention by time and size in the
+configuration file; query limits; no admin API, no lifecycle endpoint, no
+remote write and no OTLP receiver; a non-root, read-only pod. Values: [metrics
+reference](../reference/metrics.md#backend).
 
-**D7 (proposed, awaiting ruling). Terraform `kubernetes_*` resources, not the
-community chart.** The module writes the Deployment, PVC, ConfigMap and RBAC
-with pinned images, as the log collector and alert evaluator do; the chart
-bundles subcharts, a reload sidecar and a cluster-wide ClusterRole. Open
-item 9.
+**D9. `retention_days` defaults to 7 for every size and preset**, #332's
+value; the volumes are 4, 8 and 16 Gi with `retention.size` at 75% of each.
+Revisit once the M-f 24-hour footprint is measured (#21).
 
-**D8 (proposed, awaiting ruling). Prometheus's shape and hardening.** One
-replica with `strategy: Recreate` and a standalone PVC; a 30 s scrape; retention
-by time and size in the configuration file; query limits; no admin API, no
-lifecycle endpoint, no remote write and no OTLP receiver; a non-root,
-read-only pod. Values: [metrics reference](../reference/metrics.md#backend).
+**D10. `shared.observability.metrics` carries optional `query_api` and
+`query_url`.** `query_api` names the protocol, never the product:
+`prometheus-http-v1` is the Prometheus HTTP API's `/api/v1/query_range` and
+`/api/v1/query`. Both are `null` whenever `supported` is false; local fills
+them when the module is deployed. An external Prometheus-compatible backend
+satisfies the contract when it answers `prometheus-http-v1` at a URL the API
+reaches through a flow row, holds the catalog's `olf:` rules over the same
+baseline and labels (the platform ships the reference's scrape configuration
+and rule file), and needs no authentication beyond what the API sends (none in
+v0.7). Enforced by: `tools/olf/olf/common/provider_contracts/_v3.py`, [provider
+contracts](../architecture/provider-contracts.md#sharedobservability).
 
-**D9 (default, revisit). `retention_days` defaults to 7 for every size and
-preset**, #332's value; the volumes are 4, 8 and 16 Gi with `retention.size`
-at 75% of each. Open item 2.
+**D11. Prometheus has no authentication in v0.7.** NetworkPolicy is the
+control, as for Trino ([ADR 0016](0016-trino-workload-authentication.md)): its
+one ingress row is the platform API (F45). Basic auth or TLS through
+`--web.config.file` is added when a second consumer (#210) needs a route.
 
-**D10 (proposed, awaiting ruling). `shared.observability.metrics` carries
-optional `query_api` and `query_url`.** `query_api` names the protocol, never
-the product: `prometheus-http-v1` is the Prometheus HTTP API's
-`/api/v1/query_range` and `/api/v1/query`. Both are `null` whenever
-`supported` is false; local fills them when the module is deployed. An
-external Prometheus-compatible backend satisfies the contract when it answers
-`prometheus-http-v1` at a URL the API reaches through a flow row, holds the
-catalog's `olf:` rules over the same baseline and labels (the platform ships
-the reference's scrape configuration and rule file), and needs no
-authentication beyond what the API sends (none in v0.7). Enforced by:
-`tools/olf/olf/common/provider_contracts/_v3.py`,
-[provider contracts](../architecture/provider-contracts.md#sharedobservability).
+**D12. On the local kind reference only, the kubelet job skips certificate
+verification.** This is a local-only exception, to be removed by #1409. kind's
+kubelets serve self-signed certificates, so an endpoint impersonating a node
+address would receive Prometheus's token and could replay its node reads (node
+objects and usage; no Secret, log, exec or spec). The projected token lives 600
+seconds, every other provider verifies, and enabling `serverTLSBootstrap` in
+the kind foundation removes the exception.
 
-**D11 (proposed, awaiting ruling). Prometheus has no authentication in
-v0.7.** NetworkPolicy is the control, as for Trino
-([ADR 0016](0016-trino-workload-authentication.md)): its one ingress row is the
-platform API (F45). Basic auth or TLS through `--web.config.file` is added
-when a second consumer (#210) needs a route. Open item 6.
+**D13. `stage` is set by scrape-time relabelling from maps Terraform renders**:
+each stage namespace to its stage and `olf-system` to `platform`; for SeaweedFS
+each stage's buckets to its stage and the ops bucket to `platform`, as the log
+collector's routes are rendered.
 
-**D12 (proposed, awaiting ruling). On the local kind reference only, the
-kubelet job skips certificate verification.** kind's kubelets serve
-self-signed certificates, so an endpoint impersonating a node address would
-receive Prometheus's token and could replay its node reads (node objects and
-usage; no Secret, log, exec or spec). The projected token lives 600 seconds,
-every other provider verifies, and enabling `serverTLSBootstrap` in the kind
-foundation removes the exception. Open item 8.
+**D14. Run IDs are accepted in the raw `pod` label of run pods.** A run's Job
+is `dagster-run-<run_id>`, so raw kubelet and kube-state-metrics series carry
+it; they are never served, are bounded by concurrent pods and the size cap, and
+dropping the label would merge pods' samples. The alternative, dropping run
+pods' series, loses the pipelines' share of stage usage.
 
-**D13 (proposed, awaiting ruling). `stage` is set by scrape-time relabelling
-from maps Terraform renders**: each stage namespace to its stage and
-`olf-system` to `platform`; for SeaweedFS each stage's buckets to its stage and
-the ops bucket to `platform`, as the log collector's routes are rendered.
+**D15. The catalog lives in `openlakeforge_core`**, one module read by the API
+and by tests; each entry names its scope, unit, recording rule and labels, and
+the query text is parameterised only by values the API validated.
 
-**D14 (proposed, awaiting ruling). Run IDs are accepted in the raw `pod`
-label of run pods.** A run's Job is `dagster-run-<run_id>`, so raw kubelet and
-kube-state-metrics series carry it; they are never served, are bounded by
-concurrent pods and the size cap, and dropping the label would merge pods'
-samples. The alternative, dropping run pods' series, loses the pipelines'
-share of stage usage. Open item 4.
+**D16. Metrics never feed `HealthState`.** A chart is evidence beside the
+health signals; the health routes' `metrics` integration reports whether the
+backend answers and never changes the stage's state.
 
-**D15 (proposed, awaiting ruling). The catalog lives in `openlakeforge_core`**,
-one module read by the API and by tests; each entry names its scope, unit,
-recording rule and labels, and the query text is parameterised only by values
-the API validated.
-
-**D16 (proposed, awaiting ruling). Metrics never feed `HealthState`.** A chart
-is evidence beside the health signals; the health routes' `metrics`
-integration reports whether the backend answers and never changes the stage's
-state.
-
-**D17 (proposed, awaiting ruling). The read floor is `data-engineer` on every
-stage**, the health routes' floor, for stage and platform series alike, with no
-`role_stages` (a series carries no log text or data) and no `services` (the
-alert evaluator does not read metrics). Rows:
-[metrics reference](../reference/metrics.md#routes). Open item 7.
+**D17. The read floor is `data-engineer` on every stage**, the health routes'
+floor, for stage and platform series alike, with no `role_stages` (a series
+carries no log text or data) and no `services` (the alert evaluator does not
+read metrics). Rows: [metrics reference](../reference/metrics.md#routes).
 
 ## Consequences
 
@@ -223,21 +208,12 @@ alert evaluator does not read metrics). Rows:
 
 ## Open items
 
-Questions for the maintainer, each with the recommended answer the built code
-assumes. None is approved by the 2026-11-22 acceptance.
-
-| # | Question | Recommended answer | Decision |
-| --- | --- | --- | --- |
-| 1 | Does OpenTelemetry have a part in v0.7? | No. Revisit when traces are in scope or several OTLP sources exist; for one OTLP metrics source, enable Prometheus's own OTLP receiver first | D1 |
-| 2 | Retention and volume defaults | 7 days for every size and preset; 4, 8 and 16 Gi for `small`, `medium`, `large`, `retention.size` at 75% | D1, D9 |
-| 3 | Is kube-state-metrics in the baseline? | Yes, restricted: it is the only source of restart history and of the pod-to-component labels | D2 |
-| 4 | Run IDs in the raw `pod` label | Accept them in raw series that are never served | D14 |
-| 5 | Execution counters and durations | From Dagster reads in the API; they then work on Slim too | D2 |
-| 6 | Prometheus authentication | None in v0.7; one NetworkPolicy ingress row from the platform API | D11 |
-| 7 | Read floor | `data-engineer` on every stage, for stage and platform series alike | D17 |
-| 8 | Kubelet certificate verification on kind | Skip on the kubelet job, on local only, with a 10-minute token; every other provider verifies | D12 |
-| 9 | Chart or Terraform resources | Terraform `kubernetes_*` resources with pinned images | D7 |
-| 10 | Version line | Prometheus 3.13 LTS, moving to the next LTS rather than every minor | D1 |
+The one open item is #21's slice M-f: each size's CPU, memory and volume
+footprint over 24 hours, which revisits D9 and the starting requests and
+limits. The ten questions of the 2026-11-17 proposal were closed on 2026-11-23:
+1 (no OpenTelemetry in v0.7), 5 (run metrics from Dagster reads) and 10 (the
+3.13 LTS line) by D1 and D2; 3 as "yes, restricted" (D2); 2 by D9, 4 by D14,
+6 by D11, 7 by D17, 8 by D12 and 9 by D7.
 
 ## Alternatives rejected
 
@@ -272,3 +248,5 @@ assumes. None is approved by the 2026-11-22 acceptance.
   D6, the proposed and default rows split out as D7 to D17, the build order
   dropped, and the series catalog, scrape, label, limit and sizing tables moved
   to `docs/reference/metrics.md`; no decision changed.
+- 2026-11-23: D5, D7–D17 accepted by the maintainer; open items closed.
+- 2026-11-23: D3: the 30-minute over-budget warning dropped (never built).

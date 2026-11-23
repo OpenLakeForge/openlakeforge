@@ -39,7 +39,7 @@ how user code is laid out, and `0008` for why `olf` is the only interface.
 | [0021](0021-platform-api.md) | **The platform API** — one Python backend for the portal, `olf` and agents; the person's token where the service authorizes, a tested role matrix and audit elsewhere |
 | [0022](0022-pod-log-collection-and-archive-format.md) | **Pod log collection and the log archive format** — a Fluent Bit DaemonSet routing by namespace writes gzipped NDJSON hour partitions; one reader for v1 and v2 |
 | [0023](0023-alert-evaluation-and-webhook-delivery.md) | **Alert evaluation, alert policy, incident state and webhook delivery** — a `*/5` CronJob evaluates health signals, `alerts.yml` declares what alerts, one HTTPS webhook delivers |
-| [0024](0024-metrics-prometheus-reference-and-read-path.md) | **Optional metrics: a bounded Prometheus reference and its read path** — one Prometheus 3.13 LTS in `olf-system` when metrics are enabled and supported; a minimal scrape baseline; only the platform API reads it, by named series; accepted as built, D7 to D17 awaiting ruling |
+| [0024](0024-metrics-prometheus-reference-and-read-path.md) | **Optional metrics: a bounded Prometheus reference and its read path** — one Prometheus 3.13 LTS in `olf-system` when metrics are enabled and supported; a minimal scrape baseline; only the platform API reads it, by named series; accepted, M-f footprint open (#21) |
 
 ## How to write an ADR
 
