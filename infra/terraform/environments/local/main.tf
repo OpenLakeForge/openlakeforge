@@ -594,7 +594,7 @@ module "traefik" {
   dynamic_config      = local.identity_enabled ? module.perimeter[0].traefik_dynamic_config : null
 }
 
-# ADR 0014 seam 3. The proxy fetches the issuer's keys and exchanges codes at
+# ADR 0014 D3. The proxy fetches the issuer's keys and exchanges codes at
 # its Service (internal_url), so it needs neither the in-cluster resolution nor
 # the CA, and waits only for the realm Job (through identity_oidc). The auth
 # route's Ingress is not ordered before it: Traefik takes the middlewares from
@@ -652,7 +652,7 @@ module "in_cluster_resolution" {
   depends_on = [module.cert_manager]
 }
 
-# ADR 0014 seam 2. `external` deploys nothing: the contract is taken from the
+# ADR 0014 D2. `external` deploys nothing: the contract is taken from the
 # profile and the operator supplies the client Secrets it references.
 module "dex" {
   source = "../../modules/identity/dex"

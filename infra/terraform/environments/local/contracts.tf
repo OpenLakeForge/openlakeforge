@@ -472,7 +472,7 @@ locals {
     }
   })
 
-  # ADR 0014 seam 3: everything user-facing except the login surface sits
+  # ADR 0014 D3: everything user-facing except the login surface sits
   # behind the perimeter, so a new route is protected without being listed.
   perimeter_protected_refs = [for ref in keys(local.access_routes) : ref if ref != "shared/identity"]
 

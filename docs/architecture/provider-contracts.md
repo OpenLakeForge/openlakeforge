@@ -184,7 +184,7 @@ all present or all absent:
 | `url` is `<scheme>://<host>.<base_domain>`, unique across routes, with no port or path; a stage route's host is `<service>-<stage>`, a shared route's `<service>`, and the portal's is `<base_domain>` | one host, one service, and a stage backend never answers on another stage's host |
 | `tls_mode` is `none` for `tls: none`, `ingress-terminated` for `local-ca`, `edge-terminated` for `external` | one mode per TLS setting (ADR 0013 D3) |
 | `<scheme>` is `http` when `tls_mode` is `none`, `https` otherwise | routes, callback and cookies follow who terminates TLS |
-| optional `perimeter` is `{implementation, enabled, protected_routes, callback_url}` and needs the ingress fields | what sits behind authentication (ADR 0014 seam 3) |
+| optional `perimeter` is `{implementation, enabled, protected_routes, callback_url}` and needs the ingress fields | what sits behind authentication (ADR 0014 D3) |
 | `protected_routes` is exactly the enabled user-facing routes except `shared/identity` (empty when `enabled` is false) | a user-facing route left out is an open door, so `olf` rejects it |
 | `callback_url` is `<scheme>://<host>.<base_domain>/oauth2/callback` | the one redirect URI of the `perimeter` client |
 
@@ -236,7 +236,7 @@ ADRs and the release file.)
 | each `data_access` stage row is every layer `write`, every layer `read`, or `gold: read` alone | the only rows Polaris catalog roles express ([ADR 0019](../adr/0019-data-plane-authorization-deferral.md), section 5) |
 | `data_access` is monotonic across `precedence` on every stage and layer | as for `grants`; nothing enforces it yet: Polaris grants arrive in a later build step |
 
-With `implementation: identity.oidc` (ADR 0014 seam 2, #24) the binding also
+With `implementation: identity.oidc` (ADR 0014 D2, #24) the binding also
 carries the issuer. No field is issuer-specific; everything is keyed by a
 canonical role or a consumer, and a credential is only ever a Secret
 reference:
@@ -263,15 +263,17 @@ reference:
 | `issuer_url` is https with a host and no userinfo, query or fragment (the schema only checks `^https://`; the Python check is the authority) | tokens and redirects must not cross plaintext |
 | `adapter` is `dex` when the profile selects `github` | provenance for consumers, but the validator needs it to correlate the profile with its binding; external profiles omit it |
 | `role_mapping` keys are canonical roles; each value is a non-empty list of claim values | an unknown role fails closed; the claim values are the issuer's vocabulary (GitHub `<org>:<team>` values, Cognito groups, Entra object IDs) |
-| each client is `client_id` plus `secret_ref{name,key}` | a literal secret is an unsupported field; the #181 secret-value check also covers it |
+| each client is `client_id` plus `secret_ref{name,key}`, except the public `olf-cli`, which has `client_id` only | a literal secret is an unsupported field; the #181 secret-value check also covers it |
+| `issuer_url` is http only with `spec.access.tls: none` on `*.localhost` | the one plain-HTTP development mode (ADR 0013) |
+| optional `internal_url` is set only for an issuer OpenLakeForge deploys (Dex's in-cluster Service); in-cluster consumers fetch `/keys` and redeem codes at `/token` there and still compare the token's `iss` with `issuer_url` as a string | an `external` issuer is reached at `issuer_url` |
+| optional `capabilities` holds booleans `groups_in_token`, `logout_endpoint`, `email_delivery`; absent means not declared | an issuer that lacks something says so, and consumers degrade rather than break |
 
 The `identity.oidc` contract is parsed and schema-checked here. The local root
 emits it (adapter `dex`, `role_claim: groups`, the
 `role_mapping` of each role to its `<org>:<team-slug>` values); the AWS and Azure
 roots do not yet. With `spec.identity.issuer: external` the local root emits
 the profile's issuer fields and names the client Secrets
-`oidc-client-<consumer>` (key `client-secret`) for the operator to provide. The optional `admin` block (seam 4)
-is not in the schema until #331. The perimeter fields are in `shared.access`.
+`oidc-client-<consumer>` (key `client-secret`) for the operator to provide. The perimeter fields are in `shared.access`.
 
 The local root also emits an optional `shared.portal` binding
 (`{ref: "shared/portal", implementation: "portal.static_page"}`), which is what

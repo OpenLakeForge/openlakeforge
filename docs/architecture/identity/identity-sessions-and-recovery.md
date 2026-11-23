@@ -108,8 +108,7 @@ refresh, or a removed role stays usable until its SSO session ends (at most
 
 People and their roles live in the client's GitHub organisation
 ([ADR 0018](../../adr/0018-github-is-the-forge.md)): each canonical role maps to
-one or more teams in `spec.identity.github` (ADR 0014, "The GitHub adapter
-through Dex"). There is no `olf` command for users and no step needs a deploy.
+one or more teams in `spec.identity.github` (ADR 0014 D9). There is no `olf` command for users and no step needs a deploy.
 
 | Step | In GitHub | What happens |
 | --- | --- | --- |
