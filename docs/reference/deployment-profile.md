@@ -68,7 +68,7 @@ spec:
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `name` | string | yes | Names this deployment. Must match `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`: it becomes the `openlakeforge.io/profile` label on every namespace the deployment owns, and teardown finds them by it. It is also the prefix of the local and Azure buckets (`<name>-<stage>-<layer>`, `<name>-ops`, ADR 0004), so it is at most 51 characters and cannot start with `xn--`. Changing it on a deployed local or Azure platform renames the buckets: see "Renaming buckets" in [Back up and restore](../guides/backup-and-restore.md). |
+| `name` | string | yes | Names this deployment. Must match `^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`: it becomes the `openlakeforge.io/profile` label on every namespace the deployment owns, and teardown finds them by it. It is also the bucket prefix (`<name>-<stage>-<layer>`, plus `<name>-ops` on local and Azure, ADR 0004). A bucket name is at most 63 characters, so `name` is at most 51 (`<name>-prod-bronze`) and cannot start with `xn--`. On `provider.type: aws` it is at most 42, because the UAT and PROD buckets also carry a `-<suffix>` of 8 random characters (`<name>-prod-bronze-<suffix>`); `olf profile validate` rejects a longer name and prints the length the bucket name would reach. Changing it on a deployed local or Azure platform renames the buckets: see "Renaming buckets" in [Back up and restore](../guides/backup-and-restore.md). |
 
 ---
 

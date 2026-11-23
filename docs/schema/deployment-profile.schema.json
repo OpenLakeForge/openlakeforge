@@ -5,6 +5,11 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["apiVersion", "kind", "metadata", "spec"],
+  "if": {
+    "required": ["spec"],
+    "properties": {"spec": {"required": ["provider"], "properties": {"provider": {"required": ["type"], "properties": {"type": {"const": "aws"}}}}}}
+  },
+  "then": {"properties": {"metadata": {"properties": {"name": {"maxLength": 42}}}}},
   "properties": {
     "apiVersion": {"const": "openlakeforge.io/v1beta1"},
     "kind": {"const": "DeploymentProfile"},
@@ -13,7 +18,7 @@
       "additionalProperties": false,
       "required": ["name"],
       "properties": {
-        "name": {"type": "string", "maxLength": 51, "pattern": "^(?!xn--)[a-z]([a-z0-9-]{0,61}[a-z0-9])?$", "description": "Also the prefix of the local and Azure buckets: <name>-<stage>-<layer> and <name>-ops. At most 51 characters so <name>-prod-bronze stays within the 63 an S3 or Azure bucket name allows."}
+        "name": {"type": "string", "maxLength": 51, "pattern": "^(?!xn--)[a-z]([a-z0-9-]{0,61}[a-z0-9])?$", "description": "Also the bucket prefix: <name>-<stage>-<layer>, plus <name>-ops on local and Azure. At most 51 characters so <name>-prod-bronze stays within the 63 an S3 bucket name allows; at most 42 on provider aws, whose UAT and PROD buckets carry a 9-character -<suffix>."}
       }
     },
     "spec": {
