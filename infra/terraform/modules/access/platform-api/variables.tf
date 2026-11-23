@@ -249,7 +249,7 @@ variable "files_secret_name" {
 }
 
 variable "superset_service_users" {
-  description = "Each stage with Superset whose platform API service user this module mints a password for: stage name to its namespace (ADR 0021, open item 3). Empty mints none."
+  description = "Each stage with Superset whose platform API service user this module mints a password for: stage name to its namespace (ADR 0021, decision 3). Empty mints none."
   type        = map(string)
   default     = {}
 }
