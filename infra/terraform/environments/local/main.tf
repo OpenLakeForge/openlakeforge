@@ -417,7 +417,7 @@ module "metrics" {
     { for name, binding in local.stage_storage : binding.gold_bucket_name => name },
     { (var.ops_bucket_name) = "platform" },
   )
-  # kind's kubelets serve self-signed certificates (ADR 0024, open item 8).
+  # kind's kubelets serve self-signed certificates (ADR 0024, D12).
   kubelet_insecure_skip_verify = true
 }
 

@@ -79,7 +79,7 @@ variable "bucket_stages" {
 }
 
 variable "kubelet_insecure_skip_verify" {
-  description = "Skip the kubelet certificate check. Only for kind, whose kubelets serve self-signed certificates (ADR 0024, D12 and open item 8); every other provider verifies."
+  description = "Skip the kubelet certificate check. Only for kind, whose kubelets serve self-signed certificates (ADR 0024, D12); every other provider verifies."
   type        = bool
   default     = false
 }
