@@ -1,4 +1,4 @@
-"""`olf check flows`: release/network-flows.yaml against ADR 0017's flow table."""
+"""`olf check flows`: release/network-flows.yaml against the flow table of the network policy page (ADR 0017, D2)."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from olf.common.commands.checks._shared import _root
 from olf.common.log import fail
 
 FLOWS_PATH = "release/network-flows.yaml"
-ADR_PATH = "docs/adr/0017-local-network-policy-and-rbac.md"
+TABLE_PATH = "docs/architecture/identity/identity-network-policy-and-rbac.md"
 SCOPES = {"stage", "shared", "kube-system", "apiserver", "node", "any"}
-# A stage source may name pods: user code sets stage labels, so it narrows a grant, it does not isolate (ADR 0017).
+# A stage source may name pods: user code sets stage labels, so it narrows a grant, it does not isolate (ADR 0017, D10).
 UNNARROWABLE = SCOPES - {"shared", "kube-system", "stage"}
 PROTOCOLS = {"TCP", "UDP"}
 
@@ -30,7 +30,7 @@ def _endpoint_errors(label: str, endpoint: object) -> list[str]:
     return []
 
 
-def flow_errors(flows_file: Path, adr_file: Path) -> list[str]:
+def flow_errors(flows_file: Path, table_file: Path) -> list[str]:
     """Every problem in the flow file; an empty list means it is valid."""
     document = yaml.safe_load(flows_file.read_text()) or {}
     flows = document.get("flows")
@@ -42,15 +42,15 @@ def flow_errors(flows_file: Path, adr_file: Path) -> list[str]:
         for labels in workloads.values()
     ):
         return [f"{flows_file.name}: workloads must map names to non-empty label maps"]
-    adr_ids = set(re.findall(r"^\| (F\d+) \|", adr_file.read_text(), re.MULTILINE))
+    table_ids = set(re.findall(r"^\| (F\d+) \|", table_file.read_text(), re.MULTILINE))
     errors: list[str] = []
     for index, row in enumerate(flows):
         if not isinstance(row, dict):
             errors.append(f"flows[{index}]: must be a mapping")
             continue
         label = f"flows[{index}] {row.get('id')}"
-        if row.get("id") not in adr_ids:
-            errors.append(f"{label}: id is not a row of the ADR 0017 flow table")
+        if row.get("id") not in table_ids:
+            errors.append(f"{label}: id is not a row of the flow table in {TABLE_PATH}")
         sources = row.get("from")
         for source in sources if isinstance(sources, list) and sources else [sources]:
             errors += _endpoint_errors(f"{label} from", source)
@@ -70,7 +70,7 @@ def flow_errors(flows_file: Path, adr_file: Path) -> list[str]:
 def flows(repo_root: str = typer.Option("", "--repo-root", help="Checkout root to validate.")) -> None:
     """Validate the NetworkPolicy flow file."""
     root = _root(repo_root)
-    errors = flow_errors(root / FLOWS_PATH, root / ADR_PATH)
+    errors = flow_errors(root / FLOWS_PATH, root / TABLE_PATH)
     for error in errors:
         typer.echo(error)
     if errors:

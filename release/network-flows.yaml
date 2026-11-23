@@ -1,4 +1,5 @@
-# Flow table of docs/adr/0017-local-network-policy-and-rbac.md as data. Read
+# The network flows of ADR 0017 (D2) as data; each id is a row of the flow table in
+# docs/architecture/identity/identity-network-policy-and-rbac.md. Read
 # by infra/terraform/modules/security/network-policy and validated by
 # `olf check flows`. Every flow not listed is denied.
 #

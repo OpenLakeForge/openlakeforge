@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from olf.common.commands.checks._flows import ADR_PATH, FLOWS_PATH, flow_errors
+from olf.common.commands.checks._flows import FLOWS_PATH, TABLE_PATH, flow_errors
 
 ROOT = Path(__file__).resolve().parents[4]
 VALID = (
@@ -14,11 +14,11 @@ VALID = (
 def _errors(tmp_path: Path, text: str) -> list[str]:
     path = tmp_path / "flows.yaml"
     path.write_text(text)
-    return flow_errors(path, ROOT / ADR_PATH)
+    return flow_errors(path, ROOT / TABLE_PATH)
 
 
 def test_repository_flow_file_is_valid() -> None:
-    assert flow_errors(ROOT / FLOWS_PATH, ROOT / ADR_PATH) == []
+    assert flow_errors(ROOT / FLOWS_PATH, ROOT / TABLE_PATH) == []
 
 
 def test_valid_row_passes(tmp_path: Path) -> None:
@@ -32,7 +32,7 @@ def test_rejects_unknown_flow_id_port_scope_and_tag(tmp_path: Path) -> None:
     )
 
     joined = "\n".join(errors)
-    assert "ADR 0017" in joined and "ports" in joined and "scope" in joined and "tag" in joined
+    assert "flow table" in joined and "ports" in joined and "scope" in joined and "tag" in joined
 
 
 def test_accepts_pods_narrowing_a_stage_source(tmp_path: Path) -> None:
