@@ -71,7 +71,7 @@ over the local, AWS and Azure fixtures, and `olf check contracts` over the
 Terraform surface.
 
 **D9. Query isolation follows the stage where Trino is per stage.** The local
-root runs one Trino per stage (ADR 0019 section 9): each stage carries its own
+root runs one Trino per stage (ADR 0019 D8): each stage carries its own
 query endpoint, and `shared.query` names the selected stage's. On AWS and
 Azure, query connectivity is a deliberate exception to stage isolation:
 `shared.query` is one service used by every enabled stage, isolated by

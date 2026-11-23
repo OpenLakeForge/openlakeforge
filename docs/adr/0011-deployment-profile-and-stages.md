@@ -175,7 +175,7 @@ that is invalid or names another provider fails closed, with or without
   `olf infra platform apply -f` and `olf infra project deploy -f --stage` take
   the profile file.
 - Each stage gets its own Trino at its own size on the local root (ADR 0019
-  section 9); AWS and Azure still render one shared Trino, at the largest
+  D8); AWS and Azure still render one shared Trino, at the largest
   enabled stage's size.
 - `query.size` `medium` and `large` stay rejected until workers have network
   flows, authentication across nodes (#367) and a kind run (#324). The

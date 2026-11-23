@@ -60,7 +60,7 @@ locals {
     length(local.storage_secret_env) == 0 ? "" : "s3.aws-secret-key=$${ENV:OPENLAKEFORGE_S3_SECRET_ACCESS_KEY}",
   ]))
 
-  # Keyless (ADR 0019 section 9): every table request carries the caller's own
+  # Keyless (ADR 0019 D9): every table request carries the caller's own
   # Polaris token (the `token` extra credential) and reads files only with the
   # credentials Polaris vends for that table. The catalog's credential serves
   # only the configuration call, and a request without a token falls through
@@ -110,7 +110,7 @@ locals {
       : local.rest_catalog_properties[stage]
     )
   }
-  # Polaris decides every access on a keyless catalog (ADR 0019 section 9),
+  # Polaris decides every access on a keyless catalog (ADR 0019 D3),
   # so Trino carries no rules there. A Glue catalog is not keyless: until AWS
   # moves to Polaris (#681) its stages share one coordinator, and these rules
   # by claimed user name are the only thing keeping one stage's catalog from
