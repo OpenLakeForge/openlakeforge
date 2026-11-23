@@ -55,8 +55,8 @@ Sign-out is not platform-wide. Dex, the issuer the platform deploys for
 `issuer: github`, has no end-session endpoint (its contract sets
 `logout_endpoint = false` in `modules/identity/dex/outputs.tf`), so nothing the
 platform does ends the issuer's session or the person's GitHub session.
-[ADR 0014](../../adr/0014-identity-and-authorization.md) records this in its
-Logout row for the GitHub adapter, as a revision of the original policy.
+[ADR 0014](../../adr/0014-identity-and-authorization.md) records this in D10
+for the GitHub adapter, as a revision of the original policy.
 
 | Action | What it ends | What survives |
 | --- | --- | --- |

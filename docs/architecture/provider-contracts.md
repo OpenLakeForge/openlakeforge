@@ -234,7 +234,7 @@ ADRs and the release file.)
 | grants are monotonic across `precedence` | multi-role union equals the highest role |
 | `data_access` names only roles in `precedence`, stages `dev`, `uat`, `prod`, layers `silver`, `gold`, and `read` or `write` | the same closed vocabulary; an absent role, stage or layer is no access |
 | each `data_access` stage row is every layer `write`, every layer `read`, or `gold: read` alone | the only rows Polaris catalog roles express ([ADR 0019](../adr/0019-data-plane-authorization-deferral.md) D2, D5) |
-| `data_access` is monotonic across `precedence` on every stage and layer | as for `grants`; nothing enforces it yet: Polaris grants arrive in a later build step |
+| `data_access` is monotonic across `precedence` on every stage and layer | as for `grants`: a person in several mapped teams holds the highest role's row, since Polaris activates every role the token maps to ([ADR 0019](../adr/0019-data-plane-authorization-deferral.md) D1, D5) |
 
 With `implementation: identity.oidc` (ADR 0014 D2, #24) the binding also
 carries the issuer. No field is issuer-specific; everything is keyed by a
