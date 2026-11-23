@@ -428,6 +428,49 @@ refused reads `unknown`, a component that is not deployed reads `disabled`, and 
 and are reused for 10. The components, what each proves and what to do are in the
 [service health guide](../guides/operations/service-health.md).
 
+## Log archive delivery
+
+The pod log archive's delivery is read from three `service` rows, never from Fluent Bit's own S3 output metrics, whose
+`errors` and `dropped_records` count failed upload attempts and rise during an outage while the records are still
+spooled ([ADR 0022](../adr/0022-pod-log-collection-and-archive-format.md) D2). The thresholds are `ArchiveThresholds`
+in `packages/core/openlakeforge_core/archive_health.py`, accepted by the maintainer on 2026-11-18.
+
+| Component | Source | `warning` at | `critical` at |
+| --- | --- | --- | --- |
+| `log-archive.spool-age`: age of the oldest file in a stage's spool (`store_dir`), by its mtime | the `spool-probe` sidecar of each collector pod | 10 minutes | 30 minutes |
+| `log-archive.spool-size`: bytes in the spool against `store_dir_limit_size` | the same sidecar | 50% | 90% |
+| `log-archive.newest-object`: `LastModified` of the newest object under the stage's v2 prefix | a listing with the platform API's log reader key | 15 minutes | 60 minutes |
+
+A healthy spool holds a file for at most `upload_timeout` (5 minutes) plus the upload, so the age thresholds are two and
+six times that; half the size limit is half the outage budget spent. The newest object is the only signal that covers a
+collector that is down. `log-archive.newest-object` carries that write time as `last_success_at`, null when the listing
+found no object or could not list.
+
+The newest-object listing reads `logs/v2/namespace=<namespace>/date=<day>/` for today and yesterday (UTC), recursively,
+on a second S3 client with the probes' timeouts. It looks at most 5 pages of 1000 objects per day, so a runaway prefix
+errs towards a stale reading. It reads `unknown` when no object exists in the two days, so a stage whose pods log
+nothing reads like a stalled collector. The platform prefix is outside the reader key's grant, so `olf-system` has the
+spool signals only.
+
+The spool probe is a second container in the collector pod. It runs the platform API image as
+`python -m openlakeforge_platform_api.spool_probe` and serves `GET /spool` on port 2021 (flow F42): per stage, the
+oldest file's age and the bytes held under `spool-<stage>`, skipping the quarantine directory, which has left the spool
+budget. A headless Service, `log-collector-probe`, gives the API one address per collector pod. The API asks every pod
+at once, each within 60% of the probe timeout, and takes the worst reading: `critical` and `warning` outrank `unknown`,
+so a silent pod never hides a reachable one's reading.
+
+| Property | Value |
+| --- | --- |
+| Resources | requests 10m CPU and 32Mi; limits 100m CPU and 64Mi |
+| Host access | the collector's state directory, mounted read-only; nothing else |
+| Privilege | uid 0, because the spool is root-owned; no capability, no privilege escalation, read-only root filesystem, `RuntimeDefault` seccomp |
+| Credentials | no S3 key; it shares the pod's ServiceAccount, the collector's read of pods and namespaces |
+| Unreadable spool | a permission or I/O error reads `unreadable`, and both spool signals `unknown`; only a file or directory that vanishes mid-scan, or a spool the plugin has not created yet, is measured as empty |
+| Pods the API cannot see | the Service publishes not-ready pods, so an unready collector is asked, and one that does not answer makes the signals `unknown`; a Pending pod with no IP is in no DNS answer, and the newest-object signal still sees a stage whose archive stops |
+| Without the probe image | no sidecar and no Service; the spool signals read `unknown`, never `healthy` |
+
+What to do when they fire is in the [log archive guide](../guides/operations/log-archive.md#when-delivery-stops).
+
 ## Health and the alert policy
 
 The health routes do not read the alert policy. `GET /api/v1/stages/{stage}/health`,

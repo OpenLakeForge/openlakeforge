@@ -45,7 +45,8 @@ ARCHIVE_POLL_SECONDS = 20.0
 # A replay uploaded by a later flush would show as a duplicate; one more look after the lines are complete.
 SETTLE_SECONDS = 90.0
 # The collector reads the file every 5s and looks the pod up once; a TTL shorter than that races the lookup, which
-# is a different failure (ADR 0022, "Pod gone before metadata lookup") from the one this check proves.
+# is a different failure ("Pod gone before the metadata lookup" in the log archive guide) from the one this check
+# proves.
 SHORT_LIVED_TTL_SECONDS = 30
 SHORT_LIVED_LINES = 60
 STREAM_LINES = 90
