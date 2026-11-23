@@ -61,9 +61,9 @@ flows:
     ports: [80, 8088] # Dagster webserver, Superset; the stage rule is namespace-wide
     tag: V
   - id: F4
-    from: {scope: stage}
+    from: {scope: stage, pods: {app: superset}} # Superset web only; Dagster, run pods, Floe Jobs, Trino and the Superset worker call no public route
     to: {scope: shared, pods: {app.kubernetes.io/name: traefik, app.kubernetes.io/instance: traefik-olf-system}}
-    ports: [8443, 8000] # Superset's OIDC calls to the issuer's public URL, rewritten to Traefik: websecure, or web with issuer none
+    ports: [8443, 8000] # Superset's OIDC calls to the issuer's public URL (sign-in, and the per-user Trino token's exchange and refresh), rewritten to Traefik: websecure, or web with issuer none
     tag: V
   - id: F5
     from: {scope: stage}

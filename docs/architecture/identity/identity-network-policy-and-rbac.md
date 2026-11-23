@@ -64,7 +64,7 @@ are not reused.
 | F1 | any (the host, through kind's 80 and 443 mappings) | Traefik | 8443; 8000 in plain-HTTP mode (`tls: none`), allowed in both | `traefik.yaml`, `kind-cluster.yaml`; the hostPort passes through the CNI's portmap |
 | F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` |
 | F3 | Traefik | Dex 5556, portal 8080, platform API 8080, OpenMetadata 8585 (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` and `ingress_routes` (the platform API's `/api` path) in `contracts.tf` |
-| F4 | OpenMetadata; the stage namespaces | Traefik | 8443, 8000 | the issuer's public URL through the CoreDNS rewrite: OpenMetadata's discovery and token requests, and Superset's sign-in calls until #1092 |
+| F4 | OpenMetadata; Superset's web pods (`app=superset`) in each stage namespace | Traefik | 8443, 8000 | the issuer's public URL through the CoreDNS rewrite: OpenMetadata's discovery and token requests, and Superset's sign-in and its per-user Trino token's exchange and refresh until #1092. No other stage pod calls a public route, so the stage side names Superset's web pods (rendered as `olf-flows-f4`), not the namespace; `olf check flows` rejects a row that opens Traefik to a whole stage namespace |
 | F5 | every managed pod | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP and TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik |
 | F6 | Dex, Polaris, OpenMetadata, the Postgres bootstrap and Polaris metastore bootstrap Jobs; the stage namespaces (Superset, Dagster) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases`. The Postgres bootstrap Job's pods carry the Postgres labels, so they have their own row |
 | F7 | Polaris | SeaweedFS S3 | 8333 | table metadata written to the warehouse bucket; not traced in the module |
@@ -132,7 +132,9 @@ block it again. The deploy fails if the cluster does not enforce NetworkPolicy
 or does not admit what an allow rule permits. The canary runs in the deploy
 only. `olf e2e` runs `check_network_and_rbac` (flow probes and service-account RBAC checks) in the
 full suite, after the catalog, pipeline, restart-recovery and certificate
-checks.
+checks. One of its probes pairs F4's stage labels, which must reach Traefik,
+with a pod carrying the run-pod label `app.kubernetes.io/component=run_worker`,
+which must not.
 The local kind cluster's default CNI (kindnet) passed on the pinned kind
 version, so no other CNI is installed.
 
@@ -241,8 +243,12 @@ every ServiceAccount in the namespace.
 - Anything running in a stage namespace can reach everything that namespace may
   reach.
 - Any pod allowed to reach Traefik can request the Dex route, `auth.<base_domain>`,
-  because the network cannot name a path. Flow F4 lets every pod in a stage
-  namespace reach Traefik, so stage pods, run pods included, can reach it.
+  because the network cannot name a path. In a stage namespace flow F4 lets
+  only Superset's web pods (`app=superset`) reach Traefik, for their calls to
+  the issuer's public URL; Dagster and run pods cannot, and `olf e2e` checks
+  that a pod with the run-pod label is dropped. User code that sets
+  `app=superset` on a pod still gets through: the label narrows, it does not
+  isolate (ADR 0017, D10).
 - kindnet programs a new or restarted pod's policy asynchronously: a fresh pod
   briefly has unrestricted egress, and a restarted destination is briefly
   unreachable after it reports Ready. The e2e retries around it (60 seconds

@@ -114,8 +114,10 @@ Flow ids (F1, F2, …) are the `id` of a row of `release/network-flows.yaml`.
 - Anything running in a stage namespace can reach everything that namespace
   may reach (D10).
 - Any pod allowed to reach Traefik (F4) can request `auth.<base_domain>`,
-  which routes the whole of Dex; the network cannot name a path. Narrowing the
-  route is ADR 0014's follow-up.
+  which routes the whole of Dex; the network cannot name a path. In a stage
+  namespace that is Superset's web pods only, not Dagster or run pods, though
+  the label narrows rather than isolates (D10). Narrowing the route is
+  ADR 0014's follow-up.
 - kindnet programs a new or restarted pod's policy asynchronously: a fresh pod
   briefly has unrestricted egress, and a restarted destination is briefly
   unreachable after it reports Ready. The e2e retries around it; the window is
@@ -175,3 +177,4 @@ Flow ids (F1, F2, …) are the `id` of a row of `release/network-flows.yaml`.
 - 2026-11-23 (#1393): D4 and E6 withdrawn; D4's rollout is complete and
   nothing enforces it, and E6 named Calico components that were never
   installed. Nothing was renumbered.
+- 2026-11-23 (#1399): F4 narrowed to Superset web pods.

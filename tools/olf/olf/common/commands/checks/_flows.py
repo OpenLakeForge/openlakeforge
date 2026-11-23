@@ -17,6 +17,9 @@ SCOPES = {"stage", "shared", "kube-system", "apiserver", "node", "any"}
 # A stage source may name pods: user code sets stage labels, so it narrows a grant, it does not isolate (ADR 0017, D10).
 UNNARROWABLE = SCOPES - {"shared", "kube-system", "stage"}
 PROTOCOLS = {"TCP", "UDP"}
+# The ingress routes the whole of Dex (auth.<base_domain>), and the network cannot name a path, so a stage reaches it
+# only from the pods a row names: never Dagster or the run pods user code controls (ADR 0017; flow F4).
+INGRESS_WORKLOAD = "traefik"
 
 
 def _endpoint_errors(label: str, endpoint: object) -> list[str]:
@@ -42,6 +45,7 @@ def flow_errors(flows_file: Path, table_file: Path) -> list[str]:
         for labels in workloads.values()
     ):
         return [f"{flows_file.name}: workloads must map names to non-empty label maps"]
+    ingress = workloads.get(INGRESS_WORKLOAD)
     table_ids = set(re.findall(r"^\| (F\d+) \|", table_file.read_text(), re.MULTILINE))
     errors: list[str] = []
     for index, row in enumerate(flows):
@@ -54,6 +58,15 @@ def flow_errors(flows_file: Path, table_file: Path) -> list[str]:
         sources = row.get("from")
         for source in sources if isinstance(sources, list) and sources else [sources]:
             errors += _endpoint_errors(f"{label} from", source)
+            if (
+                isinstance(source, dict)
+                and source.get("scope") == "stage"
+                and not source.get("pods")
+                and ingress
+                and isinstance(row.get("to"), dict)
+                and row["to"].get("pods") == ingress
+            ):
+                errors.append(f"{label} from: a whole stage namespace may not reach the ingress; name the pods")
         errors += _endpoint_errors(f"{label} to", row.get("to"))
         ports = row.get("ports")
         if not isinstance(ports, list) or not ports or not all(

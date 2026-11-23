@@ -932,6 +932,11 @@ locals {
   # ipBlock cannot name a host, so profile-driven egress is any address on the
   # port the profile names (F23).
   test_edge_pods = { "app.kubernetes.io/name" = "traefik", "app.kubernetes.io/instance" = "edge-olf-system" }
+  # F4's stage source: the stage pods that call a public route (`olf check flows` requires it to name pods).
+  ingress_callers = one([
+    for f in local.network_flows.flows : f.from.pods
+    if f.id == "F4" && try(f.from.scope, "") == "stage"
+  ])
   profile_flows = concat(
     var.identity_issuer == "external" ? [{
       id = "F23"
@@ -945,11 +950,12 @@ locals {
     }] : [],
     # The e2e edge is not a workload, so it has no policy of its own; the rows below
     # let callers of the public name reach it (the CoreDNS rewrite points the name
-    # at it) and let it reach Traefik, as F4/F9 do for Traefik itself.
+    # at it) and let it reach Traefik, as F4 does for Traefik itself. A stage
+    # reaches it from F4's pods only, since it forwards to the Dex route too.
     [for row in [
       {
         id    = "F-edge-stage"
-        from  = { scope = "stage" }
+        from  = { scope = "stage", pods = local.ingress_callers }
         to    = { scope = "shared", pods = local.test_edge_pods }
         ports = [8443]
         tag   = "T"
