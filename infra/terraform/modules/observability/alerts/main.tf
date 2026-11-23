@@ -92,7 +92,7 @@ resource "kubernetes_cron_job_v1" "evaluator" {
 
   spec {
     schedule = "*/5 * * * *"
-    # One evaluator at a time (ADR 0023, "Single writer"): a run still going
+    # One evaluator at a time (ADR 0023, D3): a run still going
     # when the next is due makes that one skipped, not overlapped.
     concurrency_policy            = "Forbid"
     starting_deadline_seconds     = 120
