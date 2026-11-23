@@ -11,8 +11,9 @@ in `cloud/aws.py`/`cloud/azure.py`, matching the shell scripts' own
 provider split.
 
 `Profile` (not the shell's ad hoc `ENABLE_GOVERNANCE`/`ENABLE_ANALYTICS`
-variables) drives Full/Slim behavior here too, consistent with the
-precedent ADR 0008 set for the local provider.
+variables) drives Full/Slim behavior here too: the preset is a typed
+concept that resolves into each stage's capabilities (ADR 0011 D1, D9),
+on every provider.
 """
 
 from __future__ import annotations
