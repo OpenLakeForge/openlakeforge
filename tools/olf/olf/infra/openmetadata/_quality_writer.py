@@ -1,6 +1,6 @@
 """The quality writer: one OpenMetadata bot per governed stage that may publish quality results and nothing else.
 
-The quality reconciler and `olf infra openmetadata quality-sync` publish with it (ADR 0007, Identity). Each stage's
+The quality reconciler and `olf infra openmetadata quality-sync` publish with it (ADR 0007 D13). Each stage's
 bot has its own token in its own Secret, so a stage's credential is revoked alone and OpenMetadata records which
 stage's pass wrote a result. The stage boundary itself is still the pass's configuration and ops-bucket key:
 OpenMetadata 1.13.6 policies have no condition on a table's FQN, so the role cannot tell one stage's tables from

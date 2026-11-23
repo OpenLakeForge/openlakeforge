@@ -152,7 +152,9 @@ stage's `query=` size (`query` and `storage` in `--json`, `query` per stage).
 `query.size` picks one row of `release/query-sizes.yaml`, which sets Trino's
 workers, heap, memory, per-query limits and `query.max-stage-count`, and the
 stage's Dagster run-queue limit (`max_concurrent_runs`). It changes only the
-Trino and Dagster Helm values, never the project image or a ProjectRevision. The `medium` and `large`
+Trino and Dagster Helm values, never the project image or a ProjectRevision. The local root
+receives the row as its `query_sizing` Terraform variable; the AWS and Azure
+roots keep their own Trino values until their adapters read it. The `medium` and `large`
 rows are defined but not yet accepted: workers still need network flows to the
 coordinator, authentication across nodes
 ([#367](https://github.com/OpenLakeForge/openlakeforge/issues/367)) and a kind
@@ -170,10 +172,12 @@ coordinator heap.
 
 `storage.size` picks one row of `release/storage-sizes.yaml`, which sets the
 PVC size of the SeaweedFS master, filer and volume server and the number of
-volume slots on the volume server. The Terraform SeaweedFS module and `olf`
-read that one file. The `medium` and `large` rows are provisional starting
+volume slots on the volume server. It reaches the local and Azure roots as the
+`storage_size` Terraform variable. The Terraform SeaweedFS module and `olf`
+(for the expansion rule below) read that one file. The `medium` and `large` rows are provisional starting
 values taken from the rough ranges below; the #329 report will calibrate them,
 and nothing here has measured how much data a host or cluster needs for them.
+A capacity preflight is #327.
 
 | Size | Trino (`release/query-sizes.yaml`) | SeaweedFS volume server | Master / filer metadata | Aimed at (provisional) | Available |
 | --- | --- | --- | --- | --- | --- |
@@ -504,7 +508,7 @@ public client and has no Secret.
 | --- | --- |
 | At least one stage runs | Every stage is disabled. |
 | DEV gates the others | `uat` or `prod` is enabled while `dev` is disabled or absent: every promotion sources from DEV. |
-| Storage size is not for managed storage | `spec.storage` is set with `type: aws`: S3 is managed, so there is no volume to size. |
+| Storage size is not for managed storage | `spec.storage.size` is set with `type: aws`: S3 is managed, so there is no volume to size. `storage.adapter: s3` is accepted. |
 | Region is cloud-only | `spec.provider.region` is set with `type: local`. |
 | Identity needs access on local | `type: local` has `spec.identity` but no `spec.access`: sign-in needs the route hostnames. |
 | Authentication off publishes nothing | There is no `spec.identity`, and `spec.access` is declared on `aws` or `azure`, or with a `base_domain` not ending in `.localhost` on `local`. Without identity no one signs in, so it is allowed only where nothing is reachable beyond the operator's machine: locally on `*.localhost`, and on the clouds without `spec.access`, where services are reached with `olf infra forward`. |

@@ -1,9 +1,10 @@
 """The Trino metadata ingestion, run as a Kubernetes Job and hourly CronJob OLF owns.
 
 OpenMetadata's pipeline client would generate the same workflow, but its
-ingestion pods cannot mount the Trino CA (ADR 0016), so OLF builds the config
-and the Job itself and runs the pinned `ingestion-base` image's `metadata
-ingest` entry point.
+pods take only plain-string environment values, and the crawl needs the
+`openmetadata` principal's Polaris token, minted in the pod from a Secret just
+before it runs (ADR 0007 D15). So OLF builds the config and the Job itself and
+runs the pinned `ingestion-base` image's `metadata ingest` entry point.
 """
 
 from __future__ import annotations
@@ -145,7 +146,7 @@ def ingestion_cronjob(job: dict[str, Any], *, catalog: str) -> dict[str, Any]:
     """The hourly refresh: `job`'s pod, spec and labels, so the two cannot diverge.
 
     Built here rather than in Terraform so the workflow config exists once; the
-    TLS and bot-Secret facts it needs are the deployed contracts', which
+    query endpoint and bot-Secret facts it needs are the deployed contracts', which
     `deploy-metadata` already holds. The workflow crawls one stage's catalog,
     so each governed stage gets its own CronJob, named by that catalog.
     """

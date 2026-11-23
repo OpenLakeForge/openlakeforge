@@ -70,7 +70,7 @@ images:
   - {name: project_code_base, owner: malon64, expired_at: 2027-02-15, statement: "python:3.12.16-slim, scanned 2026-11-22 (Security scans run 45052972469): 1 fixable HIGH, zlib1g CVE-2026-85091 (fixed 1:1.3.dfsg+really1.3.1-1+deb13u1) in Debian 13.7; pending an image rebuild with it"}
   - {name: superset_base, owner: malon64, expired_at: 2026-12-15, statement: "570 fixable HIGH/CRITICAL findings at first scan"}
   - {name: superset_init, owner: malon64, expired_at: 2026-12-15, statement: "61 fixable HIGH/CRITICAL findings at first scan"}
-  - {name: trino, owner: malon64, expired_at: 2026-12-15, statement: "115 fixable HIGH/CRITICAL findings at first scan"}
+  - {name: trino, owner: malon64, expired_at: 2027-02-15, statement: "trinodb/trino:484, scanned 2026-11-22 (Security scans run 45053658313): 21 fixable HIGH, no CRITICAL; 8 in bundled jars (parquet-jackson, guava, jetty-http 11.0.26) and 13 in the Go launcher (stdlib 1.26.5, x/text). Trivy detects no OS family in the Red Hat hardened (Hummingbird) base, so OS packages are not scanned and 21 is a floor; accepted by the maintainer 2026-11-23"}
   - {name: project-code, owner: malon64, expired_at: 2026-12-15, statement: "built image, findings from the first release dry run"}
   - {name: superset, owner: malon64, expired_at: 2026-12-15, statement: "built image, findings from the first release dry run"}
   - {name: platform-api, owner: malon64, expired_at: 2026-12-15, statement: "built image, 56 fixable HIGH/CRITICAL Debian findings from the python:3.12-slim base it shares with project-code, at its first release dry run"}

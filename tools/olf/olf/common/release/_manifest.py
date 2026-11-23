@@ -1,7 +1,8 @@
 """Release component manifest and checksums.
 
-Shell/GitHub Actions remain the orchestrators for git, docker, cosign, and
-syft invocations (ADR 0008); this module owns turning
+The release workflow (`.github/workflows/release.yml`) runs git, docker,
+cosign and syft to publish signed checksums, SBOMs and provenance (ADR 0009
+D2, ADR 0018 D3); this module owns turning
 `release/component-catalog.yaml` plus resolved image digests into the
 component manifest and `checksums.txt` a consumer needs to verify a tagged
 release.
