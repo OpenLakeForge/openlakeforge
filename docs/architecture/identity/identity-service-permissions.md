@@ -255,7 +255,7 @@ baseline only; `useRolesFromProvider` stays `false`.
 
 | Step | Detail |
 | --- | --- |
-| Job | `openmetadata-role-sync`, every 5 minutes, applied by `olf infra openmetadata deploy-metadata` (ADR 0014 D11; design and image choice in [the perimeter and identity adapter reference](../../reference/perimeter-and-identity-adapter.md#openmetadata-role-sync)). It sets `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer` or for a user in no mapped team |
+| Job | `openmetadata-role-sync`, every 5 minutes, applied by `olf infra openmetadata deploy-metadata` (ADR 0014 D11; design and image choice in [the perimeter and identity adapter page](identity-perimeter-and-adapter.md#openmetadata-role-sync)). It sets `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer` or for a user in no mapped team |
 | Source | the members of the mapped GitHub teams, read with the GitHub App's installation token; the join key is the lower-cased `login` |
 | Identity | the class-2 OpenMetadata automation bot, over the in-cluster Service |
 | Gap | A role change in GitHub reaches OpenMetadata at the next run, at most 5 minutes plus the run (test OM-7); this is the normal path, not an exception |

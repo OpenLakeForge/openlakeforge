@@ -2,15 +2,15 @@
 
 How the sign-in perimeter and the GitHub issuer adapter are built on the local
 root. The rules they implement are the decisions of
-[ADR 0014](../adr/0014-identity-and-authorization.md), cited here by their
+[ADR 0014](../../adr/0014-identity-and-authorization.md), cited here by their
 IDs (D1 to D12); this page records the mechanics behind them. Where the two
 disagree, the ADR binds and this page is fixed.
 
-What each role opens is in [Roles and permissions](roles-and-permissions.md);
+What each role opens is in [Roles and permissions](../../reference/roles-and-permissions.md);
 the session bounds are in
-[`identity-sessions-and-recovery.md`](../architecture/identity/identity-sessions-and-recovery.md);
+[`identity-sessions-and-recovery.md`](identity-sessions-and-recovery.md);
 the `identity.oidc` and `shared.access.perimeter` fields are in
-[`provider-contracts.md`](../architecture/provider-contracts.md#sharedidentity).
+[`provider-contracts.md`](../provider-contracts.md#sharedidentity).
 
 ## Adding an issuer adapter
 
@@ -40,7 +40,7 @@ contract comes from the profile, and the operator provides the three client
 Secrets under the names the contract references (`oidc-client-<consumer>`,
 key `client-secret`). `client_ids` overrides the issuer-assigned client id per
 consumer (default: the consumer name). How to register the clients, `olf-cli`
-included, is in [Bring your own OIDC issuer](../guides/identity/external-issuer.md).
+included, is in [Bring your own OIDC issuer](../../guides/identity/external-issuer.md).
 
 ## The GitHub adapter through Dex
 
@@ -76,7 +76,7 @@ spec:
 | E2E without GitHub | `olf infra e2e run` runs a stub GHE (`olf/infra/e2e/github_stub.py`, a throwaway pod with a local-CA certificate) when Dex's `hostName` is `olf-e2e-github.<shared namespace>.svc`, and drives the perimeter's role decisions through Dex's real connector with throwaway users per team, plus one in no mapped team who must be refused at login. Otherwise those checks skip |
 | Groups claim | `teamNameField: slug`; the `groups` claim carries `<organisation>:<team-slug>` |
 | `role_mapping` | Rendered by the root from `spec.identity.github`: each canonical role to `<organisation>:<slug>` of its teams, `role_claim: groups`. A role with no team is held by nobody |
-| Scopes | Dex returns the `groups` claim only for the `groups` scope and a refresh token only for `offline_access`, so the perimeter, Superset and OpenMetadata request `openid email profile groups offline_access`. The perimeter alone also requests `federated:id audience:server:client_id:olf-cli` (module variable `login_audience`), so its ID token carries `aud` `olf-cli` and the connector id Polaris names the principal by ([ADR 0019](../adr/0019-data-plane-authorization-deferral.md)). An external issuer gets neither extra scope |
+| Scopes | Dex returns the `groups` claim only for the `groups` scope and a refresh token only for `offline_access`, so the perimeter, Superset and OpenMetadata request `openid email profile groups offline_access`. The perimeter alone also requests `federated:id audience:server:client_id:olf-cli` (module variable `login_audience`), so its ID token carries `aud` `olf-cli` and the connector id Polaris names the principal by ([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md)). An external issuer gets neither extra scope |
 | Token lifetimes | `expiry.idTokens: 5m`, `expiry.refreshTokens.validIfNotUsedFor: 30m`, `expiry.refreshTokens.absoluteLifetime: 10h`, `reuseInterval: 3s` (D10). Asserted by the adapter's e2e, including parallel refreshes |
 | Clients | `perimeter`, `superset`, `openmetadata` as static clients with secrets from the bootstrap Job (#181). `olf-cli` is a public static client (`public: true`, no secret, no `redirectURIs`): Dex then accepts loopback redirects (`127.0.0.1`, `localhost`, `[::1]`) on any port and issues refresh tokens without a secret. Dex does not enforce PKCE; the client must send it. `olf-cli` lists `perimeter` and `superset` in `trustedPeers` (module variable `trusted_peers`), so the perimeter's login and Superset's per-user data access (#968, token `aud` `[olf-cli, superset]`) may ask for a token whose audience is `olf-cli` |
 | Login entry | The portal at the base domain is the front door. The perimeter (`--skip-provider-button`) sends an unauthenticated visit to Dex; with one connector and `alwaysShowLoginScreen` off, Dex goes straight to GitHub, and `skipApprovalScreen` removes its consent page. The person sees GitHub's authorize page once per app. Dex's own login page is never shown |
@@ -86,7 +86,7 @@ spec:
 | Network | Dex calls `github.com` (token exchange) and `api.github.com` (user and team lookups) at every login and refresh: flow F28 in `release/network-flows.yaml` |
 | Revocation | Team membership is read at login and on each refresh; the perimeter refreshes at most every 4 min. Measured once against real GitHub (#384, qualification run 1): a member moved to another team lost the old role on the first request after the 4 min refresh point |
 | Mail | None. Dex sends no mail and declares `email_delivery: false` |
-| Break-glass | The cluster administrator's kubeconfig, the Superset and OpenMetadata in-pod CLIs, Dagster and Trino through their internal Services ([Break-glass access](../guides/identity/break-glass.md)). Dex has no admin account; the issuer-outage drill runs in the local e2e (#177, #520) |
+| Break-glass | The cluster administrator's kubeconfig, the Superset and OpenMetadata in-pod CLIs, Dagster and Trino through their internal Services ([Break-glass access](../../guides/identity/break-glass.md)). Dex has no admin account; the issuer-outage drill runs in the local e2e (#177, #520) |
 
 A member of several mapped teams holds the union of their roles, which by the
 monotonic rule is the highest one. Whether membership of a child team counts
@@ -103,7 +103,7 @@ members of.
 | Role floor | Grants are monotonic, so what a service admits is a prefix of `precedence`, described by its lowest role. The module computes each protected route's floor from its service name (`portal` has none: the lowest role) |
 | Instances | One oauth2-proxy Deployment per distinct floor, started with `--allowed-group` for the `role_mapping` claim values of every role at or above it. Today `oauth2-proxy-viewer` (portal, Superset, OpenMetadata, Trino `/v1` with people's access) and `oauth2-proxy-data-engineer` (Dagster, Trino UI). A new floor is a new instance without new code |
 | Middleware | Traefik file-provider middlewares, because a `Middleware` CRD cannot be planned before the Traefik release installs it. `olf-strip-identity` deletes every inbound `X-Forwarded-*` / `X-Auth-Request-*` identity header; `olf-auth-<floor>` forwards to that floor's proxy and copies only the proxy's `X-Auth-Request-*` headers upstream. The proxies run with `--set-authorization-header=true`; `olf-auth-<lowest floor>-api` copies `Authorization` upstream and is attached only to the platform API's `/api` route |
-| Ingress | One `Ingress` per namespace and floor (`openlakeforge-routes[-<floor>]`) carrying the middleware annotation; the namespace's wildcard certificate is issued from a single primary `Ingress` ([ADR 0013](../adr/0013-service-access-and-ingress.md)) |
+| Ingress | One `Ingress` per namespace and floor (`openlakeforge-routes[-<floor>]`) carrying the middleware annotation; the namespace's wildcard certificate is issued from a single primary `Ingress` ([ADR 0013](../../adr/0013-service-access-and-ingress.md)) |
 | `query_api` | Trino's `/v1` on `trino-<stage>.<base_domain>` (`stage/<stage>/query_api`) is given the `viewer` floor through `path_refs` when people sign in with GitHub, while the Web UI keeps the `query` floor. It is not listed in `protected_routes` |
 | Login callback | One host, `oauth2.<base_domain>/oauth2/*`, answered by the any-role instance and not behind the perimeter. The `perimeter` client has that single redirect URI, and the cookie on `.<base_domain>` carries the session to every route |
 | Cookie secret | Created by an in-cluster Job only if missing (`oauth2-proxy-cookie`); Terraform never reads it. Rotation: delete the Secret, replace the Job, restart the proxies (signs everyone out once) |
@@ -144,7 +144,7 @@ p95 is reported only.
 ## OpenMetadata role sync
 
 OpenMetadata cannot read roles from the token
-([`identity-service-permissions.md`](../architecture/identity/identity-service-permissions.md)),
+([`identity-service-permissions.md`](identity-service-permissions.md)),
 so a CronJob sets them from GitHub teams (D11).
 
 | Piece | How |

@@ -64,7 +64,7 @@ and neither can be chosen for the operator. `external` deploys no issuer: the
 operator provides the client Secrets the contract names. Secrets an adapter
 generates are created in-cluster, never in Terraform state, outputs, the
 contract, logs or CI. A new issuer is a checklist, not a schema change
-([reference](../reference/perimeter-and-identity-adapter.md#adding-an-issuer-adapter)).
+([reference](../architecture/identity/identity-perimeter-and-adapter.md#adding-an-issuer-adapter)).
 Enforced by: `tools/olf/olf/common/provider_contracts/_v3.py`,
 `tools/olf/olf/common/profile.py`.
 
@@ -86,7 +86,7 @@ break-glass), and containing that traffic is
 [ADR 0017](0017-local-network-policy-and-rbac.md)'s. For Dagster, which has no
 authorization of its own, the perimeter is the only human access control.
 Mechanics:
-[reference](../reference/perimeter-and-identity-adapter.md#the-perimeter).
+[reference](../architecture/identity/identity-perimeter-and-adapter.md#the-perimeter).
 Enforced by: `infra/terraform/modules/access/perimeter`, `olf infra e2e run
 --env local` (`e2e/_perimeter.py`).
 
@@ -168,7 +168,7 @@ credentials live only in the `oauth_app_secret_ref` Secret, never in the
 profile or state. Dex stores its refresh tokens, upstream token and keys in
 its own `dex` database on the platform PostgreSQL, not in custom resources
 outside the Secret inventory, and needs no Kubernetes API access. Mechanics:
-[reference](../reference/perimeter-and-identity-adapter.md#the-github-adapter-through-dex).
+[reference](../architecture/identity/identity-perimeter-and-adapter.md#the-github-adapter-through-dex).
 Enforced by: `infra/terraform/modules/identity/dex`,
 `tools/olf/olf/common/profile.py`.
 
@@ -201,7 +201,7 @@ parent's role to them, hence the stop. A hand-made OAuth App, an `external`
 issuer or authentication off gets no sync, and users stay at the read
 baseline. With sign-in on, `adminPrincipals` is empty and the local `admin` is
 demoted, so an issuer login named `admin` is not an administrator. Mechanics:
-[reference](../reference/perimeter-and-identity-adapter.md#openmetadata-role-sync).
+[reference](../architecture/identity/identity-perimeter-and-adapter.md#openmetadata-role-sync).
 Enforced by: `tools/olf/olf/infra/openmetadata/_role_sync.py`,
 `role_sync_script.py`.
 
@@ -302,4 +302,4 @@ Enforced by: the four documents, and the e2e checks each one names.
 - 2026-11-22 (#1385): Corrected to match the code; no decision changed.
 - 2026-11-23: Rewritten in the standard form; seams 1 to 3 kept as D1 to D3;
   adapter and perimeter mechanics moved to
-  `docs/reference/perimeter-and-identity-adapter.md`; no decision changed.
+  `docs/architecture/identity/identity-perimeter-and-adapter.md`; no decision changed.

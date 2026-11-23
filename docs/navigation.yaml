@@ -60,7 +60,6 @@ sections:
       - docs/reference/cli.md
       - docs/reference/deployment-profile.md
       - docs/reference/roles-and-permissions.md
-      - docs/reference/perimeter-and-identity-adapter.md
       - docs/reference/descriptors.md
       - docs/reference/alert-policy.md
       - docs/reference/runtime-api.md
@@ -89,6 +88,7 @@ exclude:
   - docs/architecture/floe-validation.md
   - docs/architecture/identity/identity-callers.md
   - docs/architecture/identity/identity-credentials.md
+  - docs/architecture/identity/identity-perimeter-and-adapter.md
   - docs/architecture/identity/identity-service-permissions.md
   - docs/architecture/identity/identity-sessions-and-recovery.md
   - docs/architecture/local-stack-contracts.md
