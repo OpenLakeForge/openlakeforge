@@ -1,719 +1,169 @@
-# ADR 0017: Local default-deny NetworkPolicy, namespace RBAC and the enforcing CNI
+# ADR 0017: Local NetworkPolicy and RBAC — default deny, one flow file, named exceptions
 
-## Status
-
-Design for #46 (local qualification only); slice 1a (the canary gate), slice 2
-(the flow file, its check, the policy module and the stage-namespace policies),
-slice 3a (default-deny on the `olf-system` data plane: Postgres, SeaweedFS,
-Polaris, Trino) and slice 3b (the access plane: Traefik, oauth2-proxy, the
-issuer, the portal, cert-manager, OpenMetadata, OpenSearch and the Jobs) are
-built; the cluster-side behaviour of the 3b rows is **[T]**. What binds today
-is the policy model, the flow table, the RBAC inventory, the conformance plan
-and the slice order. The CNI question is
-**settled: Option A, kindnet.** The canary passed on the pinned kind 0.32.0
-(History), so Calico (slice 1b) is not built.
-
-Claims carry a tag. **[V]** read from this repository or rendered from the
-pinned charts with `helm template` (no cluster). **[D]** read in upstream
-documentation, not run. **[T]** to verify on a running cluster; no cluster was
-touched while writing this.
+| | |
+| --- | --- |
+| Status | Binding |
+| Built | local ✔ (#46) · AWS ✘ · Azure ✘ (neither root renders a NetworkPolicy) |
 
 ## Context
 
-Before this record no `NetworkPolicy` object existed in the tree [V]. Every pod reached every
-Service: Postgres (per-service passwords only), Polaris, SeaweedFS, Dex's
-whole HTTP surface, Dagster's unauthenticated GraphQL API, and Trino (which
-trusts `X-Trino-User`, [ADR 0016](0016-trino-workload-authentication.md)). The
-perimeter ([ADR 0014](0014-identity-and-authorization.md)) protects ingress
-only, so an untrusted pod bypasses it. #178 makes the callers class 2 and
-#46 is the control that stops anyone else using those paths. Cluster
-administrators stay trusted; `kubectl port-forward` and `exec` are RBAC, not
-network, paths.
-
-Two facts about the tree shape the model. Traefik and cert-manager are **not**
-in namespaces of their own: both are Helm releases in the shared namespace
-`olf-system` [V: `modules/access/traefik`, `cert-manager`]. Stage namespaces
-(`olf-<stage>`) hold Dagster, its run pods and Floe Jobs, and Superset
-[V: `environments/local/main.tf`].
-
-## Premise check: does kindnet enforce?
-
-The request for #46 assumes kind's default CNI, kindnet, does not enforce
-NetworkPolicy, and the maintainer approved Calico on that basis. The kind
-v0.24.0 release notes say "Out-of-the-box support for network policy via
-sigs.k8s.io/kube-network-policies" [D], and kindnet's own documentation says it
-implements NetworkPolicy that way, by inspecting the first packet of a
-connection and programming the host dataplane [D]. The tree pins kind 0.32.0
-[V: `release/component-catalog.yaml`] and its `kind-cluster.yaml` neither
-disables the default CNI nor pins a node image, so the CNI is whatever
-kindnetd that kind release ships. The upstream project calls itself a
-"reference implementation" [D]; its semantics for `ipBlock`, host-network
-sources (kubelet, the API server) and Service DNAT ordering are **[T]**.
-
-The two options, and why slice 1 is a gate (see [Decisions](#decisions)):
-
-| | A. kindnet (kind 0.32.0 default) | B. Calico (fallback) |
-| --- | --- | --- |
-| Install work | None. Slice 1 is the enforcement canary | A CNI install in the foundation, ~450 lines (below) |
-| Existing local clusters | Work as they are | Must be destroyed and recreated: the CNI cannot be swapped under a running kind cluster |
-| Cost per developer | None | Extra RAM, extra startup minutes, a second upgrade surface (Calico release, Kubernetes-version-specific CRDs [D]) |
-| Semantics | Reference implementation, [T] | The mature, documented implementation |
-| Decided by | A canary that proves a deny-all policy drops traffic | Only if the canary fails: Calico is the documented fallback |
-
-**Slice 1a, the canary on the pinned kind 0.32.0, is the gate.** If it blocks,
-kindnet is the dataplane, the kindnet version goes in the History and slice 1b
-is not built. If it does not enforce, B is built as designed below. The rest of this ADR holds under either; only the CNI section
-and the apiserver rows of the flow table are CNI-sensitive.
+Without policy every pod reaches every Service: PostgreSQL (per-service
+passwords only), Polaris, SeaweedFS, Dex's whole HTTP surface, Dagster's
+unauthenticated GraphQL API, and Trino, which has no authentication of its own
+([ADR 0016](0016-trino-workload-authentication.md)). The perimeter
+([ADR 0014](0014-identity-and-authorization.md)) guards ingress only, so an
+untrusted pod bypasses it. Cluster administrators stay trusted;
+`kubectl port-forward`, `exec` and `logs` are RBAC paths, not network paths.
+Traefik and cert-manager share `olf-system` with the data plane, and a stage
+namespace (`olf-<stage>`) holds pods whose labels user code controls. kind's
+default CNI, kindnet, implements NetworkPolicy through kube-network-policies,
+a reference implementation, so enforcement has to be proven on the pinned
+cluster rather than assumed.
 
 ## Decision
 
-1. **Dataplane gate.** `olf infra deploy` fails before any policy is applied unless
-   the cluster enforces policy, and the e2e re-proves it with a canary on every
-   run. Policy objects without enforcement never count as done (#46).
-2. **Default-deny ingress and egress** in every stage namespace and for each
-   `olf-system` workload the flow file lists (the rest of `olf-system` stays
-   unisolated), DNS allowed, every other flow an explicit row in one file,
-   `release/network-flows.yaml`, read by Terraform and by `olf e2e` (the
-   `release/identity-roles.yaml` precedent [V]).
-3. **A stage namespace is one trust domain; `olf-system` is not.** Inside a
-   stage namespace pods talk freely: run pods and Floe Jobs are launched by the
-   `dagster` ServiceAccount with labels user code controls, so a label is not a
-   boundary there. Between namespaces, and between `olf-system` workloads,
-   every flow is an allow row selecting on chart-native labels.
-4. **Stage-first rollout.** Pods in a namespace with no policy are not
-   isolated. Policies go onto the stage namespaces first, whose destinations in
-   `olf-system` are still open, then onto `olf-system`; the stack works after
-   every slice.
-5. **RBAC is inventoried, narrowed where the roles are ours, and pinned** by an
-   e2e check that fails when a new Secret-reading binding appears.
-6. `kube-system`, `calico-system`/`tigera-operator` (Option B) and the
-   control-plane host network are **not** policy targets: a default-deny there
-   can take the cluster down (CoreDNS, kube-proxy, the CNI itself). They are
-   the documented exception, and the egress rows below allow only what the OLF
-   pods need from them.
+**D1. Dataplane gate.** `olf infra deploy` fails before any policy is applied
+unless the cluster enforces policy, and the e2e re-proves it with a canary on
+every run. Policy objects without enforcement never count as done. The canary
+connects a client and server pair with no policy, then requires an
+ingress-only and an egress-only deny each to block it, and an allow rule to
+admit it again. Enforced by: `tools/olf/olf/infra/deployment/local/network_canary.py`.
 
-## The enforcing CNI
+**D2. Default deny, one flow file.** Ingress and egress are denied in every
+stage namespace and for each `olf-system` workload listed under `workloads` in
+`release/network-flows.yaml`; the rest of `olf-system` stays unisolated. DNS
+is allowed to every selected pod. Every other flow is a row of that file, read
+by Terraform and by `olf infra e2e run`; where both ends are selected, a flow
+needs the row on both sides. Rows that depend on the profile (an
+`issuer: external` host, a stage's source egress ports) are rendered by the
+local root from the profile. A flow id is never renumbered.
+Enforced by: `infra/terraform/modules/security/network-policy`,
+`olf check flows`.
 
-### Option B: Calico
+**D3. A stage namespace is one trust domain; `olf-system` is not.** Inside a
+stage namespace pods talk freely: run pods and Floe Jobs are launched by the
+`dagster` ServiceAccount with labels user code controls, so a label is not a
+boundary there. Between namespaces, and between `olf-system` workloads, every
+flow is an allow row selecting on chart-native labels. Enforced by:
+`infra/terraform/modules/security/network-policy`.
 
-| Topic | Design |
+**D4. Stage-first rollout.** Pods in a namespace with no policy are not
+isolated. Policies went onto the stage namespaces first, whose destinations in
+`olf-system` were still open, then onto `olf-system`, and the stack worked
+after every step. Enforced by: none; the rollout is complete.
+
+**D5. RBAC is inventoried, narrowed where the roles are ours, and pinned.**
+The e2e lists every Role and ClusterRole bound to a ServiceAccount in the OLF
+namespaces that grants a Secret verb, or `create` on pods, Jobs, CronJobs or
+workload controllers (which reads Secrets by mounting them), and fails on any
+this record does not name. The named exceptions are:
+E1, the create-if-missing credential Jobs (`create` on Secrets or ConfigMaps
+cannot be limited by `resourceNames`; every other verb is pinned by name);
+E2, OpenMetadata's chart Role; E3, the Dagster run launcher of each stage;
+E4, Traefik's cluster-wide read of TLS Secrets; E5, cert-manager;
+E6, the CNI's own components (Calico, which is not installed). Enforced by:
+`tools/olf/olf/infra/e2e/_network.py` (`E1_PINS` and the E2 to E5 tuples).
+
+**D6. `kube-system` and the control-plane host network are not policy
+targets**, nor is a CNI's own namespace: a default-deny there can take the
+cluster down (CoreDNS, kube-proxy, the CNI itself). Rows allow only what the
+OLF pods need from them. Enforced by:
+`infra/terraform/modules/security/network-policy` (policies only in the stage
+namespaces and `olf-system`).
+
+**D7. kindnet is the CNI.** The canary passed on the pinned kind 0.32.0, so
+Calico is not built; a cluster whose CNI was replaced, or a host where kindnet
+does not enforce, is not supported. Because kube-network-policies is a
+reference implementation, the conformance e2e tests the semantics the flow
+rows rely on. Enforced by:
+`tools/olf/olf/infra/deployment/local/network_canary.py`.
+
+**D8. The over-broad Roles are narrowed; E2 is accepted.** The Polaris and
+OpenMetadata bootstrap Roles keep only a namespace-wide `create` (E1) and pin
+every other verb by `resourceNames`, and the SeaweedFS chart's ClusterRole is
+not created. OpenMetadata's chart Role stays, because its pod and Job creation
+cannot be confined without breaking the UI pipeline client; it is recorded
+with its exposure and pinned by the e2e. Enforced by:
+`infra/terraform/modules/catalog/polaris/rbac.tf`,
+`infra/terraform/modules/governance/openmetadata/rbac.tf`,
+`infra/helm/values/local/seaweedfs.yaml`, `tools/olf/olf/infra/e2e/_network.py`.
+
+**D9. The e2e's own stub pods are reached through flow rows keyed on a label
+the e2e sets**, not through temporary policies that open a default-deny
+workload: a policy removed in a `finally` would be the only thing between a
+crashed run and a broken stack. The stubs live in `olf-system`, and creating
+pods there is already a cluster-administrator act. Enforced by: rows F29 and
+F41 of `release/network-flows.yaml`.
+
+**D10. Stage-wide trust is accepted for local qualification.** Inside a stage
+namespace there are no per-pod rules. A stage row that names pods narrows a
+grant to them and is rendered as its own policy, but it does not isolate
+them. Enforced by: `UNNARROWABLE` in
+`tools/olf/olf/common/commands/checks/_flows.py`, the stage policies of
+`infra/terraform/modules/security/network-policy`.
+
+The flow rows, the `olf-system` workloads, the namespace selectors and the
+RBAC inventory with each exception's exposure are reference:
+[Network policy and RBAC](../architecture/identity/identity-network-policy-and-rbac.md).
+Flow ids (F1, F2, …) are the `id` of a row of `release/network-flows.yaml`.
+
+## Consequences
+
+- Anything running in a stage namespace can reach everything that namespace
+  may reach (D10).
+- Any pod allowed to reach Traefik (F4) can request `auth.<base_domain>`,
+  which routes the whole of Dex; the network cannot name a path. Narrowing the
+  route is ADR 0014's follow-up.
+- kindnet programs a new or restarted pod's policy asynchronously: a fresh pod
+  briefly has unrestricted egress, and a restarted destination is briefly
+  unreachable after it reports Ready. The e2e retries around it; the window is
+  not measured.
+- NetworkPolicy has no hostname selector, so external egress (Dex and the
+  role sync to GitHub, the alert evaluator to receivers, a stage's source
+  egress) is a port on any address outside the pod and Service ranges, on the
+  named pods only.
+- E2 is the widest grant: a compromised OpenMetadata can read the PostgreSQL
+  admin and Polaris root Secrets, because creating a workload counts as
+  reading every Secret in its namespace.
+- `default` ServiceAccounts hold no Role; turning off their token automount is
+  deferred hardening, not an RBAC grant.
+- Rows the flow file tags `T` are unproven on a running cluster until a run
+  exercises them.
+
+## Boundaries
+
+| Not decided here | Where |
 | --- | --- |
-| Cluster config | `infra/kind/local/kind-cluster.yaml` gains `networking: {disableDefaultCNI: true, podSubnet: 10.244.0.0/16, serviceSubnet: 10.96.0.0/16}` (kind's own defaults, written down so the Calico pool can name them). The control-plane node keeps the `ingress-ready` label and 80/443 mappings |
-| Ordering | Nodes stay `NotReady` and CoreDNS `Pending` until a CNI exists [D], and the foundation runs `kind create cluster --wait 120s` [V], which would fail. The foundation passes `--wait 0s` (`kind_wait_timeout`), then `olf` installs the CNI in `foundation_up`, then waits for nodes. Terraform keeps owning cluster creation; the CNI release is not in Terraform state, because the foundation root has no Kubernetes or Helm provider and the kubeconfig does not exist at plan time |
-| Pins | Chart `tigera-operator` v3.33.0 (appVersion v3.33.0; archive sha256 `efcc8633742c136708cd8de9673862c6eee3a91ed176d7f2835690ab625ad846` as downloaded from `https://docs.tigera.io/calico/charts` while writing) under `components.helm.charts` in the catalog, fetched by the existing `CatalogChart`/`prepare_chart` cache. Images under `components.images` with digests: the operator (`quay.io/tigera/operator:v1.44.0`, the chart default [V]) and `quay.io/calico/{node,cni,kube-controllers,typha}:v3.33.0` [D]. Digests are recorded by the implementing PR, not here [T]; `olf check components` enforces them. Calico's own images are pinned through an `ImageSet` named `calico-v3.33.0` [D] |
-| Install | `helm upgrade --install calico <cached chart> -n tigera-operator --create-namespace -f infra/helm/values/local/calico.yaml` with `installation.enabled: false`, `apiServer`, `goldmane` and `whisker` disabled (the chart enables all three by default [V]; none is needed for Kubernetes policy). Then `kubectl apply` of `infra/kind/local/calico-installation.yaml`: an `Installation` with one IP pool `10.244.0.0/16`, `VXLANCrossSubnet` (upstream's kind guide uses a VXLAN overlay [D]; the mode, and whether it works on WSL2, is **T**), `controlPlaneReplicas: 1`, `kubeletVolumePluginPath: None`. The CR is a separate step because the chart ships no `crds/` directory (the operator bootstraps its own CRDs at start [V]), so a CR in the same release may not map, the reason the repo already splits `local-ca` from cert-manager [V] |
-| Prefetch | The images load into every node with the `prefetch.py` mechanism (`docker pull`, `save`, `ctr import`) before the install, so three nodes do not each pull from quay.io (rate limits, CI time). `_prefetch_one_image` becomes public; the list is the catalog images above |
-| Readiness gate | `kubectl wait tigerastatus/calico --for=condition=Available`, every node `Ready`, CoreDNS available; then the canary of the next section. Runs on **every** `olf infra deploy`, not only on creation, so a cluster whose dataplane vanished cannot take policies silently |
-| Existing cluster | `foundation_up` finds the cluster and reuses it ("already exists. Reusing it", `foundation/local-kind/main.tf` [V]); a changed config file hash does not recreate it. `olf` therefore detects a cluster without the CNI (`kindnet` DaemonSet present or `tigerastatus` absent) and stops: `olf infra destroy --provider local`, then deploy. Local data is lost; no production deployments exist (maintainer note, pre-beta) |
-| Destroy | Deleting the cluster deletes the CNI. `olf infra destroy --phase platform` leaves the cluster and the CNI; the `tigera-operator` and `calico-system` namespaces carry no `openlakeforge.io/managed-by` label, so the foundation guard that refuses to delete a cluster with platform namespaces ignores them [V: `foundation_down` selects by profile label] |
-| Upgrade | Change the pins and recreate the cluster. In-place operator upgrades are not supported or tested: local clusters are disposable |
-| Cost | **Not measured [T]; measure before merging slice 1b** with `docker stats` on the node containers before and after, and record startup time of `olf infra deploy --phase foundation`. Expected from the objects: one operator pod, a `calico-node` DaemonSet pod per node (3), `calico-kube-controllers`, possibly Typha; five images pulled once per node unless prefetched. The first cost every developer sees is the forced destroy and the CI runner's longer foundation step |
-| What changes for developers | The first deploy after the change recreates the cluster; pods no longer reach arbitrary Services, so an ad hoc `kubectl run curl` in an OLF namespace is blocked (use `port-forward`, or `exec` into an allowed pod); `olf e2e` creates and removes its own temporary policies; `kubectl get pods -A` shows two more namespaces |
+| Ingress, routes and TLS | [ADR 0013](0013-service-access-and-ingress.md) |
+| The perimeter, the issuer and roles | [ADR 0014](0014-identity-and-authorization.md) |
+| Trino authentication | [ADR 0016](0016-trino-workload-authentication.md) |
+| Per-person data access | [ADR 0019](0019-data-plane-authorization-deferral.md) |
+| Resource requests, limits and PodDisruptionBudgets | #351 |
+| Pod Security Standards and `securityContext` | #352 |
+| AWS and Azure network enforcement | [ADR 0010](0010-cloud-provider-implementations.md) |
+| Hostname egress filtering, mTLS between pods, a service mesh | Not covered |
 
-Slice 1b must resolve these review findings before it is built; none is
-designed here, because Option B is built only if the canary fails:
+## Alternatives rejected
 
-- **Guard before Terraform.** `triggers_replace` hashes the kind config, so the
-  foundation apply replaces the resource and its destroy provisioner deletes the
-  cluster; the missing-CNI check must run before that apply, or ownership of
-  replacement must change.
-- **Ownership.** The Calico release and `Installation` are static foundation
-  infrastructure; place them in Terraform state, or rewrite ADR 0002 to allow
-  an `olf`-owned step, rather than a second unrecorded ownership model.
-- **CRDs.** The v3.33 operator chart may not install the Calico CRDs (the
-  upstream kind guide installs them first, in a Kubernetes-version-specific
-  file [D]); pin and apply the matching CRD bundle before the operator.
-- **Image set.** v3.33 may have consolidated `cni`, `kube-controllers` and
-  `typha` into `calico/calico`; derive the prefetch and `ImageSet` lists from
-  the pinned operator's `--print-images=list` output, not from the names above.
-
-### Option A: kindnet
-
-Nothing is installed. Slice 1 is the gate and canary below, run against the
-cluster `olf` already creates. The destroy-and-recreate step disappears
-unless a developer's cluster predates kind 0.24 [D].
-
-### The gate and the canary
-
-`olf` creates a throwaway namespace with a deny-all policy, a server pod and a
-client pod, and requires every connection attempt to fail, by timeout or by
-refusal (the NetworkPolicy contract promises only that the connection cannot
-occur, not how it is signalled [D]), while an identical pair in a second,
-policy-free namespace connects, which also proves the server was listening. Deploy runs it once after the CNI is
-ready; the e2e runs it again as its first step. This is the evidence for
-"Local runtime demonstrably enforces default-deny network policy".
-
-## Namespaces and the policy model
-
-| Namespace | Holds [V] | Baseline | Isolation level |
-| --- | --- | --- | --- |
-| `olf-system` | PostgreSQL, SeaweedFS (master, volume, filer, S3), Polaris, Trino, Dex, oauth2-proxy (one per role floor), portal, Traefik, cert-manager (controller, webhook, cainjector), OpenMetadata, OpenSearch, OpenMetadata ingestion Jobs, every bootstrap Job | default-deny both ways, DNS | Per-service allow rows |
-| `olf-<stage>` | Dagster webserver, daemon, code server, run pods and Floe Jobs; Superset (web, worker, Redis, init Job); the stage Secrets | default-deny both ways, DNS, intra-namespace | Whole namespace is one trust domain |
-| `kube-system` | CoreDNS (with the in-cluster-resolution Corefile), kube-proxy, kindnet if Option A | unmanaged | Exception |
-| `calico-system`, `tigera-operator` | the CNI (Option B) | unmanaged | Exception |
-
-Every policy selects pods by the labels the charts and modules already set, so
-no chart value changes in the policy slices. Jobs carry
-`openlakeforge.io/job=<name>` [V: twelve Jobs and CronJobs]. Selectors per
-workload (`name` is `app.kubernetes.io/name`): PostgreSQL `app.kubernetes.io/name=postgresql`; SeaweedFS
-`app.kubernetes.io/name=seaweedfs` plus `component`; Polaris
-`name=polaris`; Trino `name=trino,component=coordinator`; Dex
-`name=dex`; Traefik `name=traefik`; cert-manager `component` in
-`controller|webhook|cainjector`; OpenMetadata `name=openmetadata`; OpenSearch
-`name=opensearch`; Superset `app=superset`, `app=superset-worker`;
-Dagster `name=dagster` with `component` (webserver, daemon) and
-`name=dagster-user-deployments` [V: `helm template` of the pinned charts].
-The stage namespaces are matched by their `openlakeforge.io/stage` label and
-the shared one by `openlakeforge.io/scope=shared` [V: `main.tf`], not by name.
-
-## Flow table
-
-Each row is a pair of policies: egress on the source, ingress on the
-destination, unless a side's namespace is unmanaged. "Source" is the row of
-[`identity-callers.md`](../architecture/identity/identity-callers.md) or the file the
-flow was read from. Ports are container ports (a policy sees the post-DNAT pod
-port [D]).
-
-| # | From | To | Port | Source | Tag |
-| --- | --- | --- | --- | --- | --- |
-| F1 | any (host, via the kind 80/443 mapping) | Traefik pod | 8443 (443 hostPort); 8000 (80 hostPort) only in plain-HTTP mode, `tls: none`, but the policy allows it in both | `traefik.yaml`, `kind-cluster.yaml`; the chart exposes `web` 8000 and `websecure` 8443 | V; hostPort through the CNI's portmap **T** |
-| F2 | Traefik | oauth2-proxy (every floor) | 4180 | forwardAuth address in `modules/access/perimeter` | V |
-| F3 | Traefik | Dex, portal, platform API 8080, OpenMetadata, Trino (`olf-system`); Superset 8088 and Dagster webserver 80 (stage) | per route | `service_routes` and `ingress_routes` (the platform API's `/api` path) in `contracts.tf` | V |
-| F4 | OpenMetadata | Traefik 8443 (8000 when `tls: none`) | 8443, 8000 | the issuer's public URL through the CoreDNS rewrite: OpenMetadata's discovery and token requests (the oauth2-proxy, Polaris and platform API calls moved to F31, #991); Superset's sign-in calls until #1092 (stage rule) | V; Superset (stage rule) is built; the Trino and OpenMetadata rows **T** |
-| F5 | all managed pods | CoreDNS in `kube-system` (`k8s-app=kube-dns`) | 53 UDP/TCP | every pod resolves; `*.<base_domain>` is rewritten to Traefik | V |
-| F6 | Dex, Polaris, OpenMetadata, Postgres bootstrap, Polaris metastore bootstrap; Superset and Dagster (stage) | PostgreSQL | 5432 | `postgresql_contract`; `stage_databases` namespaces | V |
-| F7 | Polaris | SeaweedFS S3 | 8333 | table metadata is written to the warehouse bucket; not traced in the module | **T** |
-| F8 | a stage's Trino coordinator, which runs in the stage namespace and so takes the stage rows F9 | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | `catalog_contract`, `storage_contract` | V |
-| F9 | stage namespace (run pods, Floe Jobs) | Polaris 8181; SeaweedFS S3 8333 | 8181, 8333 | Floe/dbt rows; `AWS_ENDPOINT_URL_S3`, S3 compute-log manager in `dagster.yaml` | V (Floe runner labels **T**) |
-| F10 | a stage's own pods | its own Trino coordinator, in the same namespace (no row: a stage namespace is one trust domain, and no other stage's pod reaches it) | 8080 | Superset, dbt rows; Trino has no authentication of its own (ADR 0019 section 9) | V |
-| F11 | Traefik (the Trino UI), OpenMetadata | the stage namespaces (a stage's Trino 8080) | 8080 | OpenMetadata to Trino row | V |
-| F12 | stage namespace of a governed stage | OpenMetadata | 8585 | `OPENLINEAGE_URL`, ingestion-bot token | V |
-| F13 | the role-sync CronJob | OpenMetadata | 8585 | `pipelineServiceClientConfig` (`metadataApiEndpoint`); `openlakeforge.io/job` | V; the same Job needs it, so slice 3b selects it by `openlakeforge.io/job` |
-| F14 | OpenMetadata | Superset (stage) | 8088 | `superset_url` registered by `olf`'s bootstrap | V; whether ingestion runs today **T** |
-| F15 | OpenMetadata | OpenSearch | 9200 | `elasticsearch.host` in `openmetadata.yaml` | V |
-| F16 | Superset web, worker, init Job | Redis (stage) | 6379 | intra-namespace | V |
-| F17 | SeaweedFS pods among themselves; bucket and retention Jobs | master 9333, 19333; filer 8888, 18888; volume 8080, 18080; S3 8333 | those | chart Services; the `bucket` and `object_retention` Jobs (both `openlakeforge.io/job=bucket-bootstrap`) wait on 9333 and 8888 and run `weed shell` | V |
-| F19 | Polaris metastore bootstrap Job | Polaris | 8181 | `metastore-bootstrap.sh.tftpl`: its first step probes the token endpoint | V |
-| F20 | Jobs: `dex-credentials`, `postgresql-credentials`, `perimeter-cookie-secret`, `publish-local-ca`; Dagster daemon and run pods (Floe's runner creates Jobs); OpenMetadata server (creates ingestion Jobs); Traefik; cert-manager (three, and the `startupapicheck` post-install Job, label `component=startupapicheck`); the stage log archiver (`openlakeforge-k8s-log-archive`, `dagster` token, lists pods and reads logs [V: `log_archive.tf`, `openlakeforge_runtime/k8s_log_archive.py`]); the platform API, for its service probes ([ADR 0021](0021-platform-api.md), decision 7; T until run on a cluster) and its TokenReviews (decision 3) | kube-apiserver | 443 (Service) and 6443 (the endpoint) | RBAC section | V |
-| F21 | API server (control-plane node) | cert-manager webhook | 10250 | admission webhook | node-sourced traffic **T** |
-| F23 | oauth2-proxy, the platform API | an `issuer: external` host | 443 | profile-driven, same rendering; the platform API reads the issuer's discovery document and keys | T |
-| F24 | kubelet (node) | any pod | probes | not a policy flow: node-to-local-pod traffic is not blocked [D] | T |
-| F25 | `kubectl port-forward`, `exec`, `logs` | any pod | none | the kubelet's runtime stream enters the pod's own network namespace, loopback, never crossing the policy hooks [D] | T |
-| F28 | Dex | any address outside the pod and Service ranges | 443 | Dex calls `github.com` and `api.github.com` at every login and refresh ([ADR 0014](0014-identity-and-authorization.md), "Network"); NetworkPolicy has no FQDN selector, so the rule is the port on any address, on the Dex pods only | T |
-| F29 | Dex | the Dex e2e's stub GitHub pod (`olf-system`, label `openlakeforge.io/e2e=github-stub`, #405) | 8443 | the connector `hostName` is `olf-e2e-github.olf-system.svc`; F28 excludes pod and Service ranges, so the stub needs its own row (post-DNAT port) | T; a flow-file row keyed on the label the e2e sets |
-| F30 | OpenMetadata role-sync CronJob (`openlakeforge.io/job=openmetadata-role-sync`) | any address outside the pod and Service ranges | 443 | the sync reads team members from `api.github.com` ([ADR 0014](0014-identity-and-authorization.md), "OpenMetadata role sync"); no FQDN selector, so the port on any address, on that Job's pods only. Its calls to OpenMetadata ride F13 | T |
-| F31 | oauth2-proxy; Polaris; the platform API; OpenMetadata | Dex (`olf-system`) | 5556 | the signing keys for people's tokens and the perimeter's code exchange, over Dex's Service (ADR 0013, decision 8). Trino no longer fetches them: it has no authentication of its own (#983) | T |
-| F32 | the platform API | Dagster webserver 80 (stage); OpenMetadata 8585 | 80, 8585 | its read endpoints ([ADR 0021](0021-platform-api.md)): each stage's GraphQL URL (`dagster_graphql_urls`), and OpenMetadata with the caller's token forwarded (`openmetadata_url`), both rendered by `modules/access/platform-api` | T |
-| F33 | the platform API | SeaweedFS S3 8333 | 8333 | its archived-logs route ([ADR 0021](0021-platform-api.md)), with the read-only key `openlakeforge-platform-api-logs` the SeaweedFS credentials Job mints: `Read` and `List` on each stage's `activations/<stage>/logs/k8s/` and `.../logs/v2/` and nothing else; the stage health route also uses its `List` for the newest-object signal ([ADR 0022](0022-pod-log-collection-and-archive-format.md), decision 2), through a second client with the probe's timeouts, so no grant, Secret or flow was added for it | T |
-| F34 | Dagster run pods (`app.kubernetes.io/component=run_worker`) of a stage whose profile declares `spec.stages.<stage>.source_egress.ports` | any address outside the pod and Service ranges | the declared ports, TCP | Bronze sources that read an external API or database (#660); their host and port are stage bindings (`olf-source-<id>` ConfigMaps) that reach the run pod only. No FQDN selector, so the ports on any address, as F28 and F30; rendered from the profile, as F23, as its own policy `olf-flows-f34` in that stage's namespace only. A stage that declares nothing gets no row | T |
-| F35 | the platform API | Superset 8088 (stage) | 8088 | its report routes ([ADR 0021](0021-platform-api.md)): each stage's Superset (`superset_urls`), as the service user `olf-platform-api` whose password the platform API module's Job mints, and never as `admin` | T |
-| F36 | the platform API | the stage namespaces (a stage's Trino coordinator) 8080 | 8080 | a person's queries ([ADR 0021](0021-platform-api.md)): each stage's statement URL (`query_endpoints`), carrying that person's own token for Polaris; the API holds no Trino credential. Also the health probe's `GET /v1/info` against the coordinator's base URL. The row is not conditional on `person_query` | T |
-| F37 | the log collector | SeaweedFS S3 8333; kube-apiserver 443 (Service) and 6443 (the endpoint) | 8333, 443, 6443 | archive format v2 ([ADR 0022](0022-pod-log-collection-and-archive-format.md)), written with the write-only key `openlakeforge-log-collector`; the `kubernetes` filter's pod and namespace metadata | T |
-| F38 | the alert evaluator (`openlakeforge.io/job=alert-evaluator`) | Dagster webserver 80 (stage) | 80 | its read-only GraphQL reads of each stage ([ADR 0023](0023-alert-evaluation-and-webhook-delivery.md), decision 7), as F32 does for the platform API; the stage rule is namespace-wide | T |
-| F39 | the alert evaluator | SeaweedFS S3 8333 | 8333 | its state and history under `alerts/` and the stages' quality manifests, with its own key `openlakeforge-alerts`: `Read`, `Write` and `List` on `alerts/*`, `Read` and `List` on each stage's `activations/<stage>/run-artifacts/quality/*`, and `Read` only on each stage's `activations/<stage>/ACTIVE.json` and `activations/<stage>/revisions/*` and on `project/revisions/*` (its alert policy, ADR 0023 decision 10), and nothing else | T |
-| F40 | the alert evaluator | any address outside the pod and Service ranges | 443 | the webhook receivers, which are HTTPS only; no FQDN selector, so the port on any address, on that Job's pods only, as F28 and F30 | T |
-| F41 | the alert evaluator | the alert e2e's stub receiver (`olf-system`, label `openlakeforge.io/e2e=alert-receiver`, #1173) | 8443 | the receiver's URL is `olf-e2e-alert-receiver.olf-system.svc`; F40 excludes pod and Service ranges, so the stub needs its own row (post-DNAT port), as F29 does for Dex | T; a flow-file row keyed on the label the e2e sets |
-| F44 | the alert evaluator | the platform API (`olf-system`, `app.kubernetes.io/name=platform-api`) 8080 | 8080 | each stage's services route (`GET /api/v1/stages/{stage}/health/services`; [ADR 0023](0023-alert-evaluation-and-webhook-delivery.md), decision 11), with a projected ServiceAccount token for the audience `openlakeforge-platform-api` that the API checks with a TokenReview over its own F20 egress ([ADR 0021](0021-platform-api.md), decision 3); the Service is `platform-api`, so the URL is `http://platform-api.olf-system:8080` | T |
-| F42 | the platform API | the log collector's spool probe (`olf-system`, `app.kubernetes.io/name=log-collector`) 2021 | 2021 | the age of the oldest spooled file and the spool's size, per stage ([ADR 0022](0022-pod-log-collection-and-archive-format.md), decision 2), read from every collector pod through the headless Service `log-collector-probe`; the answer is two numbers per stage and no log text | T |
-| F43 | the platform API | Polaris (`olf-system`, `app.kubernetes.io/name=polaris`) 8182 | 8182 | the service probe `polaris.readiness` ([ADR 0021](0021-platform-api.md), decision 7): `GET /q/health/ready` on the management port, through the headless Service `polaris-mgmt`, with no credential. The REST API (8181) is not opened to the platform API, so the probe proves the service is up and not that a catalog read or a grant works | T |
-| F45 | the platform API | Prometheus (`olf-system`, `app.kubernetes.io/name=prometheus`) 9090 | 9090 | `query` and `query_range` for the named series of [ADR 0024](0024-metrics-prometheus-reference-and-read-path.md) only, at the provider contract's `metrics.query_url` (`http://prometheus.olf-system.svc:9090`); Prometheus has no authentication of its own, so this row is its one way in. Rendered, as F46 to F51, only when the profile enables metrics | T |
-| F46 | Prometheus | kube-apiserver | 443 (Service) and 6443 (the endpoint) | node discovery (`kubernetes_sd_configs` role `node`) with its ServiceAccount token | T |
-| F47 | Prometheus | `node` (the nodes' `/32` addresses) | 10250 | the kubelet's `/metrics/resource` and `/metrics`, with the same token; whether the CNI applies an egress `ipBlock` to a node address as written is unconfirmed, as F21 is for the reverse direction | T |
-| F48 | Prometheus | the stage namespaces (a stage's Trino coordinator) 8080 | 8080 | `/metrics` on each coordinator, as the user `olf-metrics` with no password; the stage rule is namespace-wide, as F11 and F36 | T |
-| F49 | Prometheus | SeaweedFS master, volume, filer and S3 9327 | 9327 | `/metrics` of each process, which the chart starts with `-metricsPort=9327` and whose Services name that port [V: `helm template` of the pinned chart 4.48.0]; F17 does not open 9327 | T |
-| F50 | Prometheus | kube-state-metrics (`olf-system`, `app.kubernetes.io/name=kube-state-metrics`) 8080 | 8080 | `/metrics` through the Service `kube-state-metrics`; the port is the image's entrypoint `--port=8080` [V: image config of `v2.20.0`]. The telemetry port 8081 has no row | T |
-| F51 | kube-state-metrics | kube-apiserver | 443 (Service) and 6443 (the endpoint) | `list` and `watch` of pods, Deployments, StatefulSets and DaemonSets in `olf-system` and the stage namespaces (`--namespaces`), with its ServiceAccount token | T |
-| F52 | the quality reconciler (`openlakeforge.io/job=quality-reconciler`, one CronJob per governed stage) | OpenMetadata 8585 | 8585 | test definitions, cases and results ([ADR 0007](0007-governance-and-lineage.md)), with the stage's quality-writer bot token from `openmetadata-quality-writer-<stage>`; the reconciler never reruns a check | T |
-| F53 | the quality reconciler | SeaweedFS S3 8333 | 8333 | its stage's manifests and its own state, with one key per stage, `openlakeforge-quality-sync-<stage>`: `Read` and `List` on `activations/<stage>/run-artifacts/quality/*`, `Read`, `Write` and `List` on `activations/<stage>/quality-sync/*`, and nothing else | T |
-
-Not derivable from source, to settle in the slice that touches each:
-the labels of OpenMetadata ingestion Job pods (set by the server at runtime);
-the labels and egress of Floe's runner Jobs (`floe_dagster.kubernetes_runner`
-is in the image, not the tree); whether Polaris calls
-SeaweedFS (F7); the ordering of Service DNAT and policy evaluation in the
-chosen CNI, which decides whether F20 needs the ClusterIP, the endpoint, or
-both (the plan allows both); whether any chart pod needs internet egress
-(none is expected; images are pulled by the node, not the pod). Dagster run
-pods' external egress is settled by F34: the label is the one the pinned
-`dagster-k8s` run launcher puts on the run Job's pod template [V:
-`dagster_k8s/launcher.py` and `job.py` of 0.29.7, the version
-`images/project-code` pins], and what they reach is declared per stage in
-the profile, because the hosts are stage bindings no file in the tree holds.
-
-Denied by construction, and tested (negative matrix below): everything not in
-the table. Notably stage to stage (DEV cannot reach PROD's Dagster or
-Superset), stage to Dex, Postgres from outside the F6 sources, SeaweedFS
-master, filer and volume ports from outside, Polaris's management port 8182
-from anything but the platform API (F43), Trino from an unlisted namespace, and any pod to Dagster except
-Traefik and the stage's own namespace.
-
-**Known leak the network cannot close.** Any pod allowed to reach Traefik
-(F4 sources) can request `https://auth.<base_domain>`, which routes the whole
-Dex service, which has no admin console ([ADR 0014](0014-identity-and-authorization.md)). Dagster and run pods are not given F4, so user code cannot; narrowing
-the route is the follow-up that ADR already names.
-
-## RBAC inventory
-
-Rows are what the tree grants after slice 4. "Done" was tightened in that
-slice; "exception" is recorded and pinned by the e2e check.
-
-| Subject | Grant | Used for | Verdict |
-| --- | --- | --- | --- |
-| `default` ServiceAccount, every namespace | no Role [V] | token auto-mounted into Postgres, Dex, portal, oauth2-proxy, Trino and Superset pods; only `log_archive.tf` sets `automount_service_account_token` [V] | No Role, so a mounted token authorizes nothing beyond discovery. `automount_service_account_token = false` on module-owned workloads is deferred hardening, not an RBAC grant; the e2e asserts the denials below |
-| `dex-credentials`, `<perimeter>-cookie`, `postgresql-credentials` (`olf-system` and each stage namespace holding a database Secret), `superset-credentials` (each stage namespace with Superset), `platform-api-superset-users` (`olf-system`, `get` naming each `platform-api-superset-<stage>`; and each stage namespace with Superset, `get` and `patch` naming `platform-api-superset`), `seaweedfs-credentials` (`olf-system` and each stage namespace holding an S3 key Secret, `get` naming the admin, stage and, with the platform API, `platform-api-log-reader-s3-creds`, `platform-api-audit-writer-s3-creds`, `platform-api-quality-reader-<stage>-s3-creds` (one per stage), `platform-api-files-s3-creds`, `log-collector-s3-creds`, with receivers `alert-evaluator-s3-creds`, with the platform API and receivers `platform-api-alert-state-s3-creds` and, for each governed stage, `quality-reconciler-<stage>-s3-creds` Secrets; in `olf-system` it also patches `seaweedfs-s3-auth` and the S3 Deployment by name) | `create` Secrets (namespace-wide) + `get` by `resourceNames` | create-if-missing credentials | Exception E1: `create` cannot be limited by `resourceNames` [V: comment in `credentials.tf`] |
-| `publish-local-ca` (each trust namespace) | ConfigMaps `create/get/patch/update` (namespace-wide); `get` on the CA Secret by name | publishes `olf-local-ca` | Exception E1 (ConfigMaps only) |
-| `polaris-bootstrap` (`olf-system`) | Secrets `create`, namespace-wide; `get` on `polaris-token-broker` and `polaris-bootstrap-credentials` [V: `modules/catalog/polaris/rbac.tf`] | the token-key Job's create-if-missing token-broker key and root credentials | **Done**: `create` stays namespace-wide (E1), `get` is pinned by `resourceNames`. The Polaris bootstrap, which created and rotated the principal Secrets and their `-bootstrap-pending` markers in `olf-system` and the stage namespaces, runs in `olf` with the operator's kubeconfig after the apply (#562), so no Role grants those |
-| `openmetadata-bootstrap` (`olf-system`) | Secrets `create`, namespace-wide [V: `modules/governance/openmetadata/rbac.tf`] | the fernet-key Job's create-if-missing `openmetadata-fernet-key` | **Done**: `create` only (E1). The OpenMetadata bootstrap and the ingestion-bot replication, which read and wrote the admin, automation-bot, ingestion-bot and Superset admin Secrets, run in `olf` with the operator's kubeconfig after the apply (#562), so no Role grants those |
-| OpenMetadata server and `openmetadata-ingestion` (chart `k8s-pipeline-rbac.yaml`) | pods, ConfigMaps, **Secrets** `get/list/create/update/patch/delete`, Jobs/CronJobs, `omjobs`, namespace-wide in `olf-system` [V] | runs ingestion pipelines as Jobs | **E2, the widest; recorded as a named exception by slice 4.** A compromised OpenMetadata can read the PostgreSQL admin and the Polaris root Secret. Limiting Secret verbs by `resourceNames` is not enough while the same Role can create pods, Jobs or CronJobs in `olf-system`: a workload mounts any Secret in its namespace and can run as any ServiceAccount there, including Traefik's and cert-manager's [D: Kubernetes RBAC good practices]. Slice 4 therefore counts workload creation as Secret access. It sets `pipelineServiceClientConfig.k8s.rbac.enabled: false` [V: key exists] and supplies a module-owned Role only if pod and Job creation can be confined (for example to a dedicated ingestion namespace or ServiceAccount); the server also creates Secrets with generated names [T]. Slice 4 could not confine pod and Job creation, and the UI-triggered pipeline client needs the grant, so E2 is accepted with this exact exposure, asserted by the pin check; the chart-owned Role is not rewritten here |
-| `dagster`, `dagster-user-deployments` (stage) | Jobs and pods `create/delete/get/list/patch/update/watch`, pods `log/status`, events [V] | run launcher, Floe Jobs | Exception E3 (also in [`identity-callers.md`](../architecture/identity/identity-callers.md), Dagster run launcher): no Secret verbs, but pod creation in a namespace reads that namespace's Secrets through volumes; a stage's user code already holds them. Stage namespace = trust domain |
-| `platform-api` (`olf-system`; a Role and RoleBinding in each stage namespace, once `probe_namespaces` is set, which `environments/local` does from the stage namespace resources; the pod mounts its token only then) | pods, Deployments and StatefulSets `list`, namespaced to the stage namespaces [V: `modules/access/platform-api/probe_rbac.tf`] | the service probes of platform health ([ADR 0021](0021-platform-api.md), decision 7) | **Done**: read-only, no `get` or `watch`, no Secret, `pods/log`, `pods/exec` or events, no probe ClusterRole, nothing in `olf-system`. With `service_callers` set (ADR 0021, decision 3) it also holds the ClusterRole `olf-system-platform-api-token-review` and its binding: `tokenreviews` `create` in `authentication.k8s.io`, nothing else, and the pod then mounts its token whatever `probe_namespaces` says [V: `modules/access/platform-api/probe_rbac.tf`]. It exposes names, labels, environment values and status of the stage's pods and controllers, which a stage namespace's trust domain already holds. The module refuses `olf-system` and `kube-system`. It matches no E1 to E6 rule, so the second assertion below does not list it |
-| `log-collector` (`olf-system`; ClusterRole `olf-system-log-collector` and its binding) | pods and namespaces `get`, `list`, `watch`, cluster-wide [V: `modules/observability/log-collector/main.tf`] | the `kubernetes` filter's metadata for the collected namespaces ([ADR 0022](0022-pod-log-collection-and-archive-format.md), decision 3) | **Done**: read-only, no `nodes/proxy` (`Use_Kubelet Off`), no Secret, `pods/log` or `pods/exec`, no write verb. It exposes every pod spec in the cluster, which its host mount of `/var/log` already exceeds in content. It matches no E1 to E6 rule, so the second assertion below does not list it |
-| `prometheus` (`olf-system`; ClusterRole `olf-system-prometheus` and its binding, only when the profile enables metrics) | `nodes` `get`, `list`, `watch`; `nodes/metrics` `get` [V: `modules/observability/metrics/main.tf`] | node discovery and the kubelet scrape ([ADR 0024](0024-metrics-prometheus-reference-and-read-path.md), Decision 5) | **Done**: read-only; no `nodes/proxy`, which the kubelet treats as exec, and no pods, Services, endpoints, ConfigMaps or Secrets, since every other target is static. The token is projected with a 600-second lifetime and the default token is not mounted. On kind the kubelet job skips certificate verification (ADR 0024, open item 8), so a node impersonator could replay that token for at most its lifetime. It matches no E1 to E6 rule, so the second assertion below does not list it |
-| `kube-state-metrics` (`olf-system`; a Role and RoleBinding `kube-state-metrics` in `olf-system` and in each stage namespace, only when the profile enables metrics) | pods `list`, `watch`; Deployments, StatefulSets and DaemonSets `list`, `watch` [V: `modules/observability/metrics/kube_state_metrics.tf`] | restart, readiness and replica series and the `kube_pod_labels` join of [ADR 0024](0024-metrics-prometheus-reference-and-read-path.md), Decision 2 | **Done**: read-only and namespaced; no ClusterRole, since `--namespaces` names every namespace it watches; no `get`, Secret, ConfigMap, event or `customresourcedefinitions` grant, which kube-state-metrics needs only for a custom-resource-state configuration the module never sets [V: `templates/role.yaml` of chart 9.0.1]. The module refuses `kube-system`. It reads full pod specs, environment values included, in those namespaces: wider than the platform API's `list`, but the same data. Only `app.kubernetes.io/name` and `app.kubernetes.io/component` of a pod's labels reach a series. It matches no E1 to E6 rule, so the second assertion below does not list it |
-| `traefik` ClusterRole | Secrets `get/list/watch` in **all** namespaces; Ingress status update [V] | TLS Secrets | Exception E4; narrowing to namespaces is a chart option, **T** |
-| cert-manager ClusterRoles | Secrets `get/list/watch/create/update/delete` cluster-wide [V] | issuing certificates | Exception E5, inherent; the controller-challenges ClusterRole also creates pods and Services for HTTP-01 solvers, and the webhook has a namespaced `dynamic-serving` Role on its CA Secret (get/list/watch/update pinned, create namespace-wide) |
-| `seaweedfs` ClusterRole `seaweedfs-rw-cr` | pods `get/list/watch/create/update/patch/delete` in **all** namespaces [V] | the chart's "hack for delete pod master after migration" | **Done (slice 4)**: `global.seaweedfs.createClusterRole: false` in `seaweedfs.yaml` [V: chart 4.48 template]; the slice 5 e2e asserts the ClusterRole is gone |
-| `tigera-operator`, `calico-node` (Option B) | cluster-wide, privileged | the CNI | Exception E6, inherent |
-| `olf` operator and CI | the kind kubeconfig is cluster-admin | everything | Trusted (#46). No recovery Role is provisioned: `olf infra break-glass` uses the operator's own kubeconfig (cluster-admin on kind), see [`identity-sessions-and-recovery.md`](../architecture/identity/identity-sessions-and-recovery.md) |
-
-Denied, and asserted with `kubectl auth can-i --as=system:serviceaccount:<ns>:<sa>`
-(impersonation by the admin kubeconfig, no network involved): for the
-`default` ServiceAccount of `olf-system` and of every stage namespace, `get`
-and `list` Secrets, `create` pods, `create` rolebindings; for each Terraform
-module ServiceAccount, `get` any Secret outside its `resourceNames`; for every
-subject above, `create` ServiceAccount tokens, `escalate` or `bind` Roles, and
-`patch` ConfigMap `coredns` in `kube-system` (the Corefile the
-in-cluster-resolution module owns). A second assertion lists every Role and
-ClusterRole bound to a ServiceAccount in the OLF namespaces that grants a
-Secret verb, or create on pods, Jobs, CronJobs or workload controllers (which
-reads Secrets by mounting them), and compares the set with E1 to E6: a new one fails the run until
-this ADR names it. The comparison is by role kind, role, subject and resources, not by name prefix; bindings to the
-`system:serviceaccounts[:<ns>]` groups apply to every ServiceAccount in the OLF namespaces. A Secret pinned by
-`resourceNames` must match the pins in `E1_PINS` (`tools/olf/olf/infra/e2e/_network.py`), the one list of the documented names.
-
-## Conformance test
-
-New `tools/olf/olf/infra/e2e/_network.py`, called from `_runner.py` before the
-pipeline checks, driven by `release/network-flows.yaml` (the flow rows, the
-denied pairs, the RBAC expectations). Probe pods use the `k8s_bootstrap` image
-(`curl`, `kubectl`, `python3`) the way `check_discovery_from_pod` does, with its
-`sleep 3` attach-race note [V].
-
-| Check | Setup | Expectation |
-| --- | --- | --- |
-| Canary | deny-all namespace pair, above | blocked, and the control pair connects |
-| Negative, outside | a pod in a fresh namespace `olf-e2e-untrusted` with no OLF labels and no policies | TCP connect times out to Postgres 5432, Polaris 8181 and 8182, Trino 8080, Dagster 80 in each stage, Superset 8088, Dex 5556, SeaweedFS 8333 and 9333, OpenMetadata 8585 |
-| Negative, inside | a pod in a stage namespace and one in `olf-system`, both without an allowing label | blocked towards Dex, Postgres (from `olf-system` pods outside F6), the other stage, SeaweedFS master and filer |
-| Positive control | the same probe from the same namespace to Traefik 8443 (F1), and a pod carrying an allowed workload's labels (for example Superset's in a stage namespace) to Trino | connects, so a broken probe or DNS cannot pass the negatives vacuously |
-| Authorized flows | the unchanged `olf infra e2e run --env local`: pipelines, Silver and Gold through Trino, dashboards, OpenMetadata assets, artifacts | pass with every policy on. This is the "unattended pipelines still work" evidence and needs no new code |
-| kindnet semantics (Option A) | the canary's pairs extended with: an `ipBlock` allow and an `ipBlock` `except`; a kubelet probe and an API-server-to-webhook call into a default-deny pod (node-sourced traffic); a policy naming a pod port reached through a ClusterIP Service (DNAT order); a named port | each behaves as the flow table assumes; a failure here is a reason to build B |
-| Port-forward | the existing forwards (SeaweedFS, Polaris, Dex, Dagster, Superset, OpenMetadata, portal) | pass; the run fails if any falls back to another path |
-| RBAC | the can-i table and the Secret-verb pin above | as above |
-
-Negative probes assert a timeout, not a refusal, and run with a 5 s budget;
-the table's port list is generated from the flow file so a new denied pair
-needs one line. The probe namespace and every temporary policy are removed in a
-`finally`, as the GitHub stub of the identity e2e does.
-
-## Where the code goes
-
-| What | Where |
+| Option | Why not |
 | --- | --- |
-| Flow rows, denied pairs, RBAC expectations | `release/network-flows.yaml`, schema in `docs/schema/`, validated by `olf check`; registered in `_structure.py` |
-| Policies | New module `infra/terraform/modules/security/network-policy` (`main.tf`, `variables.tf`, `outputs.tf`; `kubernetes_network_policy_v1`), instantiated once in `environments/local/main.tf` after the namespaces and given the namespace names, the `kubernetes` Service's cluster IP and the API server endpoint (a `kubernetes_endpoints_v1` data source) for F20. Local root only; AWS and Azure are out of scope. Profile-driven rows (F23, F34) are built in that root's `profile_flows`; F34 from the `stage_source_egress_ports` input `olf` renders from `spec.stages.<stage>.source_egress` |
-| RBAC changes | the modules that own the Roles (`catalog/polaris`, `governance/openmetadata`) and Helm values (`seaweedfs.yaml`) |
-| CNI (Option B) | `infra/kind/local/`, `tools/olf/olf/infra/deployment/local/foundation.py` plus a small `cni.py`, catalog entries, `prefetch.py` |
-| Gate and canary | `foundation_up` / a deploy precondition, and `e2e/_network.py` |
-| Docs flipped from "not yet verified" | [`identity-callers.md`](../architecture/identity/identity-callers.md) Dagster and internal-reachability rows, ADR 0014 seam 3 paragraph, the #178 limitation line |
-
-## Implementation plan
-
-Each slice is one pull request of at most 600 changed lines, and the stack works
-after every one.
-
-| Slice | Content | Risk |
-| --- | --- | --- |
-| 1a | The canary and the deploy gate, run against the existing cluster. Settles A or B | Cheap. If kindnet blocks, 1b disappears |
-| 1b (Option B only) | Kind config, catalog pins, `cni.py`, prefetch, install, readiness gate, forced-recreate message, tests. The footprint measured and recorded | Highest: VXLAN/BGP on WSL2, Docker Desktop and Colima **T**; Traefik `hostPort` through the CNI **T**; CI runner time |
-| 2 | `release/network-flows.yaml` and its check, the module, and the **stage-namespace** policies (default-deny, DNS, intra-namespace, F5, F6, F7 to F12 egress, F20) | Dynamic pods with labels not read (Floe, run pods): the stage rule is namespace-wide on purpose |
-| 3a | `olf-system` data plane: Postgres, SeaweedFS, Polaris, Trino ingress and egress | Postgres bootstrap Job pods carry the Postgres pod labels [V], so the Job is also "Postgres" to a selector; give it its own egress row |
-| 3b | `olf-system` access plane: Traefik, oauth2-proxy, Dex, portal, cert-manager, OpenMetadata, OpenSearch, all Jobs | cert-manager's webhook is called by the API server from the node (F21): a wrong rule fails `terraform apply`. The F20 cluster-IP and endpoint and F23 rendered from the profile |
-| 4 | RBAC: `resourceNames` for the Polaris and OpenMetadata bootstrap Roles, `createClusterRole: false`, `automount_service_account_token = false`, and the can-i and pin assertions | Removing a grant a chart quietly uses; the e2e is the check. E2 is the hard part |
-| 5 | The conformance e2e matrix completed, `identity-callers.md` and ADR 0014 updated to "verified", #178's "unreachable from outside" box | The slices above each add their rows; this one adds the untrusted-namespace matrix and docs |
-
-Ordering with the other v0.5 work: the Trino rows move to 8443 in the #26
-cutover, and the OpenMetadata and Superset rows to Traefik (F4) when #25 lands,
-each as an edit to the flow file in that PR.
-
-## Not covered by #46
-
-- Resource requests, limits, PodDisruptionBudgets and storage sizing: #351
-  (v0.6). The Calico footprint above is measured, not budgeted.
-- Pod Security Standards, non-root conversion and `securityContext`: #352
-  (v0.8). Nothing here relies on a pod being unprivileged.
-- AWS and Azure enforcement (VPC CNI / network policy engines, security
-  groups), and public-domain qualification.
-- Narrowing the Dex route, moving OpenMetadata to its own namespace,
-  per-user data access (#179), and Trino authentication itself (#26).
-- Egress filtering by hostname, mTLS between pods, and any service mesh.
-
-## Decisions
-
-1. **Calico is a fallback, not the plan.** The approval rested on the belief
-   that kind does not enforce NetworkPolicy; the kind release notes say it
-   does. Slice 1a (canary, with a positive control) decides; slice 1b is built
-   only if the canary proves kindnet does not enforce. kube-network-policies is
-   a reference implementation, so the conformance e2e tests the semantics the
-   flow table relies on (`ipBlock`, node-sourced traffic, DNAT order).
-2. **The over-broad Roles are narrowed; E2 is accepted as a named exception.** Slice 4 pins the Polaris
-   and OpenMetadata bootstrap Roles (`resourceNames`) and drops the SeaweedFS
-   cluster role (`createClusterRole: false`). OpenMetadata's chart Role (E2)
-   stays: its pod and Job creation cannot be confined without breaking the
-   UI pipeline client, so it is recorded with its exposure and pinned by the
-   slice 5 check.
-3. **The e2e's own probe pods carry a label the flow file names** (F29)
-   instead of getting temporary policies: both flows end or start at a
-   default-deny workload (Traefik, Dex), so a policy removed in a `finally`
-   would be the only thing standing between a crashed run and a broken stack.
-   The probes stay in `olf-system`; the rows allow only the pod that sets the
-   label, and creating pods there is already a cluster-administrator act.
-4. **Stage-wide trust is accepted for local qualification.** Inside a stage
-   namespace there are no per-pod rules, because user code launches pods with
-   labels it controls. The limitation: anything running in a stage namespace
-   can reach everything that namespace may reach.
+| Calico as the local CNI | kindnet enforces on the pinned kind (D7); Calico would force every local cluster to be recreated and add memory, start-up time and a second upgrade surface |
+| A default-deny policy on `kube-system` | Can take down CoreDNS, kube-proxy or the CNI (D6) |
+| Per-pod rules inside a stage namespace | User code sets the labels, so a rule would not be a boundary (D3, D10) |
+| Temporary policies that open a workload for the e2e's stubs | A crashed run would leave the stack broken (D9) |
+| Narrowing OpenMetadata's chart Role by `resourceNames` | Its pod and Job creation still reads any Secret in `olf-system`, and confining it breaks the UI pipeline client (D8) |
 
 ## History
 
-F4, F10, F11, F20, F31 and F36 (#983): Trino has no authentication of its own and no HTTPS listener
-(ADR 0019 section 9), so its rows name port 8080 only, the coordinator no longer reaches Dex (F31) or
-the issuer's public URL (F4), and the `trino-credentials` Job and its E1 pin are gone.
-
-The OLF-owned Trino ingestion Job and its CronJob run in the stage namespace beside the coordinator (#976), which is where
-the `openmetadata` principal's Secret is: they reach OpenMetadata under F12 and Trino inside the namespace, so F11, F13
-and F14 no longer name them.
-
-F8, F10, F11, F31 and F36 (#976): Trino runs once per stage in the stage namespace, so it is no
-longer a `workloads` entry of `release/network-flows.yaml`. Its egress (F8, F31) and its ingress from a
-stage's own pods (F10) are the stage-wide rows, F11 and F36 name the stage namespaces, and the
-`trino-credentials` Job is under the stage-wide F20. F31 names only the coordinator's pods (a narrowing,
-not isolation: stage labels are user-set), so other stage pods stay off Dex. Exception E1's pin for
-`trino-credentials` adds `dex-client-trino`: the Job reads it in `olf-system` and copies it beside the
-coordinator.
-
-F4 and F31 (#991): oauth2-proxy, Polaris and the platform API reach Dex's Service (F31) instead of the public URL through Traefik (F4); OpenMetadata fetches its keys the same way. OpenMetadata (no token-URL override in 1.13.6) and Superset (image change waits for #1092) keep F4 for their issuer calls.
-
-Polaris bootstrap moved to `olf` (#562): the `catalog-bootstrap` and
-`catalog-credential-replication` Jobs are deleted, with their workloads and
-their rows in F19 and F20 (`release/network-flows.yaml`). `olf` reaches
-Polaris through a port-forward, which no policy sees (F25). The
-`polaris-bootstrap` Roles in the stage namespaces are deleted and the one in
-`olf-system` keeps only what the token-key Job needs; the e2e pin for that
-ServiceAccount names `polaris-token-broker` and `polaris-bootstrap-credentials`.
-
-OpenMetadata bootstrap moved to `olf` (#562): the `governance-bootstrap` and
-`governance-credential-replication` Jobs are deleted, with their workloads and
-their sources in F13, F14 and F20 (`release/network-flows.yaml`,
-`environments/local/main.tf`). `olf` reaches OpenMetadata through a
-port-forward, which no policy sees (F25). The `openmetadata-bootstrap` Roles in
-the stage namespaces are deleted and the one in `olf-system` keeps only
-`create`; the e2e pin for that ServiceAccount names `openmetadata-fernet-key`.
-
-SeaweedFS chart 4.23.0 to 4.48.0: the ClusterRole is still gated by
-`global.seaweedfs.createClusterRole` and absent from the render. The new
-default Lance port on the S3 gateway is turned off (`s3.lancePort: 0`), so its
-ports and flows are unchanged.
-
-Keycloak removed (#384 slice c): the flow and RBAC tables name Dex where they
-named Keycloak, and the rows that existed only for Keycloak are deleted: F18
-(realm Job to Keycloak), F22 (Keycloak to the `spec.identity.smtp` host), F26
-(the issuer discovery probe pod, removed with the Keycloak e2e) and F27 (the
-mail-sink pod); the matching workloads and flows in `release/network-flows.yaml`
-and `environments/local/main.tf` go with them. The other flow ids are not renumbered. The observation near the
-end still names Keycloak because it records a probe run against it.
-
-New record (#46 design): premise check on kindnet, the Calico install design
-(fallback), the default-deny model with a derived flow table, the RBAC
-inventory with its exceptions, the conformance plan, the slice order and the
-maintainer's decisions. Nothing built.
-
-Slice 1a built: `olf deploy --provider local` runs the canary
-(`olf/infra/deployment/local/network_canary.py`) after the foundation and fails
-unless a deny-all namespace blocks a client its policy-free twin reaches.
-(Superseded below by the one-pair, two-direction canary.)
-Observed once, outside `olf`'s own cluster: on a stock kind v0.31.0 cluster
-(not the pinned 0.32.0) with kindnetd
-`v20251212-v0.29.0-alpha-105-g20ccfc88`, the gate passed, so kindnet blocked
-the deny-all pair. That did not settle A on its own.
-
-Option A settled (maintainer run, 2026-10-16): `olf deploy --provider local
---phase foundation` on the pinned kind v0.32.0, node `kindest/node:v1.36.1`,
-kindnetd `v20260528-9350166c`, printed "NetworkPolicy is enforced." Slice 1b
-(Calico) is dropped; the kindnet-semantics rows of the conformance test still
-run in the policy slices.
-
-Canary reworked after review: one server and client pair is proven to connect
-with no policy, then an ingress-only and an egress-only deny must each block it.
-The maintainer's run above used the earlier two-namespace canary. The rework
-was then run against the same pinned cluster (kind v0.32.0, kindnetd
-`v20260528-9350166c`) through `require_policy_enforcement` and printed
-"NetworkPolicy is enforced.": kindnet blocks the pair for an ingress-only and an
-egress-only deny. Option A stands.
-
-Canary extended for allow rules (#622): after the two denies, an ingress deny
-must block, adding a rule that allows the client must connect, and removing it
-must block again. A reported cluster whose kindnet had been replaced with
-Calico blocked every deny but left an allow-rule selector set incomplete, so
-the deploy passed the gate and failed later as storage and DNS timeouts. The
-failure message no longer points at Calico, which was never built: it says a
-replaced CNI, or a host where kindnet does not enforce, is not supported. Not
-yet run against the pinned cluster.
-
-Slice 2 built: `release/network-flows.yaml` holds the stage rows of the flow
-table (F3 and F14 ingress, F5, F6, F9, F10, F12 and F20 egress), checked by
-`olf check flows` (in `olf check all`) for scope, ports, tag and that every id
-is a row of the table above. `modules/security/network-policy` renders, per
-stage namespace, a default-deny policy for both directions and one allow
-policy: the whole namespace may talk to itself, plus the file's rows.
-Additions beyond the slice list, needed so the stack keeps working: F3
-(Traefik into Dagster 80 and Superset 8088, namespace-wide) and F14 (from
-`olf-system`, Superset 8088). F7, F8, F11 and F13 have `olf-system` sources and
-land in slices 3a/3b. F10 allows both 8080 and 8443; the 8080 row is dropped
-with the Trino HTTP listener. Still **[T]**: F9 (Floe runner and run pod
-labels are not read, and the SeaweedFS `component=s3` label is from the chart,
-not rendered here), F14, and F20 (whether the Service address, the endpoint
-address or both reach the policy). The policy module was planned against a
-stub provider, not applied.
-
-Slice 2 runtime check (maintainer, 2026-10-16, kind v0.32.0, kindnetd
-`v20260528-9350166c`): `olf deploy` and `olf e2e run --env local` pass with the
-stage policies, so the pipeline flows in the file are sufficient. From a probe
-pod in `olf-dev`, Trino (F10) answers and Keycloak (no flow; the issuer then, since replaced by Dex) is refused by pod
-IP, by ClusterIP and by name. **Observed limitation:** kindnet programs a new
-pod's policy asynchronously, and a probe started seconds earlier still reached
-Keycloak by pod IP and ClusterIP before the deny took effect. A freshly started
-stage pod therefore has a short window of unrestricted egress. Run pods are
-short-lived and start inside that window, so this is recorded as a known
-exposure of the kindnet dataplane, to be measured and either accepted or
-mitigated (for example an init-time wait) in slice 5's conformance matrix.
-
-Slice 3a built: `workloads` in `release/network-flows.yaml` names the four
-data-plane workloads by chart labels (`name` plus `instance`, and
-`component=coordinator` for Trino), and the module renders one policy per
-workload in `olf-system` denying both directions except the rows that name it.
-Only those pods are selected; every other `olf-system` pod stays unisolated
-until slice 3b, and there is no namespace-wide deny. Jobs share the `name`
-label with their workload but not `instance`, so they are unselected and
-their traffic is allowed at the destination by their `openlakeforge.io/job`
-label (bucket, Polaris bootstrap and replication, Polaris metastore
-bootstrap). The Postgres bootstrap Job is the exception the slice list
-flagged: its pod carries the Postgres labels, so it is selected and has its own
-egress row to Postgres (F6). Trino listens on 8080 and 8443 and both are
-allowed. Callers of Trino from `olf-system` are one row from every pod of the
-namespace (F11), **[T]**: OpenMetadata ingestion Job pod labels are set by the
-server at runtime and are not read, so the row narrows to OpenMetadata and
-Traefik in 3b once they are. Still **[T]**: F7 (Polaris to SeaweedFS), F10
-Trino to itself (only needed if the CNI does not hairpin the Service address)
-and the new-pod window recorded above, which now also covers these pods. The
-module was validated and its rule sets evaluated with `terraform console`, not
-applied.
-
-Slice 3a runtime check (maintainer, kind, fresh cluster): `olf deploy` passes
-and the allow and deny probes match. One e2e run failed at the Polaris restart
-drill: the Trino query right after the new Polaris pod was Ready got an empty
-response from Polaris, and two re-runs passed. Under kindnet a restarted,
-policy-selected pod is briefly unreachable after Ready, the same asynchronous
-programming seen for new egress above, now on a destination. The drill retries
-its first post-restart query for up to 60 s instead of weakening the policies.
-Slice 5 should measure the window.
-
-Slice 3b built: `release/network-flows.yaml` gains workloads for Traefik, the
-oauth2-proxy floors (a constant pod label `openlakeforge.io/workload` that the
-perimeter module now sets, because the floors differ in name), the portal,
-Dex, the three cert-manager pods and the `startupapicheck` Job,
-OpenMetadata, OpenSearch and thirteen Jobs (selected by `openlakeforge.io/job`).
-The module gives every workload DNS egress itself, adds the peer scopes `node`,
-`apiserver` (as a source) and `any` (outside the pod and Service ranges, kind's
-defaults), and lets one row list several sources. F1 is `any` to Traefik 8443 and, for plain-HTTP mode (`tls: none`), 8000; F21 allows the API server and node addresses to the webhook on 10250,
-**[T]**: the source address kindnet shows for the API server's call is not read,
-and a wrong rule fails `terraform apply`. F11 is narrowed from any `olf-system`
-pod to Traefik, OpenMetadata and the OLF-owned ingestion Job; the Job label
-`openmetadata-trino-ingestion` is the label #410 gives the Job, so
-until that merges the OpenMetadata pipeline client's ingestion pods (labels not
-read) cannot reach Trino. F14 is narrowed the same way. Dex gets F28, 443 on any
-address, scoped to its pods. F23
-(oauth2-proxy to the issuer URL's port, 443 by default, when the issuer is `external`) are rendered from the
-profile in `environments/local/main.tf`. Policies are rendered only for
-deployed workloads: the local root drops Dex and the governance
-workloads when the profile does not deploy them, and, following #406's
-switches, Traefik, the portal and the CA-publishing Job with `access_enabled`,
-cert-manager with its module count, and oauth2-proxy and its cookie Job with
-`identity_enabled`, so a quickstart or an access-without-identity profile plans
-no policy for an absent workload. The platform API (ADR 0021, #666) follows its
-module count: F3 from Traefik, F4 to Traefik for the issuer's keys, and F23
-with an external issuer; it has no apiserver row and mounts no service account
-token. Decision 3 is amended (above): F29 is a row
-keyed on a label the e2e sets. Still **[T]**: OpenSearch's and OpenMetadata's
-pod labels (the dependencies chart is not rendered here), OpenMetadata's own
-Service hairpin, whether OpenMetadata calls Polaris or SeaweedFS (no row
-exists; the Iceberg crawl was not traced), the Job labels of the OpenMetadata
-pipeline client, and the new-pod window above, which now covers these pods
-too. Validated with `terraform validate` and by evaluating the module's rule
-sets with `terraform console`; not applied.
-
-Slice 4 (RBAC): `create` stays namespace-wide (E1) while every other verb of the Polaris and
-OpenMetadata bootstrap Roles is pinned by `resourceNames`; the SeaweedFS ClusterRole is
-not created; E2 is accepted as a named exception rather than narrowed, because
-pod and Job creation cannot be confined without breaking the UI pipeline client.
-Exceptions E1 to E6 are the accepted, named set, each pinned by the e2e check (slice 5);
-default-ServiceAccount token automounting is deferred hardening, since those
-accounts hold no Role. Decision 2 is amended to match. Not applied on kind.
-
-F31: the Trino coordinator reaches Dex's Service for the keys of people's
-tokens, because it fetches them at startup and Traefik, the F4 path, is created
-after Trino. Dex serves the same endpoints on 5556 to Traefik (F3), so the row
-adds no endpoint F4 sources could not already reach.
-
-F32 added (#668): the platform API's read endpoints reach each stage's Dagster
-webserver and OpenMetadata in-cluster. Dagster checks nothing, so this row and
-the API's permission matrix are the only controls on what reaches its GraphQL
-API (ADR 0021, decision 3).
-
-F33 added (#668): the platform API reads each stage's pod log archive from the
-SeaweedFS S3 gateway with its own identity, `openlakeforge-platform-api-logs`,
-granted `Read` and `List` on `activations/<stage>/logs/k8s/` and
-`activations/<stage>/logs/v2/` only (v2 added by #1122; never the `platform/` prefix). The
-SeaweedFS credentials Job mints its key into `olf-system`, so its Role there
-names the new Secret. The stage identities' ops-bucket grant now ends at
-`activations/<stage>/*`: SeaweedFS 4.48 matches actions with a wildcard in which
-`*` also matches `/`, not with `filepath.Match` as the module's comment said.
-
-F34 added (#660): a stage's Dagster run pods reach the ports its profile
-declares in `spec.stages.<stage>.source_egress.ports`, on any address outside
-the pod and Service ranges, and nothing else; a stage that declares none is
-unchanged. The declaration is in the Deployment Profile rather than in
-`source.yaml` or derived at activation: the policy is platform state Terraform
-owns, and the platform apply never reads user code (ADR 0002); the hosts and
-ports are stage bindings, not descriptor facts; and a code commit should not
-widen a stage's network. The module renders a stage row that names pods as its
-own policy, since the namespace-wide `olf-flows` would give the grant to every
-pod in the stage. The label narrows, it does not isolate (decision 4). The AWS
-and Azure roots render no NetworkPolicy, so the field has no effect there. The
-negative matrix is unchanged: no probe pod carries the run-worker label, and
-F34 opens no in-cluster address.
-
-The platform API's audit records (ADR 0021, decision 3) travel over F33 with a
-second identity, `openlakeforge-platform-api-audit`, granted `Write` on
-`audit/platform-api/` only; the credentials Job's Role in `olf-system` names its
-Secret, `platform-api-audit-writer-s3-creds`, as well. Its files explorer reads and
-writes the layer buckets and the ops bucket with a third identity,
-`openlakeforge-platform-api-files`, whose Secret is
-`platform-api-files-s3-creds`; the Job's Role names it the same way.
-
-The platform API's Superset service users (ADR 0021, open item 3) add one more
-E1 ServiceAccount, `platform-api-superset-users` in `olf-system`. It mints each
-stage's password in `olf-system` and copies it into that stage's namespace, so
-it may `create` Secrets in both and touch only `platform-api-superset-<stage>`
-and `platform-api-superset` by name. One Job in the API's namespace writing out,
-rather than one per stage writing in, keeps `olf-system` free of Secrets another
-module created.
-
-F35 added (#670): the platform API reaches each stage's Superset on 8088 for the
-report routes, signed in as its own service user, not `admin`. The stage rule is
-namespace-wide, as F32's is.
-
-F36 added (#800): the platform API reaches the Trino coordinator on 8443 to run
-and page a person's queries with that person's token. It is a row on both sides,
-the API's egress and the coordinator's ingress, as F8 is. The query signing key
-(`platform-api-query-signing-key`) is minted in `olf-system` by one Job with its
-own E1 ServiceAccount, `platform-api-query-signing-key`: it may `create` Secrets
-there and read only that one by name. Its pods do not carry the API's name label,
-so the API's workload policy does not select them.
-
-The RBAC inventory gained the platform API (#1126): its service probes may `list` pods, Deployments and StatefulSets in
-the stage namespaces through a Role and RoleBinding per namespace. #1156 wires the grant, the token and the egress
-together with their caller, the stage health route: `environments/local` sets `probe_namespaces` from the stage
-namespace resources, the pod then mounts its ServiceAccount token, and F20 gains a row for the platform API to the API
-server (443 and 6443). Without `probe_namespaces` the pod holds no token. F36's
-coordinator row also carries the health probe's `/v1/info`; the row was never conditional on `person_query`, so
-Trino needed no new row.
-
-F37 added (#1121, ADR 0022): the log collector (`app.kubernetes.io/name=log-collector`, a DaemonSet in `olf-system`)
-reaches the SeaweedFS S3 gateway on 8333 with its own identity, `openlakeforge-log-collector`, granted `Write` on each
-stage's `activations/<stage>/logs/v2/` and on `platform/logs/v2/` and nothing else. Its Secret,
-`log-collector-s3-creds`, is minted by the SeaweedFS credentials Job, whose Role names it. The same pods reach the API
-server (443 and 6443) for the `kubernetes` filter's pod and namespace lookups. The collector mounts the node's `/var/log`
-read-only and a node directory for its offsets and spool, which `olf-system` admits because no namespace sets a Pod
-Security label [V: no `pod-security.kubernetes.io` label in `infra/`]. Its health endpoint is read by the kubelet (F24); F42 adds the one
-connection it accepts.
-
-F38, F39 and F40 added (#1172, ADR 0023): the alert evaluator, a CronJob in `olf-system` whose pods carry
-`openlakeforge.io/job=alert-evaluator`, reads each stage's Dagster over F38 and the ops bucket over F39 with
-`openlakeforge-alerts`, whose Secret `alert-evaluator-s3-creds` the SeaweedFS credentials Job mints and whose Role names
-it. F40 lets it POST to a receiver on any address on 443, because NetworkPolicy cannot name a host. The workload and
-its rows render only on a profile with receivers. The evaluator holds no token for the Kubernetes API server (F44 adds one for the platform API, below).
-
-The SeaweedFS credentials Job's E1 pin gained `platform-api-quality-reader-<stage>-s3-creds` (#1186): one key per
-stage, `Read` and `List` on that stage's `activations/<stage>/run-artifacts/quality/` and nothing else, mounted by the
-platform API for its health routes. It reuses the platform API's existing S3 flow, so no network row changed. The alert
-evaluator reads the same manifests with its own `openlakeforge-alerts` key (F39), which already holds `Read` and `List` on
-each quality prefix: no Secret, grant or flow was added for it.
-
-F41 added (#1173, ADR 0023): the alert e2e runs a stub webhook receiver as a pod in `olf-system` for the length of the
-check, labelled `openlakeforge.io/e2e=alert-receiver`, and F41 lets the evaluator's pods reach it on 8443. Like F29, the
-row exists only for the e2e. The stub is not a workload with a policy of its own, and `olf-system` has no default deny, so the e2e creates a temporary NetworkPolicy beside it that admits only the evaluator's pods on 8443 (the harness reads the stub's routes by `kubectl exec` over loopback, which needs no rule) and deletes it with the stub.
-
-F42 added (#1189, ADR 0022): the collector pod gains a second container, `spool-probe`, that serves the S3 output's
-spool age and size on 2021, and the platform API reads it through the headless Service `log-collector-probe`. The
-sidecar mounts the collector's state directory read-only, holds no credential and no Kubernetes permission of its own
-(it shares the pod's ServiceAccount token, which is the collector's read of pods and namespaces), and runs unprivileged
-with an empty capability set as the collector does. `olf-system` carries no Pod Security label [V], so it admits the pod
-as it admitted the collector. One row renders both halves: the collector's ingress on 2021 from the platform API's pods and nothing
-else, and the API's egress to the collector's pods.
-
-F39's key gained the alert policy's read grant (ADR 0023, decision 10, slice AP-b): `Read`, with no `List` and no `Write`, on each enabled stage's `activations/<stage>/ACTIVE.json` and `activations/<stage>/revisions/*`, and on `project/revisions/*`. No Secret, Role or flow row changed: the evaluator already reaches the S3 gateway over F39 with the same key, so `release/network-flows.yaml` and the e2e network pins stand. `project/revisions/*` also exposes every frozen file of every revision to this key (dbt SQL, Dagster code, Floe contracts); the maintainer accepted that reach. Whether SeaweedFS honours a `*` in the middle of an action path, which would narrow it to `project/revisions/sha256/*/descriptors/*`, is not tested yet (see ADR 0023, History).
-
-F43 added (#798, ADR 0021 decision 7): the platform API reads Polaris's readiness check, `GET /q/health/ready` on the
-management port 8182, through the chart's headless Service `polaris-mgmt` [V: `helm template` of the pinned chart 1.8.0
-renders that Service, the container port and the chart's own readiness probe on the same path]. The request carries no
-credential and the row opens no other port, so the platform API still has no flow to the REST API on 8181 and no
-Polaris grant. One row renders both halves: Polaris's ingress on 8182 from the platform API's pods and nothing else, and
-the API's egress to Polaris's pods.
-
-F44 added (ADR 0023, decision 11; ADR 0021, decision 3): the alert evaluator reads each stage's health from the platform API
-on 8080, instead of probing the stages itself. Its pod projects one ServiceAccount token for the audience
-`openlakeforge-platform-api`, valid ten minutes; the default token stays unmounted, and the evaluator still holds no Role and
-no access to the Kubernetes API server. The platform API checks that token with a TokenReview over its existing F20 egress,
-for which it holds the ClusterRole `olf-system-platform-api-token-review` (`tokenreviews` `create`), the one cluster-scoped
-grant it has. It matches none of E1 to E6 and grants no Secret verb or create on pods, so the second assertion does not list it.
-
-F52 and F53 added (#797, ADR 0007): the quality reconciler, one CronJob per governed stage in `olf-system` whose pods
-carry `openlakeforge.io/job=quality-reconciler`, publishes that stage's quality results to OpenMetadata over F52 with the
-ingestion bot's token, mounted from its Secret, and reads the stage's manifests and keeps its sync state over F53 with
-`openlakeforge-quality-sync-<stage>`. The SeaweedFS credentials Job mints `quality-reconciler-<stage>-s3-creds`, and its
-E1 pin gains that name. The reconciler holds no Role and mounts no Kubernetes token. A stage without governance renders
-no CronJob, Secret or row, so Slim is unchanged. The ids follow F45 to F51, which ADR 0024 reserves.
-
-F17 (#22): the log archive retention Job of `modules/storage/seaweedfs`, which sets filer path TTLs with
-`weed shell` (ADR 0022, decision 6), carries the bucket Job's `openlakeforge.io/job=bucket-bootstrap` label and
-reaches the master and filer through the same row. No flow is added; the module's `object_retention` tftest checks
-that a row of `release/network-flows.yaml` admits the Job's labels.
-
-2026-11-18: F45 to F49 added (#21, ADR 0024): Prometheus (`app.kubernetes.io/name=prometheus`, a Deployment in
-`olf-system`) is reached by the platform API on 9090 (F45), discovers nodes through the API server (F46), scrapes the
-kubelet on 10250 (F47), each stage's Trino coordinator on 8080 (F48) and SeaweedFS on 9327 (F49). Its ClusterRole
-`olf-system-prometheus` grants `nodes` `get`, `list`, `watch` and `nodes/metrics` `get`, never `nodes/proxy`. The workload,
-its Role and its rows render only when the profile enables metrics: `environments/local` drops every row naming
-Prometheus otherwise, on both sides, so Slim gains no ingress into the stages and no egress from the platform API.
-
-2026-11-18: F50 and F51 added (#21, ADR 0024): kube-state-metrics (`app.kubernetes.io/name=kube-state-metrics`, a
-Deployment in `olf-system`) is scraped by Prometheus on 8080 (F50) and lists and watches the API server (F51). Its
-grants are a Role and RoleBinding in `olf-system` and each stage namespace, `list` and `watch` on pods, Deployments,
-StatefulSets and DaemonSets, never a ClusterRole. As F45 to F49, the workload, its Roles and both rows render only
-when the profile enables metrics.
-
-2026-11-18: the SeaweedFS credentials Job's E1 pin gained `platform-api-alert-state-s3-creds` (#1258): identity
-`openlakeforge-platform-api-alerts`, `Read` and `List` on the alert evaluator's `alerts/state/` and nothing else,
-mounted by the platform API for its alert incidents route. It renders only with the platform API and alert receivers,
-and reuses the platform API's existing S3 flow, so no network row changed.
-
-2026-11-22: Corrected to match the code: the Context no longer says the tree has no NetworkPolicy; decision 2's namespace-wide deny covers stage namespaces only, while `olf-system` has per-workload policies for the listed workloads (`modules/security/network-policy`); and F52 publishes with the stage's quality-writer bot token since #1322, not the ingestion bot's the #797 entry names. No decision changed.
+- 2026-10-16 (#46, #386): New record. D1 to D6, and the maintainer's
+  decisions now numbered D7 to D10; D7 made Calico a fallback behind the
+  canary.
+- 2026-10-16 (#46): D7 settled: the canary passed on kind 0.32.0 with kindnet,
+  so Calico is not built.
+- 2026-10-18 (#408): D9 changed: the e2e's stub is reached by a flow row keyed
+  on a label it sets.
+- 2026-10-22 (#463): D8 changed: E2 accepted as a named exception instead of
+  narrowed; E1 to E6 are the named set.
+- 2026-11-23: Rewritten in the standard form; the second list of decisions
+  (1 to 4) became D7 to D10; the flow table and RBAC inventory moved to
+  `identity-network-policy-and-rbac.md`. No decision changed.

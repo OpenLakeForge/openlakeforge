@@ -1,4 +1,4 @@
-"""NetworkPolicy and RBAC conformance (#46, ADR 0017 "Conformance test").
+"""NetworkPolicy and RBAC conformance (#46; ADR 0017 D1, D2 and D5).
 
 Positive: every flow row tagged T whose two ends are pods (or the API server)
 connects, from a probe pod carrying the source's namespace and labels.
@@ -333,7 +333,7 @@ def _service_accounts(cfg: E2EConfig) -> list[tuple[str, str]]:
 
 
 def rbac_denials(namespace: str, name: str) -> list[tuple[str, ...]]:
-    """can-i arguments that must answer no for this ServiceAccount (ADR 0017, "Denied")."""
+    """can-i arguments that must answer no for this ServiceAccount (ADR 0017 D5)."""
     denied: list[tuple[str, ...]] = [
         *[(verb, "roles", "-n", namespace) for verb in ("escalate", "bind")],
         *[(verb, "clusterroles") for verb in ("escalate", "bind")],
