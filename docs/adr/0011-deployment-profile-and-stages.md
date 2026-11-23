@@ -1,192 +1,119 @@
 # ADR 0011: Deployment Profile v1beta1 — provider, stage, and preset
 
-## Status
-
-Binding.
+| | |
+| --- | --- |
+| Status | Binding; `aws` and `azure` are preview in v1beta1 |
+| Built | local ✔ · AWS ✔ · Azure ✔ (the resolver is provider-neutral; the clouds render one shared Trino, see Consequences) |
 
 ## Context
 
-v0.3 (`#111`) introduces shared lifecycle stages (`dev`, optional `uat`,
-`prod`) and exact-revision promotion between them on one Kubernetes cluster.
-Building that requires one versioned, user-facing description of what a
-deployment should look like, resolved before any Terraform, Helm, or
-Kubernetes object exists.
-
-Before this record, `olf deploy --provider local --profile slim|full`
-conflated separate concepts behind two flags:
-
-- **provider** — where the deployment runs (`local`, `aws`, `azure`);
-- **stage** — a shared lifecycle boundary (`dev`, `uat`, `prod`);
-- **preset** — a named default/override set for optional capabilities
-  (`slim`, `full`);
-- **runtime** — the query engine a stage uses (only Trino exists today).
-
-A fourth profile concept, **sizing**, was added later (#323): how large the
-shared query engine and the self-hosted object storage are.
-
-`--profile` names the preset but reads as an environment; ADR 0002 already
-warned that `--profile` is not a phase, and ADR 0009 called the project-root
-`openlakeforge.yaml` "a structural marker pending its semantic resolver."
-Neither record gave the four concepts distinct types. This ADR does.
+Shared lifecycle stages (`dev`, optional `uat`, `prod`) with exact-revision
+promotion between them on one Kubernetes cluster need one versioned,
+user-facing description of what a deployment should look like, resolved
+before any Terraform, Helm, or Kubernetes object exists. The v0.2 command
+line, `olf deploy --provider local --profile slim|full`, conflated separate
+concepts behind two flags: where the deployment runs, which lifecycle
+boundary it is, which optional capabilities it carries, and which query
+engine it uses. `--profile` named a capability preset but read as an
+environment. This record gives each concept its own type and fixes how the
+project-root `openlakeforge.yaml` resolves. Every field, type and default is
+in the [Deployment Profile reference](../reference/deployment-profile.md).
 
 ## Decision
 
-### The concepts stay distinct types throughout the resolver
+**D1. Provider, stage, preset and sizing are distinct typed concepts; runtime
+is not a field.** They stay separate types throughout the resolver:
 
-| Concept | Values (v1) | Lives in |
+| Concept | Values (v1beta1) | Lives in |
 | --- | --- | --- |
 | Provider | `local`, `aws`, `azure` | `spec.provider.type` |
 | Stage | `dev`, `uat` (optional), `prod` | `spec.stages.<name>` |
 | Preset | `slim`, `full` | `spec.preset` |
-| Sizing | `query`: `small` (`medium`, `large` named but rejected); `storage`: `small`, `medium`, `large` | `spec.query.size`, `spec.storage.size` |
-| Runtime | not exposed — Trino only | not a v1 field |
+| Sizing | `small`, `medium`, `large` (D6) | `spec.query.size`, `spec.stages.<stage>.query.size`, `spec.storage.size` |
 
-`spec.provider.type` selects a deployment target and the *defaults* for each
-capability adapter: cluster, object storage, metadata database and catalog.
-`spec.cluster.adapter`, `spec.storage.adapter`, `spec.catalog.adapter`,
-`spec.metadata_database.adapter` and `spec.state.backend` reserve the
-selection points before the beta freeze. Only the provider's current defaults
-are accepted; another selection fails with the issue that implements it.
-Later milestones extend those selectors for existing Kubernetes (#802),
-external S3 (#803), external PostgreSQL (#335) and remote Terraform state
-(#905/#132), with their adapter-specific settings. They do not change what
-`provider.type` means. In the v1beta1 schema `aws` and `azure` are
-preview: accepted, but the beta compatibility promise covers `local` only.
+A provider is not a stage. A stage is not a Kubernetes cluster: every stage
+runs on one shared cluster. A preset is a default/override set for optional
+per-stage capabilities, not a second architecture. Runtime choice stays out
+of the schema while Trino is the only shared-stage runtime; adding it later is
+an additive change. Enforced by: `Provider`, `Preset`, `Size` and `StageSpec`
+in `tools/olf/olf/common/profile.py`.
 
-| Selector | Local default | AWS default | Azure default |
-| --- | --- | --- | --- |
-| `cluster.adapter` | `kind` | `eks` | `aks` |
-| `storage.adapter` | `seaweedfs` | `s3` | `seaweedfs` |
-| `catalog.adapter` | `polaris` | `glue` | `polaris` |
-| `metadata_database.adapter` | `postgresql` | `rds` | `postgresql` |
-| `state.backend` | `local` | `local` | `local` |
+**D2. `spec.provider.type` selects a deployment target and the default
+adapter for each capability; the adapter selectors are reserved and accept
+only those defaults.** `cluster.adapter`, `storage.adapter`,
+`catalog.adapter`, `metadata_database.adapter` and `state.backend` exist
+before the beta freeze so that existing Kubernetes, external S3, external
+PostgreSQL and remote state arrive as additive selections without changing
+what `provider.type` means. A selection other than the provider's default
+fails and names the issue that implements it; it never silently deploys the
+default. Explicit defaults resolve identically to omitted selectors, and the
+resolver prints the chosen adapters (`adapters` in `olf profile resolve
+--json`) either way. The per-provider defaults are in the
+[reference](../reference/deployment-profile.md#specprovider). Enforced by:
+`_DEFAULT_ADAPTERS` and `_ADAPTER_TRACKERS` in
+`tools/olf/olf/common/profile.py`.
 
-The resolver emits these choices as `adapters` in its JSON output, including
-when the selectors are omitted. Explicit defaults resolve identically to
-omitted selectors; they introduce no Terraform or runtime change. On AWS,
-`storage.adapter: s3` is valid but `storage.size` remains rejected because
-managed S3 has no self-hosted volume to size.
+**D3. In v1beta1, `aws` and `azure` are preview.** The schema accepts them,
+but the beta compatibility promise covers `local` only, and `olf profile
+validate` prints a notice for a preview provider. Enforced by:
+`tools/olf/olf/common/commands/profile.py`.
 
-A provider is not a stage. A stage is not a Kubernetes cluster — v0.3 runs
-every stage on one shared cluster. A preset is a default/override set for
-optional per-stage capabilities, not a second architecture. Runtime choice
-stays out of the schema entirely while Trino is the only supported
-shared-stage runtime; adding it later is an additive schema change, not a
-retrofit.
+**D4. The profile is `openlakeforge.io/v1beta1` `DeploymentProfile`, and what
+the user wrote is never the same object as what it resolves to.**
+`DeploymentProfile` is the desired shape; `DeploymentTopology` is the one
+effective, fully defaulted result, and every consumer reads the topology.
+Validation is layered as for the descriptors (ADR 0005): a hand-written,
+fail-closed parser that gives actionable errors and is the authority, and
+`docs/schema/deployment-profile.schema.json` for the versioned,
+tool-checkable shape; neither substitutes for the other. A `v1alpha1` file is
+not read: validation names `olf project migrate`, which rewrites it and
+refuses anything it cannot move safely. Enforced by:
+`tools/olf/olf/common/profile.py`, the schema, and `olf check contracts`,
+which exercises both.
 
-### Deployment Profile v1beta1
+**D5. An optional block that a profile may omit is added to v1beta1 without a
+version bump.** Profiles that omit it resolve as before. `spec.access`,
+`spec.identity`, `spec.project`, the sizing blocks and `spec.observability`
+were added this way. Enforced by: `PROFILE_API_VERSION` in
+`tools/olf/olf/common/profile.py`, which none of them changed.
 
-The project-root `openlakeforge.yaml` describes product intent only:
+**D6. Sizing uses only the `small | medium | large` vocabulary, and only a
+tier with a tested backend is accepted.** The profile never carries CPU,
+memory, worker, heap or volume quantities. `spec.query.size` is the default
+for every stage and `stages.<stage>.query.size` overrides it; storage has one
+platform-wide size; both default to `small`, so a profile without them
+renders as before. A named tier without a tested backend fails validation and
+names the issue that will implement it, rather than being accepted as a
+promise nothing keeps; today `query` accepts only `small` (#324) and
+`storage` accepts all three. `storage.size` is rejected on `aws`, whose
+managed S3 has no volume to size. A size selects a row of
+`release/query-sizes.yaml` or `release/storage-sizes.yaml` and so moves only
+Helm values, never a `ProjectRevision` or the project image. Enforced by:
+`_IMPLEMENTED_SIZES` in `tools/olf/olf/common/profile.py`.
 
-```yaml
-apiVersion: openlakeforge.io/v1beta1
-kind: DeploymentProfile
+**D7. A storage volume only grows.** Before any mutation, `olf` refuses a
+size below a claim's current request, and a larger size when the claim's
+StorageClass does not allow volume expansion. It never deletes and recreates
+a volume to apply a size. How it expands, and how to move a deployment that
+cannot, is in the
+[reference](../reference/deployment-profile.md#changing-the-storage-size).
+Enforced by: `tools/olf/olf/infra/deployment/storage_resize.py`.
 
-metadata:
-  name: acme-data
+**D8. `spec.project` holds references, never credentials, and the image
+repository resolves in a fixed order.** It declares the source repository
+(provenance only: `olf` builds the checked-out directory and never trusts a
+ref's mutable head), the image repository (`host[:port]/path`, no tag or
+digest) and the name of an out-of-band pull Secret. Unknown fields,
+credentials in a URL and a registry-less image are rejected. The image
+repository is the profile's, then the `PROJECT_CODE_IMAGE_REPOSITORY`
+override, then the provider registry for a declared project, and the public
+example only when `spec.project` is absent: a declared project never
+resolves to the example, and a local project must name its image because
+kind has no registry. `openlakeforge.yaml` stays out of a `ProjectRevision`
+(ADR 0012). Enforced by: `resolve_project` in
+`tools/olf/olf/common/profile.py`.
 
-spec:
-  provider:
-    type: aws
-    region: eu-west-3
-
-  preset: slim
-
-  stages:
-    dev:
-      enabled: true
-
-    prod:
-      enabled: true
-      capabilities:
-        analytics: true
-        governance: true
-```
-
-`tools/olf/olf/common/profile.py` models this as frozen typed value objects
-(`DeploymentProfile`, `ProviderSpec`, `StageSpec`, `StageCapabilities`, plus
-`AccessSpec` and `IdentitySpec` for the optional `spec.access` and
-`spec.identity`) and
-resolves it into a separately typed `DeploymentTopology`. The desired and
-resolved shapes are never the same object: `DeploymentProfile` is what the
-user wrote, `DeploymentTopology` is the one effective, fully-defaulted result.
-Validation is layered the same way as the Lakehouse/Source descriptors (ADR
-0005): a hand-rolled parser in `olf/common/profile.py` for actionable, fail-closed
-errors, and `docs/schema/deployment-profile.schema.json` for the versioned,
-tool-checkable shape. Neither substitutes for the other, and both are
-exercised by `olf check contracts`.
-
-### Sizing: `spec.query.size` and `spec.storage.size`
-
-Two optional fields choose a size for the shared Trino (`query`) and for
-self-hosted object storage (`storage`, SeaweedFS). The vocabulary is
-`small | medium | large`; the profile never carries CPU, memory, worker, heap or
-volume quantities. `spec.query.size` is the default for every stage and
-`stages.<stage>.query.size` overrides it (#972); `storage` has one platform-wide
-size. Both default to `small`, which is today's footprint, so a profile
-without the fields resolves and renders exactly as before.
-
-The per-stage size lets a small DEV sit beside a larger PROD. It landed before
-the v1beta1 freeze (#532) because a platform-wide query size frozen in the beta
-could not become per stage without a breaking change.
-
-Each stage has its own Trino (ADR 0019 section 9), rendered at that stage's
-size on the local root (#976). AWS and Azure still render one shared Trino, at
-the largest enabled stage's size.
-
-Only tiers with a tested backend are accepted. For `query`, `medium` and
-`large` are part of the vocabulary but fail validation, naming the issue that
-will implement them (#324, Trino workers), rather than being accepted as a
-promise nothing keeps. `storage.size` accepts all three (#326). Growing the set is
-the change that implements and tests the tier; existing profiles stay valid.
-`storage.size` is also
-rejected on `aws`, whose object storage is managed S3 with no volume to size;
-it applies on `local` and `azure`, where SeaweedFS is self-hosted.
-
-The resolved sizes are carried on `DeploymentTopology` (`query_size`,
-`storage_size`) and printed by `olf profile resolve`. `query_size` selects a
-row of `release/query-sizes.yaml`, which the local root receives as its
-`query_sizing` variable (AWS and Azure keep their Trino values until their own
-adapter changes); a size change therefore moves only the Trino Helm
-values, never a ProjectRevision or the project image. `storage_size` reaches
-the local and Azure roots as the `storage_size` Terraform variable, which
-selects a row of `release/storage-sizes.yaml`: the one provider-neutral table,
-read by the SeaweedFS module for the PVC sizes and the volume server's slot
-count, and by `olf` for the expansion rule. `small` is the sizing the module
-carried before the profile could choose, so a profile without the field renders
-the same Helm values. `medium` and `large` are provisional until #329 measures
-them. The capacity preflight is #327.
-
-A volume only grows. Before the platform apply, `olf` reads the SeaweedFS
-claims in the shared namespace and refuses, before any mutation, a size below a
-claim's current request, and a larger size when the claim's StorageClass does
-not set `allowVolumeExpansion: true`. It never deletes and recreates a volume.
-Where it does expand, it patches the claims and deletes the SeaweedFS
-StatefulSets with `--cascade=orphan`, because Kubernetes forbids editing their
-volume claim templates. kind's default `standard` class does not expand, so the
-local profile is sized at creation; the migration is documented in the
-Deployment Profile reference.
-
-### `spec.project`: the customer's source and image registry
-
-An optional `spec.project` declares `repository` (the source URL, provenance
-only: `olf` builds the checked-out directory and never trusts a ref's mutable
-head), `image.repository` (`host[:port]/path`, no tag or digest) and
-`image.pull_secret_ref.name` (a Kubernetes Secret created out-of-band). The
-profile carries references, never credentials: unknown fields, credentials in a
-URL and a registry-less image reference are rejected. `spec.identity.github`
-stays platform human roles; it never holds registry credentials. ADR 0012 still
-keeps `openlakeforge.yaml` out of a `ProjectRevision`.
-
-`olf.common.profile.resolve_project` picks the image repository in a fixed order:
-explicit profile, then `PROJECT_CODE_IMAGE_REPOSITORY` (compatibility
-override), then the provider registry (ECR or ACR) for a declared project
-without an image, and the public example only when `spec.project` is absent.
-A declared project never resolves to the example, and a local project must name
-its image because kind has no registry. Existing profiles are unchanged. The
-resolver exposes the result; wiring it into the deploy is #539 and #540.
-
-### Resolution is deterministic
+**D9. Resolution is deterministic.**
 
 | Input | Effective result |
 | --- | --- |
@@ -194,166 +121,118 @@ resolver exposes the result; wiring it into the deploy is #539 and #540.
 | Stage present, `enabled` omitted | `enabled: true` |
 | Stage present, no `capabilities` | Preset default (`slim` → both `false`, `full` → both `true`) |
 | Stage present, capability stated | Explicit value wins over the preset |
-| Disabled stage | Capabilities always resolve to `false`, regardless of what was written |
+| Disabled stage | Capabilities always resolve to `false`, whatever was written |
 
-### Fail-closed validation
+Enforced by: `resolve_topology` in `tools/olf/olf/common/profile.py`.
 
-Unknown fields at any level, an unsupported `apiVersion`/`kind`, an unknown
-stage name, an unsupported `preset` or `provider.type`, no stage enabled at
-all, a `region` set for `provider.type: local`, and a `uat`/`prod` stage
-enabled while `dev` is disabled (every promotion in the v0.3 model sources
-from DEV) are all rejected before a resolved topology is produced.
+**D10. Validation fails closed.** Unknown fields at any level, an unsupported
+`apiVersion` or `kind`, an unknown stage name, an unsupported `preset` or
+`provider.type`, no stage enabled, a `region` on `provider.type: local`, and
+`uat` or `prod` enabled while `dev` is disabled (every promotion sources from
+DEV) are all rejected before a topology is produced. The full rule list is
+the reference's [cross-field rules](../reference/deployment-profile.md#cross-field-rules).
+Enforced by: `tools/olf/olf/common/profile.py` and
+`tools/olf/tests/common/test_profile.py`.
 
-### v1 frozen exclusions
+**D11. The v1 exclusions are frozen, and the topology carries only logical
+service identities.** A field with no implemented, testable provider mapping
+becomes a no-op promise, so these are not profile fields: `runtime`,
+`query.engine` (DuckDB stays out until its Slim conformance gates pass,
+#547), `spec.expose` (public exposure waits for the cloud beta), personal
+workspace policy, raw CPU, memory, worker or volume sizing, availability, raw
+namespaces, replicas, resources, Helm values, Terraform modules or backends,
+IAM policies, credentials, images, PVCs, buckets, catalogs and generated
+endpoints. The image repository and pull Secret name of `spec.project` (D8)
+are the declared exception. `DeploymentTopology` names services only
+logically (`catalog`, `query`, `metadata_database`, `governance` shared;
+`orchestration`, `reporting` per stage), never namespaces, Helm releases or
+endpoints; its one user-owned fact is `identity` (`issuer_url`, `role_claim`,
+`role_mapping`), which no provider can generate and the provider contract
+must match (ADR 0014). The provider-contract resolver derives the physical
+bindings from the topology (ADR 0003), and namespaces (`olf-system` shared,
+`olf-<stage>` per stage) are derived outside it. Enforced by:
+`DeploymentTopology` in `tools/olf/olf/common/profile.py` and
+`stage_namespace` in `tools/olf/olf/common/deployment/context.py`.
 
-The following are not v1 profile fields, because no provider adapter maps
-them to anything real yet — a field with no implemented, testable mapping
-becomes a no-op promise, which is worse than deferring it:
-
-`runtime`, personal workspace policy, raw CPU/memory/worker/volume sizing
-(only the `small | medium | large` vocabulary above exists), availability, raw namespaces, replicas, resources, Helm values, Terraform
-modules or backends, IAM policies, credentials, images, PVCs, buckets,
-catalogs, and generated endpoints (the project image repository and pull secret
-*name* of `spec.project` are the declared exception: user-owned references). `DeploymentTopology` carries only logical
-service identities (`catalog`, `query`, `metadata_database`, `governance` as
-shared services; `orchestration`, `reporting` per stage) — never namespaces,
-Helm releases, or endpoints. The one exception is `identity` (`issuer_url`,
-`role_claim`, `role_mapping`): an external issuer's URL and claim vocabulary
-are user-owned facts that no provider can generate, and the provider contract
-must be checked against them (ADR 0014). It is never a credential. The typed
-provider-contract v3 resolver derives those from this topology (ADR 0003):
-every platform root emits and provisions the resolved stage bindings through
-its provider adapter (#133, #114). None belongs in this profile.
-
-### The v0.2 compatibility path
-
-`olf infra deploy --profile slim|full` stays as a deprecated shorthand:
-`olf.common.profile.legacy_single_stage_topology` resolves it to one enabled
-DEV stage using the preset's capability defaults, proving the shorthand is
-exactly the single-DEV-stage case of the general model.
-
-`DeploymentContext` now carries the resolved topology and the selected stage.
-The provider comes from the project-root Deployment Profile's
+**D12. The profile names the provider, and `--profile slim|full` is a
+deprecated shorthand for one DEV stage.** `DeploymentContext` carries the
+resolved topology and the selected stage. The provider is the profile's
 `spec.provider.type`; `--provider` is optional and must match it. With no
-`--profile`, the profile is authoritative; an explicit `--profile slim|full`
-resolves the single-DEV shorthand for the profile's provider. A project with
-no profile file at all resolves the shorthand on `--provider`, or `local`.
-A profile file that exists but is invalid, or that targets another provider
-than `--provider`, fails closed, with or without `--profile`. Namespaces are derived from the topology but are not
-part of it: `olf-system` for shared services and `olf-<stage>` per enabled
-stage live in `olf.common.deployment.context`, since ADR 0011 keeps the resolved
-topology free of namespaces, Helm releases, and endpoints.
+`--profile`, the profile is authoritative; `--profile slim|full` resolves to
+one enabled DEV stage with that preset's capability defaults on the
+profile's provider, the single-DEV case of the general model. A profile file
+that is invalid or names another provider fails closed, with or without
+`--profile`; with no profile file at all, the shorthand resolves on
+`--provider`, or `local`. Enforced by: `resolve_topology` in
+`tools/olf/olf/infra/commands/_shared.py` and
+`legacy_single_stage_topology` in `tools/olf/olf/common/profile.py`.
 
 ## Consequences
 
 - `olf profile validate` and `olf profile resolve --json` expose the
-  effective topology before any mutation, for both humans and CI.
-- The stage-aware platform, data plane, project revision and activation
-  (`#133`, `#114`, `#154`, `#115`) consume `DeploymentTopology`, not
-  `--profile`/`--provider` flags directly: `olf infra platform apply -f` and
-  `olf infra project deploy -f --stage` take the profile file.
-- Local, AWS, and Azure POC shapes are representable without credentials,
-  raw resource values, or endpoints — those stay behind provider contracts (ADR 0003).
+  effective topology before any mutation, for people and CI.
+- The lifecycle commands consume `DeploymentTopology`, not flags:
+  `olf infra platform apply -f` and `olf infra project deploy -f --stage` take
+  the profile file.
+- Each stage gets its own Trino at its own size on the local root (ADR 0019
+  section 9); AWS and Azure still render one shared Trino, at the largest
+  enabled stage's size.
+- `query.size` `medium` and `large` stay rejected until workers have network
+  flows, authentication across nodes (#367) and a kind run (#324). The
+  storage `medium` and `large` rows are provisional until #329 measures them.
+- kind's default `standard` StorageClass does not expand, so a local
+  deployment is sized at creation; changing it means a rebuild.
+- `olf infra deploy` does not read `spec.project` yet (#539).
+
+## Boundaries
+
+| Not decided here | Where |
+| --- | --- |
+| Every field, type, default and cross-field rule | [Deployment Profile reference](../reference/deployment-profile.md) |
+| `spec.access`: ingress, routes and TLS | [ADR 0013](0013-service-access-and-ingress.md) |
+| `spec.identity`: the issuer, roles and their mapping | [ADR 0014](0014-identity-and-authorization.md) |
+| `spec.observability`: what each capability deploys | [ADR 0022](0022-pod-log-collection-and-archive-format.md), [ADR 0023](0023-alert-evaluation-and-webhook-delivery.md), [ADR 0024](0024-metrics-prometheus-reference-and-read-path.md) |
+| How the topology becomes provider contracts | [ADR 0003](0003-provider-contracts.md) |
+| The deploy phases and the CD boundary | [ADR 0002](0002-deployment-lifecycle.md) |
+| What a revision contains and how a stage activates it | [ADR 0012](0012-project-revisions-and-promotion.md) |
+
+## Alternatives rejected
+
+| Option | Why not |
+| --- | --- |
+| Keep `--provider` and `--profile` as the deployment description | Conflates target, stage and preset; `--profile` reads as an environment |
+| One object for the desired and the resolved profile | Defaults and user intent become indistinguishable |
+| A `runtime` or `query.engine` field now | Only Trino exists; a field with no mapping is a no-op promise |
+| Raw CPU, memory, worker or volume values in the profile | Couples the profile to one adapter's rendering |
+| Accept `medium` and `large` before a backend is tested | A promise nothing keeps |
+| A platform-wide query size frozen in the beta | Could not become per stage without a breaking change |
+| Delete and recreate a volume to resize it | Loses data |
 
 ## History
 
-New record. No prior ADR modeled provider, stage, and preset as distinct
-types; ADR 0002 and ADR 0009 are corrected in place to stop describing
-`--profile` as an environment or the profile file as inert.
-
-2026-08-28: Updated the provider-contract handoff after v3 established the
-typed topology-to-provider boundary; no profile fields were added.
-
-2026-08-29: The topology reaches Terraform (#133). `DeploymentContext`
-resolves it, the local platform root consumes it as typed variables, and
-namespace derivation is recorded as living outside the topology. No profile
-fields were added.
-
-2026-10-01: Rewritten as current behavior for the 0.3.0-alpha.1 release: the
-roots provision the resolved bindings, and the lifecycle commands consume the
-topology. No profile fields were added.
-
-2026-10-02: Added optional `spec.access` (`base_domain`, `issuer`) for
-service access (#264). It is deployment configuration owned by ADR 0013, not a
-fifth topology concept; omitted, it defaults to the local evaluation install.
-
-2026-10-09: Added optional `spec.identity` (`issuer`, and for an external
-issuer `issuer_url`, `role_claim`, `role_mapping`) selecting the OIDC issuer.
-The seam is owned by ADR 0014; the resolved topology carries it and the
-provider contract must match it.
-
-`spec.project` (#538) added in place: the customer's source and image registry
-as references, with a fixed resolution order and no credentials. The earlier
-"images" exclusion is narrowed to what the paragraph above allows.
-
-2026-10-30: Sizing (#323) added as the fourth profile concept: optional
-`spec.query.size` and `spec.storage.size`, default `small`. Per the v0.6
-lightweight-beta decision of 2026-10-27, `medium` and `large` fail validation
-until a tested backend lands (#324, #326) and `storage` is rejected on `aws`.
-The "sizing" exclusion is narrowed to raw resource values; the contract slice
-changes no rendered Terraform or Helm input.
-
-2026-10-30: `storage_size` drives the SeaweedFS volume sizes through
-`release/storage-sizes.yaml` (#326). `small` renders the Helm values it did
-before; `medium` and `large` stay rejected until the grow-only rule lands.
-
-2026-10-30: `query.size` renders Trino from `release/query-sizes.yaml` through
-the local root's `query_sizing` variable (#324). `small` renders the same values
-as before. The `medium` and `large` rows are defined but still fail validation:
-workers need network flows, authentication across nodes (#367) and a kind run
-before the tier counts as tested.
-
-2026-10-30: `storage.size` accepts `medium` and `large` (#326) when a
-deployment is created; a change to an existing deployment's size is refused
-before the platform apply until growing in place lands. `query.size` still
-accepts `small` only.
-
-2026-10-31: an existing deployment's volumes grow in place where the claim's
-StorageClass sets `allowVolumeExpansion: true` (#326): `olf` patches the
-claims and releases the SeaweedFS StatefulSets with `--cascade=orphan` before
-the apply. Shrinking, and growing on a class that cannot expand, stay refused.
-
-2026-11-06: `--provider` defaults to the profile's `spec.provider.type`
-instead of to `local`. A `--provider` that contradicts an existing profile now
-fails instead of warning and resolving a single DEV stage, and `--profile
-slim|full` no longer bypasses the profile file: an invalid or mismatched one
-fails closed. Without a profile file the shorthand behaves as before.
-
-2026-11-07 (#960): per-stage query size decided with one Trino per stage (#965), before the
-v1beta1 freeze; nothing built.
-
-2026-11-07 (#996): recorded what `provider.type` promises (target plus
-per-capability defaults, overridable by later additive fields) and that `aws`
-and `azure` are preview in v1beta1; `olf profile validate` prints a notice.
-
-2026-11-07: `stages.<stage>.query.size` added (#972); the resolver carries one
-query size per stage. Rendering a coordinator per stage is still #965.
-
-2026-11-10 (#1056): reserved capability adapter selectors with provider-derived
-defaults and explicit rejection of unimplemented choices. The resolver prints
-the selected adapters. AWS may name `storage.adapter: s3`; its storage size
-remains unavailable. Remote state and external-service connection settings
-stay with their adapter implementation issues.
-
-2026-11-11 (#532): the profile is `openlakeforge.io/v1beta1`. The one field
-change from v1alpha1 is `spec.access.issuer`, now `tls` only. A v1alpha1 file is
-not read: validation names `olf project migrate`, which rewrites the version line
-and the key and refuses anything it cannot move safely. `query.engine` and
-`spec.expose` are not fields; DuckDB stays outside the profile until its Slim
-conformance gates pass (#547), and public exposure waits for the cloud beta.
-
-2026-11-16 (#1117): optional `spec.observability` added to v1beta1 without a
-version bump, as `spec.access`, `spec.identity`, `spec.project` and the sizing
-blocks were: an optional block that a profile may omit is additive, and the
-profiles that omit it resolve as before. It states capabilities (log archive
-retention, metrics, log search, Grafana, alert receivers by Secret reference),
-never a backend. The resolver prints it; no Terraform reads it yet (#332).
-
-2026-11-17 (#23, alert policy slice AP-c): `spec.observability.alerts.platform_receivers`
-added, again without a version bump: an optional list of declared receiver
-names, non-empty and without repeats, naming the receivers told about platform
-conditions (a stage whose Dagster cannot be read, an alert policy the evaluator
-cannot use) that a project's `alerts.yml` cannot route (ADR 0023, decision 11).
-Omitted means every receiver, as before the field existed, and `olf profile
-resolve --json` always shows the effective list. A receiver's `stages` still
-caps what it receives.
+- 2026-08 (#113): Created: provider, stage and preset as distinct types and
+  Deployment Profile v1alpha1 (D1, D4, D9, D10, D11, D12).
+- 2026-08-28: D11: the provider-contract v3 resolver derives the physical
+  bindings from the topology.
+- 2026-08-29 (#133): D11: namespaces are derived outside the topology.
+- 2026-10-02 (#264): D5: optional `spec.access` added (owned by ADR 0013).
+- 2026-10-09: D5, D11: optional `spec.identity` added; `identity` is the
+  topology's one user-owned fact.
+- 2026-10 (#538): D8 added; the "images" exclusion in D11 narrowed to it.
+- 2026-10-30 (#323, #326): D6 added; the "sizing" exclusion in D11 narrowed to
+  raw values; `storage.size` accepts `medium` and `large`.
+- 2026-10-31 (#326): D7: volumes grow in place on an expandable StorageClass.
+- 2026-11-06: D12: `--provider` defaults to the profile's provider, and an
+  invalid or mismatched profile fails closed even with `--profile`.
+- 2026-11-07 (#960, #972): D6: `query.size` can be set per stage.
+- 2026-11-07 (#996): D2, D3: what `provider.type` promises; `aws` and `azure`
+  are preview.
+- 2026-11-10 (#1056): D2: adapter selectors reserved with provider defaults.
+- 2026-11-11 (#532): D4: the profile is `v1beta1` (`spec.access.issuer`
+  became `tls`); D11: `query.engine` and `spec.expose` are not fields.
+- 2026-11-16 (#1117): D5: optional `spec.observability` added without a
+  version bump.
+- 2026-11-17 (#23): D5: `spec.observability.alerts.platform_receivers` added
+  without a version bump.
+- 2026-11-23: Rewritten in the standard form with D1 to D12; no decision
+  changed.
