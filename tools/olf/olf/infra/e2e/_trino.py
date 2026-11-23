@@ -13,7 +13,7 @@ from olf.infra.e2e._shell import E2EConfig, E2EError, kubectl, load_provider_con
 
 POLARIS_POD_SELECTOR = "app.kubernetes.io/name=polaris,app.kubernetes.io/instance=polaris"
 POLARIS_RESTART_TIMEOUT_SECONDS = 300
-# kindnet programs a new pod's policy asynchronously (ADR 0017 History), so a
+# kindnet programs a new pod's policy asynchronously (ADR 0017, Consequences), so a
 # restarted Polaris is briefly unreachable after it reports Ready.
 POLARIS_QUERY_RETRY_SECONDS = 60
 PROBE_SCHEMA = "zz_olf_e2e_probe"
