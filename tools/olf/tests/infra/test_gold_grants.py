@@ -1,4 +1,4 @@
-"""`olf infra catalog sync-namespaces` grants olf-gold-read on Gold namespaces only (ADR 0019, section 5)."""
+"""`olf infra catalog sync-namespaces` grants olf-gold-read on Gold namespaces only (ADR 0019 D5)."""
 
 from __future__ import annotations
 

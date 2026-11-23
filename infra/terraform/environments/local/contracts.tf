@@ -201,7 +201,7 @@ locals {
   })
 
   # Each stage runs its own coordinator in its own namespace (ADR 0019
-  # section 9). Namespace-qualified: stage-scoped Dagster and Superset resolve
+  # D8). Namespace-qualified: stage-scoped Dagster and Superset resolve
   # this from their own namespace, where a bare service name would not resolve.
   stage_query_endpoints = { for name, namespace in local.stage_namespaces : name => "http://trino.${namespace}:8080" }
 

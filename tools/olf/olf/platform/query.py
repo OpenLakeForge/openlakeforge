@@ -51,7 +51,7 @@ def person_token(instance: sessions.Instance) -> tuple[str, dict[str, Any]]:
     claims = sessions.claims(token)
     if not claims.get("email"):
         raise sessions.PlatformError("the stored session carries no e-mail, which Trino names you by; run `olf login`")
-    # Polaris names the person's principal from the connector id (ADR 0019, section 4, step 11).
+    # Polaris names the person's principal from the connector id (ADR 0019 D7).
     if not isinstance(claims.get("federated_claims"), dict):
         raise sessions.PlatformError(
             "the stored session predates `olf query` and lacks the claims Polaris reads; run `olf login` again"
@@ -92,7 +92,7 @@ def run_statement(url: str, sql: str, *, bearer: Callable[[], str], user: str, s
 
 
 def explain(error: dict[str, Any], stage: str) -> str:
-    """Name what refused the query and why, from the error Trino passes on (ADR 0019, section 6)."""
+    """Name what refused the query and why, from the error Trino passes on (ADR 0019 D6)."""
     chain = list(dict.fromkeys(failure_messages(error)))
     text = "\n".join(chain)
     reason = next(
