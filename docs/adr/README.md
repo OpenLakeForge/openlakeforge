@@ -16,15 +16,15 @@ how user code is laid out, and `0008` for why `olf` is the only interface.
 
 | ADR | Decision |
 | --- | --- |
-| [0001](0001-platform-baseline-and-component-stack.md) | **Platform baseline and component stack** — Kubernetes-native, batch-first, Iceberg; dlt → Floe → dbt-trino → Trino, with Dagster orchestrating and OpenMetadata/Superset optional |
+| [0001](0001-platform-baseline-and-component-stack.md) | **Platform baseline and component stack** — Kubernetes-native, batch-first, Iceberg; dlt → Floe → dbt-trino → Trino under Dagster; Slim and Full |
 | [0002](0002-deployment-lifecycle.md) | **Deployment lifecycle** — foundation, platform, artifacts in order; the static/dynamic split is the CD boundary |
-| [0003](0003-provider-contracts.md) | **Provider contracts are the portability boundary** — typed Terraform contracts per capability; components consume contracts, never providers; consumers branch on `catalog_type` |
+| [0003](0003-provider-contracts.md) | **Provider contracts are the portability boundary** — Terraform exports typed v3 contracts per stage; `olf` parses them fail-closed; consumers branch on `catalog_type` |
 | [0004](0004-medallion-layout-and-catalog-namespaces.md) | **Medallion layout, ownership, and catalog namespaces** — `lakehouse_code/` replaces `domains/`; Bronze is source-owned, Silver domain-owned, Gold product-owned; per-layer buckets and flat namespaces |
-| [0005](0005-descriptor-model.md) | **The descriptor model** — `governance.yml` (domains and products) + `source.yaml`, one shared `openlakeforge-core` implementation; tables belong to a domain or product by schema |
+| [0005](0005-descriptor-model.md) | **The descriptor model** — `governance.yml`, `source.yaml` and optional `alerts.yml`, implemented once in `openlakeforge-core`; tables belong by schema |
 | [0006](0006-dagster-runtime-and-code-locations.md) | **Dagster runtime and code locations** — one `project-code` image, one merged code location by default, Kubernetes run launcher, Floe as one Kubernetes Job per domain on the same image |
 | [0007](0007-governance-and-lineage.md) | **Governance and lineage** — OpenMetadata with native OpenLineage emitted by the engine that performed the write, quality results published to its TestCase APIs after the run; the proxy and custom REST push stay rejected |
 | [0008](0008-olf-owns-orchestration-and-toolchain.md) | **`olf` owns orchestration and its managed toolchain** — no tracked shell, a pinned private toolchain, cloud sign-in through SDKs |
-| [0009](0009-distribution.md) | **Distribution** — a PyPI package carrying a verified platform payload; installed project root is the current directory; `olf init` |
+| [0009](0009-distribution.md) | **Distribution** — a PyPI package carrying a verified platform payload; the project root is the current directory; `olf init` |
 | [0010](0010-cloud-provider-implementations.md) | **Cloud provider implementations** — AWS swaps in EKS, S3, RDS, ECR, Pod Identity and one prefixed Glue catalog; Azure relocates hosting to AKS/ACR; both proof of concept |
 | [0011](0011-deployment-profile-and-stages.md) | **Deployment Profile v1beta1** — provider, stage, and preset are separate typed concepts; `openlakeforge.yaml` resolves to one effective `DeploymentTopology` before any Terraform, Helm, or Kubernetes object exists |
 | [0012](0012-project-revisions-and-promotion.md) | **Project revisions** — a build-once, content-addressed `ProjectRevision` covering descriptors, Floe contracts, dbt, Dagster, reports, and the project-code image digest; excludes deployment intent and every stage-rendered artifact |
