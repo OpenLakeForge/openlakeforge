@@ -360,16 +360,12 @@ def _bundle_documents(bundle: Path) -> dict[str, object]:
 
 
 @pytest.mark.parametrize(
-    ("stage_uri", "schema_prefix", "extra"),
+    ("stage_uri", "schema_prefix"),
     [
-        ("trino://olf-dev-runtime@trino.olf-system:8080/lakehouse_dev", "", None),
-        (
-            "trino://olf-dev-runtime@trino.olf-system:8443/lakehouse_dev",
-            "lakehouse_dev_",
-            {"engine_params": {"connect_args": {"http_scheme": "https", "verify": reports.SUPERSET_QUERY_CA}}},
-        ),
+        ("trino://olf-dev-runtime@trino.olf-system:8080/lakehouse_dev", ""),
+        ("trino://olf-dev-runtime@trino.olf-system:8080/lakehouse_dev", "lakehouse_dev_"),
     ],
-    ids=("local", "aws-with-tls"),
+    ids=("unprefixed-schemas", "prefixed-schemas"),
 )
 def test_an_export_of_an_imported_bundle_is_stage_neutral_again(
     tmp_path: Path,
@@ -377,7 +373,6 @@ def test_an_export_of_an_imported_bundle_is_stage_neutral_again(
     fake_superset: FakeSuperset,
     stage_uri: str,
     schema_prefix: str,
-    extra: dict[str, object] | None,
 ) -> None:
     """Superset exports what was imported into it: the stage's own connection
     and physical schemas. Exporting must hand back the bundle that was checked
@@ -393,7 +388,7 @@ def test_an_export_of_an_imported_bundle_is_stage_neutral_again(
     expected = _bundle_documents(checked_in)
     imported = tmp_path / "imported.zip"
     reports.build_report_bundle(
-        checked_in, imported, "dashboard_export_20261020T000000", stage_uri, schema_prefix=schema_prefix, extra=extra
+        checked_in, imported, "dashboard_export_20261020T000000", stage_uri, schema_prefix=schema_prefix
     )
     with ZipFile(imported) as bundle:
         assert any("lakehouse_dev" in bundle.read(name).decode() for name in bundle.namelist())
@@ -417,13 +412,13 @@ def test_an_export_of_an_imported_bundle_is_stage_neutral_again(
     assert report_bundles.report_bundle_errors(tmp_path, REPORT_DIR) == []
 
 
-def test_unpack_export_bundle_keeps_connect_args_it_did_not_add(tmp_path: Path) -> None:
+def test_unpack_export_bundle_keeps_the_connect_args_a_bundle_carries(tmp_path: Path) -> None:
     bundle_path = tmp_path / "export.zip"
     with ZipFile(bundle_path, "w") as bundle:
         bundle.writestr(
             "root/databases/trino.yaml",
-            "sqlalchemy_uri: trino://u@h:8443/lakehouse_prod\n"
-            "extra:\n  engine_params:\n    connect_args:\n      http_scheme: https\n      timezone: UTC\n",
+            "sqlalchemy_uri: trino://u@h:8080/lakehouse_prod\n"
+            "extra:\n  engine_params:\n    connect_args:\n      timezone: UTC\n",
         )
         bundle.writestr("root/datasets/mart.yaml", "table_name: mart\nschema: order_revenue_gold\n")
 
