@@ -311,7 +311,7 @@ resource "kubernetes_deployment_v1" "prometheus" {
         # The token at the in-cluster path that node discovery and the kubelet
         # job read, at the shortest lifetime the API server issues: on kind the
         # kubelet's certificate is not checked, so a node impersonator could
-        # replay it (ADR 0024, Decision 5).
+        # replay it (ADR 0024, D12).
         volume {
           name = "token"
           projected {

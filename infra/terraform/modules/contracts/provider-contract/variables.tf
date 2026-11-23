@@ -127,7 +127,7 @@ variable "observability" {
 }
 
 variable "metrics_query" {
-  description = "Where the platform API reads metrics (ADR 0024, decision 6). api names the protocol, never the product. Both stay null unless the provider's metrics capability is supported; the contract carries them as null otherwise."
+  description = "Where the platform API reads metrics (ADR 0024, D10). api names the protocol, never the product. Both stay null unless the provider's metrics capability is supported; the contract carries them as null otherwise."
   type = object({
     api = optional(string)
     url = optional(string)

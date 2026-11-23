@@ -1,4 +1,4 @@
-"""A client for the Prometheus HTTP API, `prometheus-http-v1` in the provider contract (ADR 0024, decision 6).
+"""A client for the Prometheus HTTP API, `prometheus-http-v1` in the provider contract (ADR 0024, D10).
 
 Only the two reads the contract names: `GET /api/v1/query` and `GET /api/v1/query_range`. The caller builds every
 query from values it validated; this module sends what it is given and parses the answer. Any backend that speaks the
