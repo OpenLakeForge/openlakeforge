@@ -176,7 +176,7 @@ locals {
         # revisions. Read only, no List: the evaluator follows keys it derives. `project/revisions/*` holds every
         # file of every revision, wider than the two descriptors it needs; the maintainer accepted that. Whether
         # SeaweedFS honours a `*` in the middle of an action path, which would narrow it to
-        # `project/revisions/sha256/*/descriptors/*`, is still untested (ADR 0023, History).
+        # `project/revisions/sha256/*/descriptors/*`, is still untested (ADR 0023, D10).
         flatten([
           for stage in var.alerts_credentials.policy_stages : [
             # Trailing `*`: SeaweedFS denies an action naming an exact object (verified on kind, 2026-11-17).
