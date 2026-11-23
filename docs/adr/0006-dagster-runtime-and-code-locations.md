@@ -1,255 +1,179 @@
 # ADR 0006: Dagster runtime and code locations
 
-## Status
-
-Binding.
+| | |
+| --- | --- |
+| Status | Binding |
+| Built | local ✔ · AWS and Azure: proof of concept (ADR 0010) |
 
 ## Context
 
-Dagster needs to load user code to build the asset graph, and to execute that
-code in isolated runs. How user code reaches the Dagster pods determines the
-runtime footprint, the deploy loop, and how much of the platform a small team
-has to understand.
+Dagster loads user code to build the asset graph and executes that code in
+isolated runs. How user code reaches the Dagster pods decides the runtime
+footprint, the deploy loop, and how much of the platform a small team has to
+understand. The platform also promotes one built project unchanged from stage
+to stage (ADR 0012), so nothing the Dagster runtime loads can be bound to a
+stage at build time, and a platform apply must not depend on, or reset, the
+user code a stage is running.
 
 ## Decision
 
-### Platform control plane and project-code runtime
+**D1. One project-code image carries all user code, and stage activation, not
+the platform, deploys it.** The image holds the Dagster definitions, the
+`dagster-floe` and `dagster-dbt` connectors, Floe's Python core
+(`floe-python`), the dlt pipelines, the dbt and Floe projects,
+`openlakeforge-core` and `openlakeforge_runtime/`. The Terraform-owned Dagster
+control plane owns the webserver, daemon, database, RBAC and a stable external
+gRPC workspace, and no project image or code location. `olf infra project
+deploy` owns the `openlakeforge-project` user-deployment Helm release, which
+points that workspace at the stage's verified image, so a platform apply
+reconciles infrastructure without resetting active user code. Enforced by:
+`modules/orchestration/dagster` and `tools/olf/olf/infra/deployment/activation.py`.
 
-A project image carries everything Dagster needs to load and run user code:
-Dagster definitions, the `dagster-floe` and `dagster-dbt`
-connectors, the Floe Python core (`floe-python`), dlt pipelines, the dbt
-projects, the Floe project, the `openlakeforge-core` package, and the
-shared `openlakeforge_runtime/`.
+**D2. The control plane runs the upstream Dagster image, and the run launcher
+names no image.** The webserver and daemon run a digest-pinned upstream image
+from `release/component-catalog.yaml`, since neither imports `lakehouse_code`.
+The `K8sRunLauncher` is given no `job_image` on any entry point, `olf infra
+deploy`'s artifacts phase included, so each run starts on its code location's
+own image: the digest stage activation set. A value fixed at platform apply
+would name a build no stage activated. Enforced by:
+`infra/terraform/modules/orchestration/dagster`, which renders no `job_image`.
 
-The Terraform-owned Dagster control plane owns the webserver, daemon, database,
-RBAC, and a stable external gRPC workspace. It does not own a project image
-or code location. `olf infra project deploy` owns the separate
-`openlakeforge-project` user-deployment Helm release, which points the stable
-workspace at its stage's verified image and revisions. A platform apply can
-therefore reconcile infrastructure without resetting active user code.
+**D3. Activation ends only when every code location reports the activated
+digest.** The webserver caches each location's snapshot, and a launched run
+takes its image from that snapshot, not from the code server. After the
+rollout, activation reloads every contracted location through the stage
+webserver's GraphQL (`reloadRepositoryLocation`) and waits, for a bounded
+time, until each reports the activated digest. A webserver that does not is an
+activation failure, handled like a pointer that will not commit. The daemon
+refreshes its own workspace every minute. Enforced by: the reload in
+`packages/lakehouse-services/openlakeforge_services/dagster.py`, called by
+activation.
 
-The control plane runs a digest-pinned upstream Dagster image from
-`release/component-catalog.yaml`: neither the webserver nor the daemon imports
-`lakehouse_code`, so pointing them at a project image made a platform apply
-depend on a project build having happened first. Where activation owns user
-code, the K8sRunLauncher is given no image at all (`modules/orchestration/dagster`
-renders no `job_image`), so Dagster
-launches each run with its code location's own container image -- the digest
-that stage activation set. A value configured at platform-apply time would only
-name a build no stage activated. `olf infra deploy` takes the same path: its
-artifacts phase activates a revision, so it renders no `job_image` either.
+**D4. Anything else that needs project code rides the activation release.**
+It then runs on the digest its stage actually runs. The pod-log archiver
+(`openlakeforge_runtime.k8s_log_archive`), where ADR 0022 still renders it, is
+in that release through the user-deployments subchart's `extraManifests`.
+Enforced by: `_user_values` in `tools/olf/olf/infra/deployment/activation.py`.
 
-The webserver caches each code location's snapshot, and a launched run takes
-its image and container context from that snapshot rather than from the code
-server. Activation therefore does not end at the rollout: it reloads every
-contracted location through the stage webserver's GraphQL
-(`reloadRepositoryLocation`) and waits, for a bounded time, until each reports
-the activated digest as its image. A webserver that does not is an activation
-failure, handled like a pointer that will not commit. The daemon refreshes its
-own workspace every minute and needs no reload.
+**D5. Floe runs as one Kubernetes Job per domain, on the project-code image,
+from a profile rendered on the pod.** The code location builds the Floe
+manifest in memory from the Floe project and an EnvironmentProfile it renders
+for its own stage; no manifest is generated, published or versioned, and there
+is no Floe runner image. The profile's runner is `kubernetes_job` with
+`job_scope: domain`: a run launches one Job per domain in the stage namespace,
+under the run launcher's `dagster` service account, on the run pod's image
+digest, running `floe run` on the selected entities in `sequential` order.
+dagster-floe hands the Job the profile text (`-p env:FLOE_PROFILE_CONTENT`);
+credentials reach it only as Secret references the profile names as `${...}`.
+Enforced by: `packages/runtime/openlakeforge_runtime/floe_profile.py`.
 
-Anything that does need project code rides the activation release instead. The
-compute-log archiver (`openlakeforge_runtime.k8s_log_archive`) is rendered into it through the
-user-deployments subchart's `extraManifests`, which also keeps it on the digest
-its stage actually runs.
+**D6. dbt reads its stage from the run pod's environment and re-parses every
+run.** The image holds one dbt profile whose every connection value is an
+`env_var()` with no stage default, and a Gold manifest parsed once at build
+with placeholder values, which Dagster reads for the asset graph. Asset keys
+come from domain, product and node names, never a catalog or schema, so the
+graph is the same in every stage. Each `dbt build` gets its own target path and
+re-parses with the pod's environment; the image ships no partial-parse state.
+A stage that leaves a required variable unset fails the run rather than reach
+another stage. The Gold project reaches `openlakeforge_dbt` through
+`OPENLAKEFORGE_DBT_PACKAGES_DIR`, never a path relative to the project, so a
+customer repository resolves it too. Enforced by:
+`packages/runtime/openlakeforge_runtime/dbt/profiles/trino.yml` and
+`render_profiles.py`.
 
-### Floe runs one Kubernetes Job per domain, from the project's own contracts
+**D7. One merged code location by default.** The deployed configuration is
+one location, `openlakeforge-dagster`, loading
+`lakehouse_code.pipelines.definitions`, which builds the Bronze, Silver and
+maintenance definitions and one `<product>_pipeline` job per product in
+`governance.yml`. `code_locations` stays a list: a deployment can configure a
+split, trading a merged location's blast radius (one bad module fails the
+whole graph) for a pod per location. Enforced by:
+`openlakeforge_runtime.code_location.build_code_location` and the
+`code_locations` local of each environment root.
 
-Floe 0.8 is a Python library, and the project-code image installs it. The code
-location builds the Floe manifest in memory from the Floe project under
-`lakehouse_code/silver/` and an EnvironmentProfile it renders for its own
-stage (`openlakeforge_runtime/floe_profile.py`). No manifest is generated, published or
-versioned, and there is no separate Floe runner image.
+**D8. The provider contract owns the code-location set.** Terraform renders the
+webserver's `workspace.yaml` from it and `olf infra project deploy` renders
+one user deployment per entry; each Service is named after its deployment, so
+both must produce the same names or the webserver points at Services that do
+not exist, with no error at apply time. `stages.<name>.orchestration.code_locations`
+carries `{name, definitions_module}` per entry, emitted by every root from the
+local it passes to the Dagster module and read back by `olf`. Neither consumer
+holds its own copy. Enforced by: `olf.common.provider_contracts`.
 
-The profile's runner is `kubernetes_job` with `job_scope: domain`: dagster-floe
-builds one subsettable asset per domain, and a run that materializes it
-launches one Kubernetes Job per domain in the stage namespace, under the
-`dagster` service account the run launcher already uses. The Job runs on the
-same project-code image digest as the run pod, runs plain `floe run`, and
-validates the selected entities one after another (`sequential`
-orchestration). Only the entities the run selected are
-passed to it.
-
-The profile is rendered on the pod rather than at activation because it is
-the only stage-bound Floe input: rendering it from the contract values the
-activation release already sets keeps one image digest valid for every stage.
-dagster-floe hands the Job that profile's text (`-p env:FLOE_PROFILE_CONTENT`);
-credentials reach it only as Secret references, which the profile names as
-`${...}`, so no credential value enters the profile, the manifest or the Job
-spec.
-
-The trade-off is a pod per domain per run against isolation: Floe does not
-share the run pod's memory or mounted credentials, and each domain's Job holds
-only the Secrets its runner names. [Floe
-validation](../architecture/floe-validation.md) describes the layout and the
-catalogs Floe 0.8 supports.
-
-### dbt reads its stage from the pod environment
-
-The image holds one dbt profile, rendered at build from
-`openlakeforge_runtime/dbt/profiles/trino.yml` into `generated/dbt-profiles/`. Every
-connection value in it (host, port, TLS, user, catalog, schema prefix) is an
-`env_var()` reference with no stage default. The build also parses the Gold
-dbt project's manifest once, with placeholder values
-(`openlakeforge_runtime/dbt/render_profiles.py`). Dagster reads that manifest for the asset
-graph, and each product's assets select the product's folder from it
-(ADR 0004). Its asset keys come from domain, product and node names, never from a
-catalog or schema, so the graph is the same in every stage. The Gold project reaches
-the shared `openlakeforge_dbt` package through
-`OPENLAKEFORGE_DBT_PACKAGES_DIR`, which the image sets, never through a path
-relative to the project, so a customer repository resolves it too.
-
-Each `dbt build` gets its own target path from dagster-dbt and re-parses with
-the run pod's environment. The image ships no partial-parse state, so the SQL
-a run executes, its lineage and the run artifacts it uploads name that
-stage's relations. A stage that leaves a required variable unset fails the
-run. It cannot fall back to another stage's catalog. The cost is a full dbt
-parse of the Gold project per run, which takes seconds.
-
-### One merged code location by default
-
-The deployed configuration is a single location named `openlakeforge-dagster`,
-loading `lakehouse_code.pipelines.definitions`, which builds the Bronze, Silver
-and maintenance definitions and one job per product in `governance.yml`
-(`openlakeforge_runtime.code_location.build_code_location`).
-
-An earlier design deployed one location per domain. Every location used the same
-image and image tag, so they were always rebuilt and redeployed together: the
-split cost one always-on pod per domain and delivered none of the independent
-release cadence or dependency isolation that would justify it.
-
-`code_locations` remains a list in the orchestration contract. A deployment that
-genuinely builds domains separately, or that wants load and restart failures
-isolated to one pod, can configure the split explicitly — the trade-off is a
-merged location's blast radius (one bad module fails the whole graph) against a
-pod per domain.
-
-### The contract owns the code-location set
-
-The set has two consumers with no shared code between them: Terraform renders
-the webserver's `workspace.yaml` from it, and `olf infra project deploy` renders one
-user deployment per entry. `dagster-user-deployments` names each Service after
-its deployment, so a location name is also its in-cluster host — the two sides
-must produce the same names or the webserver points at Services that do not
-exist, and the stage comes up with no code server reachable and no error at
-apply time.
-
-The provider contract is therefore the single owner:
-`stages.<name>.orchestration.code_locations` carries `{name,
-definitions_module}` per entry, emitted by every environment root from the same
-Terraform local it passes to the Dagster module, and read back by `olf` through
-`olf.common.provider_contracts`. Neither consumer holds its own copy.
-
-### A full refresh is a run tag
-
-A full refresh is a property of one run, not of a descriptor. The run tag
+**D9. A full refresh is a property of one run, carried by a run tag.** The tag
 `openlakeforge/full_refresh` (`bronze` or `gold`) is the contract between
-whoever launches the run (the Dagster launchpad, or `olf infra product run
---full-refresh`) and the project-code runtime; `openlakeforge_core.runs`
-holds it. A tag reaches every asset of the job without each one declaring a
-config schema, including the Floe assets dagster-floe builds. Both scopes run
-`dbt build --full-refresh`. `bronze` also carries dagster-floe's own tag,
-`floe/full_refresh=true`, so Floe rebuilds Silver from every Bronze file. A
-full refresh re-ingests Bronze and never re-extracts: the sources' cursors and
-files stay, so a refresh cannot lose history a source no longer serves, or
-depend on that source being reachable. The runtime rejects a `bronze` run
-without the Floe tag at its first step, since Silver would otherwise not be
-rebuilt.
+whoever launches the run (the Dagster launchpad, `olf infra product run
+--full-refresh`) and the runtime, and reaches every asset of the job without a
+config schema. Both scopes run `dbt build --full-refresh`. `bronze` also
+carries dagster-floe's `floe/full_refresh=true`, so Floe rebuilds Silver from
+every Bronze file; the runtime rejects a `bronze` run without it at its first
+step. A full refresh re-ingests Bronze and never re-extracts: cursors and
+files stay. Enforced by: `packages/core/openlakeforge_core/runs.py`.
 
-### Kubernetes run launcher
-
-Runs execute in isolated pods using the project-code image, so a run's
-dependencies and failures are contained.
-
-Every run pod carries the same requests and limits, set in
-`modules/orchestration/dagster` (`run_pod_resources`): 250m CPU and 512Mi memory
-requested, a 2Gi memory limit, no CPU limit. The dlt Bronze extract and dbt run
-inside that pod, so this also sizes them. The values are a safe default for the
-Slim footprint, not a measurement; a run that outgrows the limit is OOMKilled.
-Floe Jobs are sized by their own runner, not here.
-
-A local image that was built and never pushed is loaded into kind and runs with
-`imagePullPolicy: Never`, so Kubernetes never pulls it. Activation puts it back
-on the nodes before the rollout (`olf.local/project-code@<image ID>`, see
-[project revisions](../architecture/project-revisions.md)).
+**D10. Runs execute in isolated pods on the project-code image, with default
+resources.** Every run pod requests 250m CPU and 512Mi memory, with a 2Gi
+memory limit and no CPU limit; the dlt extract and dbt run inside it, so this
+sizes them too. The values are a safe Slim default, not a measurement: a run
+that outgrows the limit is OOMKilled. Floe Jobs are sized by their own runner.
+Enforced by: `run_pod_resources` in
+`infra/terraform/modules/orchestration/dagster/variables.tf`.
 
 ## Consequences
 
-The v0.3 promotion loop is `olf infra project build` followed by `olf infra project deploy`
-for each stage. `olf infra deploy --phase artifacts` builds the same revision and
-activates it on its one DEV stage.
+- The promotion loop is `olf infra project build`, then `olf infra project
+  deploy` per stage; `olf infra deploy --phase artifacts` builds the same
+  revision and activates it on its one DEV stage.
+- Adding a product adds a job with no platform edit (ADR 0005).
+- Floe costs a pod per domain per run, in exchange for isolation: a Job shares
+  neither the run pod's memory nor its credentials, and holds only the Secrets
+  its runner names. Supported layouts and catalogs: [Floe
+  validation](../architecture/floe-validation.md).
+- Every run re-parses the whole Gold project, which takes seconds.
+- A locally built, never-pushed image is loaded into kind and runs with
+  `imagePullPolicy: Never`: [project revisions](../architecture/project-revisions.md#stage-activation).
 
-Durable product jobs are named `<product>_pipeline` and derived from the
-descriptor (ADR 0005), so adding a product adds a job with no platform edit.
+## Boundaries
+
+| Not decided here | Where |
+| --- | --- |
+| What a revision freezes, and how stages bind on the pod | ADR 0012 |
+| The `lakehouse_code/` layout and dbt product selection | ADR 0004 |
+| The lifecycle phases a platform apply and an activation belong to | ADR 0002 |
+| Pod log collection and the archiver's future | ADR 0022 |
+
+## Alternatives rejected
+
+| Option | Why not |
+| --- | --- |
+| One code location per domain | Every location used the same image and redeployed together: a pod per domain with no independent release or dependency isolation |
+| Control plane on the project-code image | A platform apply would depend on a project build having happened |
+| A `job_image` rendered at platform apply | It names a build no stage activated; a restarted webserver kept launching the previous revision (#740) |
+| User deployments owned by the Terraform Dagster release | A platform apply reset active user code |
+| A separate Floe runner image and per-stage published manifests | Stage-bound output inside a promotable revision; Floe 0.8 builds the manifest in memory |
+| Per-provider dbt profiles chosen by `DBT_PROFILE_ENV` | One image digest could not serve every stage |
+| Re-extracting incremental Bronze on a `bronze` refresh | Replaced a source's history with whatever its connector could still fetch |
 
 ## History
 
-Merges the decisions previously recorded as ADR 0003 (the local Dagster
-project-code runtime), 0004 (manifest-first Floe ingestion, generalized from the
-Sales seed product), 0014's code-location half, and 0019 (the merged code
-location default, which superseded ADR 0014's per-domain split).
-
-2026-09-03: Moved project user-deployment ownership from the Terraform Dagster
-release to stage activation (#115); the control plane keeps a stable external
-workspace endpoint. The control plane and run launcher stopped referencing the
-project-code image in the same change, and the compute-log archiver moved into
-the activation release.
-
-2026-09-09: Recorded the provider contract as the owner of the code-location
-set (#185). The #115 split left Terraform and activation deciding it
-independently, agreeing only because both repeated the module variable's
-default; a rename or a configured split broke the stage silently. The shipped
-default — one merged location — is unchanged.
-
-2026-10-28: Floe moved into the project-code image (#533). Floe 0.8's Python
-core lets dagster-floe build the manifest in memory, so the separate runner
-image and the `s3://` manifests published at activation are gone. Floe still
-runs in Kubernetes Jobs, now one per domain on the project-code image rather
-than one per entity.
-
-2026-10-28: dbt reads its stage from the pod environment (#546). The
-provider-specific profiles (`local`, `aws`, `azure`) and the image's
-`DBT_PROFILE_ENV` choice are replaced by one profile of `env_var()`
-references, and the manifest baked at build is parsed with placeholders
-instead of the local DEV catalog.
-
-2026-10-30 (#342, #344): a run tag asks one run for a full refresh, and `olf
-product run` launches a product with it.
-
-2026-10-30 (#342): a `bronze` refresh also carries dagster-floe 0.4.3's
-`floe/full_refresh` tag, so Floe rebuilds Silver in the same run instead of
-merging the reloaded Bronze onto the old table.
-
-2026-11-01 (#740): activation reloads each contracted code location in the
-stage webserver and requires it to report the activated digest before the
-pointer moves; a webserver restarted by a platform apply had kept launching
-the previous revision. The run launcher's `job_image`, which platform apply
-still rendered, is now rendered only for the deprecated `olf infra deploy`
-path, so the statement that the run launcher has no image holds again.
-
-2026-11-04 (#558): the artifacts phase of `olf infra deploy` builds a
-ProjectRevision and activates it through `deploy_revision`, and Terraform no
-longer owns the Dagster user deployments for any entry point. A stack applied
-before this keeps its Terraform-owned code location until the next platform
-apply removes it, then the artifacts phase installs `openlakeforge-project`.
-
-2026-11-01 (#627): product `packages.yml` files name the shared dbt package
-through `OPENLAKEFORGE_DBT_PACKAGES_DIR` instead of `../../../../libs/dbt`,
-and the code location reads its profiles from `OPENLAKEFORGE_DBT_PROFILES_DIR`
-when set, so `olf check project-code` parses a customer repository's
-products against the distribution.
-
-2026-11-02 (#342): a `bronze` full refresh no longer drops and re-extracts
-incremental Bronze. It rebuilds Silver from every Bronze file and Gold from
-Silver. On the local stack, re-extraction had replaced a source's history with
-whatever its connector could still fetch, which was nothing in a quiet week.
-
-2026-11-02 (#325): run pods get default requests and limits through the
-launcher's `runK8sConfig.containerConfig.resources`; they had none.
-
-2026-11-20: the code location's entry point moved from
-`lakehouse_code.definitions` to `lakehouse_code.pipelines.definitions`, and the
-per-product modules under `pipelines/dagster/` were replaced by
-`pipelines/products.py`. `lakehouse_code.definitions` no longer exists: a
-project that sets `definitions_module` explicitly keeps working, one that
-relied on the default must point at the new module.
+- Undated: New record, merging the former ADRs 0003 (local project-code
+  runtime), 0004 (manifest-first Floe ingestion), 0014's code-location half
+  and 0019 (the merged code location, which superseded 0014's per-domain
+  split).
+- 2026-09-03 (#115): D1, D2 and D4 added: activation owns the user deployment;
+  the control plane and run launcher stop naming the project image.
+- 2026-09-09 (#185): D8 added: the contract owns the code-location set.
+- 2026-10-28 (#533): D5 changed: Floe runs in the project-code image, one Job
+  per domain instead of one per entity on a runner image.
+- 2026-10-28 (#546): D6 changed: one `env_var()` profile replaces the
+  per-provider profiles.
+- 2026-10-30 (#342, #344): D9 added: a run tag asks one run for a full refresh.
+- 2026-11-01 (#740): D3 added: activation reloads every code location.
+- 2026-11-01 (#627): D6 changed: the dbt package is found through
+  `OPENLAKEFORGE_DBT_PACKAGES_DIR`.
+- 2026-11-02 (#342): D9 changed: a `bronze` refresh no longer re-extracts.
+- 2026-11-02 (#325): D10 changed: run pods get default requests and limits.
+- 2026-11-04 (#558): D2 changed: `olf infra deploy`'s artifacts phase
+  activates a revision too, so no entry point renders `job_image`.
+- 2026-11-20 (#1339): D7 changed: the entry point is
+  `lakehouse_code.pipelines.definitions`.
+- 2026-11-23: Rewritten in the standard form; no decision changed.
