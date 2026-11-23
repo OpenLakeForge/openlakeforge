@@ -82,10 +82,11 @@ identities. There is no lineage proxy and no lineage REST push. Enforced by:
 
 **D7. The dataset namespace is the catalog identity.** It is `polaris` locally
 and on Azure and `aws_glue` on AWS. dbt-trino's namespace is the Trino URI it
-connects to, so both of Trino's listeners are mapped to the catalog service:
-the HTTP port, and the HTTPS port dbt uses once workload authentication is on.
-Enforced by: `enable_openlineage` in
-`tools/olf/olf/infra/openmetadata/_catalog_seed.py`.
+connects to, so each governed stage's coordinator address is mapped to the
+catalog service. Only the HTTP listener is mapped: the coordinators serve
+plain HTTP and nothing else (ADR 0016 D1). Enforced by: `_trino_namespaces` in
+`tools/olf/olf/infra/openmetadata/_platform.py` and `enable_openlineage` in
+`_catalog_seed.py`.
 
 **D8. Quality results reach OpenMetadata from the quality manifests, through
 its TestCase APIs.** A short-lived reconciler reads the normalized per-run
@@ -226,4 +227,5 @@ deployed without a run).
 - 2026-11-19 (#346): a result that never finds its table ends `failed` after
   10 attempts (D10); quality results are published by a per-stage
   `olf-quality-writer-<stage>` bot instead of the ingestion bot (D13).
-- 2026-11-23: rewritten in the standard form; no decision changed.
+- 2026-11-23: rewritten in the standard form. D7 now maps the HTTP listener
+  only, since ADR 0016 D1 removed the HTTPS listener (#983).
