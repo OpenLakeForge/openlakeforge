@@ -631,8 +631,8 @@ Build step 3: Polaris runs `mixed` when the local root passes `person_access`
 (`issuer: github`): Quarkus OIDC on Dex's keys, the roles mapper rendered from
 `role_mapping`, and the CA from `olf-local-ca`. The bootstrap creates principal
 `github`, the five principal roles and the three catalog roles, and reconciles
-each role's catalog role to its `data_access` row. Polaris reaches Traefik for
-Dex's keys (ADR 0017, F4). Checked against the pinned Polaris 1.4.0 and Dex:
+each role's catalog role to its `data_access` row. Polaris fetches Dex's keys
+from Dex's Service (ADR 0017, F31; through Traefik, F4, until #991). Checked against the pinned Polaris 1.4.0 and Dex:
 it starts while Dex is unreachable, and a token whose groups map to no role
 reaches nothing.
 

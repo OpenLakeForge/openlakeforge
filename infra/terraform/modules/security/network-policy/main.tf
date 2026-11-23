@@ -15,7 +15,7 @@ locals {
   # A stage row that names pods narrows a grant the namespace-wide policy
   # would otherwise give every pod (F34), so it gets a policy of its own in
   # each stage its `stages` list names (all of them when absent). Labels in a
-  # stage namespace are set by user code (decision 4): this narrows, it does
+  # stage namespace are set by user code (ADR 0017 D10): this narrows, it does
   # not isolate.
   stage_pod_egress = merge([
     for index, f in local.rows : {

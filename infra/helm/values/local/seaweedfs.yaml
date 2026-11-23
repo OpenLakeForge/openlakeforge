@@ -9,7 +9,7 @@ global:
   seaweedfs:
     loggingLevel: 1
     # The chart ships a cluster-wide pod-delete ClusterRole for a post-migration
-    # master-restart hack; nothing here needs it (ADR 0017, RBAC inventory).
+    # master-restart hack; nothing here needs it (ADR 0017 D8).
     createClusterRole: false
 
 image:
