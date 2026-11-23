@@ -19,7 +19,7 @@ locals {
     # Server-side only: in-cluster Trino URLs, one catalog per stage.
     query_endpoints = var.person_query ? var.query_endpoints : {}
     ca_file         = var.ca_configmap_name == null ? null : "/ca/ca.crt"
-    # Read endpoints (ADR 0021, build step 3); a service left out is answered
+    # Read endpoints (ADR 0021, decision 2); a service left out is answered
     # as not configured rather than refusing the API's start.
     dagster_graphql_urls = var.dagster_graphql_urls
     # The service probes (ADR 0021, decision 7): the namespaces the Roles in

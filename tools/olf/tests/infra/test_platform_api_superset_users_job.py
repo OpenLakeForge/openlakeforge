@@ -1,4 +1,4 @@
-"""The platform API's Superset users Job (ADR 0021, open item 3) mints each stage's password once, in the API's
+"""The platform API's Superset users Job (ADR 0021, decision 3) mints each stage's password once, in the API's
 namespace, and keeps the stage namespace's copy equal to it."""
 
 from __future__ import annotations

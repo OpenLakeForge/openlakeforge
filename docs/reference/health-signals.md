@@ -60,7 +60,10 @@ and whenever the row is `unknown` or `disabled`.
 | `trino.readiness` | `trino-http` | The coordinator finished starting | Workers, catalogs or Polaris access work |
 | `polaris.readiness` | `polaris-http` | The catalog's management port answers `/q/health/ready` as UP, sent with no credential | A catalog read works, a grant holds, or the stage's catalog exists |
 | `object-store.list` | `s3` | The endpoint is reachable and the key may list the bucket | A write is durable |
+| `log-archive.spool-age`, `log-archive.spool-size` | `log-collector` | The collector's oldest unsent file is young and its spool not full, worst over every collector pod | An object reached the bucket |
+| `log-archive.newest-object` | `s3` | The newest object under the stage's `logs/v2/namespace=<ns>/`, listed with the platform API's log reader key, is recent | The stage logs anything: an idle stage reads the same as a stalled collector |
 | `quality-sync.publication` | `quality-reconciler` | The reconciler's last pass is recent and no result waits too long or gave up ([below](#publication-health)) | The data passed its checks, or OpenMetadata shows a given result |
+| `service-probes` | `platform-api` | Never `healthy`: sent alone, as `unknown`, when the probes themselves raised | Anything about a service |
 
 `polaris.readiness` is `critical` when Polaris answers that it is not ready (HTTP 503 or a DOWN status), and `unknown`
 when it does not answer, answers something else or the probe times out. It reads `disabled` in a profile that deploys no

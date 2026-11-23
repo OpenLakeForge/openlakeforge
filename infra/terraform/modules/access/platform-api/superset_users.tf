@@ -1,5 +1,5 @@
 # The platform API's Superset service user, one per stage with Superset
-# (ADR 0021, open item 3). One Job in the API's namespace mints every stage's
+# (ADR 0021, decision 3). One Job in the API's namespace mints every stage's
 # password there and copies it into the stage's namespace, where Superset's init
 # script creates the user from it. The API's namespace so holds only Secrets this
 # module created; the Job's only reach into a stage namespace is that one copy.
