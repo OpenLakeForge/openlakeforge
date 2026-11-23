@@ -512,3 +512,34 @@ run "a_runbook_override_with_a_fragment_is_refused" {
 
   expect_failures = [var.runbook_base_url]
 }
+
+# ADR 0023, Retention: alert history is kept 30 days whatever the log archive's retention, and the evaluator's state
+# (open incidents, outbox, policy cache) is never expired.
+run "alert_history_expires_after_30_days_and_state_never" {
+  command = plan
+
+  variables {
+    observability = { archive_retention_days = 90 }
+  }
+
+  assert {
+    condition     = local.object_retention.days_by_prefix["alerts/history/"] == 30
+    error_message = "alert history gets a 30-day TTL of its own"
+  }
+
+  assert {
+    condition = (
+      local.object_retention.days_by_prefix["activations/dev/logs/v2/"] == 90
+      && local.object_retention.days_by_prefix["activations/prod/logs/v2/"] == 90
+    )
+    error_message = "the log archive keeps the profile's retention beside alert history's"
+  }
+
+  assert {
+    condition = length([
+      for prefix in keys(local.object_retention.days_by_prefix) : prefix
+      if startswith("alerts/state/", prefix) || startswith(prefix, "alerts/state/")
+    ]) == 0
+    error_message = "no rule reaches alerts/state/: neither alerts/ itself, alerts/state/, nor a prefix under it"
+  }
+}

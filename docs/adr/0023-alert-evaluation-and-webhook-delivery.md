@@ -95,8 +95,10 @@ Conditional writes are not relied on; `Forbid` is what keeps one writer, and an
 overlap after a node loss costs a duplicate. The platform API reads the state
 with a read-only key (`GET /api/v1/stages/{stage}/alerts/incidents`) and never
 writes it. `--now`, `--state-prefix` and `--policy-file` are for the e2e only;
-the CronJob never passes them. History under `alerts/history/` is to be kept
-30 days and `alerts/state/` never expires; the evaluator deletes nothing itself.
+the CronJob never passes them. History under `alerts/history/` is kept 30 days,
+as a filer path TTL of [ADR 0022](0022-pod-log-collection-and-archive-format.md)
+D6 on that prefix, independent of the log archive's retention; `alerts/state/`
+never expires; the evaluator deletes nothing itself.
 Layout and write order: [incidents and state](../guides/operations/alerts.md#incidents-and-state).
 Enforced by: `packages/core/openlakeforge_core/alerts.py`,
 `packages/core/openlakeforge_core/alerts_state.py`,
@@ -256,9 +258,8 @@ Enforced by: `packages/core/openlakeforge_core/alerts.py`,
   freshness thresholds show only as alerts.
 - Only a store that answers the evaluator but fails the API's probe can be
   reported as unreachable.
-- History retention is not applied: the filer path TTL of
-  [ADR 0022](0022-pod-log-collection-and-archive-format.md) covers only the log
-  prefixes, so `alerts/history/` grows until it is.
+- History retention reaches only records written after its rule was set;
+  history from before it never expires.
 - AWS and Azure keep `alerts.supported = false`; the receivers field is in their
   contract and nothing acts on it.
 
@@ -316,3 +317,6 @@ Enforced by: `packages/core/openlakeforge_core/alerts.py`,
 - 2026-11-23: Rewritten in the standard form; decisions 1 to 11 kept as D1 to
   D11; tables moved to the alerts guide and the alert policy reference; no
   decision changed.
+- 2026-11-23: D3's 30-day history retention is applied: the seaweedfs module's
+  `object_retention` takes days per prefix, and the local root gives
+  `alerts/history/` 30 days and `alerts/state/` no rule.

@@ -457,8 +457,13 @@ A missing `state.json` is an empty state, and so is one that does not parse,
 after it is copied to `corrupt/`. The first evaluation after either notifies
 every firing incident again, under a new id and so a new `Idempotency-Key`.
 
-`alerts/history/` is meant to be kept 30 days and `alerts/state/` forever; no
-expiry is applied to `alerts/` yet, and the evaluator deletes nothing itself.
+`alerts/history/` expires 30 days after each record is written, whatever the
+log archive's retention: the object store gives the prefix a 30-day TTL, the
+same filer path TTL that expires the log archive
+([ADR 0022](../../adr/0022-pod-log-collection-and-archive-format.md)). It
+reaches only records written after the rule was set, so history from before it
+never expires. `alerts/state/` has no TTL and is kept forever, and the
+evaluator deletes nothing itself.
 
 The evaluator's `--now <timestamp>`, `--state-prefix <prefix>` and
 `--policy-file <path>` flags fix the clock, move state and history to another

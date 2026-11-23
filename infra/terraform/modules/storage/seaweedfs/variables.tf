@@ -215,27 +215,26 @@ variable "files_credentials" {
 }
 
 variable "object_retention" {
-  description = "Expiry of archived objects under key prefixes of one bucket. Applied as a SeaweedFS filer path TTL (`fs.configure -ttl`), because the S3 lifecycle API stores a rule in 4.48 without ever creating the TTL (ADR 0022, decision 6). It acts on objects written after it is set, so it never shortens the life of what already exists. Above 255 days the TTL is whole weeks, months (30 days) or years (365 days), rounded up when the days do not divide. Null applies none."
+  description = "Expiry of objects under key prefixes of one bucket: `days_by_prefix` maps each prefix to the days its objects are kept. Applied as a SeaweedFS filer path TTL (`fs.configure -ttl`), because the S3 lifecycle API stores a rule in 4.48 without ever creating the TTL (ADR 0022, decision 6). It acts on objects written after it is set, so it never shortens the life of what already exists. Above 255 days the TTL is whole weeks, months (30 days) or years (365 days), rounded up when the days do not divide. Null applies none."
   type = object({
-    bucket   = string
-    days     = number
-    prefixes = list(string)
+    bucket         = string
+    days_by_prefix = map(number)
   })
   default = null
 
   validation {
-    condition     = var.object_retention == null || (try(var.object_retention.days, 0) >= 1 && floor(try(var.object_retention.days, 0)) == try(var.object_retention.days, 0))
-    error_message = "object_retention.days is a whole number of days, at least 1."
+    condition     = var.object_retention == null || alltrue([for days in values(try(var.object_retention.days_by_prefix, {})) : days >= 1 && floor(days) == days])
+    error_message = "Each of object_retention.days_by_prefix is a whole number of days, at least 1."
   }
 
   validation {
-    condition     = var.object_retention == null || try(var.object_retention.days, 0) <= 3650
-    error_message = "object_retention.days is at most 3650, the deployment profile's limit for retention_days."
+    condition     = var.object_retention == null || alltrue([for days in values(try(var.object_retention.days_by_prefix, {})) : days <= 3650])
+    error_message = "Each of object_retention.days_by_prefix is at most 3650, the deployment profile's limit for retention_days."
   }
 
   validation {
-    condition     = var.object_retention == null || (length(try(var.object_retention.prefixes, [])) > 0 && alltrue([for prefix in try(var.object_retention.prefixes, []) : endswith(prefix, "/") && !startswith(prefix, "/")]))
-    error_message = "object_retention.prefixes is a non-empty list of key prefixes ending in '/', so a rule cannot reach a sibling whose name starts the same."
+    condition     = var.object_retention == null || (length(try(var.object_retention.days_by_prefix, {})) > 0 && alltrue([for prefix in keys(try(var.object_retention.days_by_prefix, {})) : endswith(prefix, "/") && !startswith(prefix, "/")]))
+    error_message = "object_retention.days_by_prefix is keyed by a non-empty set of key prefixes ending in '/', so a rule cannot reach a sibling whose name starts the same."
   }
 }
 
