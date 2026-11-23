@@ -818,7 +818,7 @@ module "superset" {
   # its local login. Nothing here names an issuer product.
   bootstrap_job_image = local.bootstrap_job_image
   public_admin        = !local.identity_enabled
-  # The platform API's service user (ADR 0021, open item 3); its password is
+  # The platform API's service user (ADR 0021, decision 3); its password is
   # minted by the platform API module's Job, which this waits for.
   platform_api_user = local.platform_api_enabled ? module.platform_api[0].superset_user : null
   oidc = !local.identity_deployed ? null : {

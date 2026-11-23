@@ -124,7 +124,7 @@ variable "public_admin" {
 }
 
 variable "platform_api_user" {
-  description = "The platform API's service user (ADR 0021, open item 3): its username and the Secret in this namespace holding its password (key `password`). Null creates no such user."
+  description = "The platform API's service user (ADR 0021, decision 3): its username and the Secret in this namespace holding its password (key `password`). Null creates no such user."
   type = object({
     username    = string
     secret_name = string

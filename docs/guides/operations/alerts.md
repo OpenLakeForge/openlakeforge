@@ -111,13 +111,19 @@ field to say "all". A receiver's `stages` still applies, so a `prod`-only
 receiver never hears about `dev`. `olf profile resolve --project . --json`
 shows the effective list as `observability.alerts.platform_receivers`.
 
-Delivery rules:
+### Delivery
 
 - The URL must be `https`. A redirect is a rejected delivery and is not
   followed.
 - A connection failure, a timeout, `408`, `429` or a `5xx` response is
   retried up to 3 times in one evaluation, then left queued for the next
-  evaluations, and given up after 12.
+  evaluations, and given up after 12 (about an hour), when it is recorded as
+  `undeliverable`. Each attempt waits at most 5 seconds to connect and 10 to
+  read. Between attempts the evaluator waits an exponential backoff with jitter
+  (0.5 second base, 4 second cap), or the receiver's `Retry-After` when longer,
+  capped at 10 seconds. It saves its state after every attempt and starts no
+  new send after 150 seconds, inside the CronJob's 240 second deadline, so a
+  slow receiver cannot stop progress being recorded.
 - Any other `4xx` response (for example `400`, `401`, `403` or `404`) is a
   rejection: it is recorded and never resent. Fixing the receiver afterwards
   does not recover that notification, and with no reminders the incident's
@@ -352,19 +358,112 @@ the evaluator reads no service signal and raises neither.
 }
 ```
 
+The body is built from this closed list of fields and nothing else:
+
 | Field | Content |
 | --- | --- |
+| `schema` | `openlakeforge.alert.v1`. |
 | `event` | `opened`, `escalated` or `resolved`. |
+| `incident_id` | `<fingerprint>-<opened_at>-<seq>`; see [Incidents and state](#incidents-and-state). |
 | `condition` | One of the conditions below. |
 | `severity` | `warning` or `critical`. |
 | `stage`, `domain`, `product`, `table` | Where it happened; absent fields are left out. |
 | `run_id` | The Dagster run, when the condition has one. |
-| `summary` | A fixed phrase, never log or error text. |
+| `opened_at`, `event_at` | UTC timestamps. |
+| `summary` | A fixed phrase, never log or error text. For `service_degraded` it names the component (`Dagster workloads are degraded`), which is not a field of its own. |
 | `links.run` | The run in the stage's Dagster, behind the perimeter: the reader signs in and needs a role for that stage. |
 | `links.runbook` | The condition's section of the alert runbook: [What to do for each condition](#what-to-do-for-each-condition) at the deployed release, unless [overridden](#the-runbook-link). |
 
 A payload never carries log lines, run tags, error text, row contents, storage
-URLs or credentials.
+URLs or credentials. `links.run` is `http` only where `spec.access.tls` is
+`none`, and is left out without `spec.access`; a Portal link is added when the
+Portal has an incident page (#333).
+
+## Incidents and state
+
+One evaluation reads every enabled stage, decides which incidents open, change
+or resolve, and delivers what that produced. The rules below are
+[ADR 0023](../../adr/0023-alert-evaluation-and-webhook-delivery.md)'s D2 and D3.
+
+### When each condition opens and resolves
+
+| Condition | Opens when | Default severity | Resolves when |
+| --- | --- | --- | --- |
+| `run_failed` | The latest run of the job failed. | `critical` | A later run succeeds. A run in progress resolves nothing. |
+| `missed_run` | A running schedule is past its due time plus grace (`15m`) and no run started since. | `critical` | A run starts at or after the due time. If the schedule is stopped while it is open, it resolves without a notification. |
+| `stale_output` | Cadence: no success since the previous due time plus grace. Thresholds: the last success is older than `warn_after` (`warning`) or `critical_after` (`critical`). Not while `missed_run` or `run_failed` is open for the job. | `critical` | A success at or after the due time, or younger than `warn_after`. A schedule switched on after its due time is not a recovery. |
+| `quality` | The latest outcome is `warn` or a non-blocking `error` (`warning`), or a blocking `error` (`critical`). | `warning` or `critical` | A later run's outcome is `passed`. |
+| `schedule_mismatch` | A PROD schedule the cadence declares running is stopped. | `warning` | The schedule or the declaration changes; without a notification. |
+| `stage_unreadable` | Dagster for the stage could not be read in 3 consecutive evaluations. | `critical` | The first evaluation that reads it. |
+| `policy_unreadable` | The stage's alert policy cannot be used. | `warning` | The first evaluation that reads it cleanly. |
+| `service_degraded` | A platform service signal is degraded; one incident per stage and component. | The signal's state for a workload, `critical` otherwise | The component reads `healthy`. |
+| `health_unreadable` | The platform API's services route could not be read in 3 consecutive evaluations. | `critical` | The first evaluation that reads it. |
+
+Nothing opens for a canceled run, a single `unknown` signal, a stopped or
+absent schedule (for `missed_run` and cadence `stale_output`), or a job with no
+success among the runs read. An `unknown` signal resolves nothing either, and
+while a stage is unreadable its open incidents are held.
+
+### Severity and policy changes
+
+A severity that rises for the same incident sends one `escalated`: a `quality`
+warning that becomes a blocking error, or a `stale_output` past `warn_after`
+that passes `critical_after`. A fall sends nothing and is recorded as
+`severity_changed`, as is a rise back to a severity already notified.
+
+| Change to the policy while an incident is open | Effect |
+| --- | --- |
+| The condition is no longer declared for the job and stage (rule removed, `false`, stage dropped, `alerts.yml` removed) | It resolves without a notification (`resolved_silently`) |
+| The severity rises | One `escalated` on the next evaluation |
+| The severity falls | No notification; `severity_changed` in history |
+| The routes change | Routes are computed at every delivery attempt: a later `resolved` goes to the routes of the rule that wins then |
+| A threshold or grace changes | Applies from the next evaluation; an incident whose condition no longer holds resolves with a notification |
+
+### Identity
+
+An incident's fingerprint hashes the model version, stage, condition, domain,
+product, table and component. It leaves out the run id, so repeated failures
+are one incident, and the policy, so editing a rule never splits one. A
+recurrence after a resolve is a new incident with the same fingerprint and the
+id `<fingerprint>-<opened_at>-<seq>`: `opened_at` is the UTC epoch second it
+opened and `seq` a per-fingerprint counter, so ids stay apart within one second
+and after the state is lost.
+
+### State objects
+
+Everything is under the bucket-root prefix `alerts/` of the ops bucket, with the
+key `openlakeforge-alerts`: `Read`, `Write` and `List` on `alerts/*`, `Read` and
+`List` on each stage's quality manifests, and the policy reads of the
+[alert policy reference](../../reference/alert-policy.md#how-the-evaluator-reads-the-policy).
+`Write` can overwrite and delete, so history is tamper-evident against everyone
+but the evaluator, not immutable.
+
+| Object | Content |
+| --- | --- |
+| `alerts/state/v1/state.json` | `schema_version`, `evaluated_at`, the open incidents (fingerprint, id, severity, notified severity, `opened_at`, `last_seen`, last run, and how the latest notification left the outbox: `delivered`, `undeliverable` or `unrouted`, with receiver, acceptance and attempt counts), the per-fingerprint id counter, the per-stage count of unreadable evaluations, and the outbox of notifications not yet delivered |
+| `alerts/state/v1/policy/<stage>.json` | The stage's last good alert policy |
+| `alerts/history/v1/date=<YYYY-MM-DD>/<incident-id>-<seq>-<event>.json` | One object per event (`opened`, `escalated`, `severity_changed`, `resolved`, `resolved_silently`) and per delivery attempt (receiver name, attempt, HTTP status or error class, time); no body and no URL |
+| `alerts/state/v1/corrupt/<UTC time>.json` | A state that failed to parse, kept for the operator |
+
+Each evaluation reads the policies, the signals and the state; applies the
+rules, appends new events to the outbox and writes `state.json`; then delivers
+the outbox, recording each attempt in history. An entry leaves the outbox once
+every receiver routed to it has it, or when it expires, and `state.json` is
+written again. A crash between a delivery and that write sends the
+notification again with the same `Idempotency-Key`. If the bucket cannot be
+read or written, nothing is delivered and the Job fails.
+
+A missing `state.json` is an empty state, and so is one that does not parse,
+after it is copied to `corrupt/`. The first evaluation after either notifies
+every firing incident again, under a new id and so a new `Idempotency-Key`.
+
+`alerts/history/` is meant to be kept 30 days and `alerts/state/` forever; no
+expiry is applied to `alerts/` yet, and the evaluator deletes nothing itself.
+
+The evaluator's `--now <timestamp>`, `--state-prefix <prefix>` and
+`--policy-file <path>` flags fix the clock, move state and history to another
+prefix, and replace every stage's policy. They are for the e2e and unit tests;
+the CronJob never passes them.
 
 ## What to do for each condition
 
