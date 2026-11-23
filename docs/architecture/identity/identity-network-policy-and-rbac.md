@@ -199,7 +199,7 @@ rest are the exceptions ADR 0017 names (D5):
 | E3 | Dagster run launcher, per stage | Creates run Jobs and pods; no Secret verbs, but a stage's user code already holds the stage's Secrets |
 | E4 | Traefik | Reads TLS Secrets in all namespaces |
 | E5 | cert-manager | Issues certificates, with Secret verbs cluster-wide |
-| E6 | The CNI's own components | Cluster-wide and privileged; it applied to Calico, which is not installed, so no subject holds it today |
+| E6 | Withdrawn (2026-11-23) | It named Calico's components, which were never installed |
 
 ### Inventory
 
@@ -232,7 +232,7 @@ tokens, `escalate` or `bind` Roles, and `patch` ConfigMap `coredns` in
 `kube-system`. A second assertion lists every Role and ClusterRole bound to a
 ServiceAccount in the OLF namespaces that grants a Secret verb, or `create` on
 pods, Jobs, CronJobs or workload controllers, and fails on any not covered by
-E1 to E6. The comparison is by role kind, role, subject and resources, not by
+E1 to E5. The comparison is by role kind, role, subject and resources, not by
 name prefix; bindings to the `system:serviceaccounts[:<ns>]` groups count for
 every ServiceAccount in the namespace.
 

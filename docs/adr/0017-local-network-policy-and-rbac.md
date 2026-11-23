@@ -23,11 +23,13 @@ cluster rather than assumed.
 ## Decision
 
 **D1. Dataplane gate.** `olf infra deploy` fails before any policy is applied
-unless the cluster enforces policy, and the e2e re-proves it with a canary on
-every run. Policy objects without enforcement never count as done. The canary
+unless the cluster enforces policy: the canary runs in the foundation phase of
+every `olf infra deploy`, and the conformance e2e checks the flows themselves.
+Policy objects without enforcement never count as done. The canary
 connects a client and server pair with no policy, then requires an
 ingress-only and an egress-only deny each to block it, and an allow rule to
-admit it again. Enforced by: `tools/olf/olf/infra/deployment/local/network_canary.py`.
+admit it again. Enforced by: `tools/olf/olf/infra/deployment/local/network_canary.py`
+(called from `foundation_up` in `tools/olf/olf/infra/deployment/local/provider.py`).
 
 **D2. Default deny, one flow file.** Ingress and egress are denied in every
 stage namespace and for each `olf-system` workload listed under `workloads` in
@@ -47,10 +49,8 @@ boundary there. Between namespaces, and between `olf-system` workloads, every
 flow is an allow row selecting on chart-native labels. Enforced by:
 `infra/terraform/modules/security/network-policy`.
 
-**D4. Stage-first rollout.** Pods in a namespace with no policy are not
-isolated. Policies went onto the stage namespaces first, whose destinations in
-`olf-system` were still open, then onto `olf-system`, and the stack worked
-after every step. Enforced by: none; the rollout is complete.
+**D4. Withdrawn (2026-11-23):** the stage-first rollout is complete and
+nothing enforces it.
 
 **D5. RBAC is inventoried, narrowed where the roles are ours, and pinned.**
 The e2e lists every Role and ClusterRole bound to a ServiceAccount in the OLF
@@ -60,9 +60,11 @@ this record does not name. The named exceptions are:
 E1, the create-if-missing credential Jobs (`create` on Secrets or ConfigMaps
 cannot be limited by `resourceNames`; every other verb is pinned by name);
 E2, OpenMetadata's chart Role; E3, the Dagster run launcher of each stage;
-E4, Traefik's cluster-wide read of TLS Secrets; E5, cert-manager;
-E6, the CNI's own components (Calico, which is not installed). Enforced by:
+E4, Traefik's cluster-wide read of TLS Secrets; E5, cert-manager. Enforced by:
 `tools/olf/olf/infra/e2e/_network.py` (`E1_PINS` and the E2 to E5 tuples).
+
+**E6. Withdrawn (2026-11-23):** it named Calico's components, which were never
+installed.
 
 **D6. `kube-system` and the control-plane host network are not policy
 targets**, nor is a CNI's own namespace: a default-deny there can take the
@@ -167,3 +169,9 @@ Flow ids (F1, F2, …) are the `id` of a row of `release/network-flows.yaml`.
 - 2026-11-23 (#1393): Rewritten in the standard form; the second list of decisions
   (1 to 4) became D7 to D10; the flow table and RBAC inventory moved to
   `identity-network-policy-and-rbac.md`. No decision changed.
+- 2026-11-23 (#1393): D1 corrected to match the code: the canary runs on every
+  `olf infra deploy`, not on every e2e run; the conformance e2e checks the
+  flows themselves.
+- 2026-11-23 (#1393): D4 and E6 withdrawn; D4's rollout is complete and
+  nothing enforces it, and E6 named Calico components that were never
+  installed. Nothing was renumbered.
