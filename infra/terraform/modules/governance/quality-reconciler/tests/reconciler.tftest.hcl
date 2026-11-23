@@ -107,7 +107,7 @@ run "a_stage_reads_only_its_own_key_and_its_own_writer_token_by_reference" {
         try(e.value_from[0].secret_key_ref[0].name, "") == "openmetadata-ingestion-bot"
       ])
     ])
-    error_message = "the reconciler no longer mounts the ingestion bot's token (ADR 0007, Identity)"
+    error_message = "the reconciler no longer mounts the ingestion bot's token (ADR 0007 D13)"
   }
 
   assert {

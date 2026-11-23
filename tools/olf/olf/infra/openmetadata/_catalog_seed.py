@@ -19,8 +19,9 @@ class CatalogSeed:
 
     service: str
     display_name: str
-    # Every `trino://host:port` a governed stage's dbt-trino can name datasets by (each stage's coordinator, plain
-    # and TLS port): all map to the one service or Gold lineage splits. The first is the service's connection address.
+    # Every `trino://host:port` a governed stage's dbt-trino can name datasets by (each stage's coordinator, on its
+    # plain HTTP port, the only listener, ADR 0016 D1): all map to the one service or Gold lineage splits. The first
+    # is the service's connection address.
     trino_namespaces: tuple[str, ...]
     pipeline_service: str  # OpenLineage's default pipeline service for the canonical stage
     databases: tuple[str, ...] = ()
