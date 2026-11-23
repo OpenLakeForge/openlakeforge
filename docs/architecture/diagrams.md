@@ -67,6 +67,22 @@ Dex, one oauth2-proxy per distinct role floor (two: `viewer` and
 answering `/api` on the base domain. The icons show one stage's Dagster and
 Superset pods; a profile with fewer stages, no analytics or governance, or no ingress or identity runs fewer.
 
+The ingress, the portal and the platform API request, all in `olf-system`
+([ADR 0013](../adr/0013-service-access-and-ingress.md)):
+
+| Pod | CPU request | Memory request / limit |
+| --- | --- | --- |
+| Traefik | 50m | 64Mi / 256Mi |
+| cert-manager controller | 10m | 64Mi / 256Mi |
+| cert-manager cainjector | 10m | 64Mi / 256Mi |
+| cert-manager webhook | 10m | 32Mi / 128Mi |
+| Portal (openlakeforge-portal) | 5m | 48Mi / 128Mi |
+| Platform API, with `spec.identity` only ([ADR 0021](../adr/0021-platform-api.md)) | 10m | 64Mi / 192Mi |
+
+The platform API's request is set from about 41 MiB resident, measured in
+Docker (read-only root filesystem, as `nobody`, after 200 requests), not yet
+on kind.
+
 The purple band underneath is everything that is *not* in that 30, split by what creates
 it. **Per pipeline run**: the run pod and its Floe Jobs, TTL-collected within the hour,
 so ingestion scales to zero between runs — Gold is the exception, running as SQL inside

@@ -161,7 +161,7 @@ all present or all absent:
   "ref": "shared/access",
   "implementation": "access.ingress",
   "base_domain": "olf.localhost",
-  "issuer": "local-ca",
+  "tls": "local-ca",
   "tls_mode": "ingress-terminated",
   "routes": {
     "stage/dev/orchestration": {"url": "https://dagster-dev.olf.localhost", "enabled": true, "exposure": "user-facing"},
@@ -173,14 +173,15 @@ all present or all absent:
 
 | Rule | Why |
 | --- | --- |
-| `base_domain` and `issuer` equal the profile's `spec.access` | contract and profile cannot diverge |
+| `base_domain` and `tls` equal the profile's `spec.access` (a contract already in state may say `issuer`, the v1alpha1 name of `tls`) | contract and profile cannot diverge |
 | a route key is an existing shared or enabled-stage service ref | a disabled capability exposes no route |
 | `user-facing` only for orchestration, reporting, governance, query, identity, portal | databases, storage admin, catalog, registry stay internal; code servers have no ref |
-| `url` is `https://<host>.<base_domain>`, unique across routes; the portal's is `https://<base_domain>` | one host, one service |
-| `tls_mode` is `ingress-terminated` | the only mode an adapter implements |
+| `url` is `<scheme>://<host>.<base_domain>`, unique across routes, with no port or path; a stage route's host is `<service>-<stage>`, a shared route's `<service>`, and the portal's is `<base_domain>` | one host, one service, and a stage backend never answers on another stage's host |
+| `tls_mode` is `none` for `tls: none`, `ingress-terminated` for `local-ca`, `edge-terminated` for `external` | one mode per TLS setting (ADR 0013 D3) |
+| `<scheme>` is `http` when `tls_mode` is `none`, `https` otherwise | routes, callback and cookies follow who terminates TLS |
 | optional `perimeter` is `{implementation, enabled, protected_routes, callback_url}` and needs the ingress fields | what sits behind authentication (ADR 0014 seam 3) |
 | `protected_routes` is exactly the enabled user-facing routes except `shared/identity` (empty when `enabled` is false) | a user-facing route left out is an open door, so `olf` rejects it |
-| `callback_url` is `https://<host>.<base_domain>/oauth2/callback` | the one redirect URI of the `perimeter` client |
+| `callback_url` is `<scheme>://<host>.<base_domain>/oauth2/callback` | the one redirect URI of the `perimeter` client |
 
 The local root emits `perimeter` once the perimeter adapter lands (#176); the
 AWS and Azure roots do not. When public DNS and ACME exposure is added, `olf`
