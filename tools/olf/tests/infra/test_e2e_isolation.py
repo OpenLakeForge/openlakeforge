@@ -358,7 +358,7 @@ def test_trino_isolation_probe_rejects_a_non_denial_failure(monkeypatch: pytest.
 def test_a_coordinator_that_has_no_sibling_catalog_counts_as_isolated(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """DEV's own Trino holds no PROD catalog (ADR 0019 section 9), so Trino answers 'not found'."""
+    """DEV's own Trino holds no PROD catalog (ADR 0019 D8), so Trino answers 'not found'."""
     cfg = replace(e2e_cfg(tmp_path), namespace="olf-dev", shared_namespace="olf-system")
 
     def _trino_query(_cfg, sql: str, **_identity) -> str:  # noqa: ANN001, ANN003

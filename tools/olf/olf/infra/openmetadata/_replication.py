@@ -23,7 +23,7 @@ def revoke_trino_crawl(
     """Remove the Trino crawl and its Polaris credential from the stages in `revoked`.
 
     The crawl runs beside the stage's coordinator with a copy of the `openmetadata` principal's Secret,
-    and that principal reads every stage's catalog (ADR 0019 section 9). A stage that turns governance
+    and that principal reads every stage's catalog (ADR 0019 D12). A stage that turns governance
     off keeps its namespace, where run pods execute project code, so the copy must not outlive the crawl.
     The shared namespace holds the source, which the governed stages still need.
     """

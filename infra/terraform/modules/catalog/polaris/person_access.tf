@@ -1,4 +1,4 @@
-# People's Dex tokens (ADR 0019, build step 3). Polaris authenticates `mixed`:
+# People's Dex tokens (ADR 0019 D7, D13). Polaris authenticates `mixed`:
 # its own tokens first, so every workload keeps its credentials and does not
 # depend on the issuer, then Dex's. Every person's token names one shared
 # principal, the Dex connector id; the token's groups decide which of its

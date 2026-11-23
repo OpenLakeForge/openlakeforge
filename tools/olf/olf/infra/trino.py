@@ -28,7 +28,7 @@ TRINO_CATALOG_DIR = "/etc/trino/catalog"
 # Mints the stage processing principal's Polaris token inside the coordinator with nothing but the shell and curl:
 # from Trino 484 the image is built on Red Hat's hardened core runtime, which has no sed, grep or awk (nor python, jq
 # or wget), so the properties file and the token response are parsed with shell builtins. The coordinator holds no
-# credential with a grant (ADR 0019 section 9), so the caller sends the principal's client id and secret as the first
+# credential with a grant (ADR 0019 D9), so the caller sends the principal's client id and secret as the first
 # two lines of stdin; they go on to curl as a config on stdin, and the token lands only in the pod's shell and the
 # CLI's argv there, never in a `kubectl` argument or a log. A catalog with no token endpoint, or a caller with no
 # credential, sends no token; a mint that fails fails the query. Braces are doubled for str.format.

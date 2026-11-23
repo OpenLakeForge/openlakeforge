@@ -97,7 +97,7 @@ privilege and external secrets belong to the secure beta profile.
 | --- | --- |
 | The provider contracts the clouds implement | ADR 0003, `docs/architecture/provider-contracts.md` |
 | Ingress and TLS on the local root | ADR 0013 |
-| AWS moving from Glue to Polaris | ADR 0019 (#681) |
+| AWS moving from Glue to Polaris | ADR 0019 D14 (#681) |
 
 ## Alternatives rejected
 

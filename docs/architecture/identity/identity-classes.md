@@ -43,7 +43,7 @@ in.
 | Enforcement | The perimeter (oauth2-proxy behind Traefik forwardAuth) refuses a route the role does not hold; with GitHub sign-in, Superset also maps the role to its native roles, and OpenMetadata gets its native roles only from the GitHub role sync. With `issuer: external`, Superset and OpenMetadata get no OIDC configuration: users pass the perimeter and then need each service's own login |
 | Lifetime | Perimeter cookie 30 min idle, 10 h absolute; access token 5 min; with Dex, a revocation reaches the perimeter within about 5 min. With an external issuer, a removed role can last up to the issuer's 10 h SSO lifetime when its refresh responses carry no ID token with the role claim ([identity-sessions-and-recovery.md](identity-sessions-and-recovery.md)) |
 | Operations | [Add, change or remove a member](../../guides/identity/manage-members.md) |
-| Command line | The `olf-cli` public OIDC client (no secret): the perimeter accepts its bearer tokens and applies the same role floor as for a session. `olf query` uses it: the perimeter checks the token, Trino has no authentication of its own and passes the token on, and Polaris grants the role's `data_access` row ([ADR 0016](../../adr/0016-trino-workload-authentication.md), [ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) section 9). `olf infra query` stays class 2 |
+| Command line | The `olf-cli` public OIDC client (no secret): the perimeter accepts its bearer tokens and applies the same role floor as for a session. `olf query` uses it: the perimeter checks the token, Trino has no authentication of its own and passes the token on, and Polaris grants the role's `data_access` row ([ADR 0016](../../adr/0016-trino-workload-authentication.md), [ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) D6, D7). `olf infra query` stays class 2 |
 
 ## Class 2: in-cluster workload and automation
 
@@ -53,7 +53,7 @@ in.
 | Examples | `olf infra deploy`, `olf infra e2e` and CI (RBAC, port-forward or in-cluster exec); Superset, dbt and OpenMetadata ingestion to Trino; Trino and Floe to Polaris; pods to PostgreSQL and object storage |
 | Authorization | Kubernetes RBAC for operators and CI. For pods, a per-service credential from a Secret that a bootstrap Job generates once and reuses |
 | Network | Reachability between pods is decided by default-deny NetworkPolicy ([identity-network-policy-and-rbac.md](identity-network-policy-and-rbac.md)) |
-| Trino | No authentication of its own: every caller sends its own Polaris token, and Polaris decides what each query reads ([ADR 0016](../../adr/0016-trino-workload-authentication.md), [ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) section 9) |
+| Trino | No authentication of its own: every caller sends its own Polaris token, and Polaris decides what each query reads ([ADR 0016](../../adr/0016-trino-workload-authentication.md), [ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) D3, D9) |
 | Rotation | `olf infra secrets rotate` for `dex-client-perimeter` and `github-app`; the Superset and OpenMetadata clients are rotated by hand ([Rotate secrets](../../guides/identity/rotate-secrets.md)); other credentials as the inventory states ([identity-credentials.md](identity-credentials.md)) |
 
 Workstation and CI automation reaches services by an RBAC-authorized
@@ -68,7 +68,7 @@ component it fronts, so it cannot tell two people apart. Data access is not
 decided by one: Superset sends each signed-in viewer's own token to Trino, a
 query that carries no token is refused, and Polaris grants what that person's
 role reads
-([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) section 9).
+([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) D11).
 
 ## Class 3: cloud workload
 
