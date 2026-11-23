@@ -1,4 +1,4 @@
-# The free-form lines of config.properties. The chart (1.42.2) takes them only
+# The free-form lines of config.properties. The chart (1.45.0) takes them only
 # from the top-level additionalConfigProperties, with no per-role list, and Helm
 # replaces a list wholesale, so the module settles the whole list here and
 # main.tf renders it once, after every other values file.

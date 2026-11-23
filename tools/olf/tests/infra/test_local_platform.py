@@ -397,7 +397,7 @@ class _PlatformScriptedRunner(RecordingRunner):
         if argv[0] == "helm" and "package" in argv:
             destination = Path(argv[argv.index("--destination") + 1])
             destination.mkdir(parents=True, exist_ok=True)
-            (destination / "dagster-1.13.7.tgz").write_bytes(b"fake-repacked-chart")
+            (destination / "dagster-1.13.31.tgz").write_bytes(b"fake-repacked-chart")
         return _ok()
 
 
@@ -638,6 +638,67 @@ def test_shared_namespace_replacement_is_a_no_op_on_a_fresh_cluster(tmp_path: Pa
     tools = _toolkit(_legacy_namespace_runner(legacy_namespace_exists=False))
 
     platform.require_no_shared_namespace_replacement(config, tools, kube_context=config.kube_context, env={})
+
+
+def _postgres_runner(deployed_image: str, *, ok: bool = True) -> RecordingRunner:
+    """A runner whose `kubectl get statefulset postgresql` answers the deployed container image."""
+
+    class _Runner(RecordingRunner):
+        def run(self, command, **kwargs):  # type: ignore[override]
+            argv = list(command.argv) if hasattr(command, "argv") else [str(part) for part in command]
+            self.calls.append(RecordedCall(argv=argv, kwargs=kwargs))
+            if "get" in argv and "statefulset" in argv and "postgresql" in argv:
+                return _ok(deployed_image) if ok else _fail()
+            return _ok()
+
+    return _Runner()
+
+
+def _write_catalog(root: Path, postgres: str) -> None:
+    (root / "release").mkdir(parents=True, exist_ok=True)
+    (root / "release" / "component-catalog.yaml").write_text(
+        "kind: ComponentCatalog\ndistribution:\n  version: 0.7.0-beta.1\n"
+        f"components:\n  images:\n    postgres: {postgres}\n"
+    )
+
+
+def test_postgres_major_change_fails_closed_on_a_data_directory_of_another_major(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+    _write_catalog(
+        tmp_path, "postgres:18.7-alpine@sha256:" + "a" * 64
+    )  # after the config, which reads chart pins from a catalog on disk
+    tools = _toolkit(_postgres_runner("postgres:16-alpine@sha256:" + "b" * 64))
+
+    with pytest.raises(
+        DeploymentPreconditionError, match=r"runs PostgreSQL 16.*deploys PostgreSQL 18.*olf infra destroy"
+    ):
+        platform.require_no_postgres_major_change(config, tools, kube_context=config.kube_context, env={})
+
+
+def test_postgres_major_change_allows_a_minor_or_digest_change(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+    _write_catalog(
+        tmp_path, "postgres:18.7-alpine@sha256:" + "a" * 64
+    )  # after the config, which reads chart pins from a catalog on disk
+    tools = _toolkit(_postgres_runner("docker.io/library/postgres:18.6-alpine@sha256:" + "b" * 64))
+
+    platform.require_no_postgres_major_change(config, tools, kube_context=config.kube_context, env={})
+
+
+def test_postgres_major_change_is_a_no_op_on_a_fresh_cluster(tmp_path: Path) -> None:
+    # No catalog on disk: a cluster without the StatefulSet never reads it.
+    config = _config(tmp_path, topology=_topology(dev=True))
+    tools = _toolkit(_postgres_runner(""))
+
+    platform.require_no_postgres_major_change(config, tools, kube_context=config.kube_context, env={})
+
+
+def test_postgres_major_change_fails_closed_when_the_statefulset_cannot_be_read(tmp_path: Path) -> None:
+    config = _config(tmp_path, topology=_topology(dev=True))
+    tools = _toolkit(_postgres_runner("", ok=False))
+
+    with pytest.raises(DeploymentPreconditionError, match="could not read the deployed PostgreSQL StatefulSet"):
+        platform.require_no_postgres_major_change(config, tools, kube_context=config.kube_context, env={})
 
 
 def _stage_names_runner(applied: str | None, *, labelled_namespaces: str = "") -> RecordingRunner:

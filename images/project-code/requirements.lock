@@ -527,9 +527,9 @@ daff==1.4.2 \
     --hash=sha256:47f0391eda7e2b5011f7ccac006b9178accb465bcb94a2c9f284257fff5d2686 \
     --hash=sha256:88981a21d065e4378b5c4bd40b975dbfdea9b7ff540071f3bb5e20cc8b3590b5
     # via dbt-core
-dagster==1.13.7 \
-    --hash=sha256:4ff8ba1b563d11c023452bd6e0cc3ab8154ff8bf0d2e571ae48eb710dd8a63e8 \
-    --hash=sha256:8eb2d6cd7da184ee6e718f0121219bb1f721fad4159e3668eb43cc0961fb5c62
+dagster==1.13.31 \
+    --hash=sha256:1fd4c66a915226aa2e3ae4981a1abb2913c5162a966193f1ddeaa44e4429e9ec \
+    --hash=sha256:2aef2e3482c52460f2e85fd281c5b2527fca6172b362461e1439a18a48d5bf3d
     # via
     #   openlakeforge-project-code (images/project-code/pyproject.toml)
     #   dagster-aws
@@ -539,41 +539,41 @@ dagster==1.13.7 \
     #   dagster-k8s
     #   dagster-postgres
     #   dagster-webserver
-dagster-aws==0.29.7 \
-    --hash=sha256:049d731379f80e2f76edffc403163264b32238718e0c59e8be8744f4d3b2eb50 \
-    --hash=sha256:5b08eaee10453262d93c893c9ca423eee0df8c6f0607fedc7a3d103208d30d75
+dagster-aws==0.29.31 \
+    --hash=sha256:86ad4f09b5c0c40629c16880a937b1c30f903df6830d6b8e4cbe7a31c40ce888 \
+    --hash=sha256:fd3240043f12b2c575820653b9a8cb0c8955feda001ed50148169b4b4211025f
     # via openlakeforge-project-code (images/project-code/pyproject.toml)
-dagster-dbt==0.29.7 \
-    --hash=sha256:76c5c3275cfe2234f0b3784b87ffb981cec3370b730158b88c404ee755365071 \
-    --hash=sha256:b94ff7406f87b3cdd6fef02c02b2ece6241a262afd3d9499e5de2f3535a0e511
+dagster-dbt==0.29.31 \
+    --hash=sha256:5fbf056b7d92e630390da8cd19261b5e1b2b95332de7770124456afa31b24c14 \
+    --hash=sha256:acf46f9bad9d5d21211204029fd2b0d1431b8cf25c025aed84323c3db86c5b8a
     # via openlakeforge-project-code (images/project-code/pyproject.toml)
 dagster-floe==0.6.1 \
     --hash=sha256:a13f97fa4c51fab1cfc064f39cfc6c5f3060c17f355d3726f55db9d5a8be5c37 \
     --hash=sha256:b5fd4f7f371cd2e86810bec4a251ef79753b85f9b369c0135307bf8561aea974
     # via openlakeforge-project-code (images/project-code/pyproject.toml)
-dagster-graphql==1.13.7 \
-    --hash=sha256:c8658e8e353ceedd08fc88e3ba1258fc80f480170ca15363f668a44d1ea953ee \
-    --hash=sha256:f895bb44d405d7d3704917f5b9af4bd28080208375037304510993a3ff17c7da
+dagster-graphql==1.13.31 \
+    --hash=sha256:4799c1d25813901e661a57e71f01492d3e023101a4d90d3159c1f1e743ff329a \
+    --hash=sha256:c09e5a7b59819c3924787a06616203b149d996d78211f0d4a7ce5c19c20ae998
     # via dagster-webserver
-dagster-k8s==0.29.7 \
-    --hash=sha256:7254c92c28a1af80ecc8553e0ba6a3dc37cce0fcd7efef731aff4d7d4fade928 \
-    --hash=sha256:796734f9742c8fdfda9a27cbcf3dac4b77fac3a6f59969d7488f8cefb79c933b
+dagster-k8s==0.29.31 \
+    --hash=sha256:7cddf562e2f7d15c15e1b0647cc30e5e7d43dec4677fd8722e513ba47526d029 \
+    --hash=sha256:ed21cf3bb8a012a38582e0b513135ac59e1ca875f84ca2fc69dd4b953600639e
     # via openlakeforge-project-code (images/project-code/pyproject.toml)
-dagster-pipes==1.13.7 \
-    --hash=sha256:2dd72fdbcfb6994b6e2e467266912a13148496e3c56301b982815754508a9b87 \
-    --hash=sha256:3da63a8829cd00cdb162ea75d10ba8fab2a641230bd019b9ac1ceeec223a068c
+dagster-pipes==1.13.31 \
+    --hash=sha256:45390308dfc0d9ad534e13a17c3c306649e7a5dadce9d122f8123447d453489d \
+    --hash=sha256:6f778f4ae58384ded025689041d93caa924131769b7c8ce2924cc0127aaaad3c
     # via dagster
-dagster-postgres==0.29.7 \
-    --hash=sha256:35c2c51aeb6d5f096f83eb38acacb1b09b4175d4c9b680295b5f0fc2607ce54c \
-    --hash=sha256:84ca00feb3478c9d766613e870f562e97171f8469bce632270f3d4f5185dbd04
+dagster-postgres==0.29.31 \
+    --hash=sha256:7a1ac629bb356b10a9e56a556c32545e9678b266042e119383bae324cf41f5ac \
+    --hash=sha256:cd8c452faa94ed19c83dfdbfa59fd90d847c41034bc7fef2783effad82d85523
     # via openlakeforge-project-code (images/project-code/pyproject.toml)
-dagster-shared==1.13.7 \
-    --hash=sha256:41e602c5c610951c18e76dfd6beb4fed1511e0e3722927b617f41992d34399f9 \
-    --hash=sha256:aeb6de66a6e9a71870db134817f95b162feafa95a0f0619c904edfb313a72486
+dagster-shared==1.13.31 \
+    --hash=sha256:16b222d1a5f2e0d1aabae6d8fa0843a20afb93ba60f068bdee836b3cfa22d129 \
+    --hash=sha256:be392e818ff2bd9d0583d03ab435322b5af673c288de3121a385c429663aef1c
     # via dagster
-dagster-webserver==1.13.7 \
-    --hash=sha256:0a6a71fb4f35d0b7bee0dfaae7603a5985a2a3b716714cd1e5609f0b0a5ee20d \
-    --hash=sha256:593772ebcc97e0521c270c53770d6ca73ddcace4d0d06648f3642a4a58166a5f
+dagster-webserver==1.13.31 \
+    --hash=sha256:18615dfc8256ee4cc036b3b9a3568a9a720295c687c6af7cbe9ca872591f334f \
+    --hash=sha256:48375c04ab6e545b33113da3e3a6f621000d7c15a3dfef1da75bb50c9390c460
     # via openlakeforge-project-code (images/project-code/pyproject.toml)
 dbt-adapters==1.24.5 \
     --hash=sha256:32345118b921160722a13f12c3e369b9d59a0fb8fb9b3297e29d8cd53f973411 \
@@ -592,7 +592,7 @@ dbt-core==1.11.17 \
     --hash=sha256:5ca4c9df1d9f40f36c042de9f301ad8693cd2b5953cfcef74a1e7bf86209a8ed \
     --hash=sha256:adbaea0291401571df31ff3b4d5b537f0402fa38fb4a2e3fad2b24eac5cb8fa9
     # via
-    #   dagster-dbt
+    #   openlakeforge-project-code (images/project-code/pyproject.toml)
     #   dbt-trino
     #   openlineage-dbt
 dbt-extractor==0.6.0 \
@@ -2548,6 +2548,7 @@ python-dateutil==2.9.0.post0 \
     # via
     #   aiobotocore
     #   botocore
+    #   dagster-dbt
     #   dbt-common
     #   dbt-semantic-interfaces
     #   graphene

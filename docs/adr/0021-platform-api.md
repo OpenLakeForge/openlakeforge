@@ -502,8 +502,7 @@ Each step is one pull request within AGENTS.md's size rule.
    token, as `olf query` does Trino's (step 6).
 5. State-changing endpoints — report export and import, launching a run — with
    audit records.
-6. Platform `olf query` on ADR 0019's person path (ADR 0020, Command
-   ownership).
+6. Platform `olf query` on ADR 0019's person path (ADR 0020 D5).
 
 ## History
 

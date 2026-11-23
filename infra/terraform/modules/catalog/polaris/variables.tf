@@ -18,7 +18,7 @@ variable "chart_repository" {
 variable "chart_version" {
   description = "Polaris Helm chart version."
   type        = string
-  default     = "1.8.0"
+  default     = "1.9.0"
 }
 
 variable "chart_package_path" {
@@ -97,13 +97,13 @@ variable "floe_credentials_secret_name" {
 variable "bootstrap_job_image" {
   description = "Image of the Job that creates the token-broker key and the root credentials when missing."
   type        = string
-  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
+  default     = "alpine/k8s:1.31.13@sha256:7a319b15cfc99c9aaa27ec9891d6b4ca24632b795908591c7b0ba89b03549e0a"
 }
 
 variable "metastore_bootstrap_job_image" {
   description = "Version-matched Polaris Admin Tool image used to initialize the relational metastore."
   type        = string
-  default     = "apache/polaris-admin-tool:1.8.0@sha256:34dde19bb321aef5925a14ba90b69e26e982a5dcbda76a9d0cfc1aac1534ba4e"
+  default     = "apache/polaris-admin-tool:1.9.0@sha256:9ec2467615132f6a837b13fcbb8be23d770c0ffa5a8bb90faf8ebdf513ab14a0"
 }
 
 variable "om_credentials_secret_name" {

@@ -18,7 +18,7 @@ variable "chart_repository" {
 variable "chart_version" {
   description = "SeaweedFS Helm chart version."
   type        = string
-  default     = "4.48.0"
+  default     = "4.54.0"
 }
 
 variable "chart_package_path" {
@@ -46,7 +46,7 @@ variable "storage_sizes_file" {
 variable "image_tag" {
   description = "SeaweedFS image tag used by the chart and bucket jobs."
   type        = string
-  default     = "4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d"
+  default     = "4.54@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15"
 }
 
 variable "bucket_names" {
@@ -248,5 +248,5 @@ variable "s3_port" {
 variable "bootstrap_job_image" {
   description = "Image of the Job that creates the S3 key Secrets when missing, pinned by digest (release/component-catalog.yaml)."
   type        = string
-  default     = "alpine/k8s:1.30.0@sha256:bd01dae02676ce4cab62fc744e43443eee5bf660054e94d3496d23bfc35d384e"
+  default     = "alpine/k8s:1.31.13@sha256:7a319b15cfc99c9aaa27ec9891d6b4ca24632b795908591c7b0ba89b03549e0a"
 }

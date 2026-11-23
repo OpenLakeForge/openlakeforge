@@ -25,19 +25,22 @@ STAGE_CATALOG_PREFIX = "lakehouse_"
 # Where the chart writes the coordinator's catalog properties; the Polaris token endpoint and scope are read from them.
 TRINO_CATALOG_DIR = "/etc/trino/catalog"
 
-# Mints the stage processing principal's Polaris token inside the coordinator, with the curl and sed its image has
-# (no python, jq or wget). The coordinator holds no credential with a grant (ADR 0019 section 9), so the caller sends
-# the principal's client id and secret as the first two lines of stdin; they go on to curl as a config on stdin, and
-# the token lands only in the pod's shell and the CLI's argv there, never in a `kubectl` argument or a log. A catalog
-# with no token endpoint, or a caller with no credential, sends no token; a mint that fails fails the query.
+# Mints the stage processing principal's Polaris token inside the coordinator with nothing but the shell and curl:
+# from Trino 484 the image is built on Red Hat's hardened core runtime, which has no sed, grep or awk (nor python, jq
+# or wget), so the properties file and the token response are parsed with shell builtins. The coordinator holds no
+# credential with a grant (ADR 0019 section 9), so the caller sends the principal's client id and secret as the first
+# two lines of stdin; they go on to curl as a config on stdin, and the token lands only in the pod's shell and the
+# CLI's argv there, never in a `kubectl` argument or a log. A catalog with no token endpoint, or a caller with no
+# credential, sends no token; a mint that fails fails the query. Braces are doubled for str.format.
 _MINT_TOKEN = (
-    r"""U=$(sed -n 's/^iceberg.rest-catalog.oauth2.server-uri=//p' {props}); if [ -n "$U" ] && [ -n "$I" ]; then """
-    r"""S=$(sed -n 's/^iceberg.rest-catalog.oauth2.scope=//p' {props}); """
-    r"""T=$(printf 'url = "%s"\ndata-urlencode = "grant_type=client_credentials"\ndata-urlencode = "client_id=%s"\n"""
+    r"""U=; S=; while IFS= read -r L || [ -n "$L" ]; do case "$L" in """
+    r"""iceberg.rest-catalog.oauth2.server-uri=*) U=${{L#*=}};; iceberg.rest-catalog.oauth2.scope=*) S=${{L#*=}};; """
+    r"""esac; done < {props}; unset L; if [ -n "$U" ] && [ -n "$I" ]; then """
+    r"""R=$(printf 'url = "%s"\ndata-urlencode = "grant_type=client_credentials"\ndata-urlencode = "client_id=%s"\n"""
     r"""data-urlencode = "client_secret=%s"\ndata-urlencode = "scope=%s"\n' "$U" """
     r""""$I" "$K" "$S" """
-    r"""| curl -sf -m 30 -K - 2>/dev/null """
-    r"""| sed -n 's/.*"access_token" *: *"\([^"]*\)".*/\1/p'); """
+    r"""| curl -sf -m 30 -K - 2>/dev/null); """
+    r"""T=${{R#*\"access_token\"}}; if [ "$T" = "$R" ]; then T=; else T=${{T#*\"}}; T=${{T%%\"*}}; fi; unset R; """
     r"""if [ -z "$T" ]; then echo "olf: cannot mint the Polaris token for catalog {catalog} from $U: """
     r"""the endpoint is unreachable or refused the stage's credential" >&2; exit 1; fi; """
     r"""set -- --extra-credential "token=$T" "$@"; unset T; fi; """

@@ -19,7 +19,7 @@ from olf.infra.deployment.cloud.config import (
 def test_aws_image_settings_defaults_to_ecr_public_python_base_image() -> None:
     settings = CloudImageSettings.from_environment({}, scope="aws", image_tag="aws-abc123")
 
-    assert settings.project_code_python_base_image.startswith("public.ecr.aws/docker/library/python:3.12-slim@")
+    assert settings.project_code_python_base_image.startswith("public.ecr.aws/docker/library/python:3.12.16-slim@")
     assert settings.project_code_tag == "aws-abc123"
     assert settings.project_code_pull_policy == "Always"
     assert settings.project_code_repository == ""
@@ -29,7 +29,7 @@ def test_aws_image_settings_defaults_to_ecr_public_python_base_image() -> None:
 def test_azure_image_settings_defaults_to_docker_hub_python_base_image() -> None:
     settings = CloudImageSettings.from_environment({}, scope="azure", image_tag="azure-abc123")
 
-    assert settings.project_code_python_base_image.startswith("python:3.12-slim@")
+    assert settings.project_code_python_base_image.startswith("python:3.12.16-slim@")
     assert not settings.project_code_python_base_image.startswith("public.ecr.aws")
 
 
@@ -118,8 +118,8 @@ def test_chart_settings_defaults_trino_and_dagster_package_paths(tmp_path: Path)
         {}, helm_cache_dir=helm_cache_dir, **_no_catalog_kwargs(tmp_path)
     )
 
-    assert settings["trino"].package_path == helm_cache_dir / "trino-1.42.2.tgz"
-    assert settings["dagster"].package_path == helm_cache_dir / "dagster-1.13.7-no-schema.tgz"
+    assert settings["trino"].package_path == helm_cache_dir / "trino-1.45.0.tgz"
+    assert settings["dagster"].package_path == helm_cache_dir / "dagster-1.13.31-no-schema.tgz"
     assert settings["trino"].chart_ref == "trino/trino"
     assert settings["dagster"].chart_ref == "dagster/dagster"
     assert settings["trino"].sha256 is None
@@ -205,8 +205,8 @@ def test_chart_settings_pins_digests_from_catalog_when_installed(tmp_path: Path)
     assert settings["dagster"].sha256 == dagster_sha256
     assert settings["trino"].package_path == cache_root / "helm" / f"{trino_sha256}.tgz"
     assert settings["dagster"].package_path == cache_root / "helm" / f"{dagster_sha256}-no-schema.tgz"
-    assert settings["trino"].version == "1.42.2"
-    assert settings["dagster"].version == "1.13.7"
+    assert settings["trino"].version == "1.45.0"
+    assert settings["dagster"].version == "1.13.31"
 
 
 def test_chart_settings_does_not_pin_digests_in_source_mode_even_with_a_catalog(tmp_path: Path) -> None:

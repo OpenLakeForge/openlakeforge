@@ -26,23 +26,23 @@ class ChartDefault:
 
 
 CHART_DEFAULTS: Mapping[str, ChartDefault] = {
-    "trino": ChartDefault(chart_ref="trino/trino", repository="https://trinodb.github.io/charts", version="1.42.2"),
+    "trino": ChartDefault(chart_ref="trino/trino", repository="https://trinodb.github.io/charts", version="1.45.0"),
     "dagster": ChartDefault(
         chart_ref="dagster/dagster",
         repository="https://dagster-io.github.io/helm",
-        version="1.13.7",
+        version="1.13.31",
         repack=True,
         variant="no-schema",
     ),
     "seaweedfs": ChartDefault(
         chart_ref="seaweedfs/seaweedfs",
         repository="https://seaweedfs.github.io/seaweedfs/helm",
-        version="4.48.0",
+        version="4.54.0",
     ),
     "polaris": ChartDefault(
         chart_ref="polaris/polaris",
         repository="https://downloads.apache.org/polaris/helm-chart",
-        version="1.8.0",
+        version="1.9.0",
     ),
     "openmetadata": ChartDefault(
         chart_ref="open-metadata/openmetadata",
@@ -67,6 +67,6 @@ CHART_DEFAULTS: Mapping[str, ChartDefault] = {
     "cert-manager": ChartDefault(
         chart_ref="jetstack/cert-manager",
         repository="https://charts.jetstack.io",
-        version="v1.21.2",
+        version="v1.21.3",
     ),
 }
