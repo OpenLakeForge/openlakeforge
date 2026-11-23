@@ -12,11 +12,16 @@ reconciliation. Product-owned descriptors contain logical identities only.
 
 ## Versions and deployment phases
 
-Every Terraform root (local, AWS, Azure) now emits native `3.0.0` contracts.
-`olf` retains a v2 adapter that lifts a flat `2.0.0` contract to a single
-DEV-stage v3 view, but only to keep reading a contract from state a pre-v3
-deploy already produced — no current root's Terraform emits that shape.
-Unknown versions fail closed.
+Every Terraform root (local, AWS, Azure) emits native `3.0.0` contracts, and
+`olf` parses `3.0.0` only (`SUPPORTED_SCHEMA_VERSIONS` in
+`tools/olf/olf/common/contract_validation.py`, ADR 0003 D7). A `2.0.0`
+contract, left in state by a pre-v0.3 deploy, is refused with the remedy:
+migrate the shared services' data out of the old `lakehouse` namespace by
+hand, or start over with `--allow-stage-removal`, before redeploying the
+platform phase. Unknown versions fail closed. The flat `2.0.0` shape survives
+only as an export: `StageContract.as_v2_environment_contract` renders one
+selected stage of a parsed v3 contract into the environment the runtimes
+read.
 
 `3.0.0` is the binding stage-aware shape, represented by strict schema, typed
 parser, and local, Azure, and AWS fixtures. A native v3 runtime must select a
@@ -345,8 +350,7 @@ output in any root `.tf` file and a secret-named field in a root's
 applies the same field rule to an applied contract, and the fixture suite
 applies it to every fixture.
 
-The v2 adapter is intentionally temporary. It lifts a flat deployed contract
-to one DEV stage without changing current v0.2 environment output. A v3
+There is no v2 reader: a `2.0.0` contract fails with the remedy above. A v3
 contract is not permitted to choose DEV implicitly: callers must select the
 stage they are configuring.
 
