@@ -3,7 +3,7 @@
 OpenMetadata's pipeline client would generate the same workflow, but its
 pods take only plain-string environment values, and the crawl needs the
 `openmetadata` principal's Polaris token, minted in the pod from a Secret just
-before it runs. So OLF builds the config and the Job itself and
+before it runs (ADR 0007 D15). So OLF builds the config and the Job itself and
 runs the pinned `ingestion-base` image's `metadata ingest` entry point.
 """
 

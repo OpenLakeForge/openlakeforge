@@ -162,6 +162,21 @@ exposes `Runs`. The service definition stays in place for when the connector
 is corrected. Enforced by: `_stage_services.py` (pipeline created paused,
 deployed without a run).
 
+**D15. The Trino metadata crawl runs as an OLF-owned Job, not as an
+OpenMetadata ingestion pipeline.** `olf infra openmetadata deploy-metadata`
+runs the crawl of D3 once per artifacts deploy as the Job
+`openmetadata-trino-ingestion` beside the stage's coordinator, and applies
+the hourly refresh as a CronJob per governed stage
+(`openmetadata-trino-ingestion-<catalog>`) built from the same pod spec. Both
+run the pinned `ingestion-base` image's `metadata ingest`, with the
+ingestion-bot JWT from a `secretKeyRef` and the `openmetadata` principal's
+Polaris token minted in the pod just before the crawl, so no token is in the
+Job spec or the service OpenMetadata stores. OpenMetadata registers no
+ingestion pipeline for the lakehouse service, and the Job and its credential
+are revoked from a stage that drops governance. Enforced by:
+`run_trino_ingestion` in `tools/olf/olf/infra/openmetadata/_ingestion.py` and
+`tools/olf/tests/infra/test_openmetadata_ingestion.py`.
+
 ## Consequences
 
 - The Bronze→Silver→Gold graph resolves in OpenMetadata only when governance
@@ -200,6 +215,7 @@ deployed without a run).
 | Native dbt `run_results.json` ingestion for quality results | A second copy of the manifest that covers neither Floe nor WARN versus ERROR, with a reported regression in 1.13.0 (open-metadata/OpenMetadata#29824) |
 | WARN as `Success` or `Failed` | `Success` hides it; `Failed` opens an incident |
 | Publishing quality results as the ingestion bot | A per-stage bot is a separate credential to revoke and a separate author in a result's history (D13) |
+| OpenMetadata's own Trino ingestion pipeline (the Kubernetes pipeline client) | Its pods take only plain-string environment values, so the crawl's Polaris token could not come from a Secret at run time |
 | A stage carried by an OpenMetadata Domain | A Domain holds the business domain (D4); stage is service identity (D2) |
 
 ## History
@@ -228,4 +244,6 @@ deployed without a run).
   10 attempts (D10); quality results are published by a per-stage
   `olf-quality-writer-<stage>` bot instead of the ingestion bot (D13).
 - 2026-11-23: rewritten in the standard form. D7 now maps the HTTP listener
-  only, since ADR 0016 D1 removed the HTTPS listener (#983).
+  only, since ADR 0016 D1 removed the HTTPS listener (#983). D15 added: the
+  OLF-owned Trino crawl Job, decided under ADR 0016 (#26, #471) and recorded
+  only in its former History until now.
