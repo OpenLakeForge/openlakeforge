@@ -103,13 +103,13 @@ catalog boundary, never part of an asset's identity.
 
 | Component | Source | Notes |
 | --- | --- | --- |
-| `descriptors` | `lakehouse_code/governance.yml`, `bronze/<source>/source.yaml` | Provider-neutral project truth |
-| `floe` | `silver/*.yml`, `silver/<domain>/domain.yml`, `silver/<domain>/contracts/*.yml` | The Floe project and its contracts, never the rendered profile |
+| `descriptors` | `lakehouse_code/governance.yml`, `bronze/<source>/source.yaml`, and `lakehouse_code/alerts.yml` when the project has one | Provider-neutral project truth |
+| `floe` | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/domain.yml`, `silver/<domain>/contracts/*.yml` | The Floe project and its contracts, never the rendered profile. The Floe runtime version is in the `image` digest |
 | `dbt` | `gold/**` | Excludes `profiles.yml`, `target/`, `dbt_packages/` and `logs/` |
 | `dagster` | `pipelines/definitions.py`, `pipelines/products.py`, `bronze/<source>/dlt/<source>.py` | Orchestration and extract code |
 | `reports` | `dashboards/superset/<dashboard>/**` | Only when at least one dashboard is declared; validated first |
 | `image` | The project-code repository, plus an immutable `@sha256:` digest | A mutable tag is rejected |
-| `distribution` | The running distribution's version | Gates activation against an incompatible distribution |
+| `distribution` | The building distribution's version and, from sidecar `schema_version` 3, its runtime contract version | Gates activation: the contract version must be in the running distribution's `accepts` ([ADR 0012](../adr/0012-project-revisions-and-promotion.md) D4) |
 
 ## The report bundle contract
 
@@ -187,9 +187,36 @@ olf infra project revision verify --revision sha256:<digest>
 Re-derives every component's digest from the published objects and compares
 it against what the manifest declares — tampering with one published file, or
 a partial publish that never finished, both fail closed. `verify` also checks
-the manifest's recorded distribution version against the running
-distribution, refusing to activate a revision built against an incompatible
-one.
+the revision's runtime contract version against the running distribution's
+`accepts` list, refusing to activate a revision built against an incompatible
+contract (a sidecar at `schema_version` 1 or 2 carries no contract version and
+must match the distribution version exactly).
+
+## The value scan
+
+Before a revision is published, and again before `inspect` or `verify` read
+it back, every frozen file passes a value scan (`_FORBIDDEN_VALUE_PATTERNS` in
+`tools/olf/olf/infra/project_revision.py`). It is deliberately narrower than
+"no `http(s)://`, `AWS_*` or `SECRET`": a bare environment-variable *name*
+(`AWS_REGION`) or a Kubernetes Secret *reference* (`secret_name:`,
+`secretRef`, `client_secret_key`) is the sanctioned way a credential reaches a
+pod and is never flagged, only a concrete physical value. It rejects:
+
+- `s3://`, which is always a bucket location ([ADR 0004](../adr/0004-medallion-layout-and-catalog-namespaces.md));
+- bare `http://`, this codebase's convention for every in-cluster stage
+  endpoint (external APIs are `https://`, which is allowed);
+- a concrete `AKIA...` AWS access-key ID;
+- an assignment of a bare credential noun (`password: ...`,
+  `api_token = "..."`) to anything that is not itself an environment lookup or
+  substitution (`os.environ[...]`, `os.getenv(...)`, `${VAR}`) with no
+  default. A default on that lookup (`os.getenv("TOKEN", "sk-live-...")`,
+  `${DB_PASSWORD:-hunter2}`) is exactly where a real secret hides once the
+  bare reference is exempt, so it is rejected explicitly.
+
+The scan is defense in depth, not a certified secret scanner. The guarantee is
+architectural: frozen inputs are provider-neutral descriptors, checked-in Floe
+contracts, dbt and Dagster source, and report assets, never a rendered
+artifact, so a physical endpoint or credential should not appear in them.
 
 ## Content address
 
