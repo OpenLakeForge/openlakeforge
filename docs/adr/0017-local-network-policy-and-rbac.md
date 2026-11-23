@@ -164,6 +164,6 @@ Flow ids (F1, F2, …) are the `id` of a row of `release/network-flows.yaml`.
   on a label it sets.
 - 2026-10-22 (#463): D8 changed: E2 accepted as a named exception instead of
   narrowed; E1 to E6 are the named set.
-- 2026-11-23: Rewritten in the standard form; the second list of decisions
+- 2026-11-23 (#1393): Rewritten in the standard form; the second list of decisions
   (1 to 4) became D7 to D10; the flow table and RBAC inventory moved to
   `identity-network-policy-and-rbac.md`. No decision changed.
