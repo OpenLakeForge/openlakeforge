@@ -1,4 +1,4 @@
-"""A person's dashboard data through Superset (ADR 0019 section 9, #987).
+"""A person's dashboard data through Superset (ADR 0019 D11, #987).
 
 The other Superset checks use the local `admin`, which holds no Dex token and
 cannot query Trino by design. This one signs in as a person through the

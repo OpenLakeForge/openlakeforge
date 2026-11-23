@@ -11,7 +11,7 @@ Trino once authenticated workloads because one coordinator held every stage's
 Polaris credential and a static S3 key, so it had to tell its callers apart
 itself: a password per stage principal, `principals` rules binding it to one
 stage user, and an HTTPS listener, because Trino authenticates only a request
-it considers secure (#932). ADR 0019 section 9 removed both causes on the
+it considers secure (#932). ADR 0019 D8 and D9 removed both causes on the
 local root: one coordinator per stage (#976) makes the stage boundary a
 network boundary, and the keyless catalogs (#982) leave Trino no credential
 with a grant and no storage key, so Polaris decides every table access from
@@ -46,7 +46,7 @@ namespace, Traefik, OpenMetadata and the platform API only. Enforced by:
 
 - The user in Trino's query log is a claim: access is decided by the token
   alone, and Polaris logs the principal `github`, not the person (ADR 0019
-  section 9).
+  D7).
 - Anyone who passes the perimeter's Web UI floor sees every query in the UI.
   The UI shows SQL and timings, not rows; reading data still needs a token
   Polaris accepts.
@@ -57,9 +57,9 @@ namespace, Traefik, OpenMetadata and the platform API only. Enforced by:
 
 | Option | Why not |
 | --- | --- |
-| Password-file authentication over an HTTPS-only listener, `principals` rules and a credential Job per stage (#26, #471) | Built, then removed (#983): its causes, a shared coordinator holding every stage's credential, are gone (ADR 0019 section 9) |
+| Password-file authentication over an HTTPS-only listener, `principals` rules and a credential Job per stage (#26, #471) | Built, then removed (#983): its causes, a shared coordinator holding every stage's credential, are gone (ADR 0019 D8, D9) |
 | `PASSWORD` on the plain HTTP listener with `http-server.authentication.allow-insecure-over-http=true` (#932) | Trino skips its authenticators on a request it does not consider secure: a request with no credential ran as the `X-Trino-User` it named, and a password was refused |
-| `JWT` beside `PASSWORD` for people's Dex tokens, and per-person catalogs with their own rules (ADR 0019 build step 5) | Removed with D1: Polaris decides from the token, so Trino needs no rule |
+| `JWT` beside `PASSWORD` for people's Dex tokens, and per-person catalogs with their own rules (#674) | Removed with D1: Polaris decides from the token, so Trino needs no rule |
 | Web UI sign-in through Dex (OAuth2) | Removed with D1; the perimeter guards the route (D3) |
 
 ## History
@@ -68,7 +68,7 @@ namespace, Traefik, OpenMetadata and the platform API only. Enforced by:
   authentication over an HTTPS-only listener, with `principals` rules per
   stage principal; the Web UI signed in through Dex on HTTPS, or as a fixed
   user in plain-HTTP mode.
-- 2026-11-07 (#960): Scheduled for retirement: ADR 0019 section 9 makes
+- 2026-11-07 (#960): Scheduled for retirement: ADR 0019 D3 makes
   Polaris the authority for workloads as well as people.
 - 2026-11-09 (#983): Rewritten in place: D1 to D4 replace the password
   mechanism; Trino authentication, its rules, the HTTPS listener and the Web

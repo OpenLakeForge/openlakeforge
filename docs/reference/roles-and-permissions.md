@@ -1,8 +1,8 @@
 # Roles and permissions
 
 The four OpenLakeForge roles and what each can do in every service. The roles
-are fixed for v0.5-alpha and defined in `release/identity-roles.yaml`; this
-page is derived from that file.
+are defined by the product in `release/identity-roles.yaml`, not by a
+deployment, and this page is derived from that file.
 
 A person holds the highest role among the GitHub teams they belong to, and
 GitHub teams are mapped to roles in `spec.identity`
@@ -56,8 +56,35 @@ only.
 Writing includes creating schemas and tables. A role that may only read is
 refused when it writes: by Polaris for a new schema or table, and by storage for
 new rows, because its credentials are read-only. The rows apply only with GitHub
-sign-in. Pipelines, dbt and Superset do not use them: they run as the stage's
-service principal, as does `olf infra query`.
+sign-in, to `olf query`, the platform API's queries and Superset's dashboards,
+which query as each viewer. Pipelines and dbt do not use them: they write as the
+stage's processing principal, as does `olf infra query`. Bronze has no row: it is
+raw files with no catalog namespace, and only the stage's own pipelines reach it.
+The source is `data_access` in `release/identity-roles.yaml`; the rules are
+[ADR 0019](../adr/0019-data-plane-authorization-deferral.md) D1 and D2.
+
+### How Polaris holds it
+
+Each row is held as Polaris objects, so no query engine carries a role
+([ADR 0019](../adr/0019-data-plane-authorization-deferral.md) D5, D7). Names
+carry the `olf-` prefix so they never collide with the workload principals.
+
+| Object | Scope | Content | Created by, phase |
+| --- | --- | --- | --- |
+| Principal `github` | realm | Every person's Dex token names it (the Dex connector id); granted the four principal roles below and `olf-signed-in` | `olf`'s Polaris bootstrap, platform |
+| Principal role `olf-signed-in` | realm | No catalog role. Active on every person's request, so the active role set is never empty | bootstrap, platform |
+| Principal roles `olf-platform-admin`, `olf-data-engineer`, `olf-analyst`, `olf-viewer` | realm | Each assigned the catalog role its `data_access` row needs, per stage catalog | bootstrap, platform |
+| Catalog role `olf-write` | each `lakehouse_<stage>` | `CATALOG_MANAGE_CONTENT` on the catalog | bootstrap, platform |
+| Catalog role `olf-read` | each `lakehouse_<stage>` | On the catalog: `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES`, `VIEW_READ_PROPERTIES` | bootstrap, platform |
+| Catalog role `olf-gold-read` | each `lakehouse_<stage>` | `NAMESPACE_LIST` on the catalog; on each Gold namespace: `TABLE_READ_DATA`, `NAMESPACE_READ_PROPERTIES`, `VIEW_READ_PROPERTIES` | catalog grant: bootstrap, platform; namespace grants: `olf infra catalog sync-namespaces`, artifacts |
+| Principal `trino-catalog-<stage>` | realm | No catalog role: the credential of the stage Trino's catalog, used only for the configuration call | bootstrap, platform |
+| Principal-roles mapper | Polaris chart values | Roles from `groups` and `federated_claims/connector_id`; one mapping per `role_mapping` value to `PRINCIPAL_ROLE:olf-<role>`, plus the connector id to `PRINCIPAL_ROLE:olf-signed-in`; regexes use character classes and no backslash | Terraform, platform |
+
+`TABLE_READ_DATA` implies `TABLE_READ_PROPERTIES` and `TABLE_LIST`, and is what
+read delegation needs, so a read grant yields read-only storage credentials;
+only `CATALOG_MANAGE_CONTENT` yields write credentials. Grants on a catalog
+apply to everything in it, including namespaces and tables created later.
+`olf-read` lists namespaces without `NAMESPACE_LIST`.
 
 ## Per service
 
@@ -104,9 +131,10 @@ is for administrators only. The `viewer` role is a custom read-only role
 
 > [!NOTE]
 > These rows are the design in the permission specification and the pinned
-> Superset's role definitions. Schema limits shape what Superset offers; every
-> Superset query reaches Trino as the stage's service principal, so they do not
-> restrict what a connection could read.
+> Superset's role definitions. Schema limits shape what Superset offers; on the
+> local root, what a dashboard's query returns is decided by Polaris from the
+> viewer's own token
+> ([What each role reads and writes](#what-each-role-reads-and-writes)).
 
 ### OpenMetadata
 

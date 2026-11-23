@@ -104,7 +104,8 @@ by: `resolve_physical_names` in `packages/core/openlakeforge_core/inventory.py`.
 and replication apply to, so one bucket per layer lets BI read Gold without
 raw Bronze and gives raw files their own retention. `<prefix>` is the
 Deployment Profile's `metadata.name`, validated as a bucket component (at most
-51 characters, so `<prefix>-prod-bronze` fits in 63); there is no separate
+51 characters, so `<prefix>-prod-bronze` fits in 63; at most 42 on AWS, where
+`<prefix>-prod-bronze-<suffix>` adds 9); there is no separate
 prefix override. The ops bucket is `<prefix>-ops`. The names are derived once
 by `DeploymentTopology.bucket_names()` and passed to each root as
 `bucket_names`, never rebuilt in a root, and a provider contract whose bucket
@@ -196,3 +197,5 @@ Enforced by: `artifact_prefixes` and `dbt_artifact_prefix` in
 - 2026-11-20 (#1339): D1 changed: `pipelines/products.py` replaces the per-product
   Dagster modules.
 - 2026-11-23: Rewritten in the standard form; no decision changed.
+- 2026-11-23: D9 changed: on AWS the prefix budget counts the 9-character
+  `-<suffix>` the aws-s3 module appends, so `metadata.name` is at most 42 there.

@@ -25,7 +25,7 @@ import yaml
 from .progress import SILENT, Progress
 from .superset import SupersetClient
 
-# What every imported database carries (ADR 0019 section 9): the viewer's own token reaches Trino, cached
+# What every imported database carries (ADR 0019 D11): the viewer's own token reaches Trino, cached
 # per user, with no shared credential. A background query has no request to take a token from.
 PER_USER_DATABASE = {"impersonate_user": True, "allow_run_async": False}
 PER_USER_EXTRA = {"per_user_caching": True, "metadata_cache_timeout": {}}

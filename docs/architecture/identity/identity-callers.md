@@ -64,7 +64,7 @@ principal and stage scope; Secret reference; rotation.
 
 | Path | Caller | Endpoint / transport | Credential / boundary | Scope | Secret | Rotation |
 | --- | --- | --- | --- | --- | --- | --- |
-| Superset to Trino | Superset pod, stage namespace | `trino:8080` ClusterIP, plain HTTP | No Trino credential: the SQLAlchemy URI carries no user and no password (`trino://<host>:<port>/lakehouse_<stage>`). Each viewer's own Dex token, from Superset's per-user Trino sign-in, is sent as the `token` extra credential ([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) section 9) | Polaris grants the viewer's role its `data_access` row | None | The viewer's token, refreshed by Superset |
+| Superset to Trino | Superset pod, stage namespace | `trino:8080` ClusterIP, plain HTTP | No Trino credential: the SQLAlchemy URI carries no user and no password (`trino://<host>:<port>/lakehouse_<stage>`). Each viewer's own Dex token, from Superset's per-user Trino sign-in, is sent as the `token` extra credential ([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) D11) | Polaris grants the viewer's role its `data_access` row | None | The viewer's token, refreshed by Superset |
 | dbt to Trino (Dagster run pod) | Run pod | Same Trino Service, plain HTTP | `OPENLAKEFORGE_DBT_TRINO_USER` is `olf-<stage>-runtime`, with no password; the stage's Polaris token is sent as the `token` extra credential (`X-Trino-Extra-Credential`) | Polaris grants the stage processing principal | `floe_credentials_secret_name`, for the Polaris token | Rotate the Polaris principal |
 | Trino to Polaris | Trino pod | Polaris REST in the shared namespace | OAuth client credentials of the stage's processing principal | One stage catalog | `trino_credentials_secret_name`, keys `POLARIS_PROCESSING_CLIENT_ID` / `_SECRET`, in the stage namespace | Rotate the Polaris principal; `olf`'s bootstrap then restarts Trino. A deleted Secret is not a rotation: the bootstrap stops until it is restored, since the principal's client may still be in use. Only a create interrupted before its Secret was written (a `-bootstrap-pending` marker) is rotated |
 | Floe runner to Polaris | Floe Job | Polaris REST | OAuth client credentials of the stage's processing principal | One stage catalog | `floe_credentials_secret_name`, keys `POLARIS_PROCESSING_CLIENT_ID` / `_SECRET`, in the stage namespace (the Secret Trino reads) | Rotate the Polaris principal. A stage namespace recreated on re-enable has lost the Secret, so `olf`'s bootstrap rotates the principal and writes a new one |
@@ -84,6 +84,41 @@ principal and stage scope; Secret reference; rotation.
 | --- | --- | --- | --- |
 | AWS pods to S3, Glue | Trino, Floe, Dagster | EKS Pod Identity (`identity.aws_pod_identity`) | Contract only; not exercised here |
 | Azure pods | Workload pods | `identity.azure_workload_identity_ready` | Contract only; not exercised here |
+
+## A person's query through Polaris
+
+How `olf query` reaches data
+([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) D6, D7, D9).
+The perimeter checks the token and the role floor; Trino checks nothing and
+forwards the token; Polaris decides from it and vends credentials for the table
+only.
+
+```mermaid
+sequenceDiagram
+    actor P as Person
+    participant O as olf query
+    participant D as Dex
+    participant X as Perimeter (query_api)
+    participant T as Trino (stage)
+    participant C as Polaris
+    participant S as Object store
+    P->>O: olf login, then olf query --stage prod "SELECT ..."
+    O->>D: authorization code with PKCE, client olf-cli
+    D-->>O: ID token (email, groups, federated_claims), refresh token
+    O->>X: POST trino-prod.<base_domain>/v1/statement, Bearer and extra credential token
+    X->>T: forwarded after the token and role-floor check
+    T->>C: loadTable on lakehouse_prod, Bearer = the person's token
+    C->>C: mixed auth: principal github, roles from groups, olf-signed-in
+    C->>S: STS AssumeRole, session policy = this table's location
+    C-->>T: table metadata and vended credentials, or 403
+    T->>S: read the data files with the vended credentials
+    T-->>O: rows, or the Polaris denial
+```
+
+Every other caller takes the same path from Trino on, with its own Polaris
+token as the `token` extra credential: Superset's viewer's Dex token, the
+stage processing principal's for dbt and `olf infra query`, the
+`openmetadata` principal's for the crawl.
 
 ## Decision: how workstation and CI automation reach services
 
@@ -131,7 +166,7 @@ The tree configures none. Three paths reach the same webserver and GraphQL API:
 
 | Path | Who | What stops everyone else |
 | --- | --- | --- |
-| `https://dagster-<stage>.<base_domain>` through Traefik | A person | The perimeter (ADR 0014, seam 3): only `platform-admin` and `data-engineer` hold the `orchestration` grant in `release/identity-roles.yaml`; every other role and an unauthenticated request is refused before the request reaches Dagster. `olf infra e2e run --env local` asserts this per route (`e2e/_perimeter.py`) |
+| `https://dagster-<stage>.<base_domain>` through Traefik | A person | The perimeter (ADR 0014 D3): only `platform-admin` and `data-engineer` hold the `orchestration` grant in `release/identity-roles.yaml`; every other role and an unauthenticated request is refused before the request reaches Dagster. `olf infra e2e run --env local` asserts this per route (`e2e/_perimeter.py`) |
 | `kubectl port-forward` to the `dagster-dagster-webserver` Service | `olf infra e2e run` (`e2e/_dagster.py`) and an operator | Kubernetes RBAC: `pods/portforward` in the stage namespace. The forward binds loopback, and the caller needs no session |
 | The Service by its in-cluster name | Any pod | Default-deny NetworkPolicy: only Traefik and the stage's own namespace are allowed ([network policy and RBAC](identity-network-policy-and-rbac.md)) |
 
@@ -163,7 +198,7 @@ roles to `full`.
   users of the component it fronts. Data access no longer rests on one:
   Superset sends each signed-in viewer's own token to Trino and Polaris grants
   that person's role
-  ([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) section 9).
+  ([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) D11).
   What stays shared is what has no person behind it: dbt and Floe write as the
   stage's processing principal, and the OpenMetadata crawl reads as the
   `openmetadata` principal.
@@ -173,9 +208,10 @@ roles to `full`.
   Polaris decides each table access
   ([ADR 0016](../../adr/0016-trino-workload-authentication.md)). AWS's shared
   coordinator keeps claim-based rules for Glue.
-- **Polaris keeps its own client credentials.** Whether the issuer could
-  authenticate the catalog callers instead is evaluated in
-  [ADR 0015](../../adr/0015-polaris-identity-provider-evaluation.md) and deferred.
+- **Polaris keeps its own client credentials.** Workloads authenticate to
+  Polaris with Polaris's own client credentials, never through the issuer, so
+  pipelines keep running with the issuer down
+  ([ADR 0019](../../adr/0019-data-plane-authorization-deferral.md) D13).
 - **Static `admin` password for Superset.** `olf infra report import` authenticates
   with it; OpenMetadata moved to the `olf-automation` bot.
 - **Unattended automation with human SSO on** (ingestion, Superset to Trino,

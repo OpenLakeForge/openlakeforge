@@ -476,7 +476,7 @@ module "platform_api" {
   public_origin = "${local.route_scheme}://${local.base_domain}"
   person_query  = local.api_query_enabled
   # Trino's plain HTTP port: it has no authentication of its own, and the
-  # person's token rides each request for Polaris (ADR 0019 section 9).
+  # person's token rides each request for Polaris (ADR 0019 D9).
   # Read server-side only.
   query_endpoints = {
     for stage in keys(local.enabled_stages) : stage => {
@@ -594,7 +594,7 @@ module "traefik" {
   dynamic_config      = local.identity_enabled ? module.perimeter[0].traefik_dynamic_config : null
 }
 
-# ADR 0014 seam 3. The proxy fetches the issuer's keys and exchanges codes at
+# ADR 0014 D3. The proxy fetches the issuer's keys and exchanges codes at
 # its Service (internal_url), so it needs neither the in-cluster resolution nor
 # the CA, and waits only for the realm Job (through identity_oidc). The auth
 # route's Ingress is not ordered before it: Traefik takes the middlewares from
@@ -652,7 +652,7 @@ module "in_cluster_resolution" {
   depends_on = [module.cert_manager]
 }
 
-# ADR 0014 seam 2. `external` deploys nothing: the contract is taken from the
+# ADR 0014 D2. `external` deploys nothing: the contract is taken from the
 # profile and the operator supplies the client Secrets it references.
 module "dex" {
   source = "../../modules/identity/dex"
@@ -734,7 +734,7 @@ module "polaris" {
 }
 
 # One coordinator per stage, in the stage's namespace, holding only that
-# stage's catalogs and its own object-store identity (ADR 0019 section 9).
+# stage's catalogs and its own object-store identity (ADR 0019 D8).
 module "trino" {
   source   = "../../modules/query/trino"
   for_each = local.enabled_stages
@@ -748,7 +748,7 @@ module "trino" {
   # The module takes maps because AWS and Azure still serve every stage from
   # one coordinator; here each names only its own stage.
   stage_catalog_contracts = { (each.key) = local.stage_catalog_contracts[each.key] }
-  # Trino has no authentication of its own (ADR 0019 section 9): the UI signs
+  # Trino has no authentication of its own (ADR 0019 D9): the UI signs
   # in as a fixed user and the perimeter (or no access) gates its route.
   web_ui_fixed_user = "olf-web"
   # Authentication off: no caller has a token, so the catalog's credential serves every request (ADR 0021,

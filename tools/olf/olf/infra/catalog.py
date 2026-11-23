@@ -12,7 +12,7 @@ from openlakeforge_core import CatalogNamespace, inventory_for
 MANAGED_BY_KEY = "openlakeforge.io/managed-by"
 MANAGED_BY_VALUE = "openlakeforge"
 CATALOG_KEY = "openlakeforge.io/catalog"
-# ADR 0019, section 5. The role itself is created by the Polaris bootstrap, and only when people sign in.
+# ADR 0019 D5. The role itself is created by the Polaris bootstrap, and only when people sign in.
 GOLD_READ_ROLE = "olf-gold-read"
 GOLD_READ_PRIVILEGES = ("TABLE_READ_DATA", "NAMESPACE_READ_PROPERTIES", "VIEW_READ_PROPERTIES")
 

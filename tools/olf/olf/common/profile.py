@@ -120,15 +120,18 @@ class DeploymentProfileError(ValueError):
     """Raised when a Deployment Profile is invalid."""
 
 
-# Object-store bucket names are `<prefix>-<stage>-<layer>` (ADR 0004) and the prefix is `metadata.name`; AWS
-# appends `-<suffix>`, the aws-s3 module's 8-character random suffix, because S3 names are global (ADR 0004,
-# "AWS keeps a suffix"). S3 and Azure cap a bucket name at 63 characters, so the prefix budget is what remains
-# after the longest stage and layer, `-prod-bronze`; it does not count the AWS suffix.
+# Object-store bucket names are `<prefix>-<stage>-<layer>` (ADR 0004) and the prefix is `metadata.name`. S3 caps a
+# bucket name at 63 characters, and so does SeaweedFS's S3 API, which serves the local and Azure buckets (Azure has
+# no Blob Storage adapter, so the 24-character storage-account limit never applies). The prefix budget is what
+# remains after the longest stage and layer, `-prod-bronze`. AWS also appends `-<suffix>` to the UAT and PROD
+# buckets, the aws-s3 module's 8-character `random_string`, because S3 names are global (ADR 0004, "AWS keeps a
+# suffix"), so its budget is 9 characters shorter.
 BUCKET_LAYERS = ("bronze", "silver", "gold")
 _BUCKET_NAME_LIMIT = 63
-BUCKET_PREFIX_MAX_LENGTH = _BUCKET_NAME_LIMIT - max(
-    len(f"-{stage.value}-{layer}") for stage in StageName for layer in BUCKET_LAYERS
-)
+_LONGEST_STAGE_LAYER = max(len(f"-{stage.value}-{layer}") for stage in StageName for layer in BUCKET_LAYERS)
+AWS_BUCKET_SUFFIX_LENGTH = 8
+BUCKET_PREFIX_MAX_LENGTH = _BUCKET_NAME_LIMIT - _LONGEST_STAGE_LAYER
+AWS_BUCKET_PREFIX_MAX_LENGTH = BUCKET_PREFIX_MAX_LENGTH - len("-") - AWS_BUCKET_SUFFIX_LENGTH
 
 
 def bucket_name(prefix: str, stage: StageName | str, layer: str) -> str:
@@ -139,7 +142,14 @@ def bucket_name(prefix: str, stage: StageName | str, layer: str) -> str:
     return f"{prefix}-{StageName(stage).value}-{layer}"
 
 
-def validate_bucket_prefix(prefix: str, *, field: str, source: str) -> str:
+def validate_bucket_prefix(prefix: str, *, field: str, source: str, provider: Provider | None = None) -> str:
+    if provider == Provider.AWS and len(prefix) > AWS_BUCKET_PREFIX_MAX_LENGTH:
+        longest = len(prefix) + _LONGEST_STAGE_LAYER + len("-") + AWS_BUCKET_SUFFIX_LENGTH
+        raise DeploymentProfileError(
+            f"{source}: {field} is {len(prefix)} characters; on provider 'aws' the longest bucket name "
+            f"'{prefix}-prod-bronze-<{AWS_BUCKET_SUFFIX_LENGTH}-character suffix>' would be {longest} characters, "
+            f"over the {_BUCKET_NAME_LIMIT} S3 allows, so it may be at most {AWS_BUCKET_PREFIX_MAX_LENGTH}"
+        )
     if len(prefix) > BUCKET_PREFIX_MAX_LENGTH:
         raise DeploymentProfileError(
             f"{source}: {field} is {len(prefix)} characters; at most {BUCKET_PREFIX_MAX_LENGTH} so the longest "
@@ -256,7 +266,7 @@ class GitHubSpec:
 
 @dataclass(frozen=True)
 class IdentitySpec:
-    """Which OIDC issuer signs people in (ADR 0014 seam 2). `github` is the
+    """Which OIDC issuer signs people in (ADR 0014 D2). `github` is the
     Dex adapter OpenLakeForge deploys; `external` points at an existing
     issuer and must say how its claims map to canonical roles. Credentials never
     appear here: client secrets are Secret references in the provider contract."""
@@ -1075,6 +1085,7 @@ def validate_deployment_profile(
             raise DeploymentProfileError(f"{source}: spec: missing required field {field!r}")
 
     provider = _validate_provider(spec["provider"], source=source)
+    validate_bucket_prefix(name, field="metadata.name", source=source, provider=provider.type)
     _validate_adapters(spec, provider.type, source=source)
 
     try:

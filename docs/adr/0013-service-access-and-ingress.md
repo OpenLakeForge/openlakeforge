@@ -41,7 +41,7 @@ because sign-in redirects need the route hostnames. Field reference:
 **D2. A route sits one level under the base domain: `<service>-<stage>` for a
 stage service, `<service>` for a shared one, and the portal at the apex.** The
 stage services are `dagster`, `superset` and `trino` (one Trino per stage,
-ADR 0019 section 9, refs `stage/<stage>/query` and `stage/<stage>/query_api`,
+ADR 0019 D8, refs `stage/<stage>/query` and `stage/<stage>/query_api`,
 the `/v1` path); a shared service such as OpenMetadata drops the stage suffix;
 the portal (D7) is `<base_domain>` itself. One wildcard level is what most
 client certificates and edge providers cover, so one `*.<base_domain>`
@@ -76,7 +76,7 @@ ref and cannot be routed at all. Enforced by: `_USER_FACING_SERVICES` in
 when the contract has one, and port-forward when it has none (the AWS and
 Azure contracts), when `OLF_PORT_FORWARD` is set, or when the route is in
 `shared.access.perimeter.protected_routes` of an enabled perimeter (ADR 0014
-seam 3), because the ingress answers a request with no session by redirecting
+D3), because the ingress answers a request with no session by redirecting
 to login. Only a caller that tests the ingress itself passes
 `through_ingress=True`. The clients resolve `*.localhost` to `127.0.0.1`
 in-process and, with `local-ca`, verify against the CA read from the cluster:
@@ -99,7 +99,7 @@ store, certificate or host port 443, and believes `X-Forwarded-Proto` and
 never `0.0.0.0/0`); the perimeter's forward-auth middleware keeps those
 headers (`trustForwardHeader`) only in this mode. Routes are standard
 `Ingress` objects, which need no CRD at plan time. A namespace has one
-`Ingress` per access group (the role floor, ADR 0014 seam 3), because Traefik
+`Ingress` per access group (the role floor, ADR 0014 D3), because Traefik
 attaches middleware per `Ingress`; only one in the shared namespace carries
 the issuer annotation and names the TLS Secret, and the `Ingress` without a
 group holds the routes behind no middleware: the identity route and the
