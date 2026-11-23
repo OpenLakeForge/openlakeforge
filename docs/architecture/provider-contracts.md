@@ -146,7 +146,7 @@ and `false` on AWS and Azure, which have no collector and no lifecycle rule yet.
 `metrics.retention_supported` is `true` on the local provider, whose Prometheus
 deletes blocks past the retention itself. Only the archive and
 metrics carry the two retention fields. `metrics` also carries the optional `query_api` and `query_url`, the endpoint the
-platform API reads metrics from (ADR 0024, decision 6). `query_api` names the protocol, never the product; the only value
+platform API reads metrics from (ADR 0024, D10). `query_api` names the protocol, never the product; the only value
 is `prometheus-http-v1` (the Prometheus HTTP API's `/api/v1/query` and
 `/api/v1/query_range` with PromQL). The two are set together or both `null`, and
 only when `supported` is `true`. The local provider fills them with the

@@ -518,7 +518,7 @@ def _check_observability(binding: Mapping[str, Any]) -> None:
     for name, (value, extra) in capabilities.items():
         # Only metrics reads a query endpoint. Optional so a contract already
         # in state stays readable; Terraform renders both as null until an
-        # adapter fills them (ADR 0024, decision 6).
+        # adapter fills them (ADR 0024, D10).
         capability = _fields(
             value,
             where=f"{where}.{name}",

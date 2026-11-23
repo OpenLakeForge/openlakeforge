@@ -582,7 +582,7 @@ module "provider_contract" {
   foundation_kube_context = local.foundation_contract.kube_context
 
   observability = var.observability
-  # The Prometheus Service when metrics are enabled (ADR 0024, decision 6); a
+  # The Prometheus Service when metrics are enabled (ADR 0024, D10); a
   # profile that turns them off has no endpoint to publish.
   metrics_query = local.metrics_enabled ? { api = "prometheus-http-v1", url = module.metrics[0].query_url } : { api = null, url = null }
   # Archive, metrics (ADR 0024) and webhook alerting (ADR 0023): no adapter implements search or Grafana yet.
