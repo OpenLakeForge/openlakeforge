@@ -1892,7 +1892,7 @@ wheels = [
 
 [[package]]
 name = "openlakeforge"
-version = "0.6.0a3"
+version = "0.7.0b1"
 source = { editable = "." }
 dependencies = [
     { name = "azure-identity" },
@@ -1977,7 +1977,7 @@ dev = [
 
 [[package]]
 name = "openlakeforge-core"
-version = "0.6.0a3"
+version = "0.7.0b1"
 source = { editable = "../../packages/core" }
 dependencies = [
     { name = "pyyaml" },
@@ -1988,7 +1988,7 @@ requires-dist = [{ name = "pyyaml", specifier = ">=6.0,<7" }]
 
 [[package]]
 name = "openlakeforge-lakehouse-services"
-version = "0.6.0a3"
+version = "0.7.0b1"
 source = { editable = "../../packages/lakehouse-services" }
 dependencies = [
     { name = "openlakeforge-core" },
@@ -1998,21 +1998,21 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "openlakeforge-core", specifier = "==0.6.0a3" },
+    { name = "openlakeforge-core", specifier = "==0.7.0b1" },
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "requests", specifier = ">=2.32,<3" },
 ]
 
 [[package]]
 name = "openlakeforge-runtime"
-version = "0.6.0a3"
+version = "0.7.0b1"
 source = { editable = "../../packages/runtime" }
 dependencies = [
     { name = "openlakeforge-core" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "openlakeforge-core", specifier = "==0.6.0a3" }]
+requires-dist = [{ name = "openlakeforge-core", specifier = "==0.7.0b1" }]
 
 [[package]]
 name = "opentelemetry-api"

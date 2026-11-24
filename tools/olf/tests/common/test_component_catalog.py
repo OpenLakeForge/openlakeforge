@@ -7,7 +7,7 @@ ROOT = Path(__file__).parents[4]
 def test_catalog_declares_release_and_lockfiles() -> None:
     catalog = (ROOT / "release/component-catalog.yaml").read_text()
     assert "kind: ComponentCatalog" in catalog
-    assert re.search(r"version: \d+\.\d+\.\d+-alpha\.\d+", catalog)
+    assert re.search(r"version: \d+\.\d+\.\d+-(alpha|beta)\.\d+", catalog)
     assert (ROOT / "images/project-code/requirements.lock").stat().st_size > 0
 
 

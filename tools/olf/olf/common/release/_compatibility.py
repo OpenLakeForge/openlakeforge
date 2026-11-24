@@ -177,10 +177,11 @@ def render_compatibility_matrix(catalog: dict[str, Any], repo_root: str | Path =
     lines.append("## Supported upgrade paths")
     lines.append("")
     lines.append(
-        "OpenLakeForge is in the Alpha lifecycle stage (see "
-        "[releasing.md](../release/releasing.md#lifecycle-stages)): breaking changes are allowed between alpha "
-        "releases, with migration notes published in `CHANGELOG.md` for every "
-        "tag. Until Beta, only the latest alpha tag is maintained; there is no "
+        "OpenLakeForge is in the Beta lifecycle stage (see "
+        "[releasing.md](../release/releasing.md#lifecycle-stages)): forward migration within the beta line is "
+        "best effort, with migration notes published in `CHANGELOG.md` for every tag, and the upgrade drill "
+        "gates each tag. The promise covers the `local` provider only; `aws` and `azure` are preview. Until "
+        "the stable support window is declared, only the latest pre-release is maintained; there is no "
         "supported upgrade path guarantee prior to `v0.1.0-alpha.1`."
     )
     lines.append("")

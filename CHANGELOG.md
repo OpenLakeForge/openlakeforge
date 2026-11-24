@@ -1,11 +1,13 @@
 # Changelog
 
 All notable changes to OpenLakeForge are documented here. This project is in
-the **Alpha** lifecycle stage (see
+the **Beta** lifecycle stage (see
 [docs/release/releasing.md](docs/release/releasing.md#lifecycle-stages)):
-breaking changes are allowed between alpha releases, with migration notes
-recorded below for every tag. Until Beta,
-only the latest alpha tag is maintained.
+forward migration within the beta line is best effort, with migration notes
+recorded below for every tag, and the upgrade drill gates each tag. The beta
+promise covers the `local` provider only; `aws` and `azure` are preview and may
+change or break between beta releases. Until the stable support window is
+declared, only the latest pre-release is maintained.
 
 Release tags are create-only semantic versions (`release_tag_policy:
 immutable-semver` in `release/component-catalog.yaml`) and are never
@@ -14,14 +16,167 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+## [0.7.0-beta.1] - 2026-11-24
+
+This is the first beta release. It closes the v0.7-beta milestone
+(Observability and Data Quality), and from here forward migration within the
+beta line is best effort and the upgrade drill gates each tag. The promise
+covers the `local` provider, Slim and Full presets; `aws` and `azure` stay
+preview (see [lifecycle
+stages](docs/release/releasing.md#lifecycle-stages)). The release adds
+monitoring that ships with the platform: a Monitoring page in the Portal read
+through new platform API routes, a continuous pod log archive, optional
+metrics, alerts to a webhook chosen by a project's `alerts.yml`, and Floe and
+dbt quality results published to OpenMetadata. The metrics backend was
+measured over 24 hours on a Full `small` deployment: Prometheus averages 4.4m
+CPU and 96 MiB, kube-state-metrics 0.8m and 39 MiB, the volume grows about
+8 MiB a day, and head series stay near a tenth of the 10,000 budget (#21,
+#1418).
+The platform images move to their latest stable versions, including
+PostgreSQL 18, Trino 484, Dagster 1.13.31, Polaris 1.9.0 and SeaweedFS 4.54.
+PostgreSQL 18 cannot start on a PostgreSQL 16 volume, so a local stack from an
+earlier release must be destroyed and redeployed, and its data is not carried
+over. The Dagster code location moved, which breaks a project created on
+0.6.0-alpha.3. Migration below lists the steps for both.
+
 ### Added
 
-- `local-full-e2e.yml` manual runs are opt-in. New dispatch inputs: `profile`
-  (a Deployment Profile as YAML text, so an agent can run the platform with
-  `-f "profile=$(cat openlakeforge.yaml)"` without committing it), `profile_path`
-  (a profile committed to the dispatched ref) and `registry_pull_check`. `checks`
-  accepts `none` to deploy and activate without e2e assertions. With a custom
-  profile the PROD steps run only when it enables PROD.
+- Stage and pipeline health in the platform API (#1148):
+  `GET /api/v1/stages/{stage}/health` rolls a stage up from its pipelines and
+  services, and `.../health/pipelines` gives each job's latest run, last
+  success, failed runs, schedule and freshness. Anything not observed reads
+  `unknown`, never `healthy`. Both take `range` (`1h`, `6h`, `24h` or `7d`,
+  default `24h`), which scopes `failed_runs` only; a Dagster that cannot be
+  read gives `failed_runs: null` (#1260). See [health
+  signals](docs/reference/health-signals.md).
+- Pipeline signals derived from the schedule. A run is due at the cron's latest
+  occurrence in the schedule's timezone, across daylight-saving changes as
+  Dagster fires it, and `expected_run` carries that `due` time (#1304).
+  Freshness follows the product's cadence and a stale pipeline is critical
+  (#1180). A stopped PROD schedule that the cadence declares running is a
+  warning, `schedule_mismatch` (#1187). A manual, stopped or absent schedule is
+  `disabled`, never stale.
+- Service probes in the stage health route (#1154, #1158, #1214): Dagster
+  workloads and read API, Trino workloads and readiness, Polaris readiness on
+  its management port, and an object-store listing, read through one
+  namespaced Role per stage. A controller scaled to zero beside a ready one
+  reads `warning` (#1256). Each row names its source, when it was observed,
+  how long the answer stays usable, a display name and its service, and for
+  the log archive and quality publication its last durable write (#1213,
+  #1287). `GET .../health/services` returns the service rows alone, without
+  a Dagster read (#1223). See [service
+  health](docs/guides/operations/service-health.md).
+- Quality evidence per run (#1137, #1149, #1153, #1166): each product run
+  writes a quality manifest of its Floe and dbt results to
+  `activations/<stage>/run-artifacts/quality/<domain>/<product>/<run>/manifest.json`,
+  a failed run included. The latest run's manifest gives each product pipeline
+  a quality signal: a blocking error is critical, a warning or non-blocking
+  error is a warning, and a missing or partial manifest is unknown (#1194).
+  `GET .../health/quality` counts each stage's passing and failing checks
+  (#1288). Each stage has its own read-only key for its manifests (#1193).
+- Run reads for the Portal's Failed-run screen.
+  `GET .../runs/{run_id}/failure` gives up to five failed steps with the
+  innermost cause's class and the first line of its message, redacted and cut
+  to 300 characters, and the run's rejected and accepted rows (#1306).
+  `GET .../runs/{run_id}/quality` lists the run's checks with links to the
+  reports it retained, streamed by `.../quality/reports/{report_id}` (#1334),
+  and a runbook link (#1340). Jobs, pipelines, incidents and run failures
+  carry their domain and product from the job's `openlakeforge/silver-domain`
+  and `openlakeforge/product` tags (#1307, #1308, #1333).
+- `GET /api/v1/monitoring-capabilities` lists the stages where the caller's
+  role allows a monitoring route, the routes allowed there, each stage's
+  sources and its log retention (#1291, #1333).
+- `olf health <stage>` and `olf pipelines health <stage>` print what the
+  health routes evaluated: services grouped by service, with when each was
+  observed, until when the answer is usable and its last write, then each
+  pipeline (#1165, #1211, #1312). They exit 1 when the stage, or a pipeline,
+  is critical or unknown; `--json` prints the API's response unchanged.
+- A continuous pod log collector (#1160, ADR 0022). A Fluent Bit 5.2.0
+  DaemonSet in `olf-system` reads every container's log file in the stage
+  namespaces and `olf-system`, routes it by the namespace in the file's name,
+  and writes archive format v2: gzipped NDJSON under
+  `logs/v2/namespace=<ns>/date=<YYYY-MM-DD>/hour=<HH>/`, partitioned by each
+  line's own time (#1348). A Job pod deleted by its TTL keeps its output. The
+  spool is bounded on disk, and the stage health route reports
+  `log-archive.spool-age`, `log-archive.spool-size` and
+  `log-archive.newest-object` from a probe sidecar and the archive listing
+  (#1198, #1199). See [log archive](docs/guides/operations/log-archive.md).
+- Archive retention on the local provider (#1248):
+  `spec.observability.logs.archive.retention_days` (default 30) expires v2
+  objects through a SeaweedFS filer path TTL. Above 255 days the TTL is in
+  whole weeks, months or years, rounded up.
+- Reading the archive. `olf logs` and the logs route read the v1 and v2
+  layouts and return each line once, filtered by `--run-id`, `--product`,
+  `--component`, `--severity`, `--since` and `--until` (#1181, #1183), and by
+  `--grep` (`q`: a case-insensitive substring of 1 to 200 characters, #1349).
+  Each line carries `timestamp` and `level` when its text states them, null
+  otherwise (#1335). `GET .../runs/{run_id}/logs` reads a run's window across
+  up to three UTC days and pages with a cursor (#1335).
+- Bounded log reads. A read lists only the hours its window touches, skips
+  objects uploaded before the window (#1342), fetches up to eight objects at
+  once (#1354) and decompresses them a line at a time (#1364). Both log routes
+  share a two-worker pool with a 20-second deadline, stop when the client
+  disconnects, and answer 503 with `Retry-After` when a read waits more than 5
+  seconds for a worker (#1365). `olf logs` sends a GET once more after a 503,
+  and turns a 502 into a hint to narrow the read with `--hour`, `--since` or
+  `--until`.
+- `spec.observability` in the Deployment Profile (#1133, #1150): the log
+  archive's retention, metrics, log search, Grafana and alert receivers, as
+  capabilities with no backend named. The archive is always on. The resolved
+  block reaches the provider contract as `shared.observability`, with whether
+  the provider supports each capability. Log search and Grafana change no
+  running component yet.
+- Optional metrics on the local provider (#1250, #1251, #1265, #1266,
+  ADR 0024). With `spec.observability.metrics.enabled` (default on for
+  `preset: full`, off for `preset: slim`), the platform runs Prometheus
+  3.13.5 on a volume sized by `spec.storage.size`, keeping
+  `metrics.retention_days` (default 7), and kube-state-metrics v2.20.0 on
+  namespaced Roles. It scrapes the kubelet, Trino, SeaweedFS and
+  kube-state-metrics with label allowlists and sample limits, and records
+  `olf:` series summed by stage, component or service. With metrics off
+  nothing of it is rendered. Its 24-hour footprint per size is in the [metrics
+  reference](docs/reference/metrics.md#measured-over-24-hours) (#1418).
+- Metrics through the platform API (#1247, #1263, #1267, #1268, #1269):
+  `GET /api/v1/stages/{stage}/metrics` lists a stage's series and whether each
+  answers; `.../metrics/{series}` and `GET /api/v1/platform/metrics/{series}`
+  serve the catalog's named series over `1h`, `6h`, `24h` or `7d`. No route
+  takes a query. A backend that is off, down or without samples answers a
+  state and a reason, never zeros. `pipeline_runs` and
+  `pipeline_run_duration_seconds` come from Dagster, so they also answer on
+  Slim. See [metrics](docs/reference/metrics.md).
+- Alerts to a webhook (#1172, #1176, #1185, #1192, ADR 0023). With at least
+  one receiver in `spec.observability.alerts.receivers`, the local provider
+  runs an alert evaluator CronJob in `olf-system` every 5 minutes. It reads
+  each stage's Dagster, quality manifests and service health, keeps incidents
+  and history under `alerts/` in the ops bucket, and posts to HTTPS webhooks
+  when an incident opens, escalates or recovers, retrying on 408, 429 and 5xx.
+  A receiver is `webhook` only, names a Secret in `olf-system` that holds its
+  URL, and may take `stages` (#1179); a deploy fails when a referenced Secret
+  or key is missing. See [send alerts to a
+  webhook](docs/guides/operations/alerts.md).
+- Alert policy: `lakehouse_code/alerts.yml` (`AlertPolicy`) declares which
+  conditions alert for which products and stages, their thresholds, and the
+  routes that name the profile's receivers. A rule matches a domain and a
+  product, or `"*"`, and the most specific rule wins per condition. `olf alert
+  explain --stage <stage> --product <id>` prints what a product gets, and `olf
+  check contracts` validates the file. See [send alerts to a
+  webhook](docs/guides/operations/alerts.md#write-the-alert-policy) and ADR
+  0023.
+- `olf alert explain --job <name>` shows what a job of no product, such as
+  `gold_maintenance`, gets from the global rules (#1284).
+- `spec.observability.alerts.platform_receivers` lists the receivers told about
+  platform conditions. Omitted means every receiver; an empty list is invalid.
+- Platform service alerts: `service_degraded` (a Dagster or Trino workload, the
+  object store or the log archive degraded, one incident per stage and
+  component) and `health_unreadable` (the platform API's services route could
+  not be read in 3 consecutive evaluations), both to the platform receivers
+  only. They need the platform API, so on the local provider a profile with
+  `spec.identity`. `policy_unreadable` reports a stage whose alert policy cannot
+  be used.
+- `GET .../alerts/incidents` lists a stage's open alert incidents and whether
+  their notifications were delivered, read with its own read-only key
+  (#1292, #1293). Each incident and notification links its condition's section
+  of the alerts guide, which is the runbook (#1340, #1361).
 - `olf infra openmetadata quality-sync` publishes a stage's Floe and dbt quality
   results from the ops bucket to OpenMetadata test cases, with retry, idempotent
   replay and a sync-lag summary, without rerunning a pipeline. A stage without
@@ -33,33 +188,57 @@ for how a release is cut and verified.
   publisher every 5 minutes with a bounded batch, so results reach OpenMetadata
   without an operator. It has its own ops-bucket key limited to that stage's
   quality manifests and `quality-sync/` state, egress to OpenMetadata and the
-  object store only, and reads the ingestion bot's token from its Secret. Slim
-  renders none of it. No health route reads the sync summary yet. See
-  [scheduled
+  object store only, and publishes as its stage's quality writer bot (below).
+  Slim renders none of it. The stage health route reports its lag as
+  `quality-sync.publication` (#1252). See [scheduled
   publication](docs/reference/health-signals.md#scheduled-publication).
-- Alert policy: `lakehouse_code/alerts.yml` (`AlertPolicy`) declares which
-  conditions alert for which products and stages, their thresholds, and the
-  routes that name the profile's receivers. A rule matches a domain and a
-  product, or `"*"`, and the most specific rule wins per condition. `olf alert
-  explain --stage <stage> --product <id>` prints what a product gets, and `olf
-  check contracts` validates the file. See [send alerts to a
-  webhook](docs/guides/operations/alerts.md#write-the-alert-policy) and ADR
-  0023.
-- `spec.observability.alerts.platform_receivers` lists the receivers told about
-  platform conditions. Omitted means every receiver; an empty list is invalid.
-- Platform service alerts: `service_degraded` (a Dagster or Trino workload, the
-  object store or the log archive degraded, one incident per stage and
-  component) and `health_unreadable` (the platform API's services route could
-  not be read in 3 consecutive evaluations), both to the platform receivers
-  only. They need the platform API, so on the local provider a profile with
-  `spec.identity`. `policy_unreadable` reports a stage whose alert policy cannot
-  be used.
+- Quality results are published as `olf-quality-writer-<stage>`, one
+  OpenMetadata bot per governed stage whose role may only view tables and
+  tests, edit tests and create test definitions (#1322). OpenMetadata's
+  default bot role is removed from it.
 - Rejection-rate threshold (#345): a Floe contract's `policy` may set
   `max_rejection_rate` (a fraction, with `severity: reject`) per domain or per
   entity. Above it the entity ends `aborted`, accepted rows are still written,
   and Gold is skipped. The quality record carries the limit, the observed rate
   and whether it was exceeded. See [Floe
   validation](docs/architecture/floe-validation.md#rejection-rate-threshold).
+- The reference Gold marts test their grain and describe their columns
+  (#1134, #1201). The `openlakeforge_dbt` package adds
+  `unique_combination_of_columns`, the `olf product new` scaffold carries a
+  commented grain block, and `olf check dbt` warns for every model no test
+  depends on.
+- A product's PROD schedule follows `ProductCadence(cron, timezone,
+  enabled_in_prod)` (#1140, #1157). A cadence ships `STOPPED` unless
+  `enabled_in_prod` is set, and `cron=None` makes the product manual-only.
+  `olf check project-code` allows at most one PROD schedule per product,
+  `RUNNING` only when its cadence declares it, none on another stage, and no
+  sensor.
+- A files explorer in the platform API (#1114): list a stage's buckets and
+  their files, download, upload, create folders, rename and delete, each write
+  audited. A `data-engineer` works on DEV and a `platform-admin` on every
+  stage; a permission row can now limit a role to some stages (#1130). An
+  upload does not replace an existing file unless asked, and a rename does not
+  overwrite a concurrent write. `olf bucket list|ls|get|put|mkdir|mv|rm`
+  calls it (#1136).
+- `--json` on `olf infra doctor`, `olf infra plan` and every `olf check`
+  target prints one report of `command`, `ok` and `checks` on stdout; other
+  output moves to stderr and exit codes do not change (#1316).
+- [Walk through a failed run](docs/guides/operations/monitoring-walkthrough.md)
+  follows one failed run from the Portal's Monitoring page to its logs,
+  quality report, recovery and resource history, with screenshots from the
+  full e2e (#1341, #1359, #1367).
+- `local-full-e2e.yml` manual runs are opt-in. New dispatch inputs: `profile`
+  (a Deployment Profile as YAML text, so an agent can run the platform with
+  `-f "profile=$(cat openlakeforge.yaml)"` without committing it), `profile_path`
+  (a profile committed to the dispatched ref) and `registry_pull_check`. `checks`
+  accepts `none` to deploy and activate without e2e assertions. With a custom
+  profile the PROD steps run only when it enables PROD.
+- The full e2e checks alert notifications against a stub receiver, a failed
+  run read back through the API after its pods are gone, real Floe, dbt and
+  OpenMetadata quality evidence, stage isolation between every pair of enabled
+  stages, and outage and footprint drills for the log collector and metrics
+  (#1196, #1241, #1295, #1320, #1321, #1338).
+- Bug report and enhancement proposal issue forms (#1202, #1207).
 
 ### Changed
 
@@ -98,8 +277,6 @@ for how a release is cut and verified.
   alpine/k8s 1.31.13 for the bootstrap Jobs and e2e probe pods. The Python
   base is pinned to the explicit `python:3.12.16-slim` tag. Fluent Bit 5.2.0
   and Redis 7.4.12 are repinned to their rebuilt digests.
-- Release tooling accepts `x.y.z-beta.N` versions alongside `x.y.z-alpha.N`;
-  a beta is published to PyPI as `x.y.zbN`.
 - **The Dagster code location moved to `lakehouse_code.pipelines.definitions`,
   and a product no longer has a module of its own.** `lakehouse_code/definitions.py`
   and `pipelines/dagster/<product>.py` are gone. `pipelines/definitions.py` builds
@@ -140,14 +317,101 @@ for how a release is cut and verified.
   alert incident links its runbook section (#1344), and a pipeline whose run
   ended before its quality checks finished reads as such, with its partial
   counts marked incomplete (#1346; openlakeforge-portal#47, #48).
+- The local provider no longer runs the `*/15` polling log archiver; the node
+  collector archives every pod, and a second writer duplicated lines (#1248).
+  Logs it archived before stay readable. AWS and Azure have no collector yet
+  and keep it.
+- A `data-engineer` reads archived logs, run logs and run quality reports on
+  DEV only; a `platform-admin` reads them on every stage (#1181, #1334).
+- Without `spec.identity`, the local provider now deploys the platform API
+  with `spec.access`, answering anonymous calls on a `*.localhost` origin with
+  the highest role (#1274). Each `lakehouse_<stage>` catalog then uses Trino's
+  own Polaris credential, so the Trino UI, Superset, the platform API and the
+  pipelines all read and write it (#1278). Adding `spec.identity` turns both
+  back off. It is meant for a local test stack only (ADR 0019, ADR 0021).
+- Each stage's Dagster run queue is limited to `max_concurrent_runs` from
+  `release/query-sizes.yaml`, picked by `query.size` (#1151). Run monitoring
+  fails a run whose pod is gone, one that does not start within 5 minutes and
+  one past 4 hours. A Bronze step retries network and storage errors up to 3
+  times; Silver and Gold steps never retry.
+- The OpenMetadata server and ingestion images are pulled from `docker.io`
+  instead of `docker.getcollate.io`, at the same digests (#1254, #1255).
+- `olf` and the project-code image pin `dbt-core` 1.11.17 and `sqlparse`
+  0.6.1 (#1226).
+- Release tooling accepts `x.y.z-beta.N` versions alongside `x.y.z-alpha.N`; a
+  beta is published to PyPI as `x.y.zbN` (#1375).
+- The Quickstart asks for about 35 GB of free disk for Slim, measured, instead
+  of the Full figure of 100 GB (#1111).
 
 ### Fixed
 
+- Alert history under `alerts/history/` in the ops bucket now expires after 30
+  days, as ADR 0023 states; open incidents and the notification outbox under
+  `alerts/state/` never expire (#1413). History written before the upgrade is
+  not expired.
+- Network flow F4 no longer lets every pod of a stage namespace reach Traefik,
+  and through it the Dex route: only the Superset web pods, the one stage
+  workload that calls a public route, may (#1399, ADR 0017).
+- An AWS profile's bucket-name length check now counts the suffix the
+  provider appends, so a name too long for S3 is refused by profile validation
+  instead of failing at apply (#1398, ADR 0004).
 - A running schedule switched on after its latest due time, such as a PROD
   stage activated after the day's run, no longer reads `unknown` freshness and
   sits under *Needs attention* until its cron next fires (#1345). It reads
   `healthy`, "no scheduled run due yet; next run due 02:00 UTC tomorrow". A
   cron that cannot be read stays `unknown` and the reason names it.
+- A product whose latest run failed before its quality checks finished reads
+  quality `unknown` for that run, not `healthy` from an older success, and an
+  open quality incident stays open (#1346).
+- A failed dbt build still uploads `manifest.json` and `run_results.json`,
+  keeping the results of earlier generations, and writes
+  `artifacts_incomplete.json` when dbt left no results (#1132).
+- Gold lineage reaches OpenMetadata again: a documented Gold column without a
+  `data_type` made OpenMetadata 1.13.6 reject the model's lineage event. The
+  reference marts declare their Trino types, and the scaffold asks for one
+  (#1233).
+- A person's query through the ingress no longer fails intermittently with
+  `ChunkedEncodingError`: Trino serves its responses uncompressed (#1289).
+- Removing `spec.identity` puts OpenMetadata back on basic login instead of
+  redirecting to an issuer that no longer exists, and the admin password is
+  reset to the one in Secret `openmetadata-admin` (#1276, #1286).
+- Turning governance off for every stage deletes the stage OpenMetadata bot
+  Secrets, which stayed behind as live credentials (#1332).
+- `olf infra deploy` and `olf infra destroy` name the kubeconfig and state they
+  read when the kind context is unreachable, and point at the other mode's
+  command when that one matches the running cluster (#1285, #1315). When kind
+  confirms the cluster was deleted outside `olf`, both discard its stale state
+  and carry on (#1353).
+- A kind node pulls a pinned image itself when Docker cannot archive it for the
+  prefetch, as Docker before 29.9 could not for kube-state-metrics (#1277).
+- Two Superset charts rendered "invalid format" on their y-axis; they use a d3
+  percent format (#1112).
+- A source-tree `olf` runs the checkout's `packages/core` and
+  `packages/lakehouse-services`, not the copy uv installed first (#1352).
+
+### Known limitations
+
+- Prometheus and kube-state-metrics keep the requests and limits ADR 0024
+  proposed. Over 24 hours Prometheus used about 5% of its CPU request, and
+  kube-state-metrics' memory peaked at 59 MiB, above its 32Mi request and
+  under its 128Mi limit; the values are revisited under ADR 0024 D9. The
+  footprint was measured on `small` only; `medium` and `large` have the same
+  scrape targets and differ only in volume size.
+- On AWS and Azure there is no log collector, metrics backend or alert
+  evaluator; the polling archiver stays there.
+- `logs.search.enabled` and `grafana.enabled` are accepted and change nothing.
+- The alert evaluator runs inside the cluster, so it cannot report a cluster
+  or platform API that is down as a whole; the [service
+  health](docs/guides/operations/service-health.md#the-limit-of-in-app-monitoring)
+  guide describes the outside-in check.
+- An object-store outage that drops packets can lose log lines at the
+  collector before its spool limit is reached (ADR 0022).
+- The Prometheus and kube-state-metrics images carry HIGH findings fixed
+  upstream but in no release yet, waived until 2027-01-15.
+- A profile without `spec.identity` has no authentication: the platform API
+  answers anonymous calls with the highest role, and every `lakehouse_<stage>`
+  catalog is readable and writable through Trino's Polaris credential (#1274,
+  #1278). Use it on a local test stack only.
 
 ### Migration
 
@@ -184,6 +448,29 @@ receivers and that ran without a policy:
    the route when a receiver is missing.
 3. Run `olf check contracts` and `olf alert explain`, build a revision and
    deploy it to each stage.
+
+0.6.0-alpha.3 had no alert evaluator, so a deployment upgrading from it
+declares no receivers and nothing alerts until it adds them and an
+`alerts.yml` as above.
+
+Other changes a 0.6.0-alpha.3 deployment notices:
+
+- A Full profile now deploys Prometheus and kube-state-metrics, since
+  `metrics.enabled` defaults to on with `preset: full`. Set
+  `spec.observability.metrics.enabled: false` to keep the earlier footprint.
+- On the local provider the polling log archiver is removed on the next
+  platform apply. Its `logs/k8s/` history stays readable and is never expired;
+  only v2 objects follow `retention_days`.
+- A `data-engineer` who read PROD or UAT logs with `olf logs` is now refused;
+  a `platform-admin` reads them.
+- A documented Gold column needs a `data_type`, or OpenMetadata drops that
+  model's lineage.
+- **A profile without `spec.identity` is now open.** The next deploy adds the
+  platform API, which answers anonymous calls on a `*.localhost` origin with
+  the highest role, and switches each `lakehouse_<stage>` catalog to Trino's
+  Polaris credential, so anyone who reaches the stack can read and write
+  every stage (#1274, #1278). Add `spec.identity` before upgrading any stack
+  that is not a local test stack.
 
 ## [0.6.0-alpha.3] - 2026-11-13
 
