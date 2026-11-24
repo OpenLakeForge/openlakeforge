@@ -27,9 +27,11 @@ stages](docs/release/releasing.md#lifecycle-stages)). The release adds
 monitoring that ships with the platform: a Monitoring page in the Portal read
 through new platform API routes, a continuous pod log archive, optional
 metrics, alerts to a webhook chosen by a project's `alerts.yml`, and Floe and
-dbt quality results published to OpenMetadata. The metrics backend's 24-hour
-footprint per size is still to be measured (#21); the [metrics
-reference](docs/reference/metrics.md#to-be-measured) lists the missing figures.
+dbt quality results published to OpenMetadata. The metrics backend was
+measured over 24 hours on a Full `small` deployment: Prometheus averages 4.4m
+CPU and 96 MiB, kube-state-metrics 0.8m and 39 MiB, the volume grows about
+8 MiB a day, and head series stay near a tenth of the 10,000 budget (#21,
+#1418).
 The platform images move to their latest stable versions, including
 PostgreSQL 18, Trino 484, Dagster 1.13.31, Polaris 1.9.0 and SeaweedFS 4.54.
 PostgreSQL 18 cannot start on a PostgreSQL 16 volume, so a local stack from an
@@ -132,7 +134,8 @@ over. The Dagster code location moved, which breaks a project created on
   namespaced Roles. It scrapes the kubelet, Trino, SeaweedFS and
   kube-state-metrics with label allowlists and sample limits, and records
   `olf:` series summed by stage, component or service. With metrics off
-  nothing of it is rendered.
+  nothing of it is rendered. Its 24-hour footprint per size is in the [metrics
+  reference](docs/reference/metrics.md#measured-over-24-hours) (#1418).
 - Metrics through the platform API (#1247, #1263, #1267, #1268, #1269):
   `GET /api/v1/stages/{stage}/metrics` lists a stage's series and whether each
   answers; `.../metrics/{series}` and `GET /api/v1/platform/metrics/{series}`
@@ -342,6 +345,16 @@ over. The Dagster code location moved, which breaks a project created on
 
 ### Fixed
 
+- Alert history under `alerts/history/` in the ops bucket now expires after 30
+  days, as ADR 0023 states; open incidents and the notification outbox under
+  `alerts/state/` never expire (#1413). History written before the upgrade is
+  not expired.
+- Network flow F4 no longer lets every pod of a stage namespace reach Traefik,
+  and through it the Dex route: only the Superset web pods, the one stage
+  workload that calls a public route, may (#1399, ADR 0017).
+- An AWS profile's bucket-name length check now counts the suffix the
+  provider appends, so a name too long for S3 is refused by profile validation
+  instead of failing at apply (#1398, ADR 0004).
 - A running schedule switched on after its latest due time, such as a PROD
   stage activated after the day's run, no longer reads `unknown` freshness and
   sits under *Needs attention* until its cron next fires (#1345). It reads
@@ -378,9 +391,12 @@ over. The Dagster code location moved, which breaks a project created on
 
 ### Known limitations
 
-- The 24-hour footprint of Prometheus and kube-state-metrics per storage size
-  is not measured; they run with the requests and limits ADR 0024 proposed
-  (#21).
+- Prometheus and kube-state-metrics keep the requests and limits ADR 0024
+  proposed. Over 24 hours Prometheus used about 5% of its CPU request, and
+  kube-state-metrics' memory peaked at 59 MiB, above its 32Mi request and
+  under its 128Mi limit; the values are revisited under ADR 0024 D9. The
+  footprint was measured on `small` only; `medium` and `large` have the same
+  scrape targets and differ only in volume size.
 - On AWS and Azure there is no log collector, metrics backend or alert
   evaluator; the polling archiver stays there.
 - `logs.search.enabled` and `grafana.enabled` are accepted and change nothing.
