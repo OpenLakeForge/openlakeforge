@@ -16,7 +16,7 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
-## [0.7.0-beta.1] - 2026-11-XX
+## [0.7.0-beta.1] - 2026-11-24
 
 This is the first beta release. It closes the v0.7-beta milestone
 (Observability and Data Quality), and from here forward migration within the
