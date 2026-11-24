@@ -41,7 +41,7 @@ def seaweedfs_ttl(days: int) -> tuple[str, int]:
 
     `fs.configure -ttl` in SeaweedFS 4.54 takes a count of 1 to 255, so above 255 days the module uses the shortest
     TTL of whole weeks, months (30 days) or years (365 days) that is at least `days`, the larger unit on a tie
-    (`retention_ttl` in modules/storage/seaweedfs/main.tf; its tftest pins the same values).
+    (`retention_ttls` in modules/storage/seaweedfs/main.tf; its tftest pins the same values).
     """
     if days <= 255:
         return f"{days}d", days

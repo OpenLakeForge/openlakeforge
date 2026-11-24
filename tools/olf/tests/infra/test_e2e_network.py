@@ -274,3 +274,44 @@ def test_a_negative_probe_retries_only_its_control_ports(monkeypatch: pytest.Mon
         _network.check_negative_flows(cfg, FLOWS)  # type: ignore[arg-type]
     # postgresql:5432 is a stage-wide control, so the stage probe tries it twice; the outside and platform probes once.
     assert attempts.count(5432) == 4
+
+
+def test_only_named_stage_pods_reach_the_ingress_and_run_pods_are_not_among_them() -> None:
+    callers, ports = _network.ingress_callers(FLOWS)
+    assert callers == [{"app": "superset"}]
+    assert ports == [8443, 8000]
+    assert not any(labels.items() <= _network.RUN_POD_LABELS.items() for labels in callers)
+
+
+def test_a_run_pod_reaching_the_ingress_is_a_breach_and_an_f4_pod_that_cannot_is_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @contextlib.contextmanager
+    def probe(_cfg: object, _ns: str, labels: dict[str, str], _name: str) -> Iterator[str]:
+        yield "run" if labels == _network.RUN_POD_LABELS else "superset"
+
+    monkeypatch.setattr(_network, "_probe_pod", probe)
+    monkeypatch.setattr(_network, "_pod_ip", lambda *_a: "10.0.0.9")
+    monkeypatch.setattr(_network, "POLICY_LAG_RETRY_SECONDS", 0)
+    cfg = SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system", environ={})
+
+    monkeypatch.setattr(_network, "_connect", lambda _c, _ns, pod, _ip, _port: 28 if pod == "run" else 0)
+    _network.check_ingress_callers(cfg, FLOWS)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(_network, "_connect", lambda *_a: 0)
+    with pytest.raises(E2EError, match=r"olf-dev\[app.kubernetes.io/component=run_worker\] -> traefik"):
+        _network.check_ingress_callers(cfg, FLOWS)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(_network, "_connect", lambda *_a: 28)
+    with pytest.raises(E2EError, match=r"control olf-dev\[app=superset\] -> traefik"):
+        _network.check_ingress_callers(cfg, FLOWS)  # type: ignore[arg-type]
+
+
+def test_the_ingress_check_skips_a_stack_without_an_ingress(monkeypatch: pytest.MonkeyPatch) -> None:
+    def no_probe(*_a: object) -> None:
+        pytest.fail("no probe without an ingress")
+
+    monkeypatch.setattr(_network, "_pod_ip", lambda *_a: None)
+    monkeypatch.setattr(_network, "_probe_pod", no_probe)
+    cfg = SimpleNamespace(namespace="olf-dev", platform_namespace="olf-system")
+    _network.check_ingress_callers(cfg, FLOWS)  # type: ignore[arg-type]

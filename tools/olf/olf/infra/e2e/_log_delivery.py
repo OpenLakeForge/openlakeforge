@@ -478,9 +478,9 @@ def check_delivery_signals_follow_an_outage(cfg: E2EConfig) -> None:
         )
         if (spooled := max(o.size_bytes for o in _read_spool(cfg) if o.stage == _stage(cfg))) <= 0:
             raise E2EError(f"the spool age rose but the spool holds no bytes: {_describe(signals)}")
-        # ADR 0022 expects these to stay at zero, which is why the spool and the bucket are read instead. With
-        # `retry_limit` raised they rose (9.0 in the first run that got this far), so the value is recorded and
-        # the ADR's premise is left to its owner; the signals above are what this drill asserts.
+        # These rise during the outage without loss: they count failed upload attempts on chunks already in the spool
+        # (ADR 0022, decision 2). That is why delivery is judged by the spool and the bucket; the value is only
+        # recorded, and the signals above are what this drill asserts.
         failures = _engine_failures(cfg)
         log.info(f"During the outage {spooled} bytes are spooled and the engine's S3 failure counters read {failures}.")
         at_restore = spool_files(cfg)

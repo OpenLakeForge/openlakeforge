@@ -74,7 +74,7 @@ people is a connector.
   a separate free organisation used only for platform access is an option.
 - Signing out of OpenLakeForge does not sign the person out of GitHub; on a
   shared browser the next sign-in reuses that GitHub account (ADR 0014,
-  "Logout").
+  D10).
 - The cluster must reach `github.com` and `api.github.com` for logins and
   refreshes (flow F28 in `release/network-flows.yaml`). A GitHub outage blocks
   new logins; existing sessions run to their bound.
@@ -90,7 +90,7 @@ people is a connector.
 | Not decided here | Where |
 | --- | --- |
 | How canonical roles map to teams, revocation latency, break-glass | ADR 0014 and `docs/architecture/identity/identity-sessions-and-recovery.md` |
-| Workload credentials (Trino, Polaris, object storage) | ADR 0015, ADR 0016, `identity-callers.md`; GitHub is never a workload credential inside the cluster |
+| Workload credentials (Trino, Polaris, object storage) | ADR 0019 D13, ADR 0016, `identity-callers.md`; GitHub is never a workload credential inside the cluster |
 | GitHub Actions OIDC as the credential CI uses to reach the platform | Not decided; CI keeps Kubernetes RBAC through kubeconfig (`identity-callers.md`, class 2) |
 
 ## Alternatives rejected

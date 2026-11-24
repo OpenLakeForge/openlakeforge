@@ -255,7 +255,7 @@ baseline only; `useRolesFromProvider` stays `false`.
 
 | Step | Detail |
 | --- | --- |
-| Job | `openmetadata-role-sync`, every 5 minutes, applied by `olf infra openmetadata deploy-metadata` (design and image choice in ADR 0014, "User and role administration"). It sets `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer` or for a user in no mapped team |
+| Job | `openmetadata-role-sync`, every 5 minutes, applied by `olf infra openmetadata deploy-metadata` (ADR 0014 D11; design and image choice in [the perimeter and identity adapter page](identity-perimeter-and-adapter.md#openmetadata-role-sync)). It sets `isAdmin` for `platform-admin`, the `DataSteward` role for `data-engineer`, and neither for `analyst` and `viewer` or for a user in no mapped team |
 | Source | the members of the mapped GitHub teams, read with the GitHub App's installation token; the join key is the lower-cased `login` |
 | Identity | the class-2 OpenMetadata automation bot, over the in-cluster Service |
 | Gap | A role change in GitHub reaches OpenMetadata at the next run, at most 5 minutes plus the run (test OM-7); this is the normal path, not an exception |
@@ -270,6 +270,31 @@ baseline only; `useRolesFromProvider` stays `false`.
 | Bot tokens | `publicKeys` keeps OpenMetadata's own JWKS URL beside the issuer's (**V** `MultiUrlJwkProvider`), so bot JWTs, which are signed by OpenMetadata, keep validating. `ingestion-bot` should keep working for Floe and Dagster (**T**, acceptance item of #25) |
 | `olf` and its bootstrap | Replace email and password login with a dedicated admin automation bot (`olf-automation`) whose JWT is stored in a Secret created in cluster if missing (#181). `IngestionBotPolicy` denies `EditDisplayName`, so `ingestion-bot` is not a drop-in (**V**). The bot exists only after OpenMetadata starts, and creating it needs an admin token, which basic login no longer provides. **Prerequisite (T):** OpenMetadata's own JWKS stays trusted, and the local values point `jwtTokenConfiguration` at `./conf/private_key.der`, files the image provides; if they are the image's shared defaults, anyone holding them can sign a token for any user, including this admin bot. Generate a per-deployment RSA keypair in cluster (#181) and mount it before the bot is made admin. **Decided (decision 6):** install with `provider: basic`, let the Job create the bot and Secret, then upgrade the release to `custom-oidc`. Sequencing on a fresh install is the main implementation risk (**T**) |
 | OpenMetadata to Superset | The service connection stores a Superset username and password; it moves to the Superset ingestion user above |
+
+### The quality-writer bots
+
+Each governed stage publishes its quality results as its own bot,
+`olf-quality-writer-<stage>` (ADR 0007 D13). Every bot holds one role,
+`OlfQualityWriterRole` (`tools/olf/olf/infra/openmetadata/_quality_writer.py`),
+whose policy grants what the publisher's routes are authorized against on
+1.13.6 and nothing else:
+
+| Resource | Operations |
+| --- | --- |
+| Tables | `ViewBasic`, `ViewTests`, `EditTests` |
+| Test definitions | `Create`, `EditAll` |
+
+`EditTests` on the table is the only grant that lets 1.13.6 create a new test
+case, and it also covers adding a result. The role has no other edit on a
+table, so a description, tag or lineage edit answers 403; the Full e2e
+(`tools/olf/olf/infra/e2e/_quality_writer.py`) asserts the description and
+lineage refusals with the stage's own token. It has no `ViewAll`, which would
+match a table's sample data and a case's failed rows. A bot that OpenMetadata
+creates also gets `DefaultBotRole`, whose `DataConsumerPolicy` allows
+description and tag edits on every resource, so the bootstrap removes that
+role. Policies cannot match a table's FQN, so the role does not keep stages
+apart: the stage boundary is the stage's ops-bucket key and its pass's
+database root.
 
 ### Sessions (V from source, T on the stack)
 

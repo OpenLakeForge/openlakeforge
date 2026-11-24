@@ -22,7 +22,7 @@ locals {
     people_catalog        = var.oidc.people_catalog
   }
 
-  # The platform API's service role (ADR 0021, open item 3, checked against
+  # The platform API's service role (ADR 0021, decision 3, checked against
   # Superset 6.1.0): import assets, read and write datasets, charts and
   # dashboards, export dashboards, read databases and its own roles. No Admin, no SQL Lab, no role
   # management, and no write on databases: the API imports sparsely and never

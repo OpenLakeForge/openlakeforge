@@ -90,7 +90,7 @@ class Settings:
     # (OPENLAKEFORGE_AUDIT_ACCESS_KEY_ID, OPENLAKEFORGE_AUDIT_SECRET_ACCESS_KEY). Without both, every operation
     # that changes state answers 503: it is never run unaudited.
     audit_base_uri: str | None = None
-    # Each stage's Superset, and the service user the API signs in as there (ADR 0021, open item 3). The password
+    # Each stage's Superset, and the service user the API signs in as there (ADR 0021, decision 3). The password
     # is read per stage from the environment (superset_password_env), mounted from the Secret its Job mints.
     superset_urls: Mapping[str, str] = field(default_factory=dict)
     superset_username: str | None = None

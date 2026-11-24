@@ -111,9 +111,8 @@ def test_export_report_leaves_a_stage_neutral_assets_bundle(tmp_path: Path, fake
             yaml.safe_dump(
                 {
                     "database_name": "Trino",
-                    "sqlalchemy_uri": "trino://olf-prod@trino:8443/lakehouse_prod",
+                    "sqlalchemy_uri": "trino://olf-prod@trino:8080/lakehouse_prod",
                     "uuid": _DATABASE_UUID,
-                    "extra": reports.TLS_EXTRA,
                 }
             ),
         )
@@ -138,7 +137,6 @@ def test_export_report_leaves_a_stage_neutral_assets_bundle(tmp_path: Path, fake
     assert yaml.safe_load((target / "metadata.yaml").read_text()) == {"version": "1.0.0", "type": "assets"}
     database = yaml.safe_load((target / "databases" / "trino.yaml").read_text())
     assert database["sqlalchemy_uri"] == reports.STAGE_NEUTRAL_SQLALCHEMY_URI
-    assert database["extra"] == {"engine_params": {}}
     assert yaml.safe_load((target / "datasets" / "mart.yaml").read_text())["schema"] == "order_revenue_gold"
     assert progress.messages == [("step", "Exporting dashboard 'orders' from Superset")]
 

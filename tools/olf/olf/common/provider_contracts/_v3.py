@@ -89,7 +89,7 @@ IDENTITY_ROLES_PATH = "release/identity-roles.yaml"
 # Data access is ordered so monotonicity is a comparison; absent is none.
 _DATA_ACCESS_LEVELS = {"read": 1, "write": 2}
 _MEDALLION_LAYERS = ("silver", "gold")
-# Polaris enforces data_access as catalog roles (ADR 0019, section 5), and these
+# Polaris enforces data_access as catalog roles (ADR 0019 D5), and these
 # are the only stage rows those roles express. Another shape would validate
 # here and then be silently widened or narrowed by the catalog.
 _DATA_ACCESS_SHAPES = (
@@ -371,7 +371,7 @@ def _parse_access_ingress(access: Mapping[str, Any], *, service_refs: set[str], 
 
 
 def _parse_perimeter(value: object, *, routes: Mapping[str, Any], base_domain: str, scheme: str) -> None:
-    """shared.access.perimeter (ADR 0014 seam 3): which routes sit behind authentication.
+    """shared.access.perimeter (ADR 0014 D3): which routes sit behind authentication.
 
     A claim that a route is protected is only worth having if nothing
     user-facing is silently left out, so the set must be exactly the enabled
@@ -518,7 +518,7 @@ def _check_observability(binding: Mapping[str, Any]) -> None:
     for name, (value, extra) in capabilities.items():
         # Only metrics reads a query endpoint. Optional so a contract already
         # in state stays readable; Terraform renders both as null until an
-        # adapter fills them (ADR 0024, decision 6).
+        # adapter fills them (ADR 0024, D10).
         capability = _fields(
             value,
             where=f"{where}.{name}",
@@ -680,7 +680,7 @@ def _parse_stage(
             f"DeploymentTopology.provider {topology.provider.value!r}"
         )
     # Polaris catalogs are keyless: Trino reads only with the credentials Polaris vends through the store's STS
-    # AssumeRole (ADR 0019 section 9), so a store without one cannot serve them.
+    # AssumeRole (ADR 0019 D4), so a store without one cannot serve them.
     if catalog_provider == "polaris" and "sts_endpoint" not in storage:
         raise ProviderContractError(
             f"stages.{name.value}.storage has no sts_endpoint, and its Polaris catalog reads only with the "

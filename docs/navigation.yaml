@@ -63,6 +63,7 @@ sections:
       - docs/reference/descriptors.md
       - docs/reference/alert-policy.md
       - docs/reference/runtime-api.md
+      - docs/reference/platform-api.md
       - docs/reference/health-signals.md
       - docs/reference/metrics.md
       - docs/reference/components.md
@@ -88,6 +89,7 @@ exclude:
   - docs/architecture/floe-validation.md
   - docs/architecture/identity/identity-callers.md
   - docs/architecture/identity/identity-credentials.md
+  - docs/architecture/identity/identity-perimeter-and-adapter.md
   - docs/architecture/identity/identity-service-permissions.md
   - docs/architecture/identity/identity-sessions-and-recovery.md
   - docs/architecture/local-stack-contracts.md

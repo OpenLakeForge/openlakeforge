@@ -12,11 +12,16 @@ reconciliation. Product-owned descriptors contain logical identities only.
 
 ## Versions and deployment phases
 
-Every Terraform root (local, AWS, Azure) now emits native `3.0.0` contracts.
-`olf` retains a v2 adapter that lifts a flat `2.0.0` contract to a single
-DEV-stage v3 view, but only to keep reading a contract from state a pre-v3
-deploy already produced — no current root's Terraform emits that shape.
-Unknown versions fail closed.
+Every Terraform root (local, AWS, Azure) emits native `3.0.0` contracts, and
+`olf` parses `3.0.0` only (`SUPPORTED_SCHEMA_VERSIONS` in
+`tools/olf/olf/common/contract_validation.py`, ADR 0003 D7). A `2.0.0`
+contract, left in state by a pre-v0.3 deploy, is refused with the remedy:
+migrate the shared services' data out of the old `lakehouse` namespace by
+hand, or start over with `--allow-stage-removal`, before redeploying the
+platform phase. Unknown versions fail closed. The flat `2.0.0` shape survives
+only as an export: `StageContract.as_v2_environment_contract` renders one
+selected stage of a parsed v3 contract into the environment the runtimes
+read.
 
 `3.0.0` is the binding stage-aware shape, represented by strict schema, typed
 parser, and local, Azure, and AWS fixtures. A native v3 runtime must select a
@@ -63,7 +68,7 @@ Every v3 document has these top-level fields:
 A stage whose catalog is Polaris must name its object store's STS endpoint in
 `stages.<name>.storage.sts_endpoint`: Trino's catalogs hold no storage key and
 read only with the credentials Polaris vends through STS `AssumeRole` (ADR 0019
-section 9), so the parser refuses a Polaris stage on a store without one.
+D4), so the parser refuses a Polaris stage on a store without one.
 SeaweedFS serves STS on its S3 port (local and Azure). A generic S3-compatible
 store (#803) and AWS on Polaris (#681) are not qualified yet.
 
@@ -141,7 +146,7 @@ and `false` on AWS and Azure, which have no collector and no lifecycle rule yet.
 `metrics.retention_supported` is `true` on the local provider, whose Prometheus
 deletes blocks past the retention itself. Only the archive and
 metrics carry the two retention fields. `metrics` also carries the optional `query_api` and `query_url`, the endpoint the
-platform API reads metrics from (ADR 0024, decision 6). `query_api` names the protocol, never the product; the only value
+platform API reads metrics from (ADR 0024, D10). `query_api` names the protocol, never the product; the only value
 is `prometheus-http-v1` (the Prometheus HTTP API's `/api/v1/query` and
 `/api/v1/query_range` with PromQL). The two are set together or both `null`, and
 only when `supported` is `true`. The local provider fills them with the
@@ -161,7 +166,7 @@ all present or all absent:
   "ref": "shared/access",
   "implementation": "access.ingress",
   "base_domain": "olf.localhost",
-  "issuer": "local-ca",
+  "tls": "local-ca",
   "tls_mode": "ingress-terminated",
   "routes": {
     "stage/dev/orchestration": {"url": "https://dagster-dev.olf.localhost", "enabled": true, "exposure": "user-facing"},
@@ -173,14 +178,15 @@ all present or all absent:
 
 | Rule | Why |
 | --- | --- |
-| `base_domain` and `issuer` equal the profile's `spec.access` | contract and profile cannot diverge |
+| `base_domain` and `tls` equal the profile's `spec.access` (a contract already in state may say `issuer`, the v1alpha1 name of `tls`) | contract and profile cannot diverge |
 | a route key is an existing shared or enabled-stage service ref | a disabled capability exposes no route |
 | `user-facing` only for orchestration, reporting, governance, query, identity, portal | databases, storage admin, catalog, registry stay internal; code servers have no ref |
-| `url` is `https://<host>.<base_domain>`, unique across routes; the portal's is `https://<base_domain>` | one host, one service |
-| `tls_mode` is `ingress-terminated` | the only mode an adapter implements |
-| optional `perimeter` is `{implementation, enabled, protected_routes, callback_url}` and needs the ingress fields | what sits behind authentication (ADR 0014 seam 3) |
+| `url` is `<scheme>://<host>.<base_domain>`, unique across routes, with no port or path; a stage route's host is `<service>-<stage>`, a shared route's `<service>`, and the portal's is `<base_domain>` | one host, one service, and a stage backend never answers on another stage's host |
+| `tls_mode` is `none` for `tls: none`, `ingress-terminated` for `local-ca`, `edge-terminated` for `external` | one mode per TLS setting (ADR 0013 D3) |
+| `<scheme>` is `http` when `tls_mode` is `none`, `https` otherwise | routes, callback and cookies follow who terminates TLS |
+| optional `perimeter` is `{implementation, enabled, protected_routes, callback_url}` and needs the ingress fields | what sits behind authentication (ADR 0014 D3) |
 | `protected_routes` is exactly the enabled user-facing routes except `shared/identity` (empty when `enabled` is false) | a user-facing route left out is an open door, so `olf` rejects it |
-| `callback_url` is `https://<host>.<base_domain>/oauth2/callback` | the one redirect URI of the `perimeter` client |
+| `callback_url` is `<scheme>://<host>.<base_domain>/oauth2/callback` | the one redirect URI of the `perimeter` client |
 
 The local root emits `perimeter` once the perimeter adapter lands (#176); the
 AWS and Azure roots do not. When public DNS and ACME exposure is added, `olf`
@@ -227,10 +233,10 @@ ADRs and the release file.)
 | every `grants` key is a service a route can publish (`orchestration`, `reporting`, `governance_service`, `query`) | the perimeter resolves route ref, to service, to roles |
 | grants are monotonic across `precedence` | multi-role union equals the highest role |
 | `data_access` names only roles in `precedence`, stages `dev`, `uat`, `prod`, layers `silver`, `gold`, and `read` or `write` | the same closed vocabulary; an absent role, stage or layer is no access |
-| each `data_access` stage row is every layer `write`, every layer `read`, or `gold: read` alone | the only rows Polaris catalog roles express ([ADR 0019](../adr/0019-data-plane-authorization-deferral.md), section 5) |
-| `data_access` is monotonic across `precedence` on every stage and layer | as for `grants`; nothing enforces it yet: Polaris grants arrive in a later build step |
+| each `data_access` stage row is every layer `write`, every layer `read`, or `gold: read` alone | the only rows Polaris catalog roles express ([ADR 0019](../adr/0019-data-plane-authorization-deferral.md) D2, D5) |
+| `data_access` is monotonic across `precedence` on every stage and layer | as for `grants`: a person in several mapped teams holds the highest role's row, since Polaris activates every role the token maps to ([ADR 0019](../adr/0019-data-plane-authorization-deferral.md) D1, D5) |
 
-With `implementation: identity.oidc` (ADR 0014 seam 2, #24) the binding also
+With `implementation: identity.oidc` (ADR 0014 D2, #24) the binding also
 carries the issuer. No field is issuer-specific; everything is keyed by a
 canonical role or a consumer, and a credential is only ever a Secret
 reference:
@@ -257,15 +263,17 @@ reference:
 | `issuer_url` is https with a host and no userinfo, query or fragment (the schema only checks `^https://`; the Python check is the authority) | tokens and redirects must not cross plaintext |
 | `adapter` is `dex` when the profile selects `github` | provenance for consumers, but the validator needs it to correlate the profile with its binding; external profiles omit it |
 | `role_mapping` keys are canonical roles; each value is a non-empty list of claim values | an unknown role fails closed; the claim values are the issuer's vocabulary (GitHub `<org>:<team>` values, Cognito groups, Entra object IDs) |
-| each client is `client_id` plus `secret_ref{name,key}` | a literal secret is an unsupported field; the #181 secret-value check also covers it |
+| each client is `client_id` plus `secret_ref{name,key}`, except the public `olf-cli`, which has `client_id` only | a literal secret is an unsupported field; the #181 secret-value check also covers it |
+| `issuer_url` is http only with `spec.access.tls: none` on `*.localhost` | the one plain-HTTP development mode (ADR 0013) |
+| optional `internal_url` is set only for an issuer OpenLakeForge deploys (Dex's in-cluster Service); in-cluster consumers fetch `/keys` and redeem codes at `/token` there and still compare the token's `iss` with `issuer_url` as a string | an `external` issuer is reached at `issuer_url` |
+| optional `capabilities` holds booleans `groups_in_token`, `logout_endpoint`, `email_delivery`; absent means not declared | an issuer that lacks something says so, and consumers degrade rather than break |
 
 The `identity.oidc` contract is parsed and schema-checked here. The local root
 emits it (adapter `dex`, `role_claim: groups`, the
 `role_mapping` of each role to its `<org>:<team-slug>` values); the AWS and Azure
 roots do not yet. With `spec.identity.issuer: external` the local root emits
 the profile's issuer fields and names the client Secrets
-`oidc-client-<consumer>` (key `client-secret`) for the operator to provide. The optional `admin` block (seam 4)
-is not in the schema until #331. The perimeter fields are in `shared.access`.
+`oidc-client-<consumer>` (key `client-secret`) for the operator to provide. The perimeter fields are in `shared.access`.
 
 The local root also emits an optional `shared.portal` binding
 (`{ref: "shared/portal", implementation: "portal.static_page"}`), which is what
@@ -345,8 +353,7 @@ output in any root `.tf` file and a secret-named field in a root's
 applies the same field rule to an applied contract, and the fixture suite
 applies it to every fixture.
 
-The v2 adapter is intentionally temporary. It lifts a flat deployed contract
-to one DEV stage without changing current v0.2 environment output. A v3
+There is no v2 reader: a `2.0.0` contract fails with the remedy above. A v3
 contract is not permitted to choose DEV implicitly: callers must select the
 stage they are configuring.
 
@@ -392,6 +399,37 @@ unchanged, and the release carries the new value.
 - Per-source isolation within one job would need a pod per step, and is not
   enforced.
 - Run-pod sizing is not a stage binding yet (#323, #325).
+
+## Ops bucket layout
+
+The ops bucket (`shared.ops_storage`, `<prefix>-ops`; suffixed on AWS) sits
+outside the medallion split ([ADR 0004](../adr/0004-medallion-layout-and-catalog-namespaces.md) D13).
+Everything a stage writes lives under its activation prefix,
+`stages.<name>.activation.prefix`, which the parser requires to be
+`activations/<stage>`; a stage's storage identity is scoped to that prefix, so
+the runtime's `OPENLAKEFORGE_ARTIFACT_BASE_URI`, `_LOG_BASE_URI` and
+`_RUN_ARTIFACT_BASE_URI` are all derived from it
+(`StageContract.as_v2_environment_contract`). The other prefixes sit at the
+bucket root, outside every stage's grant.
+
+| Prefix | Holds | Written by |
+| --- | --- | --- |
+| `project/revisions/sha256/<digest>/` | Published project revisions ([ADR 0012](../adr/0012-project-revisions-and-promotion.md)) | `olf infra project build`, with the shared ops identity |
+| `activations/<stage>/revisions/sha256/<digest>/ACTIVATION.json`, `activations/<stage>/ACTIVE.json` | Activation records and the stage's pointer | `olf infra project deploy` |
+| `activations/<stage>/floe/reports/<domain>/` | Floe run reports, keyed by domain | Floe Jobs |
+| `activations/<stage>/run-artifacts/dbt/<domain>/<product>/` | dbt run artifacts | The product's run pod |
+| `activations/<stage>/run-artifacts/quality/<domain>/<product>/<run>/manifest.json` | Quality evidence | The product's run pod |
+| `activations/<stage>/quality-sync/` | The quality publisher's state and `summary.json` | The quality reconciler ([ADR 0007](../adr/0007-governance-and-lineage.md)) |
+| `activations/<stage>/logs/` | Dagster compute logs (`dagster/compute`), archived pod logs, and the collector's `v2/` archive | Dagster, the log archiver, the log collector ([ADR 0022](../adr/0022-pod-log-collection-and-archive-format.md)) |
+| `platform/logs/v2/` | `olf-system` pod logs | The log collector |
+| `audit/platform-api/` | Platform API audit records | The platform API's audit identity ([ADR 0021](../adr/0021-platform-api.md)) |
+| `alerts/` | Alert evaluator state | The alert evaluator ([ADR 0023](../adr/0023-alert-evaluation-and-webhook-delivery.md)) |
+
+The prefixes are derived in one place each: `openlakeforge_core.inventory`
+(Floe reports, dbt artifacts), `openlakeforge_core.project_revision` and
+`project_activation`, `openlakeforge_core.quality`, and the `locals` of each
+environment root (logs, audit, alerts), which share each prefix with the
+identity whose grant it bounds.
 
 ## Stable capability interfaces
 

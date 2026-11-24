@@ -1,4 +1,4 @@
-"""The quality writer's least privilege on the running OpenMetadata (#346, ADR 0007 Identity).
+"""The quality writer's least privilege on the running OpenMetadata (#346, ADR 0007 D13).
 
 The stage's `olf-quality-writer-<stage>` token, read from the Secret the reconciler mounts, must publish a result
 through every route the publisher uses, and be refused (403) a table description edit and a lineage edge. The case it

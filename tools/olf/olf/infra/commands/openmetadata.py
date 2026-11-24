@@ -153,8 +153,8 @@ def deploy_openmetadata_metadata(
                 ),
             )
             # Before the seeding, which fails on tables OpenMetadata has not
-            # crawled yet. Once per artifacts deploy, no CronJob: the pipeline
-            # it replaces was deployed paused and never scheduled.
+            # crawled yet. One crawl now, plus the hourly CronJob that keeps
+            # the catalog current between deploys.
             log.step("Crawling Trino into OpenMetadata...")
             run_trino_ingestion(source, namespace=namespace, service=cfg.catalog_service)
             client = route.client(om.OpenMetadataClient, token=token)

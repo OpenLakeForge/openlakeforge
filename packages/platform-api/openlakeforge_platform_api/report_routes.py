@@ -1,6 +1,6 @@
-"""Superset report import and export (ADR 0021, build step 5), as each stage's platform API service user.
+"""Superset report import and export (ADR 0021, decision 3), as each stage's platform API service user.
 
-The service user (role `olf_platform_api`, ADR 0021 open item 3) is not an
+The service user (role `olf_platform_api`, ADR 0021 decision 3) is not an
 Admin. It co-owns every report asset the artifacts phase imports, so it may
 overwrite them, and holds the report schemas' `schema_access`, so it may
 export them. It signs in with Superset's database provider, which

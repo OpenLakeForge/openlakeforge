@@ -426,7 +426,7 @@ def test_cloud_deployment_config_var_file_argument_never_reaches_azure_platform_
     """An explicit `--var-file` on Azure must route only through
     `foundation_var_file`, never `var_file` - `var_file` also feeds the
     platform apply (`cloud/platform.py`), and Azure's platform Terraform
-    root rejects a tfvars file entirely (ADR 0008, binding requirement).
+    root rejects a tfvars file entirely (docs/guides/cloud/deploy-to-azure.md).
     A combined `olf infra deploy --provider azure --var-file <foundation.tfvars>`
     run must not fail Terraform `-var-file` validation at the platform
     phase.

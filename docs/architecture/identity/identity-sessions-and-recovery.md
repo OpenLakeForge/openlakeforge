@@ -6,9 +6,9 @@ approved by the maintainer on 2026-10-09.
 
 **Status.** The perimeter settings and Dex's token lifetimes are implemented. The
 revocation bound was measured once against real GitHub (#384, qualification run
-1, below); no other timing has been measured on a running stack. Logout and
-the native Superset and OpenMetadata session bounds are *designed*, not
-measured. The recovery procedure is built (`olf infra break-glass`). Where a number depends on upstream
+1, below); no other timing has been measured on a running stack. Sign-out is
+built as described under "Logout" but has no runtime test, and the native
+Superset and OpenMetadata session bounds are *designed*, not measured. The recovery procedure is built (`olf infra break-glass`). Where a number depends on upstream
 behaviour that was not checked, the row says "to verify" and names the change
 that must verify it. An integration that cannot meet a bound must document the
 limitation and test it; "takes effect on next login" is not acceptable.
@@ -22,7 +22,7 @@ limitation and test it; "takes effect on next login" is not acceptable.
 | Issuer SSO session | 30 min idle, 10 h absolute, so it never outlives the perimeter cookie |
 | Maximum role-revocation or account-disable delay, perimeter | 5 min |
 | Maximum delay, native Superset and OpenMetadata sessions | 15 min |
-| Logout | Platform-wide |
+| Logout | Ends the perimeter cookie, and Superset's session when started from Superset; not the issuer's session (see Logout) |
 
 "Delay" is the time from the administrator's change in the issuer to the first
 request that is refused. A user who holds no valid session when the change is
@@ -32,9 +32,9 @@ made is refused at the next login.
 
 | Session | Lives in | Ends when | Renewal |
 | --- | --- | --- | --- |
-| Issuer session | Dex, `auth.<base_domain>` (refresh token) | 30 min unused or 10 h absolute, membership removed, or logout | None; the user logs in again |
+| Issuer session | Dex, `auth.<base_domain>` (refresh token) | 30 min unused or 10 h absolute, or membership removed. Sign-out does not revoke it | None; the user logs in again |
 | Perimeter cookie | oauth2-proxy cookie on `.<base_domain>` | 30 min idle, 10 h absolute, or a refresh the issuer refuses | While the cookie is valid the proxy refreshes the access token at the issuer before it is 5 min old; the refresh re-reads the user's groups |
-| Native app session | Superset and OpenMetadata, behind the perimeter | 15 min after it was created, not sliding | The app sends the browser back through the issuer, which answers silently while the SSO session is valid, and the app re-reads the role claim |
+| Native app session | Superset and OpenMetadata, behind the perimeter | 15 min after it was created, not sliding | The app sends the browser back through the issuer, which answers silently while the SSO session is valid, and the app re-reads the role claim. That silent sign-in is not verified on a cluster ([#1397](https://github.com/OpenLakeForge/openlakeforge/issues/1397)) |
 
 Native sessions are short because the app, not the perimeter, evaluates them:
 the perimeter cannot end a Superset session it did not create. Dagster, the
@@ -51,15 +51,31 @@ applies.
 
 ## Logout
 
-Logout is platform-wide: one action ends the perimeter cookie, the issuer SSO
-session, and the native sessions of the integrated services. The perimeter
-sign-out redirects through each service's logout endpoint and then the
-issuer's end-session endpoint. A native session that survives (a missed
-endpoint, a cookie the browser kept) still dies within 15 min.
+Sign-out is not platform-wide. Dex, the issuer the platform deploys for
+`issuer: github`, has no end-session endpoint (its contract sets
+`logout_endpoint = false` in `modules/identity/dex/outputs.tf`), so nothing the
+platform does ends the issuer's session or the person's GitHub session.
+[ADR 0014](../../adr/0014-identity-and-authorization.md) records this in D10
+for the GitHub adapter, as a revision of the original policy.
 
-The risk this closes: on a shared browser, user B signs in after user A and
-reaches a surviving native session of A. #25 and #176 must test repeated
-logout and login as different users across every enabled service.
+| Action | What it ends | What survives |
+| --- | --- | --- |
+| Portal **Sign out** button | The perimeter cookie, through oauth2-proxy's `/oauth2/sign_out`; the browser lands on the portal's unprotected `/signed-out.html` | Dex's refresh token, which is not revoked and lapses after 30 min unused; native Superset and OpenMetadata sessions; the GitHub session |
+| Superset **Logout** | Superset's own session, then the same perimeter sign-out (`images/superset/olf_security.py`) | As above, except Superset's session |
+| OpenMetadata logout | OpenMetadata's own session only; it is not chained to the perimeter sign-out | The perimeter cookie and the GitHub session |
+
+The sign-out address is set in the local root's `contracts.tf` (`sign_out_url`)
+only when Dex is deployed (`issuer: github`). With `issuer: external` it is
+null, so the portal shows no **Sign out** button.
+
+After sign-out every route asks the perimeter for a new sign-in. That sign-in
+is silent while the browser still holds a GitHub session, and it signs in as
+that GitHub account. On a shared browser the person must also sign out of
+GitHub, or the next person reuses their account. A native Superset or
+OpenMetadata session left behind still ends within its own bound (15 min for
+Superset; OpenMetadata's, see the table above), but the next person who
+passes the perimeter on that browser can reach it until then. No test covers
+sign-out or a second person signing in on the same browser.
 
 ## Issuer outage: fail closed
 
@@ -75,9 +91,9 @@ recovery below exists for.
 
 | Integration | Required | Change |
 | --- | --- | --- |
-| oauth2-proxy (#176) | Refresh against the issuer at most every 4 min; cookie 30 min idle and 10 h absolute; no stale-session grace; sign-out chained to service logouts and the issuer | #176. Set: `--cookie-refresh=4m`, `--cookie-expire=30m`; the 10 h bound is Dex's refresh-token absolute lifetime ending the refresh chain. The sign-out chain is not built |
-| Superset (#25) | OIDC login; 15 min non-sliding session; roles synced at login from `shared.identity.roles`; logout endpoint reachable from the chain | #25 |
-| OpenMetadata (#25) | OIDC login; session or token expiry 15 min renewing through the issuer; logout in the chain | #25, expiry setting to verify |
+| oauth2-proxy (#176) | Refresh against the issuer at most every 4 min; cookie 30 min idle and 10 h absolute; no stale-session grace; sign-out clears the perimeter cookie | #176. Set: `--cookie-refresh=4m`, `--cookie-expire=30m`; the 10 h bound is Dex's refresh-token absolute lifetime ending the refresh chain. Sign-out is `/oauth2/sign_out` with no issuer step, because Dex has no end-session endpoint |
+| Superset (#25) | OIDC login; 15 min non-sliding session; roles synced at login from `shared.identity.roles`; Logout also signs out of the perimeter | #25. Logout redirects to the perimeter sign-out |
+| OpenMetadata (#25) | OIDC login; session or token expiry 15 min renewing through the issuer | #25, expiry setting to verify. Its logout is not chained to the perimeter sign-out |
 | Dagster, Trino UI | Perimeter only; no native session | #176 (implemented) |
 | Dex | ID token 5 min; refresh token unused for 30 min, 10 h absolute | Set in the Dex config (`expiry.idTokens` 5m, `refreshTokens.validIfNotUsedFor` 30m, `absoluteLifetime` 10h; `modules/identity/dex/main.tf`) |
 
@@ -92,8 +108,7 @@ refresh, or a removed role stays usable until its SSO session ends (at most
 
 People and their roles live in the client's GitHub organisation
 ([ADR 0018](../../adr/0018-github-is-the-forge.md)): each canonical role maps to
-one or more teams in `spec.identity.github` (ADR 0014, "The GitHub adapter
-through Dex"). There is no `olf` command for users and no step needs a deploy.
+one or more teams in `spec.identity.github` (ADR 0014 D9). There is no `olf` command for users and no step needs a deploy.
 
 | Step | In GitHub | What happens |
 | --- | --- | --- |

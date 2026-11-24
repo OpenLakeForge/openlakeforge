@@ -245,6 +245,26 @@ run "portal_image_must_be_pinned_by_digest" {
   expect_failures = [var.portal_image]
 }
 
+run "the_e2e_edge_is_reached_from_the_f4_stage_pods_only" {
+  command = plan
+
+  variables {
+    access_tls             = "external"
+    access_test_edge       = true
+    access_trusted_proxies = ["10.244.0.0/16"]
+  }
+
+  assert {
+    condition     = one([for f in local.policy_flows : f.from if f.id == "F-edge-stage"]) == { scope = "stage", pods = { app = "superset" } }
+    error_message = "the edge forwards to the Dex route too, so a stage reaches it from F4's pods only, never namespace-wide"
+  }
+
+  assert {
+    condition     = alltrue([for stage in ["dev", "prod"] : anytrue([for key in keys(module.network_policy.stage_pod_policy_names) : startswith(key, "${stage}/f4-")])])
+    error_message = "F4 renders as a pod-narrowed policy in every stage"
+  }
+}
+
 run "the_default_issuer_serves_plain_http" {
   command = plan
 
@@ -384,6 +404,11 @@ run "a_profile_without_metrics_renders_no_prometheus" {
     )
     error_message = "the local provider supports metrics, but publishes no endpoint for a backend it did not deploy"
   }
+
+  assert {
+    condition     = !local.observability_contract.metrics_enabled
+    error_message = "the observability contract reports metrics off when no Prometheus is deployed"
+  }
 }
 
 run "a_profile_with_metrics_deploys_prometheus_and_publishes_it" {
@@ -417,6 +442,11 @@ run "a_profile_with_metrics_deploys_prometheus_and_publishes_it" {
       && output.provider_contracts.shared.observability.metrics.retention_supported
     )
     error_message = "the contract names the Prometheus Service, and retention is enforced"
+  }
+
+  assert {
+    condition     = local.observability_contract.metrics_enabled
+    error_message = "the observability contract reports metrics on when Prometheus is deployed"
   }
 }
 
@@ -481,4 +511,35 @@ run "a_runbook_override_with_a_fragment_is_refused" {
   }
 
   expect_failures = [var.runbook_base_url]
+}
+
+# ADR 0023, Retention: alert history is kept 30 days whatever the log archive's retention, and the evaluator's state
+# (open incidents, outbox, policy cache) is never expired.
+run "alert_history_expires_after_30_days_and_state_never" {
+  command = plan
+
+  variables {
+    observability = { archive_retention_days = 90 }
+  }
+
+  assert {
+    condition     = local.object_retention.days_by_prefix["alerts/history/"] == 30
+    error_message = "alert history gets a 30-day TTL of its own"
+  }
+
+  assert {
+    condition = (
+      local.object_retention.days_by_prefix["activations/dev/logs/v2/"] == 90
+      && local.object_retention.days_by_prefix["activations/prod/logs/v2/"] == 90
+    )
+    error_message = "the log archive keeps the profile's retention beside alert history's"
+  }
+
+  assert {
+    condition = length([
+      for prefix in keys(local.object_retention.days_by_prefix) : prefix
+      if startswith("alerts/state/", prefix) || startswith(prefix, "alerts/state/")
+    ]) == 0
+    error_message = "no rule reaches alerts/state/: neither alerts/ itself, alerts/state/, nor a prefix under it"
+  }
 }

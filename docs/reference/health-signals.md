@@ -60,7 +60,10 @@ and whenever the row is `unknown` or `disabled`.
 | `trino.readiness` | `trino-http` | The coordinator finished starting | Workers, catalogs or Polaris access work |
 | `polaris.readiness` | `polaris-http` | The catalog's management port answers `/q/health/ready` as UP, sent with no credential | A catalog read works, a grant holds, or the stage's catalog exists |
 | `object-store.list` | `s3` | The endpoint is reachable and the key may list the bucket | A write is durable |
+| `log-archive.spool-age`, `log-archive.spool-size` | `log-collector` | The collector's oldest unsent file is young and its spool not full, worst over every collector pod | An object reached the bucket |
+| `log-archive.newest-object` | `s3` | The newest object under the stage's `logs/v2/namespace=<ns>/`, listed with the platform API's log reader key, is recent | The stage logs anything: an idle stage reads the same as a stalled collector |
 | `quality-sync.publication` | `quality-reconciler` | The reconciler's last pass is recent and no result waits too long or gave up ([below](#publication-health)) | The data passed its checks, or OpenMetadata shows a given result |
+| `service-probes` | `platform-api` | Never `healthy`: sent alone, as `unknown`, when the probes themselves raised | Anything about a service |
 
 `polaris.readiness` is `critical` when Polaris answers that it is not ready (HTTP 503 or a DOWN status), and `unknown`
 when it does not answer, answers something else or the probe times out. It reads `disabled` in a profile that deploys no
@@ -291,7 +294,7 @@ Each stage's pass is confined to that stage:
   Nothing can connect to its pods, and it holds no Kubernetes API token.
 - It publishes as the stage's own OpenMetadata bot, `olf-quality-writer-<stage>`,
   which may read tables and write test definitions, cases and results, and
-  nothing else (ADR 0007, Identity). Its token is read from the
+  nothing else (ADR 0007 D13). Its token is read from the
   `openmetadata-quality-writer-<stage>` Secret and is never an argument, a
   literal environment value or a log line. The Secret is deleted when the
   stage loses governance, including when every stage does. OpenMetadata
@@ -306,11 +309,45 @@ kubectl -n olf-system create job --from=cronjob/quality-reconciler-dev quality-r
 kubectl -n olf-system logs job/quality-reconciler-dev-now
 ```
 
-Until `olf infra openmetadata bootstrap` has written the ingestion-bot
-Secret, a pass's pod cannot start (`CreateContainerConfigError`) and its Job
+Until `olf infra openmetadata bootstrap` has written the stage's
+`openmetadata-quality-writer-<stage>` Secret, a pass's pod cannot start (`CreateContainerConfigError`) and its Job
 fails at the 240-second deadline; passes publish once the Secret exists. The
 AWS and Azure roots do not deploy the reconciler yet, so there the command
 below is the only way to publish.
+
+### OpenMetadata 1.13.6 limits and routes
+
+What the publisher works around on OpenMetadata 1.13.6 (ADR 0007 D8 to D12).
+The publisher is `QualityCatalog` and `QualityPublisher` in
+`packages/lakehouse-services/openlakeforge_services/quality_publisher.py`; the
+status mapping and names are in `packages/core/openlakeforge_core/quality_sync.py`.
+`tools/olf/tests/common/test_quality_publisher.py` fakes these routes, and
+`tools/olf/olf/infra/e2e/_quality_publication.py` checks them against a real
+OpenMetadata.
+
+| Limit on 1.13.6 | What the publisher does |
+| --- | --- |
+| A result status is only `Success`, `Failed` or `Aborted` (`OmStatus`; `Queued` is never sent) | PASS is `Success`, ERROR is `Failed`, WARN is `Aborted` by default (`om_status`, `warn_status`); `not_run` and `unknown` publish nothing. The OLF outcome, engine severity and pipeline outcome travel in `testResultValue` (`result_body`) |
+| `Failed` opens an incident (`TestCaseResultRepository.setTestCaseResultIncidentId`) | That is why WARN is not `Failed`; an operator who wants incidents for WARN passes `--warn-status Failed` to `olf infra openmetadata quality-sync`, or sets the reconciler module's `warn_status` |
+| `FullyQualifiedName.add` quotes a segment that contains a dot, and case names (`olf.<engine>.<check id>`, `case_name`) do | The case FQN is `<table>."<name>"`, or `<table>.<column>."<name>"` for a column check. `upsert_case` takes the FQN from OpenMetadata's response and addresses the case by it; the e2e builds the same form with `case_fqn` |
+| Tables are never auto-created | `table_columns` looks the table up first; an unknown table or column leaves the result pending with `table not registered in OpenMetadata` (or `column ...`), and nothing is created. Each attempt backs off; after `MAX_ATTEMPTS` (10) the result is `failed` until a replay with `--retry-failed` |
+| Native dbt `run_results.json` ingestion is not used (open-metadata/OpenMetadata#29824) | Results come only from the quality manifest (ADR 0007 D8) |
+| A result's `timestamp` is epoch milliseconds, and a repeated timestamp on a case is a duplicate | The timestamp is the engine's observation time (`epoch_millis`). Before adding, `has_result` reads the case's results within 24 hours of it and skips the add when the timestamp or the `olf_identity` value matches, so a replay, or a manifest restamped for the same execution, adds nothing |
+
+The routes the publisher calls, and no others:
+
+| Method | Route | Used for |
+| --- | --- | --- |
+| `GET` | `/api/v1/tables/name/{table FQN}?fields=columns` | The table exists in this stage's root, and its columns |
+| `PUT` | `/api/v1/dataQuality/testDefinitions` | Create or update `olf_<engine>_table` / `olf_<engine>_column` |
+| `PUT` | `/api/v1/dataQuality/testCases` | Create or update the case, by entity link |
+| `GET` | `/api/v1/dataQuality/testCases/testCaseResults/{case FQN}?startTs=&endTs=` | Whether this execution is already there |
+| `POST` | `/api/v1/dataQuality/testCases/testCaseResults/{case FQN}` | Add the result |
+
+FQNs in a path are percent-encoded whole (`quote(fqn, safe="")`), so the quotes
+and slashes of a name are escaped. When results wait or give up, the re-sync
+runbook is
+[service health § quality-sync.publication](../guides/operations/service-health.md#quality-syncpublication).
 
 ### Publication health
 
@@ -390,6 +427,49 @@ A `service` signal comes from one probe of one component of a stage (ADR 0021, d
 refused reads `unknown`, a component that is not deployed reads `disabled`, and the probes run for at most 5 seconds
 and are reused for 10. The components, what each proves and what to do are in the
 [service health guide](../guides/operations/service-health.md).
+
+## Log archive delivery
+
+The pod log archive's delivery is read from three `service` rows, never from Fluent Bit's own S3 output metrics, whose
+`errors` and `dropped_records` count failed upload attempts and rise during an outage while the records are still
+spooled ([ADR 0022](../adr/0022-pod-log-collection-and-archive-format.md) D2). The thresholds are `ArchiveThresholds`
+in `packages/core/openlakeforge_core/archive_health.py`, accepted by the maintainer on 2026-11-18.
+
+| Component | Source | `warning` at | `critical` at |
+| --- | --- | --- | --- |
+| `log-archive.spool-age`: age of the oldest file in a stage's spool (`store_dir`), by its mtime | the `spool-probe` sidecar of each collector pod | 10 minutes | 30 minutes |
+| `log-archive.spool-size`: bytes in the spool against `store_dir_limit_size` | the same sidecar | 50% | 90% |
+| `log-archive.newest-object`: `LastModified` of the newest object under the stage's v2 prefix | a listing with the platform API's log reader key | 15 minutes | 60 minutes |
+
+A healthy spool holds a file for at most `upload_timeout` (5 minutes) plus the upload, so the age thresholds are two and
+six times that; half the size limit is half the outage budget spent. The newest object is the only signal that covers a
+collector that is down. `log-archive.newest-object` carries that write time as `last_success_at`, null when the listing
+found no object or could not list.
+
+The newest-object listing reads `logs/v2/namespace=<namespace>/date=<day>/` for today and yesterday (UTC), recursively,
+on a second S3 client with the probes' timeouts. It looks at most 5 pages of 1000 objects per day, so a runaway prefix
+errs towards a stale reading. It reads `unknown` when no object exists in the two days, so a stage whose pods log
+nothing reads like a stalled collector. The platform prefix is outside the reader key's grant, so `olf-system` has the
+spool signals only.
+
+The spool probe is a second container in the collector pod. It runs the platform API image as
+`python -m openlakeforge_platform_api.spool_probe` and serves `GET /spool` on port 2021 (flow F42): per stage, the
+oldest file's age and the bytes held under `spool-<stage>`, skipping the quarantine directory, which has left the spool
+budget. A headless Service, `log-collector-probe`, gives the API one address per collector pod. The API asks every pod
+at once, each within 60% of the probe timeout, and takes the worst reading: `critical` and `warning` outrank `unknown`,
+so a silent pod never hides a reachable one's reading.
+
+| Property | Value |
+| --- | --- |
+| Resources | requests 10m CPU and 32Mi; limits 100m CPU and 64Mi |
+| Host access | the collector's state directory, mounted read-only; nothing else |
+| Privilege | uid 0, because the spool is root-owned; no capability, no privilege escalation, read-only root filesystem, `RuntimeDefault` seccomp |
+| Credentials | no S3 key; it shares the pod's ServiceAccount, the collector's read of pods and namespaces |
+| Unreadable spool | a permission or I/O error reads `unreadable`, and both spool signals `unknown`; only a file or directory that vanishes mid-scan, or a spool the plugin has not created yet, is measured as empty |
+| Pods the API cannot see | the Service publishes not-ready pods, so an unready collector is asked, and one that does not answer makes the signals `unknown`; a Pending pod with no IP is in no DNS answer, and the newest-object signal still sees a stage whose archive stops |
+| Without the probe image | no sidecar and no Service; the spool signals read `unknown`, never `healthy` |
+
+What to do when they fire is in the [log archive guide](../guides/operations/log-archive.md#when-delivery-stops).
 
 ## Health and the alert policy
 

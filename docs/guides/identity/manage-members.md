@@ -11,6 +11,7 @@ and none of these steps needs a deploy.
 | Change a role | Move them between mapped teams | Their next token carries the new teams. |
 | Remove every role | Remove them from every mapped team | Dex refuses their next sign-in or refresh. |
 | Offboard | Remove them from the organization | The same, and GitHub ends their organization access everywhere else at once. |
+| See who holds what | Nothing to change: list each mapped team with `gh api --paginate orgs/<org>/teams/<slug>/members` | The members of the teams mapped to a role hold it. |
 
 Only members of a mapped team can sign in. Being an organization owner grants
 nothing in OpenLakeForge.

@@ -201,7 +201,7 @@ locals {
   })
 
   # Each stage runs its own coordinator in its own namespace (ADR 0019
-  # section 9). Namespace-qualified: stage-scoped Dagster and Superset resolve
+  # D8). Namespace-qualified: stage-scoped Dagster and Superset resolve
   # this from their own namespace, where a bare service name would not resolve.
   stage_query_endpoints = { for name, namespace in local.stage_namespaces : name => "http://trino.${namespace}:8080" }
 
@@ -472,7 +472,7 @@ locals {
     }
   })
 
-  # ADR 0014 seam 3: everything user-facing except the login surface sits
+  # ADR 0014 D3: everything user-facing except the login surface sits
   # behind the perimeter, so a new route is protected without being listed.
   perimeter_protected_refs = [for ref in keys(local.access_routes) : ref if ref != "shared/identity"]
 
@@ -553,7 +553,7 @@ locals {
     provider              = local.local_provider_name
     implementation        = "observability.object_log_archive"
     adapter               = "observability.object_log_archive"
-    metrics_enabled       = false
+    metrics_enabled       = local.metrics_enabled
     tracing_enabled       = false
     logs_mode             = "s3-compatible-object-archive"
     log_base_uri          = local.log_base_uri
@@ -582,7 +582,7 @@ module "provider_contract" {
   foundation_kube_context = local.foundation_contract.kube_context
 
   observability = var.observability
-  # The Prometheus Service when metrics are enabled (ADR 0024, decision 6); a
+  # The Prometheus Service when metrics are enabled (ADR 0024, D10); a
   # profile that turns them off has no endpoint to publish.
   metrics_query = local.metrics_enabled ? { api = "prometheus-http-v1", url = module.metrics[0].query_url } : { api = null, url = null }
   # Archive, metrics (ADR 0024) and webhook alerting (ADR 0023): no adapter implements search or Grafana yet.

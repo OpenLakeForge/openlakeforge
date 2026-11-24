@@ -1,9 +1,10 @@
-"""NetworkPolicy and RBAC conformance (#46, ADR 0017 "Conformance test").
+"""NetworkPolicy and RBAC conformance (#46; ADR 0017 D1, D2 and D5).
 
 Positive: every flow row tagged T whose two ends are pods (or the API server)
 connects, from a probe pod carrying the source's namespace and labels.
 Negative: a pod with no allowed flow cannot reach Trino, Polaris, PostgreSQL,
-OpenMetadata or Dex. RBAC: `kubectl auth can-i --as=<ServiceAccount>` is denied
+OpenMetadata or Dex, and a Dagster run pod cannot reach the ingress that F4's
+stage pods reach. RBAC: `kubectl auth can-i --as=<ServiceAccount>` is denied
 operations the ADR does not document.
 
 Known gap, not fixed here: under kindnet a new pod's policy applies a moment
@@ -44,6 +45,10 @@ PROTECTED = ("postgresql", "polaris", "openmetadata", "dex")
 # Each stage's coordinator is not a workload of the flow file: it runs in the stage namespace (ADR 0017).
 TRINO_LABELS = {"app.kubernetes.io/name": "trino", "app.kubernetes.io/component": "coordinator"}
 TRINO_PORTS = [8080]
+# The ingress routes the whole of Dex, so a stage reaches it only from the pods F4 names. The denied probe carries the
+# label Dagster's run launcher sets on every run pod, which F34 also selects on.
+INGRESS = "traefik"
+RUN_POD_LABELS = {"app.kubernetes.io/component": "run_worker"}
 # ADR 0017 exceptions E4 and E5 read Secrets cluster-wide by design.
 CLUSTER_SECRET_READERS = ("traefik", "cert-manager")
 SERVICE_ACCOUNT_GROUP = "system:serviceaccounts"
@@ -301,6 +306,41 @@ def check_negative_flows(cfg: E2EConfig, document: dict[str, Any]) -> None:
         raise E2EError("network isolation breach:\n" + "\n".join(problems))
 
 
+def ingress_callers(document: dict[str, Any]) -> tuple[list[dict[str, str]], list[int]]:
+    """The pod labels of the stage sources that may reach the ingress, and the ports their rows open."""
+    labels = document["workloads"][INGRESS]
+    callers: list[dict[str, str]] = []
+    ports: list[int] = []
+    for row in document["flows"]:
+        if row["to"].get("pods") != labels:
+            continue
+        listed = row["from"] if isinstance(row["from"], list) else [row["from"]]
+        sources = [source for source in listed if source["scope"] == "stage"]
+        callers += [source.get("pods", {}) for source in sources]
+        ports += [int(port) for port in row["ports"]] if sources else []
+    return callers, list(dict.fromkeys(ports))
+
+
+def check_ingress_callers(cfg: E2EConfig, document: dict[str, Any]) -> None:
+    log.step("Checking that only the F4 pods of a stage namespace reach the ingress...")
+    ip = _pod_ip(cfg, cfg.platform_namespace, document["workloads"][INGRESS])
+    if ip is None:
+        log.info("Skipping: no ingress is deployed.")
+        return
+    callers, ports = ingress_callers(document)
+    allowed = {(INGRESS, port) for port in ports}
+    cases = [(labels, allowed) for labels in callers] + [(RUN_POD_LABELS, set())]
+    problems: list[str] = []
+    for index, (labels, open_to) in enumerate(cases):
+        with _probe_pod(cfg, cfg.namespace, labels, f"olf-e2e-ingress-{index}") as pod:
+            # Only an allowed probe is retried: a drop is what the run pod should get.
+            connect = _connect_after_policy_lag if open_to else _connect
+            rcs = {port: connect(cfg, cfg.namespace, pod, ip, port) for port in ports}
+            problems += judge_probes(f"{cfg.namespace}[{_selector(labels)}]", INGRESS, ip, rcs, open_to)
+    if problems:
+        raise E2EError("stage access to the ingress is wrong:\n" + "\n".join(problems))
+
+
 def _can_i(cfg: E2EConfig, subject: str, *args: str) -> bool:
     # `can-i` exits 1 on "no"; the answer, not the exit code, is the result.
     argv = ["auth", "can-i", f"--as={subject}", *args]
@@ -333,7 +373,7 @@ def _service_accounts(cfg: E2EConfig) -> list[tuple[str, str]]:
 
 
 def rbac_denials(namespace: str, name: str) -> list[tuple[str, ...]]:
-    """can-i arguments that must answer no for this ServiceAccount (ADR 0017, "Denied")."""
+    """can-i arguments that must answer no for this ServiceAccount (ADR 0017 D5)."""
     denied: list[tuple[str, ...]] = [
         *[(verb, "roles", "-n", namespace) for verb in ("escalate", "bind")],
         *[(verb, "clusterroles") for verb in ("escalate", "bind")],
@@ -480,5 +520,6 @@ def _label_drift(cfg: E2EConfig) -> list[str]:
 def check_network_and_rbac(cfg: E2EConfig) -> None:
     document = load_flows(cfg)
     check_negative_flows(cfg, document)
+    check_ingress_callers(cfg, document)
     check_positive_flows(cfg, document)
     check_rbac(cfg)

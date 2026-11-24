@@ -78,6 +78,17 @@ locals {
   alerts_enabled = length(var.observability.alert_receivers) > 0
   # Shared by the alerts identity's grant and the evaluator's state_base_uri, which must agree.
   alerts_prefix = "alerts/"
+  # The profile's archive retention (spec.observability.logs.archive.retention_days) on every v2 prefix the collector
+  # writes, and ADR 0023's 30 days on alert history. v1 (`k8s/`) is not given one: nothing writes it on this provider
+  # any more, and a rule never shortens existing objects. `alerts/state/` is never expired: it holds the open incidents
+  # and the outbox.
+  object_retention = {
+    bucket = var.ops_bucket_name
+    days_by_prefix = merge(
+      { for route in values(local.log_collector_routes) : route.key_prefix => var.observability.archive_retention_days },
+      { "${local.alerts_prefix}history/" = 30 },
+    )
+  }
   # The guide on main, not at the release tag (#1344): main keeps the last release's version until the next one is
   # prepared, so the tag is older than every build after it and 404s on a page added since. Only the latest
   # pre-release is maintained, and the anchors are the AlertKind values, which do not change.
@@ -255,13 +266,7 @@ module "seaweedfs" {
       ops_bucket_name         = var.ops_bucket_name
     }
   }
-  # The profile's archive retention (spec.observability.logs.archive.retention_days) on every v2 prefix the collector writes.
-  # v1 (`k8s/`) is not given one: nothing writes it on this provider any more, and a rule never shortens existing objects.
-  object_retention = {
-    bucket   = var.ops_bucket_name
-    days     = var.observability.archive_retention_days
-    prefixes = [for route in values(local.log_collector_routes) : route.key_prefix]
-  }
+  object_retention = local.object_retention
   log_reader_credentials = local.platform_api_enabled ? {
     namespace               = kubernetes_namespace_v1.shared.metadata[0].name
     credentials_secret_name = "platform-api-log-reader-s3-creds"
@@ -417,7 +422,7 @@ module "metrics" {
     { for name, binding in local.stage_storage : binding.gold_bucket_name => name },
     { (var.ops_bucket_name) = "platform" },
   )
-  # kind's kubelets serve self-signed certificates (ADR 0024, open item 8).
+  # kind's kubelets serve self-signed certificates (ADR 0024, D12).
   kubelet_insecure_skip_verify = true
 }
 
@@ -476,7 +481,7 @@ module "platform_api" {
   public_origin = "${local.route_scheme}://${local.base_domain}"
   person_query  = local.api_query_enabled
   # Trino's plain HTTP port: it has no authentication of its own, and the
-  # person's token rides each request for Polaris (ADR 0019 section 9).
+  # person's token rides each request for Polaris (ADR 0019 D9).
   # Read server-side only.
   query_endpoints = {
     for stage in keys(local.enabled_stages) : stage => {
@@ -594,7 +599,7 @@ module "traefik" {
   dynamic_config      = local.identity_enabled ? module.perimeter[0].traefik_dynamic_config : null
 }
 
-# ADR 0014 seam 3. The proxy fetches the issuer's keys and exchanges codes at
+# ADR 0014 D3. The proxy fetches the issuer's keys and exchanges codes at
 # its Service (internal_url), so it needs neither the in-cluster resolution nor
 # the CA, and waits only for the realm Job (through identity_oidc). The auth
 # route's Ingress is not ordered before it: Traefik takes the middlewares from
@@ -652,7 +657,7 @@ module "in_cluster_resolution" {
   depends_on = [module.cert_manager]
 }
 
-# ADR 0014 seam 2. `external` deploys nothing: the contract is taken from the
+# ADR 0014 D2. `external` deploys nothing: the contract is taken from the
 # profile and the operator supplies the client Secrets it references.
 module "dex" {
   source = "../../modules/identity/dex"
@@ -734,7 +739,7 @@ module "polaris" {
 }
 
 # One coordinator per stage, in the stage's namespace, holding only that
-# stage's catalogs and its own object-store identity (ADR 0019 section 9).
+# stage's catalogs and its own object-store identity (ADR 0019 D8).
 module "trino" {
   source   = "../../modules/query/trino"
   for_each = local.enabled_stages
@@ -748,7 +753,7 @@ module "trino" {
   # The module takes maps because AWS and Azure still serve every stage from
   # one coordinator; here each names only its own stage.
   stage_catalog_contracts = { (each.key) = local.stage_catalog_contracts[each.key] }
-  # Trino has no authentication of its own (ADR 0019 section 9): the UI signs
+  # Trino has no authentication of its own (ADR 0019 D9): the UI signs
   # in as a fixed user and the perimeter (or no access) gates its route.
   web_ui_fixed_user = "olf-web"
   # Authentication off: no caller has a token, so the catalog's credential serves every request (ADR 0021,
@@ -818,7 +823,7 @@ module "superset" {
   # its local login. Nothing here names an issuer product.
   bootstrap_job_image = local.bootstrap_job_image
   public_admin        = !local.identity_enabled
-  # The platform API's service user (ADR 0021, open item 3); its password is
+  # The platform API's service user (ADR 0021, decision 3); its password is
   # minted by the platform API module's Job, which this waits for.
   platform_api_user = local.platform_api_enabled ? module.platform_api[0].superset_user : null
   oidc = !local.identity_deployed ? null : {
@@ -932,6 +937,11 @@ locals {
   # ipBlock cannot name a host, so profile-driven egress is any address on the
   # port the profile names (F23).
   test_edge_pods = { "app.kubernetes.io/name" = "traefik", "app.kubernetes.io/instance" = "edge-olf-system" }
+  # F4's stage source: the stage pods that call a public route (`olf check flows` requires it to name pods).
+  ingress_callers = one([
+    for f in local.network_flows.flows : f.from.pods
+    if f.id == "F4" && try(f.from.scope, "") == "stage"
+  ])
   profile_flows = concat(
     var.identity_issuer == "external" ? [{
       id = "F23"
@@ -945,11 +955,12 @@ locals {
     }] : [],
     # The e2e edge is not a workload, so it has no policy of its own; the rows below
     # let callers of the public name reach it (the CoreDNS rewrite points the name
-    # at it) and let it reach Traefik, as F4/F9 do for Traefik itself.
+    # at it) and let it reach Traefik, as F4 does for Traefik itself. A stage
+    # reaches it from F4's pods only, since it forwards to the Dex route too.
     [for row in [
       {
         id    = "F-edge-stage"
-        from  = { scope = "stage" }
+        from  = { scope = "stage", pods = local.ingress_callers }
         to    = { scope = "shared", pods = local.test_edge_pods }
         ports = [8443]
         tag   = "T"

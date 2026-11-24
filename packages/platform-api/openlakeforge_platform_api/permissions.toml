@@ -61,7 +61,8 @@ role_stages = { data-engineer = ["dev"] }
 
 # Health is computed from the same Dagster reads as list_runs and shows less of them (ids, statuses and times, no
 # tags), so the floor is the same. Read-only and not audited, like the rows above. A deployment without
-# `spec.identity` renders no issuer, so the API cannot start there and nothing here is reachable unauthenticated.
+# `spec.identity` runs with authentication off (ADR 0021, decision 8): every caller is the anonymous principal
+# holding the highest role, so this row, like every other, is reachable without a token there.
 [operations.get_stage_health]
 role = "data-engineer"
 stages = ["*"]
@@ -150,7 +151,7 @@ role = "data-engineer"
 stages = ["dev"]
 changes_state = true
 
-# Superset reports, as each stage's non-admin service user (ADR 0021, open item 3).
+# Superset reports, as each stage's non-admin service user (ADR 0021, decision 3).
 # Import is DEV only: the service user co-owns every report asset, so an import
 # here could overwrite any dashboard and bypass the repository and the artifacts
 # phase; other stages take reports only from there. data-engineer, as for

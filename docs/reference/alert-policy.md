@@ -132,3 +132,39 @@ unless exactly one of `--product` and `--job` is given.
 | `warn_after` below `critical_after`; every `notify` and `defaults.notify` names a `routes` key; every rule resolves to a route; `match` names a domain and product of `governance.yml`, and a product under its domain; no same-level overlap | `olf check contracts`, `olf alert explain` and the evaluator |
 | That each route's receiver is declared in the profile | Activating a revision, when the profile declares receivers, and the evaluator, which raises `policy_unreadable` for a receiver the profile lost |
 | Stage names | Against `dev`, `uat` and `prod`, not against the profile: a rule for a stage the profile does not enable is inert |
+
+## How the evaluator reads the policy
+
+`alerts.yml` is an entry of the project revision's `descriptors` component, so
+each stage is judged by the policy of the revision it runs
+([ADR 0023](../adr/0023-alert-evaluation-and-webhook-delivery.md), D10). Per
+stage and evaluation:
+
+1. `activations/<stage>/ACTIVE.json`. When its activation revision equals the
+   one cached for the stage, the cached policy is used and the read stops here.
+2. `activations/<stage>/revisions/sha256/<digest>/ACTIVATION.json`, for the
+   project revision.
+3. `project/revisions/sha256/<digest>/PROJECT-REVISION.json`, then
+   `descriptors/lakehouse_code/alerts.yml` and
+   `descriptors/lakehouse_code/governance.yml` under the same prefix, each
+   checked against the sidecar's sha256.
+
+The cache, `alerts/state/v1/policy/<stage>.json`, holds the activation
+revision, the `alerts.yml` document and the product ids of `governance.yml`;
+the job map is derived from them on each read, so a newer evaluator
+re-validates the cache and discards one it can no longer parse.
+
+| Situation | Effect |
+| --- | --- |
+| No activation, or a revision without `alerts.yml` | An empty policy: no product alerts, no warning. The revision's `governance.yml` is still read when it has one. |
+| A read fails, a digest does not match, or the file fails validation | The last good policy is used and `policy_unreadable` opens at `warning` for the stage, to the platform receivers. It resolves on the first clean read. |
+| A route names a receiver the profile no longer declares | The policy is still used and cached; that route is skipped and `policy_unreadable` opens. |
+| No last good policy and the policy cannot be read | The stage's open product incidents are held, nothing new opens, and its queued product notifications stay queued until they expire. |
+
+The evaluator's key reads `activations/<stage>/ACTIVE.json*` and
+`activations/<stage>/revisions/*` for each enabled stage, and
+`project/revisions/*`; no `List` and no `Write`. The pointer's grant ends in
+`*` because SeaweedFS denies an action that names an exact object. The
+`project/revisions/*` grant reaches every frozen file of every revision; it
+narrows to `project/revisions/sha256/*/descriptors/*` only if SeaweedFS is
+shown to honour a wildcard in the middle of an action path, which is untested.
