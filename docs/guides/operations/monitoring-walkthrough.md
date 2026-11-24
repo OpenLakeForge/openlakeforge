@@ -235,9 +235,29 @@ budget`.
 
 ## Footprint
 
-<!-- To fill from the #21 24-hour measurement and the footprint drills' METRICS_FOOTPRINT_JSON and log footprint
-     lines: added pods, steady CPU and memory, volume use, and the log archive's retention cost, for Slim and for Full
-     with metrics. -->
+Measured on a local kind cluster (three nodes, a 16-core host with 15 GiB of
+memory); the method and the per-hour figures are in
+[Metrics](../../reference/metrics.md#measured-over-24-hours).
 
-The measured footprint will be published here once the 24-hour run for #21 is in. Until then,
-[Metrics](../../reference/metrics.md) gives the requests and limits that bound it.
+| | Slim, DEV only, metrics off | Full, DEV and PROD, metrics on |
+| --- | --- | --- |
+| When | 2026-11-21, at rest after one pipeline run, `main` 630df585 | 2026-11-22 to 23, 25 hours, `main` 5120c3b0 |
+| Running pods | 31 | 48 |
+| Prometheus, kube-state-metrics | No pod, no PVC, no Service, no route | 2 pods, one 4Gi PVC on `small` |
+| Node memory (working set, all nodes) | about 7.9 GiB | 10.5 to 12.1 GiB |
+| Node CPU (all nodes) | not measured | 1.17 cores on average |
+| Metrics backend | none | 4.4m CPU and 96 MiB for Prometheus, 0.8m and 39 MiB for kube-state-metrics, on average |
+| Metrics volume | none | 8.4 MiB after 24 hours; about 60 MiB at the default 7 days |
+| Head series | none | 902 to 1,522 |
+
+The log archive grew from 0.89 MiB to 5.3 MiB in 24 hours on the Full
+deployment: 4.3 MiB a day across DEV, PROD and the platform, three quarters of
+it the platform's own logs. At the default 30 days of
+`logs.archive.retention_days`, the archive settles at about 130 MiB. The Slim
+deployment was not run for 24 hours, so its archive rate is not measured
+separately; its collector and archive are the same as Full's, with fewer pods
+writing.
+
+The collector's own CPU and memory at three log rates come from the
+`log collector footprint at three log rates` check, which records
+`LOG_FOOTPRINT_JSON` on every `--checks all` run.

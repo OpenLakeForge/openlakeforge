@@ -3,7 +3,7 @@
 What the optional metrics backend serves, how the end-to-end suite verifies it,
 and what it costs. The decisions behind it are
 [ADR 0024](../adr/0024-metrics-prometheus-reference-and-read-path.md); this page
-records what the tree implements and what is still to be measured.
+records what the tree implements and what it measured.
 
 ## Backend
 
@@ -231,23 +231,43 @@ for every size and preset; the volume grows with the size because `medium` and
 | `medium` | 8Gi | 6GB | about 100 days |
 | `large` | 16Gi | 12GB | about 200 days |
 
-### To be measured
+<a id="to-be-measured"></a>
 
-> [!WARNING]
-> No row below holds a measured number yet. #21 (slice M-f) asks for each
-> size's CPU, memory, volume use and head series after 24 hours of running,
-> which no CI run reaches. Until those are measured, the requests and limits
-> above are the proposed starting values, not sized ones.
+### Measured over 24 hours
 
-| `spec.storage.size` | Prometheus CPU | Prometheus memory | kube-state-metrics CPU | kube-state-metrics memory | Volume used | Head series |
+Measured on 2026-11-22 and 23 (#21, slice M-f) on a local kind cluster: three
+nodes, Kubernetes 1.36.1, on a 16-core AMD Ryzen AI 7 350 with 15 GiB of memory
+under WSL2. The deployment was Full, `small`, metrics on, DEV and PROD, from
+`main` at 5120c3b0, running 25 hours from Prometheus's start at 15:03 UTC. Each
+product ran once in DEV; PROD's three product schedules ran at 02:00, 02:30 and
+03:00 UTC; no e2e drill ran during the window. The sources are the footprint
+check's (`check_metrics_footprint`): the kubelet stats summary every 5 minutes,
+CPU as the rate of cumulative usage between samples, memory as the working set,
+the volume by `du` of the data directory because kind's local-path volumes
+report no stats, and `prometheus_tsdb_head_series`. Each figure is the mean and
+the peak over the hour ending at the mark.
+
+| `small`, after | Prometheus CPU | Prometheus memory | kube-state-metrics CPU | kube-state-metrics memory | Volume used | Head series |
 | --- | --- | --- | --- | --- | --- | --- |
-| `small` | to be measured | to be measured | to be measured | to be measured | to be measured | to be measured |
-| `medium` | to be measured | to be measured | to be measured | to be measured | to be measured | to be measured |
-| `large` | to be measured | to be measured | to be measured | to be measured | to be measured | to be measured |
+| 1 hour | 5.7m / 10.3m | 100 / 113 MiB | 1.4m / 4.2m | 50 / 56 MiB | 0.7 MiB | 1,060 |
+| 6 hours | 4.3m / 7.3m | 97 / 108 MiB | 0.7m / 1.4m | 39 / 43 MiB | 4.6 MiB | 1,430 |
+| 24 hours | 4.6m / 7.2m | 104 / 112 MiB | 0.9m / 1.7m | 39 / 47 MiB | 8.4 MiB | 1,023 |
 
-Each Full e2e run with `--checks all` records one short measurement of the size it deployed:
-the footprint check writes `.tmp/e2e-evidence/metrics-footprint-<namespace>.json`
-(uploaded by `local-full-e2e.yml` as `local-e2e-evidence-<run id>`), a table in
-the job summary and a `METRICS_FOOTPRINT_JSON` line in the log. That is the
-input for this table, not a substitute for the 24-hour figure. The gap is
-tracked in the [technical debt register](../technical-debt.md).
+Over the whole window Prometheus averaged 4.4m of CPU (peak 11.0m) and 96 MiB
+(peak 125 MiB); kube-state-metrics averaged 0.8m (peak 4.3m) and 39 MiB (peak
+59 MiB). Head series moved between 902 and 1,522 as blocks were compacted, a
+tenth of the 10,000 budget. Neither workload restarted or was OOM-killed. The
+volume grew about 8 MiB a day, so the default 7 days of history holds about
+60 MiB, 2% of `small`'s 3GB `retention.size`.
+
+Against the requests above, Prometheus uses about 5% of its CPU request and
+under half of its memory request. kube-state-metrics stays under its limit but
+above its 32Mi memory request. The requests and limits are not changed here:
+resizing them is ADR 0024's D9 revisit.
+
+`medium` and `large` were not run. They scrape the same targets with the same
+relabelling, so their series, CPU and memory follow the number of pods and
+stages, not the size; what the size changes is the volume (8Gi, 16Gi) and its
+`retention.size` (6GB, 12GB). At the rate above, a 24-hour run of either would
+use the same volume as `small`, far below its cap. The gap is tracked in the
+[technical debt register](../technical-debt.md).
