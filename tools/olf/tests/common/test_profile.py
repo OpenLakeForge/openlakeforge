@@ -1392,9 +1392,9 @@ def test_a_github_discussions_receiver_rejects_an_external_issuer() -> None:
     document["spec"]["access"] = {}
     document["spec"]["identity"] = {
         "issuer": "external",
-        "issuer_url": "https://idp.example.test",
+        "issuer_url": "https://login.example.com/",
         "role_claim": "groups",
-        "role_mapping": {"admin": ["olf-admins"]},
+        "role_mapping": {"platform-admin": ["olf-admins"]},
     }
 
     with pytest.raises(DeploymentProfileError, match="requires spec.identity.issuer 'github'"):
