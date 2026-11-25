@@ -231,6 +231,8 @@ class GitHubDiscussionsNotifier:
             raise _Rejected(f"Discussions are not enabled on {self._owner}/{self._repo}")
         wanted = self._category.casefold()
         for node in (repository.get("discussionCategories") or {}).get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
             if wanted in (str(node.get("name", "")).casefold(), str(node.get("slug", "")).casefold()):
                 self._repository_id = str(repository["id"])
                 self._category_id = str(node["id"])

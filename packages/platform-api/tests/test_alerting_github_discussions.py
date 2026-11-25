@@ -588,3 +588,18 @@ def test_neither_the_key_nor_a_jwt_nor_the_token_reaches_logs_or_repr(
         assert secret and secret not in seen
     assert "internal detail" not in seen
     assert "order_revenue failed" not in seen
+
+
+def test_a_null_category_node_is_skipped(github: FakeGitHub, make: Callable[..., Env]) -> None:
+    matching = {"id": "C_alerts", "name": "Alerts", "slug": "alerts"}
+    repository = {
+        "id": "R_1",
+        "hasDiscussionsEnabled": True,
+        "discussionCategories": {"nodes": [None, matching]},
+    }
+    github.faults["repository"] = [reply(200, {"data": {"repository": repository}})]
+
+    result = make().notifier.send(OPENED, delivery_id="n-1")
+
+    assert (result.status, result.attempts) == ("delivered", 1)
+    assert len(github.discussions) == 1
