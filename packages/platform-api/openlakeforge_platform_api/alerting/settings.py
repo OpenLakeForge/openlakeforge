@@ -131,7 +131,9 @@ class EvaluatorSettings:
             if missing:
                 raise SettingsError(f"receiver {receiver.name!r} needs {', '.join(missing)}")
         else:
-            raise SettingsError(f"receiver {receiver.name!r} has type {receiver.type!r}; use webhook or github-discussions")
+            raise SettingsError(
+                f"receiver {receiver.name!r} has type {receiver.type!r}; use webhook or github-discussions"
+            )
 
     def _validate(self) -> None:
         if not self.stages or not all(self.stages) or len(set(self.stages)) != len(self.stages):
