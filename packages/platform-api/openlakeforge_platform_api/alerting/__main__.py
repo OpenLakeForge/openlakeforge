@@ -7,6 +7,7 @@ the environment are wrong. A receiver that is down is not a failure of the run: 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -18,6 +19,7 @@ import boto3
 import certifi
 from botocore.config import Config
 from openlakeforge_core.alert_policy import load_alert_policy
+from openlakeforge_core.alerts import PAYLOAD_SCHEMA
 from openlakeforge_core.descriptors import LakehouseDescriptorError
 from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.notify import Notifier, WebhookNotifier, quiet_transport_logs
@@ -52,10 +54,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--now", type=_aware, help="fix the evaluation clock")
     parser.add_argument("--state-prefix", help="keep state and history under this prefix of the ops bucket")
     parser.add_argument("--policy-file", help="evaluate every stage by this alerts.yml instead of its revision's")
+    # `olf infra alerts test` only (#1431); the CronJob never passes these.
+    parser.add_argument("--test-receiver", help="send one test notification to this receiver and exit")
+    parser.add_argument("--test-stage", help="the stage the test notification names (default: the first it hears)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     quiet_transport_logs()
+    if args.test_receiver:
+        return _send_test(args.settings, args.test_receiver, args.test_stage)
     try:
         override = load_alert_policy(args.policy_file) if args.policy_file else None
         settings = EvaluatorSettings.from_file(args.settings)
@@ -117,15 +124,58 @@ def combined_ca_bundle(local_ca: str, directory: str | None = None) -> str:
 
 def _notifiers(settings: EvaluatorSettings) -> dict[str, Notifier]:
     ca_file = combined_ca_bundle(settings.ca_file) if settings.ca_file else None
-    notifiers: dict[str, Notifier] = {}
-    for receiver in settings.receivers:
-        if receiver.type == GITHUB_DISCUSSIONS:
-            notifiers[receiver.name] = _github_notifier(receiver, ca_file)
-        else:
-            notifiers[receiver.name] = WebhookNotifier(
-                receiver.name, _required_env(receiver, receiver.url_env), ca_file=ca_file
-            )
-    return notifiers
+    return {receiver.name: _notifier(receiver, ca_file) for receiver in settings.receivers}
+
+
+def _notifier(receiver: ReceiverSetting, ca_file: str | None) -> Notifier:
+    if receiver.type == GITHUB_DISCUSSIONS:
+        return _github_notifier(receiver, ca_file)
+    return WebhookNotifier(receiver.name, _required_env(receiver, receiver.url_env), ca_file=ca_file)
+
+
+def _send_test(settings_path: str, name: str, stage: str | None) -> int:
+    """One synthetic notification to one receiver, the way a real one is sent, and nothing else.
+
+    No state, history, Dagster or object store is read or written, so it needs only the receiver's own credentials.
+    Exits 0 when delivered, 3 when not, 2 when the receiver or stage is unknown or the settings are wrong.
+    """
+    try:
+        settings = EvaluatorSettings.from_file(settings_path)
+        receiver = next((candidate for candidate in settings.receivers if candidate.name == name), None)
+        if receiver is None:
+            declared = ", ".join(candidate.name for candidate in settings.receivers) or "(none)"
+            raise SettingsError(f"unknown receiver {name!r}; the evaluator has: {declared}")
+        heard = [candidate for candidate in settings.stages if receiver.routes(candidate)]
+        stage = stage or (heard[0] if heard else None)
+        if stage not in heard:
+            raise SettingsError(f"receiver {name!r} does not hear about stage {stage!r}; it hears: {', '.join(heard)}")
+        notifier = _notifier(receiver, combined_ca_bundle(settings.ca_file) if settings.ca_file else None)
+    except (SettingsError, ValueError, OSError) as error:
+        log.error("alert test cannot run: %s", error)
+        return 2
+    now = datetime.now(UTC)
+    incident_id = f"test-{now.strftime('%Y%m%dT%H%M%SZ')}"
+    payload = {
+        "schema": PAYLOAD_SCHEMA,
+        "event": "test",
+        "incident_id": incident_id,
+        "stage": stage,
+        "event_at": now.isoformat(),
+        "summary": "OpenLakeForge alert test",
+    }
+    result = notifier.send(payload, delivery_id=f"{incident_id}:test")
+    print(
+        json.dumps(
+            {
+                "receiver": name,
+                "status": result.status,
+                "http_status": result.http_status,
+                "attempts": result.attempts,
+            }
+        ),
+        flush=True,
+    )
+    return 0 if result.status == "delivered" else 3
 
 
 def _required_env(receiver: ReceiverSetting, variable: str) -> str:

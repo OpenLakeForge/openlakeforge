@@ -1001,3 +1001,99 @@ def test_a_github_receiver_the_notifier_refuses_is_a_settings_error(monkeypatch:
 
     with pytest.raises(SettingsError, match="repository must be owner/name"):
         _notifiers_for({**_GITHUB_RECEIVER, "repository": "no-slash"})
+
+
+class _RecordingNotifier:
+    def __init__(self, result: DeliveryResult) -> None:
+        self.result = result
+        self.sent: list[tuple[dict[str, Any], str]] = []
+
+    def send(self, payload: Mapping[str, Any], *, delivery_id: str) -> DeliveryResult:
+        self.sent.append((dict(payload), delivery_id))
+        return self.result
+
+
+def _test_send(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    result: DeliveryResult,
+    *flags: str,
+    mapping: dict[str, Any] | None = None,
+) -> tuple[int, _RecordingNotifier, str]:
+    notifier = _RecordingNotifier(result)
+
+    def untouched(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("a test send must not read or write state, history or Dagster")
+
+    for name in ("_object_store", "_quality_readers", "_health_reader", "run_once", "AlertStore", "DagsterClient"):
+        monkeypatch.setattr(entrypoint, name, untouched)
+    monkeypatch.setattr(entrypoint, "_notifier", lambda receiver, ca_file: notifier)
+    path = tmp_path / "alerts.json"
+    path.write_text(json.dumps(mapping or settings_mapping()))
+    code = entrypoint.main(["--settings", str(path), *flags])
+    return code, notifier, capsys.readouterr().out
+
+
+def test_a_test_send_posts_one_synthetic_payload_and_touches_no_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, notifier, out = _test_send(
+        monkeypatch, tmp_path, capsys, DeliveryResult("delivered", 201, 1), "--test-receiver", "ops"
+    )
+
+    assert code == 0
+    assert json.loads(out) == {"receiver": "ops", "status": "delivered", "http_status": 201, "attempts": 1}
+    (payload, delivery_id), = notifier.sent
+    assert payload["schema"] == "openlakeforge.alert.v1"
+    assert (payload["event"], payload["stage"], payload["summary"]) == ("test", "dev", "OpenLakeForge alert test")
+    assert payload["incident_id"].startswith("test-")
+    assert delivery_id == f"{payload['incident_id']}:test"
+
+
+@pytest.mark.parametrize(
+    ("result", "code"),
+    [
+        (DeliveryResult("rejected", 403, 1), 3),
+        (DeliveryResult("retryable", 503, 3), 3),
+        (DeliveryResult("delivered", 200, 1), 0),
+    ],
+)
+def test_a_test_send_exits_zero_only_when_delivered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], result: DeliveryResult, code: int
+) -> None:
+    exit_code, _, out = _test_send(monkeypatch, tmp_path, capsys, result, "--test-receiver", "ops")
+
+    assert exit_code == code
+    assert json.loads(out)["status"] == result.status
+
+
+def test_a_test_send_defaults_to_the_first_stage_the_receiver_hears_and_takes_an_explicit_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mapping = {
+        **settings_mapping(),
+        "stages": ["dev", "prod"],
+        "dagster_graphql_urls": {"dev": "http://d/graphql", "prod": "http://p/graphql"},
+        "receivers": [{"name": "ops", "url_env": "OPS_URL", "stages": ["prod"]}],
+    }
+    ok = DeliveryResult("delivered", 200, 1)
+
+    _, notifier, _ = _test_send(monkeypatch, tmp_path, capsys, ok, "--test-receiver", "ops", mapping=mapping)
+    assert notifier.sent[0][0]["stage"] == "prod"
+
+    code, notifier, _ = _test_send(
+        monkeypatch, tmp_path, capsys, ok, "--test-receiver", "ops", "--test-stage", "dev", mapping=mapping
+    )
+    assert code == 2 and notifier.sent == []
+
+
+def test_a_test_send_to_an_unknown_receiver_exits_two_naming_the_declared_ones(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    code, notifier, out = _test_send(
+        monkeypatch, tmp_path, capsys, DeliveryResult("delivered", 200, 1), "--test-receiver", "nope"
+    )
+
+    assert code == 2 and notifier.sent == [] and out == ""
+    assert "unknown receiver 'nope'" in caplog.text and "ops" in caplog.text

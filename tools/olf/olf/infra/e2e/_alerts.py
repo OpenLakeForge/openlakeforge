@@ -19,7 +19,6 @@ the receiver is a pod in the shared namespace that the evaluator reaches over fl
 from __future__ import annotations
 
 import contextlib
-import copy
 import json
 import time
 import uuid
@@ -45,6 +44,7 @@ from openlakeforge_services.notify import MAX_ATTEMPTS
 from olf.common import log
 from olf.infra import k8s
 from olf.infra.access import contract_access
+from olf.infra.deployment.alert_job import EVALUATOR, evaluator_job, job_outcome
 from olf.infra.e2e._artifacts import wait_for_bucket
 from olf.infra.e2e._dagster import dagster_client, launch_and_poll
 from olf.infra.e2e._secret_exposure import find_exposures, secret_values
@@ -56,7 +56,6 @@ LABEL = "openlakeforge.io/e2e=alert-receiver"
 LOCAL_CA_ISSUER = "local-ca"  # modules/access/cert-manager
 # The Secret the profile's e2e receiver reads (openlakeforge.conformance.yaml); the nightly creates it before deploy.
 RECEIVER_REF_NAME, RECEIVER_KEY = "olf-e2e-alert-receiver", "webhook-url"
-EVALUATOR = "alert-evaluator"  # the CronJob's name (modules/observability/alerts)
 # Inside the evaluator key's `alerts/*` grant; the real evaluator writes only `state/` and `history/` there.
 STATE_PREFIX = "alerts/e2e/"
 HARNESS_FIELD = "_idempotency_key"  # added by `payloads` from the recorded header; the only non-payload key
@@ -139,38 +138,12 @@ def evaluation_job(
 
     With `settings_configmap` (keys `alerts.json` and `ca.crt`) the Job reads those settings, which trust the stub's CA.
     """
-    template = copy.deepcopy(cronjob["spec"]["jobTemplate"])
-    pod = template["spec"]["template"]["spec"]
-    container = pod["containers"][0]
     flags = ["--state-prefix", state_prefix] + (["--now", now.astimezone(UTC).isoformat()] if now else [])
     if settings_configmap:
         flags += ["--settings", f"{E2E_MOUNT}/alerts.json"]
-        pod["volumes"] = [*pod.get("volumes", []), {"name": "e2e", "configMap": {"name": settings_configmap}}]
-        container["volumeMounts"] = [
-            *container.get("volumeMounts", []),
-            {"name": "e2e", "mountPath": E2E_MOUNT, "readOnly": True},
-        ]
-    container["args"] = [*container.get("args", []), *flags]
-    template["spec"].pop("ttlSecondsAfterFinished", None)
-    return {
-        "apiVersion": "batch/v1",
-        "kind": "Job",
-        "metadata": {
-            "name": name,
-            "namespace": cronjob["metadata"]["namespace"],
-            "labels": template.get("metadata", {}).get("labels", {}),
-        },
-        "spec": template["spec"],
-    }
-
-
-def job_outcome(job: Mapping[str, Any]) -> str | None:
-    status = job.get("status", {})
-    if status.get("succeeded"):
-        return "succeeded"
-    if status.get("failed"):
-        return "failed"
-    return None
+    return evaluator_job(
+        cronjob, name, flags, configmap=(settings_configmap, E2E_MOUNT) if settings_configmap else None
+    )
 
 
 def payloads(records: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
