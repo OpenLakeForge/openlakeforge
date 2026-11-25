@@ -35,7 +35,7 @@ needs an `olf login` session.
 
 | Surface | Commands |
 | --- | --- |
-| Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report import\|export`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke`, `restore`, `backup`, `maintenance run`, `source bindings|bind|unbind`, `alerts bind|bindings` |\|bind\|unbind` |
+| Infra | `deploy`, `plan`, `destroy`, `doctor`, `status`, `forward`, `break-glass`, `query`, `auth *`, `platform *`, `access trust`, `github connect`, `secrets rotate`, `k8s`, `catalog`, `artifacts`, `openmetadata *`, `superset *`, `report import\|export`, `project build\|deploy\|status\|image\|revision *`, `product run`, `images load`, `contracts env`, `diagnostics collect`, `dbt parse`, `e2e`, `smoke`, `restore`, `backup`, `maintenance run`, `source bindings\|bind\|unbind`, `alerts bind\|bindings` |
 | Common | `init`, `version`, `check *`, `release *`, `toolchain *`, `distribution *`, `profile validate\|resolve`, `source new`, `domain new`, `product new`, `project validate\|graph`, `report validate`, `contracts check`, `images build`, `layers enabled`, `diagnostics tree`, `alert explain` |
 | Platform | `login`, `whoami`, `logout`, `query`, `jobs list`, `runs list\|show\|launch`, `logs`, `domain list`, `product list`, `report import\|export`, `health`, `pipelines health`, `bucket *` |
 
