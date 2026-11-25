@@ -98,14 +98,15 @@ def alert_receiver_secrets_variables(context: DeploymentContext) -> dict[str, st
     webhook URL through `secretKeyRef`; the value never does (ADR 0023, decision 4). Separate from
     `observability_variables` so the AWS and Azure roots, which declare no such variable, are not handed one.
     """
-    receivers = context.topology.observability.alert_receivers
-    if not receivers:
-        return {}
     platform = context.topology.observability.alert_platform_receivers
+    # Only webhook receivers hold a Secret reference; a github-discussions one uses the GitHub App.
     secrets = {
         r.name: {"secret_name": r.secret_ref.name, "key": r.secret_ref.key, "platform": r.name in platform}
-        for r in receivers
+        for r in context.topology.observability.alert_receivers
+        if r.secret_ref is not None
     }
+    if not secrets:
+        return {}
     return {"alert_receiver_secrets": json.dumps(secrets, sort_keys=True, separators=(",", ":"))}
 
 

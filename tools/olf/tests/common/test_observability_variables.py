@@ -109,3 +109,22 @@ def test_only_the_named_receivers_are_marked_for_platform_conditions(tmp_path: P
 
 def test_no_receivers_emit_no_secret_variable(tmp_path: Path) -> None:
     assert alert_receiver_secrets_variables(_receiver_context(tmp_path, ())) == {}
+
+
+def test_a_github_discussions_receiver_has_no_secret_reference_to_pass(tmp_path: Path) -> None:
+    receivers = (
+        AlertReceiver(name="ops", type="webhook", secret_ref=SecretRef(name="ops-webhook", key="webhook-url")),
+        AlertReceiver(name="team", type="github-discussions", repository="my-org/olf-alerts", category="Alerts"),
+    )
+
+    variables = alert_receiver_secrets_variables(_receiver_context(tmp_path, receivers))
+
+    assert json.loads(variables["alert_receiver_secrets"]) == {
+        "ops": {"secret_name": "ops-webhook", "key": "webhook-url", "platform": True},
+    }
+
+
+def test_only_github_discussions_receivers_emit_no_secret_variable(tmp_path: Path) -> None:
+    receivers = (AlertReceiver(name="team", type="github-discussions", repository="o/r", category="Alerts"),)
+
+    assert alert_receiver_secrets_variables(_receiver_context(tmp_path, receivers)) == {}

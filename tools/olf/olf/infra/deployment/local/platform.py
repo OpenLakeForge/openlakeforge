@@ -12,7 +12,7 @@ import json
 import os
 import re
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -30,12 +30,13 @@ from olf.common.deployment.context import (
 from olf.common.deployment.context import topology_variables as _topology_variables
 from olf.common.deployment.errors import CommandExecutionError, DeploymentPreconditionError
 from olf.common.deployment.local.config import LocalDeploymentConfig
+from olf.common.profile import AlertReceiver
 from olf.common.release._manifest import load_catalog
 from olf.common.tooling.kubectl import KubeContextUnreachableError
 from olf.common.tooling.retry import RetryPolicy, run_with_retry
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.deployment import kube_ops
-from olf.infra.deployment.alert_bind import receiver_statuses
+from olf.infra.deployment.alert_bind import KEY_NAMES_OUTPUT, receiver_statuses
 from olf.infra.deployment.engine import DeploymentConfig
 from olf.infra.deployment.local.reachability import unreachable_context_message
 from olf.infra.deployment.storage_resize import grow_seaweedfs_volumes, plan_storage_resize
@@ -300,6 +301,43 @@ def require_alert_receiver_secrets(
             "spec.observability.alerts.receivers reference a Secret the evaluator cannot read (the URL is the "
             "receiver's credential):\n  " + "\n  ".join(problems)
         )
+    app_problems = _github_app_problems(config, tools, env=env, receivers=receivers)
+    if app_problems:
+        raise DeploymentPreconditionError(
+            "spec.observability.alerts.receivers:\n  " + "\n  ".join(app_problems)
+        )
+    discussions = [r.name for r in receivers if r.type == "github-discussions"]
+    if discussions:
+        raise DeploymentPreconditionError(
+            f"github-discussions receivers are not deployable yet (#1430): {', '.join(discussions)}"
+        )
+
+
+def _github_app_problems(
+    config: LocalDeploymentConfig, tools: Toolkit, *, env: Mapping[str, str], receivers: Sequence[AlertReceiver]
+) -> list[str]:
+    """A `github-discussions` receiver posts as the GitHub App, whose credentials sit in the Secret the identity block
+    names; an OAuth App Secret has no `app-id` or `private-key`. Only key names are read."""
+    github = config.context.topology.identity.github if config.context.topology.identity else None
+    names = [r.name for r in receivers if r.type == "github-discussions"]
+    if not names or github is None:
+        return []
+    ref, namespace = github.oauth_app_secret_ref, config.context.shared_namespace
+    result = _read_github_secret(config, tools, env=env, output=KEY_NAMES_OUTPUT)
+    held = set(result.stdout.split()) if result.ok else set()
+    needed = {"app-id", "private-key"}
+    if result.ok and needed <= held:
+        return []
+    cause = (
+        f"Secret '{ref.name}' is not readable in namespace '{namespace}'"
+        if not result.ok
+        else f"Secret '{ref.name}' in namespace '{namespace}' lacks key(s) {sorted(needed - held)}"
+    )
+    return [
+        f"receiver '{name}': a github-discussions receiver needs the GitHub App; {cause}. "
+        "Run `olf infra github connect`"
+        for name in names
+    ]
 
 
 def platform_apply_variables(config: LocalDeploymentConfig) -> dict[str, str]:
