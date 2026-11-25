@@ -29,6 +29,10 @@
       "then": {"dependentRequired": {"identity": ["access"]}, "properties": {"project": {"required": ["image"]}}},
       "allOf": [
         {
+          "if": {"properties": {"observability": {"properties": {"alerts": {"properties": {"receivers": {"contains": {"properties": {"type": {"const": "github-discussions"}}, "required": ["type"]}}}, "required": ["receivers"]}}, "required": ["alerts"]}}, "required": ["observability"]},
+          "then": {"required": ["identity"], "properties": {"identity": {"properties": {"issuer": {"const": "github"}}, "required": ["issuer"]}}}
+        },
+        {
           "if": {"properties": {"provider": {"properties": {"type": {"const": "aws"}}}}},
           "then": {"properties": {
             "cluster": {"properties": {"adapter": {"const": "eks"}}},

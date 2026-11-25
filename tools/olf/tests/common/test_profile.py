@@ -1368,6 +1368,30 @@ def test_the_schema_rejects_receiver_fields_of_the_other_type(tmp_path: Path) ->
     assert _schema_errors(document, tmp_path)
 
 
+def test_the_schema_agrees_with_the_parser_on_the_identity_a_github_discussions_receiver_needs(
+    tmp_path: Path,
+) -> None:
+    external = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"platform-admin": ["olf-admins"]},
+    }
+    no_identity = _discussions_document(github=False)
+    wrong_issuer = _discussions_document(github=False)
+    wrong_issuer["spec"]["access"] = {}
+    wrong_issuer["spec"]["identity"] = external
+
+    for rejected in (no_identity, wrong_issuer):
+        with pytest.raises(DeploymentProfileError):
+            validate_deployment_profile(rejected)
+        assert _schema_errors(rejected, tmp_path)
+
+    valid = _discussions_document()
+    validate_deployment_profile(valid)
+    assert not _schema_errors(valid, tmp_path)
+
+
 @pytest.mark.parametrize("field", ["repository", "category"])
 def test_a_webhook_receiver_rejects_the_github_discussions_fields(field: str) -> None:
     document = _observability_document(alerts={"receivers": [{**_RECEIVER, field: "x/y"}]})

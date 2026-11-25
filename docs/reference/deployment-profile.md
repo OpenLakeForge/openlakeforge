@@ -426,7 +426,7 @@ identity:
   github:
     organization: my-org
     teams:
-      admin: [olf-admins]
+      platform-admin: [olf-admins]
     oauth_app_secret_ref:
       name: github-oauth-app
 observability:
