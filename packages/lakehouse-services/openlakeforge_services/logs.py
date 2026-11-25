@@ -60,6 +60,8 @@ _LOGFMT_KEYS = ("level", "lvl")
 _JSON_KEYS = ("level", "severity", "levelname", "log.level", "lvl")
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _FRACTION = re.compile(r"\.(\d+)")
+# Terminal control sequences (ECMA-48 CSI), such as the colours Dagster's daemon logs with.
+_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 # An object holds only lines written before it was uploaded, so one whose LastModified is before a window's start is
 # not read. The line times come from the node's clock (v2's CRI `time`, v1's kubelet timestamp or archive time) and
 # LastModified from the store's, truncated to the second; this much disagreement still reads the object. No upper
@@ -100,7 +102,7 @@ class ArchivedLogLine:
     namespace: str
     pod: str
     container: str
-    # The log line with its Kubernetes timestamp, or why the archiver could not read the container.
+    # The log line, without terminal colour codes (v1: after its Kubernetes timestamp); None for an archive error.
     line: str | None = None
     error: str | None = None
     # Set for v2 records (the v1 archiver never wrote them), `source` for both.
@@ -119,6 +121,11 @@ class ArchivedLogLine:
     level: str | None = None
 
 
+def _plain(text: str | None) -> str | None:
+    """`text` without terminal control sequences. The archived object keeps them; only what is read drops them."""
+    return None if text is None else _ANSI.sub("", text)
+
+
 def _level_name(word: object) -> str | None:
     if not isinstance(word, str):
         return None
@@ -133,9 +140,10 @@ def level_of(message: str | None) -> str | None:
     a JSON object; a level word opening the message, after an optional timestamp, bare in upper case or bracketed in
     any case (`ERROR ...`, `2026-11-16 09:41:07 WARNING ...`, `[ info] ...`, `ERROR:root:...`); Python logging's
     `<time> - <logger> - <LEVEL> - `; a top-level `level=` or `lvl=` of a line that is logfmt whole. `warn` reads
-    as `warning`, `fatal` as `critical`; numeric levels and other words are no level.
+    as `warning`, `fatal` as `critical`; numeric levels and other words are no level. Terminal colour codes are
+    ignored.
     """
-    text = (message or "").strip()
+    text = (_plain(message) or "").strip()
     if text.startswith("{"):
         try:
             record = json.loads(text)
@@ -515,7 +523,7 @@ class LogArchive:
                     stamp = record["time"]
                     if hour is not None and stamp[11:13] != f"{hour:02d}":
                         continue
-                    pod, container, message = record["pod"], record["container"], record["message"]
+                    pod, container, message = record["pod"], record["container"], _plain(record["message"])
                     at = _instant(stamp)
                     placement = _Placement(
                         pod, container, record.get("component"), record.get("product"), record.get("run_id"), at
@@ -562,7 +570,8 @@ class LogArchive:
                     # A run with no pods leaves one marker record naming no pod; it is not a log line.
                     if record.get("schema") != SCHEMA or "pod" not in record:
                         continue
-                    text = record.get("line")
+                    # Stripped before the overlap check, which compares it with the stripped v2 line.
+                    text = _plain(record.get("line"))
                     # The line starts with the kubelet's timestamp, which is when it was written; the
                     # archive time is only when it was copied.
                     stamp, _, rest = (text or "").partition(" ")
