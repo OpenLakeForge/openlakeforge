@@ -1237,7 +1237,8 @@ def test_a_missing_receiver_secret_or_key_fails_the_deploy_before_apply(
         )
 
     assert got == made
-    assert "kubectl -n olf-system create secret generic ops-webhook --from-literal=url=" in str(error.value)
+    assert "olf infra alerts bind ops -f <profile>" in str(error.value)
+    assert "kubectl" not in str(error.value)
 
 
 def test_no_receivers_means_no_secret_check(tmp_path: Path) -> None:

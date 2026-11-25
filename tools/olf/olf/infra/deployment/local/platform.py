@@ -35,6 +35,7 @@ from olf.common.tooling.kubectl import KubeContextUnreachableError
 from olf.common.tooling.retry import RetryPolicy, run_with_retry
 from olf.common.tooling.toolkit import Toolkit
 from olf.infra.deployment import kube_ops
+from olf.infra.deployment.alert_bind import receiver_statuses
 from olf.infra.deployment.engine import DeploymentConfig
 from olf.infra.deployment.local.reachability import unreachable_context_message
 from olf.infra.deployment.storage_resize import grow_seaweedfs_volumes, plan_storage_resize
@@ -273,39 +274,31 @@ def require_alert_receiver_secrets(
     ):
         create_namespace()
 
-    keys = r'go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}'
-    present: dict[str, set[str] | None] = {}
+    statuses = receiver_statuses(
+        receivers,
+        tools.kubectl,
+        namespace=namespace,
+        context=config.kube_context,
+        kubeconfig=config.paths.kubeconfig_path,
+        env=env,
+    )
     problems: list[str] = []
-    for receiver in receivers:
-        ref = receiver.secret_ref
-        if ref.name not in present:
-            result = tools.kubectl.get(
-                "secret",
-                name=ref.name,
-                namespace=namespace,
-                output=keys,
-                context=config.kube_context,
-                kubeconfig=config.paths.kubeconfig_path,
-                env=env,
-                check=False,
-            )
-            present[ref.name] = set(result.stdout.split()) if result.ok else None
-        found = present[ref.name]
-        command = f"kubectl -n {namespace} create secret generic {ref.name} --from-literal={ref.key}=<the webhook URL>"
-        if found is None:
+    for status in statuses:
+        command = f"olf infra alerts bind {status.receiver} -f <profile>"
+        if status.present is None:
             problems.append(
-                f"receiver '{receiver.name}': Secret '{ref.name}' is not readable in namespace '{namespace}'. "
-                f"Create it: {command}"
+                f"receiver '{status.receiver}': Secret '{status.secret}' is not readable in namespace '{namespace}'. "
+                f"Bind it: {command}"
             )
-        elif ref.key not in found:
+        elif not status.bound:
             problems.append(
-                f"receiver '{receiver.name}': Secret '{ref.name}' in namespace '{namespace}' lacks key '{ref.key}' "
-                f"(it has {sorted(found)}). Add it, or recreate the Secret: {command}"
+                f"receiver '{status.receiver}': Secret '{status.secret}' in namespace '{namespace}' lacks key "
+                f"'{status.key}' (it has {sorted(status.present)}). Bind it: {command}"
             )
     if problems:
         raise DeploymentPreconditionError(
             "spec.observability.alerts.receivers reference a Secret the evaluator cannot read (the URL is the "
-            "receiver's credential, so olf never creates it):\n  " + "\n  ".join(problems)
+            "receiver's credential):\n  " + "\n  ".join(problems)
         )
 
 

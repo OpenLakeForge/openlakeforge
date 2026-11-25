@@ -42,6 +42,7 @@ READ_ALLOWLIST = {
     ("common/toolchain/manager.py", "OLF_HOME"): "operator's OLF home",
     ("common/tooling/docker.py", "DOCKER_CONFIG"): "the developer's own Docker config, for registries OLF does not own",
     ("infra/auth/azure.py", "PATH"): "auth bridge subprocess: extends the operator's search path",
+    ("infra/commands/alerts.py", "from_env"): "CLI root: the webhook URL the operator exports for `alerts bind`",
     ("infra/commands/auth.py", "AWS_PROFILE"): "CLI root: the operator's AWS profile to log in with",
     ("infra/commands/diagnostics.py", "KUBE_CONTEXT"): "CLI root: the operator's kube context",
     ("infra/commands/e2e.py", "name"): "CLI root: the operator-exported variables `secret-scan --also-env` names",
