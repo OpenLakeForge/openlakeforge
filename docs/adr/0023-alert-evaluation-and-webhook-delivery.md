@@ -107,7 +107,9 @@ Enforced by: `packages/core/openlakeforge_core/alerts.py`,
 **D4. Receivers are declared in the profile, and the one adapter is an HTTPS
 webhook whose Secret-held URL is the credential.** `openlakeforge.yaml` names
 each receiver, its `type` (`webhook` only) and a `secret_ref` to a Secret the
-ops team creates in `olf-system`; credentials never enter the repository, and
+ops team binds in `olf-system` with `olf infra alerts bind` (or creates by
+any other means; `olf` writes it only on that explicit command); credentials
+never enter the repository, and
 only the reference may reach Terraform state. The deploy fails, naming the
 receiver, when the Secret or its key is missing, through an `olf` precondition
 that asks the cluster without reading the value, not a Terraform data source.
@@ -320,3 +322,6 @@ Enforced by: `packages/core/openlakeforge_core/alerts.py`,
 - 2026-11-23: D3's 30-day history retention is applied: the seaweedfs module's
   `object_retention` takes days per prefix, and the local root gives
   `alerts/history/` 30 days and `alerts/state/` no rule.
+- 2026-11-25 (#1425): D4's Secret is bound with `olf infra alerts bind`, or created
+  any other way; `olf` writes it only on that explicit command. No decision
+  changed.

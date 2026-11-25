@@ -82,10 +82,14 @@ def validate_keys(source: Source, config: Mapping[str, str], secrets: Mapping[st
 
 
 def _stored(obj: _Object, cluster: StageCluster) -> dict[str, str] | None:
+    return stored_data(cluster, obj.resource, obj.name)
+
+
+def stored_data(cluster: StageCluster, resource: str, name: str) -> dict[str, str] | None:
     """The object's `.data` as stored (base64 for a Secret), or None when it does not exist."""
     result = cluster.kubectl.get(
-        obj.resource,
-        name=obj.name,
+        resource,
+        name=name,
         namespace=cluster.namespace,
         context=cluster.context,
         kubeconfig=cluster.kubeconfig,
@@ -96,8 +100,21 @@ def _stored(obj: _Object, cluster: StageCluster) -> dict[str, str] | None:
     if not result.ok:
         if "NotFound" in result.stderr:
             return None
-        raise SourceBindingError(f"could not read {obj.resource} {obj.name} in {cluster.namespace}")
+        raise SourceBindingError(f"could not read {resource} {name} in {cluster.namespace}")
     return dict(json.loads(result.stdout).get("data") or {})
+
+
+def apply_manifest(cluster: StageCluster, manifest: str, resource: str, name: str) -> None:
+    """Server-side apply from stdin. A failure is re-raised without kubectl's detail."""
+    try:
+        cluster.kubectl.apply_from_manifest(
+            manifest, context=cluster.context, kubeconfig=cluster.kubeconfig, env=cluster.env
+        )
+    except ToolingError:
+        # Admission errors can echo the submitted Secret's data.
+        raise SourceBindingError(
+            f"could not apply {resource} {name} in {cluster.namespace}; check cluster permissions and policy"
+        ) from None
 
 
 def bind(
@@ -126,19 +143,7 @@ def bind(
         changed = stored is None or any(stored.get(key) != value for key, value in data.items())
         verb = "unchanged" if not changed else "create" if stored is None else "update"
         if changed and not dry_run:
-            try:
-                cluster.kubectl.apply_from_manifest(
-                    _manifest(obj, source, cluster.namespace, data),
-                    context=cluster.context,
-                    kubeconfig=cluster.kubeconfig,
-                    env=cluster.env,
-                )
-            except ToolingError:
-                # Admission errors can echo the submitted Secret's data.
-                raise SourceBindingError(
-                    f"could not apply {obj.resource} {obj.name} in {cluster.namespace}; "
-                    "check cluster permissions and policy"
-                ) from None
+            apply_manifest(cluster, _manifest(obj, source, cluster.namespace, data), obj.resource, obj.name)
         outcome = verb if verb == "unchanged" else f"would {verb}" if dry_run else f"{verb}d"
         lines.append(f"{obj.resource} {obj.name}: {', '.join(data)} ({outcome})")
     return lines
