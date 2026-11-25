@@ -306,11 +306,6 @@ def require_alert_receiver_secrets(
         raise DeploymentPreconditionError(
             "spec.observability.alerts.receivers:\n  " + "\n  ".join(app_problems)
         )
-    discussions = [r.name for r in receivers if r.type == "github-discussions"]
-    if discussions:
-        raise DeploymentPreconditionError(
-            f"github-discussions receivers are not deployable yet (#1430): {', '.join(discussions)}"
-        )
 
 
 def _github_app_problems(

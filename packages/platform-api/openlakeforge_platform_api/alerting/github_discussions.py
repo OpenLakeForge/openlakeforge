@@ -30,6 +30,7 @@ import requests
 from openlakeforge_services.notify import (
     CONNECT_TIMEOUT_SECONDS,
     MAX_ATTEMPTS,
+    MAX_TOTAL_SECONDS,
     READ_TIMEOUT_SECONDS,
     DeliveryResult,
     _random_jitter,
@@ -96,6 +97,9 @@ class _Session(Protocol):
     def get(self, url: str, **kwargs: Any) -> requests.Response: ...
 
     def post(self, url: str, **kwargs: Any) -> requests.Response: ...
+
+
+_REQUEST_SECONDS = CONNECT_TIMEOUT_SECONDS + READ_TIMEOUT_SECONDS
 
 
 class _Retryable(Exception):
@@ -171,12 +175,16 @@ class GitHubDiscussionsNotifier:
         self._category_id: str | None = None
         # The last HTTP status of the attempt in flight, reported when the failure itself carries none.
         self._last_status: int | None = None
+        self._deadline = 0.0
 
     def __repr__(self) -> str:
         return f"GitHubDiscussionsNotifier(name={self.name!r})"
 
     def send(self, payload: Mapping[str, Any], *, delivery_id: str) -> DeliveryResult:
         status: int | None = None
+        # One send makes several requests per attempt, so the bound is a deadline, not an attempt count: the run.py
+        # delivery budget assumes a send ends within MAX_TOTAL_SECONDS, as the webhook notifier does.
+        self._deadline = self._clock() + MAX_TOTAL_SECONDS
         for attempt in range(1, MAX_ATTEMPTS + 1):
             retry_after = 0.0
             self._last_status = None
@@ -192,7 +200,11 @@ class GitHubDiscussionsNotifier:
             else:
                 return DeliveryResult("delivered", self._last_status, attempt)
             if attempt < MAX_ATTEMPTS:
-                self._sleep(backoff_wait(attempt, retry_after, self._jitter))
+                wait = backoff_wait(attempt, retry_after, self._jitter)
+                if wait + _REQUEST_SECONDS > self._deadline - self._clock():
+                    logger.warning("github-discussions %s: the delivery time budget is spent", self.name)
+                    return DeliveryResult("retryable", status, attempt)
+                self._sleep(wait)
         return DeliveryResult("retryable", status, MAX_ATTEMPTS)
 
     def _deliver(self, payload: Mapping[str, Any], delivery_id: str) -> None:
@@ -330,6 +342,8 @@ class GitHubDiscussionsNotifier:
         causes: Mapping[int, str] | None = None,
     ) -> requests.Response:
         """One call, raising `_Retryable` or `_Rejected` for everything that is not a usable answer."""
+        if self._deadline - self._clock() < _REQUEST_SECONDS:
+            raise _Retryable("the delivery time budget is spent")
         send = self._session.post if method == "post" else self._session.get
         try:
             response = send(

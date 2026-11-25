@@ -104,10 +104,12 @@ Enforced by: `packages/core/openlakeforge_core/alerts.py`,
 `packages/core/openlakeforge_core/alerts_state.py`,
 `packages/platform-api/openlakeforge_platform_api/alerting/store.py`.
 
-**D4. Receivers are declared in the profile, and the one adapter is an HTTPS
-webhook whose Secret-held URL is the credential.** `openlakeforge.yaml` names
-each receiver, its `type` (`webhook` only) and a `secret_ref` to a Secret the
-ops team binds in `olf-system` with `olf infra alerts bind` (or creates by
+**D4. Receivers are declared in the profile, and there are two adapters: an
+HTTPS webhook whose Secret-held URL is the credential, and GitHub
+Discussions, which posts as the GitHub App.** `openlakeforge.yaml` names
+each receiver, its `type` (`webhook` or `github-discussions`) and, for a
+webhook, a `secret_ref` to a Secret the ops team binds in `olf-system` with
+`olf infra alerts bind` (or creates by
 any other means; `olf` writes it only on that explicit command); credentials
 never enter the repository, and
 only the reference may reach Terraform state. The deploy fails, naming the
@@ -128,9 +130,22 @@ logged, stored in state or history, or sent in a payload; logs name the
 receiver. The body is built from a closed field list, and never carries log
 lines, run tags, error text, row contents, storage URLs or credentials. A later
 adapter implements the same notifier interface as a new receiver `type`.
+A `github-discussions` receiver holds no credential of its own: it
+authenticates as the GitHub App whose `app-id` and `private-key` sit in the
+Secret `spec.identity.github.oauth_app_secret_ref` names, and posts with an
+installation token requested for its one repository with `discussions: write`.
+It keeps one discussion per incident, found by a hidden marker trusted only in
+posts the App authored, so the evaluator keeps no discussion state. The
+evaluator pod therefore holds the App's private key: Terraform gives the CronJob
+the two keys as `secretKeyRef` environment variables, and the settings JSON
+names those variables with the receiver's `repository`, `category` and
+`api_url` (`https://api.github.com`, or `https://<host>/api/v3` with
+`spec.identity.github.host`), never a value. Settings without a `type` read as `webhook`.
 Numbers and payload: [delivery](../guides/operations/alerts.md#delivery) and
 [a notification](../guides/operations/alerts.md#a-notification).
 Enforced by: `packages/lakehouse-services/openlakeforge_services/notify.py`,
+`packages/platform-api/openlakeforge_platform_api/alerting/github_discussions.py`,
+`packages/platform-api/openlakeforge_platform_api/alerting/settings.py`,
 `require_alert_receiver_secrets` in
 `tools/olf/olf/infra/deployment/local/platform.py`, the route check in
 `tools/olf/olf/infra/deployment/activation.py`.
@@ -325,3 +340,5 @@ Enforced by: `packages/core/openlakeforge_core/alerts.py`,
 - 2026-11-25 (#1425): D4's Secret is bound with `olf infra alerts bind`, or created
   any other way; `olf` writes it only on that explicit command. No decision
   changed.
+- 2026-11-25 (#1430): D4 gains the GitHub Discussions adapter; the evaluator pod
+  holds the GitHub App's private key through `secretKeyRef`.

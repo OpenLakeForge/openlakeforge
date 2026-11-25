@@ -910,3 +910,94 @@ def test_the_platform_api_url_and_its_token_file_come_together() -> None:
     ):
         with pytest.raises(SettingsError):
             EvaluatorSettings.from_mapping({**settings_mapping(), **broken})
+
+
+_GITHUB_RECEIVER = {
+    "name": "team",
+    "type": "github-discussions",
+    "repository": "my-org/olf-alerts",
+    "category": "Alerts",
+    "api_url": "https://api.github.com",
+    "app_id_env": "TEAM_APP_ID",
+    "private_key_env": "TEAM_PRIVATE_KEY",
+}
+
+
+def test_a_receiver_without_a_type_is_a_webhook() -> None:
+    parsed = EvaluatorSettings.from_mapping(settings_mapping())
+
+    assert [(r.name, r.type, r.url_env) for r in parsed.receivers] == [("ops", "webhook", "OPS_URL")]
+
+
+def test_a_github_discussions_receiver_is_parsed_with_its_destination_and_variables() -> None:
+    parsed = EvaluatorSettings.from_mapping({**settings_mapping(), "receivers": [_GITHUB_RECEIVER]})
+
+    receiver = parsed.receivers[0]
+    assert (receiver.type, receiver.repository, receiver.category, receiver.api_url) == (
+        "github-discussions",
+        "my-org/olf-alerts",
+        "Alerts",
+        "https://api.github.com",
+    )
+    assert (receiver.app_id_env, receiver.private_key_env) == ("TEAM_APP_ID", "TEAM_PRIVATE_KEY")
+
+
+@pytest.mark.parametrize(
+    "receiver",
+    [
+        {"name": "ops", "type": "email", "url_env": "X"},
+        {"name": "ops", "type": "webhook"},
+        {**_GITHUB_RECEIVER, "repository": ""},
+        {**_GITHUB_RECEIVER, "private_key_env": ""},
+    ],
+)
+def test_settings_refuse_a_receiver_that_lacks_what_its_type_needs(receiver: dict[str, Any]) -> None:
+    with pytest.raises(SettingsError, match="receiver 'ops'|receiver 'team'"):
+        EvaluatorSettings.from_mapping({**settings_mapping(), "receivers": [receiver]})
+
+
+def _notifiers_for(*receivers: dict[str, Any]) -> dict[str, Any]:
+    return entrypoint._notifiers(EvaluatorSettings.from_mapping({**settings_mapping(), "receivers": list(receivers)}))
+
+
+def test_each_receiver_type_gets_its_own_notifier(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPS_URL", "https://hooks.example.test/ops")
+    monkeypatch.setenv("TEAM_APP_ID", "12345")
+    monkeypatch.setenv("TEAM_PRIVATE_KEY", "not-a-real-key")
+
+    notifiers = _notifiers_for({"name": "ops", "url_env": "OPS_URL"}, _GITHUB_RECEIVER)
+
+    assert {name: type(notifier).__name__ for name, notifier in notifiers.items()} == {
+        "ops": "WebhookNotifier",
+        "team": "GitHubDiscussionsNotifier",
+    }
+
+
+@pytest.mark.parametrize("missing", ["TEAM_APP_ID", "TEAM_PRIVATE_KEY"])
+def test_a_missing_github_variable_names_the_receiver_and_variable_not_a_value(
+    monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    monkeypatch.setenv("TEAM_APP_ID", "12345")
+    monkeypatch.setenv("TEAM_PRIVATE_KEY", "secret-key-material")
+    monkeypatch.delenv(missing)
+
+    with pytest.raises(SettingsError) as error:
+        _notifiers_for(_GITHUB_RECEIVER)
+
+    assert f"receiver 'team': {missing} is not set" in str(error.value)
+    assert "secret-key-material" not in str(error.value)
+
+
+def test_a_missing_webhook_variable_still_names_the_receiver(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPS_URL", raising=False)
+
+    with pytest.raises(SettingsError, match="receiver 'ops': OPS_URL is not set"):
+        _notifiers_for({"name": "ops", "url_env": "OPS_URL"})
+
+
+def test_a_github_receiver_the_notifier_refuses_is_a_settings_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEAM_APP_ID", "12345")
+    monkeypatch.setenv("TEAM_PRIVATE_KEY", "k")
+
+    with pytest.raises(SettingsError, match="repository must be owner/name"):
+        _notifiers_for({**_GITHUB_RECEIVER, "repository": "no-slash"})

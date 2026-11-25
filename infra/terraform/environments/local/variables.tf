@@ -34,10 +34,14 @@ variable "observability" {
 }
 
 variable "alert_receiver_secrets" {
-  description = "Alert receiver name -> the Secret and key in the shared namespace that hold its webhook URL, rendered by olf from spec.observability.alerts.receivers. Kept out of `observability`, and so out of the provider contract: the reference (never the value) enters state because the evaluator's pod takes the URL through secretKeyRef. The Secret is created out-of-band and olf fails the deploy when it is missing (ADR 0023, decision 4)."
+  description = "Alert receiver name -> the Secret in the shared namespace the evaluator reads its credentials from, rendered by olf from spec.observability.alerts.receivers. A webhook receiver names the Secret and the key holding its URL; a github-discussions receiver names the GitHub App Secret (spec.identity.github.oauth_app_secret_ref; the keys app-id and private-key are fixed) and carries the repository, category and API URL it posts to. Kept out of `observability`, and so out of the provider contract: the reference (never the value) enters state because the evaluator's pod takes the credentials through secretKeyRef. The Secret is created out-of-band and olf fails the deploy when it is missing (ADR 0023, decision 4)."
   type = map(object({
     secret_name = string
-    key         = string
+    key         = optional(string)
+    # github-discussions only.
+    repository = optional(string)
+    category   = optional(string)
+    api_url    = optional(string)
     # Whether the receiver gets platform conditions (spec.observability.alerts.platform_receivers; ADR 0023,
     # decision 11). olf always sets it; the default is the profile's "omitted means every receiver".
     platform = optional(bool, true)

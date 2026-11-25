@@ -414,11 +414,7 @@ Secret `spec.identity.github.oauth_app_secret_ref` names (keys `app-id` and
 App must be installed on the repository's owner with the Discussions
 permission ([Connect GitHub](../guides/identity/connect-github.md)).
 
-> [!NOTE]
-> A profile can declare a `github-discussions` receiver, and `olf profile
-> validate` accepts it, but `olf infra deploy` refuses it for now: the
-> evaluator does not post to GitHub yet (#1430). `olf infra alerts bind` has
-> nothing to bind for it.
+`olf infra alerts bind` has nothing to bind for a `github-discussions` receiver.
 
 ```yaml
 identity:

@@ -266,3 +266,68 @@ run "a_plain_http_runbook_base_is_refused" {
 
   expect_failures = [var.runbook_base_url]
 }
+
+run "a_github_discussions_receiver_reads_the_app_through_two_secret_refs" {
+  command = plan
+
+  variables {
+    receivers = [
+      { name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" },
+      {
+        name        = "team"
+        type        = "github-discussions"
+        secret_name = "github-app"
+        repository  = "my-org/olf-alerts"
+        category    = "Alerts"
+        api_url     = "https://api.github.com"
+      },
+    ]
+  }
+
+  assert {
+    condition = (
+      length([
+        for e in kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].container[0].env :
+        e if e.value == null && length(e.value_from) > 0 && e.value_from[0].secret_key_ref[0].name == "github-app"
+      ]) == 2
+      && anytrue([
+        for e in kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].container[0].env :
+        e.name == "OPENLAKEFORGE_ALERT_RECEIVER_1_APP_ID" && e.value_from[0].secret_key_ref[0].key == "app-id"
+      ])
+      && anytrue([
+        for e in kubernetes_cron_job_v1.evaluator[0].spec[0].job_template[0].spec[0].template[0].spec[0].container[0].env :
+        e.name == "OPENLAKEFORGE_ALERT_RECEIVER_1_PRIVATE_KEY" && e.value_from[0].secret_key_ref[0].key == "private-key"
+      ])
+    )
+    error_message = "the App's id and private key reach the pod only through secretKeyRef to the App Secret's fixed keys"
+  }
+
+  assert {
+    condition = (
+      strcontains(kubernetes_config_map_v1.settings[0].data["alerts.json"], "\"api_url\":\"https://api.github.com\"")
+      && strcontains(kubernetes_config_map_v1.settings[0].data["alerts.json"], "\"app_id_env\":\"OPENLAKEFORGE_ALERT_RECEIVER_1_APP_ID\"")
+      && strcontains(kubernetes_config_map_v1.settings[0].data["alerts.json"], "\"private_key_env\":\"OPENLAKEFORGE_ALERT_RECEIVER_1_PRIVATE_KEY\"")
+      && strcontains(kubernetes_config_map_v1.settings[0].data["alerts.json"], "\"repository\":\"my-org/olf-alerts\"")
+      && strcontains(kubernetes_config_map_v1.settings[0].data["alerts.json"], "\"type\":\"github-discussions\"")
+      && !strcontains(kubernetes_config_map_v1.settings[0].data["alerts.json"], "github-app")
+    )
+    error_message = "the settings name the receiver's destination and variables, never the Secret or a value"
+  }
+
+  assert {
+    condition = (
+      strcontains(kubernetes_config_map_v1.settings[0].data["alerts.json"], "\"name\":\"ops\",\"platform\":true,\"stages\":[],\"type\":\"webhook\",\"url_env\":\"OPENLAKEFORGE_ALERT_RECEIVER_0\"")
+    )
+    error_message = "a webhook beside it renders as before, with its type"
+  }
+}
+
+run "a_github_discussions_receiver_needs_its_destination" {
+  command = plan
+
+  variables {
+    receivers = [{ name = "team", type = "github-discussions", secret_name = "github-app" }]
+  }
+
+  expect_failures = [var.receivers]
+}

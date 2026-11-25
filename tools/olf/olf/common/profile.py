@@ -271,6 +271,10 @@ class GitHubSpec:
     host: str | None = None  # GitHub Enterprise Server hostname; None is github.com
 
 
+def github_api_base(host: str) -> str:
+    return "https://api.github.com" if host == "github.com" else f"https://{host}/api/v3"
+
+
 @dataclass(frozen=True)
 class IdentitySpec:
     """Which OIDC issuer signs people in (ADR 0014 D2). `github` is the

@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
+from olf.common.profile import github_api_base as api_base
 from olf.common.tooling.process import DEVNULL, ProcessRunner
 
 TIMEOUT_SECONDS = 900
@@ -115,10 +116,6 @@ def wait_for_code(
     if "next" not in result:
         raise GitHubConnectError(f"no GitHub App was created within {int(timeout)}s; nothing was written")
     return result["next"]
-
-
-def api_base(host: str) -> str:
-    return "https://api.github.com" if host == "github.com" else f"https://{host}/api/v3"
 
 
 def convert_code(code: str, *, host: str) -> dict[str, Any]:

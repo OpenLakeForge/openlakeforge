@@ -13,6 +13,7 @@ import pytest
 import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from openlakeforge_services.notify import MAX_TOTAL_SECONDS
 
 from openlakeforge_platform_api.alerting.github_discussions import (
     GitHubDiscussionsNotifier,
@@ -671,3 +672,44 @@ def test_a_late_opened_comments_on_the_discussion_a_resolved_already_created_and
     assert len(fallback["comments"]) == 1 and delivery_marker("n-1") in fallback["comments"][0]
     assert fallback["closed"] is True
     assert len(github.of("close")) == 1
+
+
+class _SlowSession:
+    """Every request takes `seconds` on the fake clock and is answered with 503."""
+
+    def __init__(self, github: FakeGitHub, seconds: float) -> None:
+        self.github = github
+        self.seconds = seconds
+        self.started: list[float] = []
+
+    def get(self, url: str, **kwargs: Any) -> requests.Response:
+        return self._slow()
+
+    def post(self, url: str, **kwargs: Any) -> requests.Response:
+        return self._slow()
+
+    def _slow(self) -> requests.Response:
+        self.started.append(self.github.now)
+        self.github.now += self.seconds
+        return reply(503)
+
+
+def test_a_slow_delivery_stops_inside_the_time_budget(github: FakeGitHub, make: Callable[..., Env]) -> None:
+    slow = _SlowSession(github, 30.0)
+    start = github.now
+
+    result = make(session=slow).notifier.send(OPENED, delivery_id="n-1")
+
+    assert result.status == "retryable"
+    assert result.attempts < 3
+    assert github.now - start <= MAX_TOTAL_SECONDS
+    assert all(started - start <= MAX_TOTAL_SECONDS - 15.0 for started in slow.started)
+
+
+def test_a_spent_budget_issues_no_request(github: FakeGitHub, make: Callable[..., Env]) -> None:
+    slow = _SlowSession(github, MAX_TOTAL_SECONDS)
+
+    result = make(session=slow).notifier.send(OPENED, delivery_id="n-1")
+
+    assert result.status == "retryable"
+    assert len(slow.started) == 1

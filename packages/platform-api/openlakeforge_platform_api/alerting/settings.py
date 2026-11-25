@@ -13,16 +13,30 @@ from urllib.parse import urlsplit
 from openlakeforge_platform_api.settings import SettingsError, check_runbook_base_url
 
 
+WEBHOOK = "webhook"
+GITHUB_DISCUSSIONS = "github-discussions"
+
+
 @dataclass(frozen=True)
 class ReceiverSetting:
-    """A webhook receiver. The URL is the credential, so the settings name the environment variable that holds it."""
+    """A receiver. The webhook URL and the GitHub App's id and private key are credentials, so the settings name the
+    environment variables that hold them and never a value."""
 
     name: str
-    url_env: str
+    url_env: str = ""
     # Empty means every stage.
     stages: tuple[str, ...] = ()
     # Whether platform conditions (ADR 0023, decision 11) go to this receiver.
     platform: bool = True
+    # Settings written before the second type existed carry none, and are webhooks.
+    type: str = WEBHOOK
+    # github-discussions only: `owner/name`, the discussion category, the API base URL, and the variables holding the
+    # GitHub App's id and private key.
+    repository: str = ""
+    category: str = ""
+    api_url: str = ""
+    app_id_env: str = ""
+    private_key_env: str = ""
 
     def routes(self, stage: str) -> bool:
         return not self.stages or stage in self.stages
@@ -68,9 +82,15 @@ class EvaluatorSettings:
                 receivers=tuple(
                     ReceiverSetting(
                         str(item["name"]),
-                        str(item["url_env"]),
+                        str(item.get("url_env") or ""),
                         tuple(str(stage) for stage in item.get("stages") or ()),
                         bool(item.get("platform", True)),
+                        str(item.get("type") or WEBHOOK),
+                        str(item.get("repository") or ""),
+                        str(item.get("category") or ""),
+                        str(item.get("api_url") or ""),
+                        str(item.get("app_id_env") or ""),
+                        str(item.get("private_key_env") or ""),
                     )
                     for item in data.get("receivers") or ()
                 ),
@@ -94,6 +114,27 @@ class EvaluatorSettings:
     def from_file(cls, path: str | Path) -> EvaluatorSettings:
         return cls.from_mapping(json.loads(Path(path).read_text(encoding="utf-8")))
 
+    @staticmethod
+    def _validate_receiver(receiver: ReceiverSetting) -> None:
+        if receiver.type == WEBHOOK:
+            if not receiver.url_env:
+                raise SettingsError(f"receiver {receiver.name!r} needs url_env, the variable holding its URL")
+        elif receiver.type == GITHUB_DISCUSSIONS:
+            required = {
+                "repository": receiver.repository,
+                "category": receiver.category,
+                "api_url": receiver.api_url,
+                "app_id_env": receiver.app_id_env,
+                "private_key_env": receiver.private_key_env,
+            }
+            missing = [field_name for field_name, value in required.items() if not value]
+            if missing:
+                raise SettingsError(f"receiver {receiver.name!r} needs {', '.join(missing)}")
+        else:
+            raise SettingsError(
+                f"receiver {receiver.name!r} has type {receiver.type!r}; use webhook or github-discussions"
+            )
+
     def _validate(self) -> None:
         if not self.stages or not all(self.stages) or len(set(self.stages)) != len(self.stages):
             raise SettingsError("stages must list each enabled stage once")
@@ -114,8 +155,7 @@ class EvaluatorSettings:
         if not all(names) or len(set(names)) != len(names):
             raise SettingsError("receivers must have distinct, non-empty names")
         for receiver in self.receivers:
-            if not receiver.url_env:
-                raise SettingsError(f"receiver {receiver.name!r} needs url_env, the variable holding its URL")
+            self._validate_receiver(receiver)
             stray = sorted(set(receiver.stages) - set(self.stages))
             if stray:
                 raise SettingsError(f"receiver {receiver.name!r} names stages that are not enabled: {', '.join(stray)}")

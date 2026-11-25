@@ -288,7 +288,7 @@ flows:
   - id: F40
     from: {scope: shared, pods: {openlakeforge.io/job: alert-evaluator}}
     to: {scope: any}
-    ports: [443] # the webhook receivers; NetworkPolicy cannot name a host, so any address, as F28 and F30
+    ports: [443] # the webhook receivers and GitHub's API (github-discussions receivers); NetworkPolicy cannot name a host, so any address, as F28 and F30
     tag: T # needs a delivery on a running cluster
   - id: F41
     from: {scope: shared, pods: {openlakeforge.io/job: alert-evaluator}}
