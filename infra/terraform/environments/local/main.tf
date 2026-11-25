@@ -368,10 +368,14 @@ module "alerts" {
   receivers = local.alerts_enabled ? [
     for receiver in var.observability.alert_receivers : {
       name        = receiver.name
+      type        = receiver.type
       secret_name = var.alert_receiver_secrets[receiver.name].secret_name
       secret_key  = var.alert_receiver_secrets[receiver.name].key
       stages      = receiver.stages
       platform    = var.alert_receiver_secrets[receiver.name].platform
+      repository  = var.alert_receiver_secrets[receiver.name].repository
+      category    = var.alert_receiver_secrets[receiver.name].category
+      api_url     = var.alert_receiver_secrets[receiver.name].api_url
     }
   ] : []
   ca_configmap_name     = local.route_tls ? module.in_cluster_resolution[0].ca_configmap_name : null

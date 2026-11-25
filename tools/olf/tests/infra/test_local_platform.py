@@ -1276,15 +1276,12 @@ def _discussions_config(tmp_path: Path, *webhooks: tuple[str, str, str]):  # noq
     return _config(tmp_path, topology=topology)
 
 
-def test_a_github_discussions_receiver_is_refused_until_it_is_deployable(tmp_path: Path) -> None:
+def test_a_github_discussions_receiver_with_the_app_keys_passes_the_check(tmp_path: Path) -> None:
     runner = _SecretRunner(keys="app-id\napp-slug\nprivate-key\nid\nsecret\n")
 
-    with pytest.raises(DeploymentPreconditionError) as error:
-        platform.require_alert_receiver_secrets(
-            _discussions_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: None
-        )
-
-    assert "github-discussions receivers are not deployable yet (#1430)" in str(error.value)
+    platform.require_alert_receiver_secrets(
+        _discussions_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: None
+    )
 
 
 @pytest.mark.parametrize(
@@ -1307,7 +1304,6 @@ def test_a_github_discussions_receiver_needs_the_github_app_secret_keys(
     assert "receiver 'team': a github-discussions receiver needs the GitHub App" in message
     assert re.search(cause, message)
     assert "olf infra github connect" in message
-    assert "not deployable yet" not in message
 
 
 def test_a_webhook_secret_problem_is_reported_before_a_github_discussions_receiver(tmp_path: Path) -> None:
@@ -1319,11 +1315,18 @@ def test_a_webhook_secret_problem_is_reported_before_a_github_discussions_receiv
         )
 
 
-def test_github_discussions_receivers_add_nothing_to_the_secret_variable(tmp_path: Path) -> None:
+def test_a_github_discussions_receiver_reaches_the_secret_variable_with_the_app_secret(tmp_path: Path) -> None:
     variables = platform.platform_apply_variables(_discussions_config(tmp_path, ("ops", "ops-webhook", "url")))
 
     assert json.loads(variables["alert_receiver_secrets"]) == {
-        "ops": {"secret_name": "ops-webhook", "key": "url", "platform": True}
+        "ops": {"secret_name": "ops-webhook", "key": "url", "platform": True},
+        "team": {
+            "secret_name": "github-oauth-app",
+            "repository": "my-org/olf-alerts",
+            "category": "Alerts",
+            "api_url": "https://api.github.com",
+            "platform": True,
+        },
     }
 
 

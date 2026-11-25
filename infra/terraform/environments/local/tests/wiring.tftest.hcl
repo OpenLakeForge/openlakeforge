@@ -552,3 +552,30 @@ run "alert_history_expires_after_30_days_and_state_never" {
     error_message = "no rule reaches alerts/state/: neither alerts/ itself, alerts/state/, nor a prefix under it"
   }
 }
+
+# #1430: a github-discussions receiver reaches the evaluator with the App Secret by reference and its destination.
+run "a_github_discussions_receiver_reaches_the_evaluator" {
+  command = plan
+
+  variables {
+    observability = { alert_receivers = [{ name = "team", type = "github-discussions" }] }
+    alert_receiver_secrets = {
+      team = {
+        secret_name = "github-app"
+        repository  = "my-org/olf-alerts"
+        category    = "Alerts"
+        api_url     = "https://api.github.com"
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      jsondecode(module.alerts.settings_json).receivers[0].type == "github-discussions"
+      && jsondecode(module.alerts.settings_json).receivers[0].repository == "my-org/olf-alerts"
+      && jsondecode(module.alerts.settings_json).receivers[0].category == "Alerts"
+      && jsondecode(module.alerts.settings_json).receivers[0].api_url == "https://api.github.com"
+    )
+    error_message = "the receiver's type and destination must reach the evaluator's settings"
+  }
+}

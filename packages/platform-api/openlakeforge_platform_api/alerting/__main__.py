@@ -22,9 +22,10 @@ from openlakeforge_core.descriptors import LakehouseDescriptorError
 from openlakeforge_services.dagster import DagsterClient
 from openlakeforge_services.notify import Notifier, WebhookNotifier, quiet_transport_logs
 
+from openlakeforge_platform_api.alerting.github_discussions import GitHubDiscussionsNotifier
 from openlakeforge_platform_api.alerting.run import run_once
 from openlakeforge_platform_api.alerting.service_health import StageHealthReader, stage_health_reader
-from openlakeforge_platform_api.alerting.settings import EvaluatorSettings
+from openlakeforge_platform_api.alerting.settings import GITHUB_DISCUSSIONS, EvaluatorSettings, ReceiverSetting
 from openlakeforge_platform_api.alerting.store import AlertObjectStore, AlertStore, StoreError
 from openlakeforge_platform_api.quality_health import QualityReader, s3_quality_reader
 from openlakeforge_platform_api.settings import SettingsError
@@ -118,11 +119,37 @@ def _notifiers(settings: EvaluatorSettings) -> dict[str, Notifier]:
     ca_file = combined_ca_bundle(settings.ca_file) if settings.ca_file else None
     notifiers: dict[str, Notifier] = {}
     for receiver in settings.receivers:
-        url = os.environ.get(receiver.url_env)
-        if not url:
-            raise SettingsError(f"receiver {receiver.name!r}: {receiver.url_env} is not set")
-        notifiers[receiver.name] = WebhookNotifier(receiver.name, url, ca_file=ca_file)
+        if receiver.type == GITHUB_DISCUSSIONS:
+            notifiers[receiver.name] = _github_notifier(receiver, ca_file)
+        else:
+            notifiers[receiver.name] = WebhookNotifier(
+                receiver.name, _required_env(receiver, receiver.url_env), ca_file=ca_file
+            )
     return notifiers
+
+
+def _required_env(receiver: ReceiverSetting, variable: str) -> str:
+    value = os.environ.get(variable)
+    if not value:
+        raise SettingsError(f"receiver {receiver.name!r}: {variable} is not set")
+    return value
+
+
+def _github_notifier(receiver: ReceiverSetting, ca_file: str | None) -> GitHubDiscussionsNotifier:
+    app_id = _required_env(receiver, receiver.app_id_env)
+    private_key = _required_env(receiver, receiver.private_key_env)
+    try:
+        return GitHubDiscussionsNotifier(
+            receiver.name,
+            repository=receiver.repository,
+            category=receiver.category,
+            app_id=app_id,
+            private_key=private_key,
+            api_url=receiver.api_url,
+            ca_file=ca_file,
+        )
+    except ValueError as exc:
+        raise SettingsError(str(exc)) from exc
 
 
 def _quality_readers(settings: EvaluatorSettings) -> dict[str, QualityReader]:

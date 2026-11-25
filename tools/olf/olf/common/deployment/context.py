@@ -21,6 +21,7 @@ from olf.common.deployment.errors import DeploymentPreconditionError
 from olf.common.profile import Provider
 from olf.common.project import ProjectSpec
 from olf.common.query_sizing import load_query_sizing
+from olf.infra.github_app import api_base
 
 if TYPE_CHECKING:
     from olf.common.profile import DeploymentTopology, StageName
@@ -99,12 +100,22 @@ def alert_receiver_secrets_variables(context: DeploymentContext) -> dict[str, st
     `observability_variables` so the AWS and Azure roots, which declare no such variable, are not handed one.
     """
     platform = context.topology.observability.alert_platform_receivers
-    # Only webhook receivers hold a Secret reference; a github-discussions one uses the GitHub App.
-    secrets = {
-        r.name: {"secret_name": r.secret_ref.name, "key": r.secret_ref.key, "platform": r.name in platform}
-        for r in context.topology.observability.alert_receivers
-        if r.secret_ref is not None
-    }
+    identity = context.topology.identity
+    github = identity.github if identity is not None else None
+    secrets: dict[str, dict[str, object]] = {}
+    for r in context.topology.observability.alert_receivers:
+        if r.secret_ref is not None:
+            secrets[r.name] = {"secret_name": r.secret_ref.name, "key": r.secret_ref.key, "platform": r.name in platform}
+        elif r.type == "github-discussions" and github is not None:
+            # The GitHub App Secret named by spec.identity.github; the evaluator reads its fixed keys `app-id` and
+            # `private-key` through secretKeyRef, so only the Secret's name travels.
+            secrets[r.name] = {
+                "secret_name": github.oauth_app_secret_ref.name,
+                "repository": r.repository,
+                "category": r.category,
+                "api_url": api_base(github.host or "github.com"),
+                "platform": r.name in platform,
+            }
     if not secrets:
         return {}
     return {"alert_receiver_secrets": json.dumps(secrets, sort_keys=True, separators=(",", ":"))}
