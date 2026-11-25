@@ -1331,7 +1331,6 @@ def test_an_invalid_github_discussions_receiver_fails_with_the_offending_path(re
     assert path in str(exc.value)
 
 
-@pytest.mark.parametrize("field", ["repository", "category"])
 @pytest.mark.parametrize(
     "receiver",
     [
@@ -1369,6 +1368,7 @@ def test_the_schema_rejects_receiver_fields_of_the_other_type(tmp_path: Path) ->
     assert _schema_errors(document, tmp_path)
 
 
+@pytest.mark.parametrize("field", ["repository", "category"])
 def test_a_webhook_receiver_rejects_the_github_discussions_fields(field: str) -> None:
     document = _observability_document(alerts={"receivers": [{**_RECEIVER, field: "x/y"}]})
 

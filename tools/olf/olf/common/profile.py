@@ -1187,7 +1187,8 @@ def validate_deployment_profile(
         if receiver.type == "github-discussions" and (identity is None or identity.issuer != "github"):
             raise DeploymentProfileError(
                 f"{source}: spec.observability.alerts.receivers[{index}] ({receiver.name!r}) is a "
-                "'github-discussions' receiver, which posts as the GitHub App: it requires spec.identity.issuer 'github'"
+                "'github-discussions' receiver, which posts as the GitHub App: it requires "
+                "spec.identity.issuer 'github'"
             )
     if provider.type == Provider.AWS and "storage" in spec and "size" in spec["storage"]:
         raise DeploymentProfileError(
