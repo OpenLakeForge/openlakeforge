@@ -37,20 +37,7 @@ the profile declares at least one receiver. The design is
 
 ## Configure a receiver
 
-1. Create the Secret in `olf-system` before you deploy. The webhook URL is the
-   receiver's credential, so `olf` never creates it and Terraform never holds
-   its value:
-
-   ```bash
-   WEBHOOK_URL='https://hooks.example.com/services/...'
-   kubectl -n olf-system create secret generic alert-webhooks \
-     --from-literal=webhook-url="$WEBHOOK_URL"
-   ```
-
-   Keep the URL in single quotes: webhook URLs often contain `&`, which the
-   shell would otherwise treat as a command separator.
-
-2. Declare the receiver in `openlakeforge.yaml`:
+1. Declare the receiver in `openlakeforge.yaml`:
 
    ```yaml
    spec:
@@ -65,6 +52,23 @@ the profile declares at least one receiver. The design is
                key: webhook-url
    ```
 
+2. Bind its URL into the Secret in `olf-system`. The URL is the receiver's
+   credential: `olf` reads it from an environment variable or a file (or asks
+   for it, without echo, in a terminal), never from the command line, and
+   Terraform never holds its value. It must be an `https://` URL:
+
+   ```bash
+   export WEBHOOK_URL='https://hooks.example.com/services/...'
+   olf infra alerts bind on-call -f openlakeforge.yaml --from-env WEBHOOK_URL
+   olf infra alerts bindings -f openlakeforge.yaml
+   ```
+
+   `bind` writes only that receiver's key, so receivers that share a Secret
+   keep each other's keys. It prints the receiver, Secret and key, never the
+   URL; `--dry-run` shows what it would change. `bindings` reports each
+   receiver as bound, Secret missing or key missing, and exits 1 unless all are
+   bound. Creating the Secret another way works too.
+
 3. Validate and deploy:
 
    ```bash
@@ -73,7 +77,7 @@ the profile declares at least one receiver. The design is
    ```
 
 The deploy fails, naming the receiver, when the Secret or the key is missing.
-To change the URL, replace the Secret; the next evaluation reads it.
+To change the URL, run `olf infra alerts bind` again; the next evaluation reads it.
 
 | Field | Meaning |
 | --- | --- |
