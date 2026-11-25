@@ -25,9 +25,9 @@ KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 PRIVATE_PEM = KEY.private_bytes(
     serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
 ).decode()
-PUBLIC_PEM = KEY.public_key().public_bytes(
-    serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-).decode()
+PUBLIC_PEM = (
+    KEY.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+)
 TOKEN = "ghs_installation_token_value"
 START = 1_800_000_000.0
 
@@ -61,7 +61,7 @@ def graphql_errors(*types: str, status: int = 200) -> requests.Response:
 
 
 class FakeGitHub:
-    """A `requests.Session` stand-in holding one repository's discussions; `faults[route]` is answered first, once each."""
+    """A `requests.Session` stand-in for one repository; `faults[route]` is answered first, once each."""
 
     def __init__(self, category: str = "Alerts") -> None:
         self.calls: list[dict[str, Any]] = []
@@ -83,7 +83,7 @@ class FakeGitHub:
 
     def _answer(self, method: str, url: str, kwargs: dict[str, Any]) -> requests.Response:
         body = kwargs.get("json")
-        query = body["query"] if body else ""
+        query = body.get("query", "") if body else ""
         route = self._route(method, url, query)
         self.calls.append({"route": route, "url": url, "json": body, "headers": kwargs["headers"], "kwargs": kwargs})
         queue = list(self.faults.get(route, ()))
@@ -112,8 +112,6 @@ class FakeGitHub:
         return "recent"
 
     def _installation(self, body: Any) -> requests.Response:
-        if not self.installed:
-            return reply(404, {"message": "Not Found"})
         return reply(200, {"id": 42, "app_id": 7})
 
     def _token(self, body: Any) -> requests.Response:
@@ -238,7 +236,9 @@ def test_resending_a_delivery_creates_nothing(github: FakeGitHub, make: Callable
     assert len(github.of("create")) == writes == 1
 
 
-def test_a_new_notifier_instance_also_recognises_a_posted_delivery(github: FakeGitHub, make: Callable[..., Env]) -> None:
+def test_a_new_notifier_instance_also_recognises_a_posted_delivery(
+    github: FakeGitHub, make: Callable[..., Env]
+) -> None:
     make().notifier.send(OPENED, delivery_id="n-1")
 
     assert make().notifier.send(OPENED, delivery_id="n-1").status == "delivered"
@@ -407,29 +407,56 @@ def test_requests_are_not_redirected_and_use_the_given_ca_file(github: FakeGitHu
     ],
 )
 def test_a_receiver_that_cannot_work_is_refused_at_construction(message: str, kwargs: dict[str, Any]) -> None:
-    settings: dict[str, Any] = {"repository": "acme/ops", "category": "Alerts", "app_id": "1", "private_key": PRIVATE_PEM}
+    settings: dict[str, Any] = {
+        "repository": "acme/ops",
+        "category": "Alerts",
+        "app_id": "1",
+        "private_key": PRIVATE_PEM,
+    }
     settings.update(kwargs)
 
     with pytest.raises(ValueError, match=message):
         GitHubDiscussionsNotifier("team", **settings)
 
 
-DISABLED = {"data": {"repository": {"id": "R_1", "hasDiscussionsEnabled": False, "discussionCategories": {"nodes": []}}}}
+DISABLED = {
+    "data": {"repository": {"id": "R_1", "hasDiscussionsEnabled": False, "discussionCategories": {"nodes": []}}}
+}
 
 
 @pytest.mark.parametrize(
     ("route", "fault", "status", "cause"),
     [
-        pytest.param("installation", reply(404, {"message": "Not Found"}), 404, "not installed on acme/ops-alerts", id="app-not-installed"),
-        pytest.param("token", reply(401, {"message": "Bad credentials"}), 401, "app id and private key", id="bad-credentials"),
+        pytest.param(
+            "installation",
+            reply(404, {"message": "Not Found"}),
+            404,
+            "not installed on acme/ops-alerts",
+            id="app-not-installed",
+        ),
+        pytest.param(
+            "token", reply(401, {"message": "Bad credentials"}), 401, "app id and private key", id="bad-credentials"
+        ),
         pytest.param("token", reply(422, {"message": "x"}), 422, "cannot be granted", id="permission-not-grantable"),
         pytest.param("repository", reply(200, DISABLED), 200, "Discussions are not enabled", id="discussions-disabled"),
-        pytest.param("repository", reply(200, {"data": {"repository": None}}), 200, "was not found", id="repository-not-visible"),
-        pytest.param("repository", graphql_errors("FORBIDDEN"), 200, "lacks discussions: write", id="graphql-forbidden"),
+        pytest.param(
+            "repository", reply(200, {"data": {"repository": None}}), 200, "was not found", id="repository-not-visible"
+        ),
+        pytest.param(
+            "repository", graphql_errors("FORBIDDEN"), 200, "lacks discussions: write", id="graphql-forbidden"
+        ),
         pytest.param("repository", graphql_errors("NOT_FOUND"), 200, "could not find", id="graphql-not-found"),
         pytest.param("repository", graphql_errors("WEIRD"), 200, "errors of type WEIRD", id="graphql-other"),
-        pytest.param("create", graphql_errors("FORBIDDEN", status=403), 403, "lacks discussions: write", id="forbidden-non-200"),
-        pytest.param("create", reply(403, {"message": "Resource not accessible"}), 403, "lacks discussions: write", id="plain-403"),
+        pytest.param(
+            "create", graphql_errors("FORBIDDEN", status=403), 403, "lacks discussions: write", id="forbidden-non-200"
+        ),
+        pytest.param(
+            "create",
+            reply(403, {"message": "Resource not accessible"}),
+            403,
+            "lacks discussions: write",
+            id="plain-403",
+        ),
         pytest.param("create", reply(422, {"message": "x"}), 422, "HTTP 422", id="other-4xx"),
     ],
 )
