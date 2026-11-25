@@ -91,3 +91,23 @@ def graph(
     except LakehouseDescriptorError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo(render_lineage_graph(inventory), nl=False)
+
+@app.command("summary")
+def summary(
+    project: str = typer.Option(..., "--project", help="Explicit writable project root."),
+    json_output: bool = typer.Option(False, "--json", help="Emit summary as deterministic JSON."),
+) -> None:
+    """Print a concise summary of sources, domains, products, and dashboards."""
+    from openlakeforge_core import LakehouseDescriptorError, load_lakehouse_inventory
+
+    from olf.common.project_summary import render_project_summary_json, render_project_summary_text
+
+    try:
+        inventory = load_lakehouse_inventory(project)
+    except (LakehouseDescriptorError, OSError) as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+
+    if json_output:
+        typer.echo(render_project_summary_json(inventory), nl=False)
+    else:
+        typer.echo(render_project_summary_text(inventory), nl=False)

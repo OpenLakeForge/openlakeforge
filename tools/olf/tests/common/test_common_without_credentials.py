@@ -69,6 +69,7 @@ ARGUMENTS: dict[tuple[str, ...], list[str]] = {
     ("profile", "resolve"): ["--project", "{project}"],
     ("project", "validate"): ["--project", "{project}"],
     ("project", "graph"): ["--project", "{project}"],
+    ("project", "summary"): ["--project", "{project}"],
     ("images", "build"): ["project-code"],
 }
 

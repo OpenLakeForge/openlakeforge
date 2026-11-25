@@ -310,6 +310,13 @@ class LakehouseInventory:
                 )
         return entities
 
+    def gold_marts(self, product: Product) -> tuple[str, ...]:
+        """The product's Gold models from its dbt models directory."""
+        models_dir = self.lakehouse_root / "gold" / "models" / product.id
+        if not models_dir.is_dir():
+            return ()
+        return tuple(sorted(path.stem for path in models_dir.rglob("*.sql")))
+
     @property
     def gold_namespace_names(self) -> frozenset[str]:
         return frozenset(product.gold_namespace for product in self.products)

@@ -373,3 +373,20 @@ def test_an_invalid_load_mode_is_rejected(tmp_path: Path, load: str, message: st
 
     with pytest.raises(LakehouseDescriptorError, match=message):
         load_lakehouse_inventory(tmp_path)
+
+def test_gold_marts_returns_models_or_empty_tuple(tmp_path: Path) -> None:
+    _write_lakehouse(tmp_path)
+    inv = load_lakehouse_inventory(tmp_path)
+    (product,) = inv.products
+
+    # Without models dir
+    assert inv.gold_marts(product) == ()
+
+    # With models dir and sql files
+    models_dir = tmp_path / "lakehouse_code" / "gold" / "models" / product.id
+    models_dir.mkdir(parents=True)
+    (models_dir / "mart_b.sql").write_text("SELECT 2;\n")
+    (models_dir / "mart_a.sql").write_text("SELECT 1;\n")
+    (models_dir / "schema.yml").write_text("version: 2\n")
+
+    assert inv.gold_marts(product) == ("mart_a", "mart_b")
