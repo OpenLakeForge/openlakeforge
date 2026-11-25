@@ -18,7 +18,7 @@ from olf.common.profile import AlertReceiver
 from olf.common.tooling.kubectl import Kubectl
 from olf.infra.deployment.source_bind import SourceBindingError, StageCluster, apply_manifest, stored_data
 
-_KEYS = r'go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}'
+KEY_NAMES_OUTPUT = r'go-template={{range $key, $_ := .data}}{{$key}}{{"\n"}}{{end}}'
 
 
 class AlertBindingError(SourceBindingError):
@@ -47,17 +47,22 @@ def receiver_statuses(
     kubeconfig: Path | None,
     env: Mapping[str, str] | None,
 ) -> list[ReceiverStatus]:
-    """Per receiver, the key names its Secret holds. Each Secret is read once; no value is read."""
+    """Per webhook receiver, the key names its Secret holds. Each Secret is read once; no value is read.
+
+    A receiver with no `secret_ref` (`github-discussions`) uses the GitHub App and has no status.
+    """
     read: dict[str, tuple[str, ...] | None] = {}
     statuses = []
     for receiver in receivers:
         ref = receiver.secret_ref
+        if ref is None:
+            continue
         if ref.name not in read:
             result = kubectl.get(
                 "secret",
                 name=ref.name,
                 namespace=namespace,
-                output=_KEYS,
+                output=KEY_NAMES_OUTPUT,
                 context=context,
                 kubeconfig=kubeconfig,
                 env=env,
@@ -66,6 +71,10 @@ def receiver_statuses(
             read[ref.name] = tuple(result.stdout.split()) if result.ok else None
         statuses.append(ReceiverStatus(receiver.name, ref.name, ref.key, read[ref.name]))
     return statuses
+
+
+def no_binding_message(receiver: AlertReceiver) -> str:
+    return f"receiver {receiver.name!r} needs no binding; it uses the GitHub App"
 
 
 def validate_url(value: str) -> None:
@@ -84,8 +93,10 @@ def validate_url(value: str) -> None:
 def bind_receiver(receiver: AlertReceiver, value: str, cluster: StageCluster, *, dry_run: bool) -> str:
     """Write `value` as the receiver's key, keeping every other key of a shared Secret; one report line."""
     validate_url(value)
-    _require_namespace(cluster)
     ref = receiver.secret_ref
+    if ref is None:
+        raise AlertBindingError(no_binding_message(receiver))
+    _require_namespace(cluster)
     stored = stored_data(cluster, "secret", ref.name)
     data = {**(stored or {}), ref.key: base64.b64encode(value.encode()).decode()}
     changed = stored is None or stored.get(ref.key) != data[ref.key]

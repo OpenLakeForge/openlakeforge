@@ -104,9 +104,16 @@ _ARCHIVE_FIELDS = {"retention_days"}
 _ENABLED_FIELDS = {"enabled"}
 _METRICS_FIELDS = {"enabled", "retention_days"}
 _ALERTS_FIELDS = {"receivers", "platform_receivers"}
-_RECEIVER_FIELDS = {"name", "type", "secret_ref", "stages"}
-_RECEIVER_REQUIRED_FIELDS = {"name", "type", "secret_ref"}
-_RECEIVER_TYPES = ("webhook",)
+_RECEIVER_FIELDS = {"name", "type", "secret_ref", "repository", "category", "stages"}
+# The fields a receiver of each type must carry; every other type-specific field is rejected for it.
+_RECEIVER_REQUIRED_FIELDS = {
+    "webhook": {"name", "type", "secret_ref"},
+    "github-discussions": {"name", "type", "repository", "category"},
+}
+_RECEIVER_TYPES = tuple(_RECEIVER_REQUIRED_FIELDS)
+_RECEIVER_TYPE_FIELDS = {"secret_ref", "repository", "category"}
+_RECEIVER_REPOSITORY_PATTERN_SOURCE = r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$"
+_RECEIVER_REPOSITORY_PATTERN = re.compile(_RECEIVER_REPOSITORY_PATTERN_SOURCE)
 _SECRET_REF_FIELDS = {"name", "key"}
 DEFAULT_ARCHIVE_RETENTION_DAYS = 30
 DEFAULT_METRICS_RETENTION_DAYS = 7
@@ -344,7 +351,11 @@ class SecretRef:
 class AlertReceiver:
     name: str
     type: str
-    secret_ref: SecretRef
+    # `webhook` only; a `github-discussions` receiver uses the GitHub App credentials instead.
+    secret_ref: SecretRef | None = None
+    # `github-discussions` only: `owner/name` of the repository and the name of its discussion category.
+    repository: str | None = None
+    category: str | None = None
     # None as written means every enabled stage; resolution replaces it with the effective list.
     stages: tuple[StageName, ...] | None = None
 
@@ -390,7 +401,9 @@ class ResolvedObservability:
                     {
                         "name": r.name,
                         "type": r.type,
-                        "secret_ref": vars(r.secret_ref),
+                        **({"secret_ref": vars(r.secret_ref)} if r.secret_ref is not None else {}),
+                        **({"repository": r.repository} if r.repository is not None else {}),
+                        **({"category": r.category} if r.category is not None else {}),
                         "stages": [stage.value for stage in r.stages or ()],
                     }
                     for r in self.alert_receivers
@@ -949,22 +962,44 @@ def _retention_days(document: Mapping[str, Any], *, where: str) -> int | None:
 
 def _validate_alert_receiver(document: object, *, where: str, enabled_stages: tuple[StageName, ...]) -> AlertReceiver:
     receiver = _object(document, _RECEIVER_FIELDS, where=where)
-    _require(receiver, _RECEIVER_REQUIRED_FIELDS, where=where)
+    _require(receiver, {"name", "type"}, where=where)
     name = receiver["name"]
     if not isinstance(name, str) or not _IDENTIFIER_PATTERN.fullmatch(name):
         raise DeploymentProfileError(f"{where}.name must match '{_IDENTIFIER_PATTERN_SOURCE}'")
-    if receiver["type"] not in _RECEIVER_TYPES:
+    receiver_type = receiver["type"]
+    if receiver_type not in _RECEIVER_TYPES:
         raise DeploymentProfileError(f"{where}.type must be one of {list(_RECEIVER_TYPES)!r}")
-    ref = _object(receiver["secret_ref"], _SECRET_REF_FIELDS, where=f"{where}.secret_ref")
-    _require(ref, _SECRET_REF_FIELDS, where=f"{where}.secret_ref")
-    if not is_secret_name(ref["name"]):
-        raise DeploymentProfileError(f"{where}.secret_ref.name must be a Kubernetes Secret name")
-    if not is_secret_key(ref["key"]):
-        raise DeploymentProfileError(f"{where}.secret_ref.key must be a Kubernetes Secret data key")
+    required = _RECEIVER_REQUIRED_FIELDS[receiver_type]
+    for field in sorted(_RECEIVER_TYPE_FIELDS - required):
+        if field in receiver:
+            raise DeploymentProfileError(f"{where}.{field} is not allowed on a {receiver_type!r} receiver")
+    _require(receiver, required, where=where)
+    secret_ref: SecretRef | None = None
+    repository: str | None = None
+    category: str | None = None
+    if receiver_type == "webhook":
+        ref = _object(receiver["secret_ref"], _SECRET_REF_FIELDS, where=f"{where}.secret_ref")
+        _require(ref, _SECRET_REF_FIELDS, where=f"{where}.secret_ref")
+        if not is_secret_name(ref["name"]):
+            raise DeploymentProfileError(f"{where}.secret_ref.name must be a Kubernetes Secret name")
+        if not is_secret_key(ref["key"]):
+            raise DeploymentProfileError(f"{where}.secret_ref.key must be a Kubernetes Secret data key")
+        secret_ref = SecretRef(name=ref["name"], key=ref["key"])
+    else:
+        repository = receiver["repository"]
+        if not isinstance(repository, str) or not _RECEIVER_REPOSITORY_PATTERN.fullmatch(repository):
+            raise DeploymentProfileError(
+                f"{where}.repository must be 'owner/name' and match '{_RECEIVER_REPOSITORY_PATTERN_SOURCE}'"
+            )
+        category = receiver["category"]
+        if not isinstance(category, str) or not category.strip():
+            raise DeploymentProfileError(f"{where}.category must be a non-empty string")
     return AlertReceiver(
         name=name,
-        type=receiver["type"],
-        secret_ref=SecretRef(name=ref["name"], key=ref["key"]),
+        type=receiver_type,
+        secret_ref=secret_ref,
+        repository=repository,
+        category=category,
         stages=_receiver_stages(receiver["stages"], where=f"{where}.stages", enabled_stages=enabled_stages)
         if "stages" in receiver
         else None,
@@ -1148,6 +1183,12 @@ def validate_deployment_profile(
         if "observability" in spec
         else None
     )
+    for index, receiver in enumerate(observability.alert_receivers if observability else ()):
+        if receiver.type == "github-discussions" and (identity is None or identity.issuer != "github"):
+            raise DeploymentProfileError(
+                f"{source}: spec.observability.alerts.receivers[{index}] ({receiver.name!r}) is a "
+                "'github-discussions' receiver, which posts as the GitHub App: it requires spec.identity.issuer 'github'"
+            )
     if provider.type == Provider.AWS and "storage" in spec and "size" in spec["storage"]:
         raise DeploymentProfileError(
             f"{source}: spec.storage is not available on provider 'aws': object storage is managed S3 there, "

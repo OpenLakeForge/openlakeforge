@@ -33,6 +33,8 @@ class FakeCluster(ProcessRunner):
         super().__init__()
         self.objects: dict[tuple[str, str], dict[str, Any]] = {}
         self.calls: list[tuple[list[str], str | None]] = []
+        # The profile's declared receivers; a test appends to it to add one.
+        self.receivers: list[AlertReceiver] = []
 
     def run(self, command: Any, **kwargs: Any) -> CommandResult:  # type: ignore[override]
         argv = [str(part) for part in command]
@@ -70,11 +72,12 @@ class FakeResolver:
 def cluster(monkeypatch: pytest.MonkeyPatch) -> FakeCluster:
     fake = FakeCluster()
     fake.objects[("namespace", "olf-system")] = {"kind": "Namespace"}
-    receivers = (
+    receivers = fake.receivers
+    receivers += [
         AlertReceiver("on-call", "webhook", SecretRef("alert-webhooks", "on-call")),
         AlertReceiver("ops", "webhook", SecretRef("alert-webhooks", "ops")),
         AlertReceiver("solo", "webhook", SecretRef("solo-hook", "url")),
-    )
+    ]
     provider = SimpleNamespace(
         tools=SimpleNamespace(kubectl=Kubectl(fake, FakeResolver())), env={"KUBE_CONTEXT": "kind-x"}
     )
@@ -288,3 +291,38 @@ def test_an_unparseable_url_fails_without_the_value_in_output_or_exception_chain
     while exc is not None:
         assert "s3cr3t-fullwidth" not in repr(exc) + str(exc)
         exc = exc.__cause__ or exc.__context__
+
+
+_DISCUSSIONS = AlertReceiver("team", "github-discussions", repository="my-org/olf-alerts", category="Alerts")
+
+
+def test_bind_refuses_a_github_discussions_receiver_without_asking_for_a_url(cluster: FakeCluster) -> None:
+    cluster.receivers.append(_DISCUSSIONS)
+
+    result = _bind("team", "--from-env", "HOOK_URL")
+
+    assert result.exit_code == 1
+    assert "needs no binding; it uses the GitHub App" in result.output
+    assert cluster.applies == []
+
+
+def test_bindings_reports_a_github_discussions_receiver_as_needing_no_binding(cluster: FakeCluster) -> None:
+    cluster.receivers[:] = [_DISCUSSIONS]
+
+    result = _bindings()
+
+    assert result.exit_code == 0, result.output
+    assert "receiver team: uses the GitHub App; needs no binding" in result.output
+    assert "missing" not in result.output
+
+
+def test_bindings_still_fails_for_an_unbound_webhook_beside_a_github_discussions_receiver(
+    cluster: FakeCluster,
+) -> None:
+    cluster.receivers.append(_DISCUSSIONS)
+
+    result = _bindings()
+
+    assert result.exit_code == 1
+    assert "receiver team: uses the GitHub App; needs no binding" in result.output
+    assert "receiver on-call: secret alert-webhooks key on-call in olf-system: Secret missing" in result.output

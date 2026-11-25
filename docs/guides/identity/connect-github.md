@@ -67,6 +67,11 @@ GitHub team grants. Lesson 8 of the tutorial walks through this once:
    it is installed on. The deploy ends with the portal URL and either
    "GitHub App installed on <org>" or the install link.
 
+The App also asks for Discussions write permission, so a `github-discussions`
+alert receiver can post ([Deployment Profile](../../reference/deployment-profile.md)). An App
+created before this change lacks it: add the permission in the App's settings,
+and an organization owner must accept the new permission request.
+
 `--no-browser` (on `olf infra github connect`) prints the URL without opening it;
 without a click within 15 minutes, nothing is written. Credentials are never
 printed. To replace the app, use `olf infra secrets rotate github-app`, which

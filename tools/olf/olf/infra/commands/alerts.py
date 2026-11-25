@@ -74,6 +74,9 @@ def bindings(profile_file: str = _PROFILE) -> None:
         kubeconfig=cluster.kubeconfig,
         env=cluster.env,
     )
+    for receiver in receivers:
+        if receiver.secret_ref is None:
+            typer.echo(f"receiver {receiver.name}: uses the GitHub App; needs no binding")
     for status in statuses:
         where = f"secret {status.secret} key {status.key} in {cluster.namespace}"
         if status.present is None:
@@ -105,7 +108,7 @@ def bind(
     prompts for it without echo. Other keys of a shared Secret are kept. It must
     use https. Output names the receiver, Secret and key, never the URL.
     """
-    from olf.infra.deployment.alert_bind import bind_receiver, validate_url
+    from olf.infra.deployment.alert_bind import bind_receiver, no_binding_message, validate_url
 
     try:
         context = _context(profile_file)
@@ -114,6 +117,8 @@ def bind(
         if receiver is None:
             known = ", ".join(sorted(candidate.name for candidate in receivers)) or "(none)"
             raise SourceBindingError(f"unknown alert receiver {receiver_name!r}; the profile declares: {known}.")
+        if receiver.secret_ref is None:
+            raise SourceBindingError(no_binding_message(receiver))
         value = _value(from_env, from_file, receiver.name)
         validate_url(value)
         cluster = _cluster(context)
