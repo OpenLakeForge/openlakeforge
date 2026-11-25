@@ -3,7 +3,7 @@ kind: ComponentCatalog
 metadata:
   name: openlakeforge
 distribution:
-  version: 0.7.0-beta.1
+  version: 0.7.0-beta.2
   release_tag_policy: immutable-semver
   development_tags: mutable
   # What a ProjectRevision depends on (docs/adr/0012). `version` is bumped only
@@ -128,7 +128,7 @@ components:
     trino: trinodb/trino:484@sha256:2704eb53935af5e582d63d6033e9bf99d20c325e9b0e30b1016ef59a4773979f
     openmetadata_ingestion: docker.io/openmetadata/ingestion-base:1.13.6@sha256:29f8dcafc52bdbdb60dc3901569d9cd752cd10cb942375f5e08b53d38b05239e
     traefik: docker.io/traefik:v3.7.19@sha256:a6c0194dda77bcb804824580f36fa7edc56e315b1acfe933366c8b52844a78a4
-    portal: ghcr.io/openlakeforge/openlakeforge-portal:0.7.4@sha256:3ef9c4ca50feeecad6c028eb1fde138d0b764194a04f5d6f83e557c5e1a35043
+    portal: ghcr.io/openlakeforge/openlakeforge-portal:0.7.6@sha256:b5f43c15e9fb1f1e1c5403e4c04dac879d9494be57f90897ed8bc81410f3e856
     cert_manager_controller: quay.io/jetstack/cert-manager-controller:v1.21.3@sha256:9f4f96a33c7774cef24466fcd85031997531a03a8d117f151126baa8d1290dcc
     cert_manager_webhook: quay.io/jetstack/cert-manager-webhook:v1.21.3@sha256:055ac8e9de6a0ba6763794838fe38944acc650f68ebe1b01dd8be079e580f458
     cert_manager_cainjector: quay.io/jetstack/cert-manager-cainjector:v1.21.3@sha256:083d0e906f8eb44e255fe4ff817ae54e49f9ed82e22f1011bb4e9e4f4b8a641f

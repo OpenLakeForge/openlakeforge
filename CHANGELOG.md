@@ -16,6 +16,44 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+## [0.7.0-beta.2] - 2026-11-25
+
+This beta redesigns the Portal's Monitoring page (Portal 0.7.6), gives Dagster's
+coloured log lines their level again and lets a platform admin read the shared
+services' archived logs through the platform API.
+
+### Added
+
+- `GET /api/v1/platform/logs` reads the archive of the shared `olf-system`
+  namespace (Polaris, object storage, the log collector and the alert
+  evaluator), with the stage log route's filters except `product` and `run_id`.
+  Only `platform-admin` may call it (`list_platform_logs`); with authentication
+  off every caller holds that role. The API's read-only log key gains `Read` and
+  `List` on `platform/logs/v2/`. The Portal does not show these logs yet (#1423).
+
+### Changed
+
+- Portal 0.7.6 redesigns Monitoring (openlakeforge-portal#52, #54). The overview
+  has four gauges (services, runs of the last day, quality checks, open
+  incidents), one list of what needs attention that now includes services, and one
+  table of pipelines with their quality checks, with details on demand. Dagster
+  and Trino link to their logs; a failing one opens just before its alert opened,
+  or just before the last check when no alert is open. Logs is one search bar
+  with removable filters and one row per line.
+
+### Fixed
+
+- A log line that carries terminal colour codes, as Dagster's daemon writes, has
+  its level again, so a severity floor no longer drops it, errors included. The
+  log API and `olf` return lines without the codes; archived objects are not
+  rewritten. Continuation lines of a stack trace still state no level (#1422).
+
+### Migration notes
+
+From 0.7.0-beta.1, upgrade `olf` and run `olf infra deploy` again: it grants the
+API's log key the platform prefix and sets the new Portal image. No data is
+moved or rewritten, and no project file changes.
+
 ## [0.7.0-beta.1] - 2026-11-24
 
 This is the first beta release. It closes the v0.7-beta milestone
