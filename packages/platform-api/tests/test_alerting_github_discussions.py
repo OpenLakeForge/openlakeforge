@@ -68,8 +68,6 @@ class FakeGitHub:
         self.discussions: list[dict[str, Any]] = []
         self.faults: dict[str, Sequence[requests.Response | Exception]] = {}
         self.category = category
-        self.discussions_enabled = True
-        self.installed = True
         self.token_lifetime = 3600
         self.now = START
         self.created = 0
@@ -126,7 +124,7 @@ class FakeGitHub:
         categories = [{"id": "C_alerts", "name": self.category, "slug": self.category.lower()}]
         repository = {
             "id": "R_1",
-            "hasDiscussionsEnabled": self.discussions_enabled,
+            "hasDiscussionsEnabled": True,
             "discussionCategories": {"nodes": [{"id": "C_other", "name": "General", "slug": "general"}, *categories]},
         }
         return reply(200, {"data": {"repository": repository}})
@@ -416,43 +414,58 @@ def test_a_receiver_that_cannot_work_is_refused_at_construction(message: str, kw
         GitHubDiscussionsNotifier("team", **settings)
 
 
+DISABLED = {"data": {"repository": {"id": "R_1", "hasDiscussionsEnabled": False, "discussionCategories": {"nodes": []}}}}
+
+
 @pytest.mark.parametrize(
-    ("setup", "status", "cause"),
+    ("route", "fault", "status", "cause"),
     [
-        pytest.param(lambda g: setattr(g, "installed", False), 404, "not installed on acme/ops-alerts", id="app-not-installed"),
-        pytest.param(lambda g: setattr(g, "category", "Other"), None, "category 'alerts' not found", id="category-missing"),
-        pytest.param(lambda g: setattr(g, "discussions_enabled", False), None, "Discussions are not enabled", id="disabled"),
-        pytest.param(lambda g: g.faults.update(token=[reply(401, {"message": "Bad credentials"})]), 401, "app id and private key", id="bad-credentials"),
-        pytest.param(lambda g: g.faults.update(token=[reply(422, {"message": "x"})]), 422, "cannot be granted", id="permission-not-grantable"),
-        pytest.param(lambda g: g.faults.update(repository=[graphql_errors("FORBIDDEN")]), 200, "lacks discussions: write", id="graphql-forbidden"),
-        pytest.param(lambda g: g.faults.update(repository=[graphql_errors("NOT_FOUND")]), 200, "could not find", id="graphql-not-found"),
-        pytest.param(lambda g: g.faults.update(repository=[graphql_errors("SERVICE_UNAVAILABLE_X")]), 200, "SERVICE_UNAVAILABLE_X", id="graphql-other"),
-        pytest.param(lambda g: g.faults.update(create=[graphql_errors("FORBIDDEN", status=403)]), 403, "lacks discussions: write", id="graphql-forbidden-non-200"),
-        pytest.param(lambda g: g.faults.update(create=[reply(403, {"message": "Resource not accessible by integration"})]), 403, "lacks discussions: write", id="plain-403"),
-        pytest.param(lambda g: g.faults.update(create=[reply(422, {"message": "x"})]), 422, "HTTP 422", id="other-4xx"),
+        pytest.param("installation", reply(404, {"message": "Not Found"}), 404, "not installed on acme/ops-alerts", id="app-not-installed"),
+        pytest.param("token", reply(401, {"message": "Bad credentials"}), 401, "app id and private key", id="bad-credentials"),
+        pytest.param("token", reply(422, {"message": "x"}), 422, "cannot be granted", id="permission-not-grantable"),
+        pytest.param("repository", reply(200, DISABLED), 200, "Discussions are not enabled", id="discussions-disabled"),
+        pytest.param("repository", reply(200, {"data": {"repository": None}}), 200, "was not found", id="repository-not-visible"),
+        pytest.param("repository", graphql_errors("FORBIDDEN"), 200, "lacks discussions: write", id="graphql-forbidden"),
+        pytest.param("repository", graphql_errors("NOT_FOUND"), 200, "could not find", id="graphql-not-found"),
+        pytest.param("repository", graphql_errors("WEIRD"), 200, "errors of type WEIRD", id="graphql-other"),
+        pytest.param("create", graphql_errors("FORBIDDEN", status=403), 403, "lacks discussions: write", id="forbidden-non-200"),
+        pytest.param("create", reply(403, {"message": "Resource not accessible"}), 403, "lacks discussions: write", id="plain-403"),
+        pytest.param("create", reply(422, {"message": "x"}), 422, "HTTP 422", id="other-4xx"),
     ],
 )
 def test_what_will_not_change_on_retry_is_rejected_once_with_an_operator_cause(
     github: FakeGitHub,
     make: Callable[..., Env],
     caplog: pytest.LogCaptureFixture,
-    setup: Callable[[FakeGitHub], object],
-    status: int | None,
+    route: str,
+    fault: requests.Response,
+    status: int,
     cause: str,
 ) -> None:
-    setup(github)
+    github.faults[route] = [fault]
     env = make()
     caplog.set_level(logging.INFO)
 
     result = env.notifier.send(OPENED, delivery_id="n-1")
 
-    assert (result.status, result.attempts) == ("rejected", 1)
-    if status is not None:
-        assert result.http_status == status
+    assert (result.status, result.http_status, result.attempts) == ("rejected", status, 1)
     assert env.sleeps == []
-    rejections = [r for r in caplog.records if "rejected" in r.getMessage()]
+    rejections = [r.getMessage() for r in caplog.records if "rejected" in r.getMessage()]
     assert len(rejections) == 1
-    assert "team" in rejections[0].getMessage() and cause in rejections[0].getMessage()
+    assert "team" in rejections[0] and cause in rejections[0]
+    assert github.created == 0
+
+
+def test_a_category_the_repository_lacks_is_rejected_naming_it(
+    github: FakeGitHub, make: Callable[..., Env], caplog: pytest.LogCaptureFixture
+) -> None:
+    github.category = "Other"
+    caplog.set_level(logging.INFO)
+
+    result = make().notifier.send(OPENED, delivery_id="n-1")
+
+    assert (result.status, result.attempts) == ("rejected", 1)
+    assert "category 'alerts' not found in acme/ops-alerts" in caplog.text
     assert github.created == 0
 
 

@@ -19,7 +19,7 @@ import logging
 import time
 from collections.abc import Callable, Mapping
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import urlsplit
 
 import jwt
@@ -156,7 +156,7 @@ class GitHubDiscussionsNotifier:
         self._api_url = api_url.rstrip("/")
         self._graphql_url = graphql_url(api_url)
         self._ca_file = ca_file
-        self._session: _Session = session if session is not None else requests.Session()
+        self._session = session if session is not None else cast(_Session, requests.Session())
         self._clock = clock
         self._sleep = sleep
         self._jitter = jitter
