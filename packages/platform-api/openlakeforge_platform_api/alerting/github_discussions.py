@@ -9,6 +9,9 @@ Known limit: the lookup reads the category's 50 newest discussions (and the last
 whose discussion has been pushed out of that window gets a fresh discussion on its next event, and a delivery
 retried after that long is posted again.
 
+Markers are trusted only in content the App itself authored (`viewerDidAuthor`): in a public repository anyone can
+comment, and a copied marker must neither suppress a delivery nor redirect an incident's comments.
+
 The App's token is requested for the one repository with `discussions: write` and `metadata: read` only. Nothing here
 logs or raises the key, a JWT, the token or a payload: rejections name the receiver and an operator-facing cause.
 """
@@ -79,7 +82,8 @@ query($owner: String!, $name: String!, $category: ID!) {{
         id
         body
         closed
-        comments(last: {RECENT_COMMENTS}) {{ nodes {{ body }} }}
+        viewerDidAuthor
+        comments(last: {RECENT_COMMENTS}) {{ nodes {{ body viewerDidAuthor }} }}
       }}
     }}
   }}
@@ -206,7 +210,7 @@ class GitHubDiscussionsNotifier:
             return
 
         if event in ("escalated", "resolved") and incident_id:
-            existing = next((d for d in recent if incident_marker(incident_id) in str(d.get("body") or "")), None)
+            existing = next((d for d in recent if _authored(d, incident_marker(incident_id))), None)
             if existing is not None:
                 self._add_comment(str(existing["id"]), f"**{event}**\n\n{_body(payload, [marker])}")
                 if event == "resolved" and not existing.get("closed"):
@@ -399,11 +403,19 @@ def _expiry(value: object, now: float) -> float:
         return now + _TOKEN_FALLBACK_SECONDS
 
 
+def _authored(discussion: Mapping[str, Any], marker: str) -> bool:
+    return discussion.get("viewerDidAuthor") is True and marker in str(discussion.get("body") or "")
+
+
 def _carries(discussion: Mapping[str, Any], marker: str) -> bool:
-    if marker in str(discussion.get("body") or ""):
+    if _authored(discussion, marker):
         return True
     nodes = (discussion.get("comments") or {}).get("nodes") or []
-    return any(marker in str(node.get("body") or "") for node in nodes if isinstance(node, dict))
+    return any(
+        node.get("viewerDidAuthor") is True and marker in str(node.get("body") or "")
+        for node in nodes
+        if isinstance(node, dict)
+    )
 
 
 _FIELDS = ("event", "severity", "condition", "stage", "domain", "product", "table", "run_id", "opened_at", "event_at")

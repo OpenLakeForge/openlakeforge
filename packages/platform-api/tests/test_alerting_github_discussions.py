@@ -133,7 +133,13 @@ class FakeGitHub:
                 "id": d["id"],
                 "body": d["body"],
                 "closed": d["closed"],
-                "comments": {"nodes": [{"body": c} for c in d["comments"][-20:]]},
+                "viewerDidAuthor": not d.get("foreign", False),
+                "comments": {
+                    "nodes": [
+                        *({"body": c, "viewerDidAuthor": True} for c in d["comments"]),
+                        *({"body": c, "viewerDidAuthor": False} for c in d.get("foreign_comments", [])),
+                    ][-20:]
+                },
             }
             for d in reversed(self.discussions[-50:])
         ]
@@ -603,3 +609,45 @@ def test_a_null_category_node_is_skipped(github: FakeGitHub, make: Callable[...,
 
     assert (result.status, result.attempts) == ("delivered", 1)
     assert len(github.discussions) == 1
+
+
+def test_a_comment_by_someone_else_carrying_the_delivery_marker_does_not_suppress_the_post(
+    github: FakeGitHub, make: Callable[..., Env]
+) -> None:
+    env = make()
+    env.notifier.send(OPENED, delivery_id="n-1")
+    github.discussions[0]["foreign_comments"] = [delivery_marker("n-3")]
+
+    result = env.notifier.send(event("resolved"), delivery_id="n-3")
+
+    assert result.status == "delivered"
+    (discussion,) = github.discussions
+    assert len(discussion["comments"]) == 1 and delivery_marker("n-3") in discussion["comments"][0]
+    assert discussion["closed"] is True
+
+
+def test_a_discussion_by_someone_else_carrying_the_delivery_marker_does_not_suppress_the_post(
+    github: FakeGitHub, make: Callable[..., Env]
+) -> None:
+    github.discussions.append(
+        {"id": "D_x", "title": "t", "body": delivery_marker("n-1"), "closed": False, "comments": [], "foreign": True}
+    )
+
+    make().notifier.send(OPENED, delivery_id="n-1")
+
+    assert github.created == 1
+
+
+def test_a_discussion_by_someone_else_carrying_the_incident_marker_is_not_commented_on(
+    github: FakeGitHub, make: Callable[..., Env]
+) -> None:
+    github.discussions.append(
+        {"id": "D_x", "title": "t", "body": incident_marker("inc-1"), "closed": False, "comments": [], "foreign": True}
+    )
+
+    result = make().notifier.send(event("escalated"), delivery_id="n-2")
+
+    assert result.status == "delivered"
+    assert github.by_id("D_x")["comments"] == []
+    assert github.created == 1
+    assert delivery_marker("n-2") in github.discussions[-1]["body"]
