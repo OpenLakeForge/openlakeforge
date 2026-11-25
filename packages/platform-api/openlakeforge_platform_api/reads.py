@@ -1,4 +1,4 @@
-"""Read endpoints: Dagster jobs and runs and archived logs per stage, OpenMetadata domains and data products.
+"""Read endpoints: Dagster jobs and runs, archived logs, OpenMetadata domains and data products.
 
 The services take different identities (ADR 0021, decision 2). Dagster checks
 nothing, so the API reaches it with no credential and the permission matrix is
@@ -17,6 +17,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import date, datetime
+from functools import partial
 from typing import Literal
 
 from botocore.exceptions import BotoCoreError, ClientError
@@ -41,6 +42,7 @@ from openlakeforge_platform_api.models import (
     Runs,
 )
 from openlakeforge_platform_api.pipeline_health import job_scope
+from openlakeforge_platform_api.settings import LogArchiveSetting
 from openlakeforge_platform_api.tokens import Principal
 
 log = logging.getLogger(__name__)
@@ -152,37 +154,78 @@ async def list_logs(
     """
     text = search_text(q)
     reader, namespace = _log_archive(request, stage)
+    read = partial(
+        reader.read,
+        namespace,
+        day,
+        hour=hour,
+        pod=pod,
+        container=container,
+        component=component,
+        product=product,
+        run_id=run_id,
+        severity=severity or "",
+        text=text,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+    return await _day_logs(request, f"stage {stage!r}'s log archive", read, limit)
 
+
+async def list_platform_logs(
+    request: Request,
+    day: date = Query(alias="date"),  # noqa: B008 - FastAPI's parameter API
+    hour: int | None = Query(default=None, ge=0, le=23),  # noqa: B008
+    pod: str = "",
+    container: str = "",
+    component: str = "",
+    severity: Literal["debug", "info", "warning", "error", "critical"] | None = None,
+    q: str | None = LOG_SEARCH,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    limit: int = Query(default=500, ge=1, le=MAX_LOG_LINES),  # noqa: B008
+) -> Logs:
+    """The shared platform services' archived pod log lines for a UTC day or one hour of it, oldest first.
+
+    These are the pods that serve every stage, such as the catalog and the object store. The filters are
+    `list_logs`'s without `product` and `run_id`; `component` is the pod's `app.kubernetes.io/name` label.
+    """
+    text = search_text(q)
+    archive = request.app.state.settings.platform_log_archive
+    if archive is None:
+        raise HTTPException(status_code=404, detail="no platform log archive is configured")
+    read = partial(
+        _reader(request, archive).read,
+        archive.namespace,
+        day,
+        hour=hour,
+        pod=pod,
+        container=container,
+        component=component,
+        severity=severity or "",
+        text=text,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+    return await _day_logs(request, "the platform log archive", read, limit)
+
+
+async def _day_logs(request: Request, name: str, read: Callable[..., list[ArchivedLogLine]], limit: int) -> Logs:
     # The response is built on the worker too: thousands of lines' models are no work for the event loop.
-    def read(slot: ReadSlot) -> Logs:
-        with _archive_errors(stage):
+    def answer(slot: ReadSlot) -> Logs:
+        with _archive_errors(name):
             try:
-                lines = reader.read(
-                    namespace,
-                    day,
-                    hour=hour,
-                    pod=pod,
-                    container=container,
-                    component=component,
-                    product=product,
-                    run_id=run_id,
-                    severity=severity or "",
-                    text=text,
-                    since=since,
-                    until=until,
-                    limit=limit,
-                    deadline=slot.expires,
-                    cancelled=slot.cancelled.is_set,
-                )
+                lines = read(deadline=slot.expires, cancelled=slot.cancelled.is_set)
             except ArchiveDeadline as exc:
                 raise HTTPException(
-                    status_code=502,
-                    detail=f"stage {stage!r}'s log archive did not answer in {log_reads.READ_DEADLINE_SECONDS:g} s",
+                    status_code=502, detail=f"{name} did not answer in {log_reads.READ_DEADLINE_SECONDS:g} s"
                 ) from exc
         # `truncated` tells a client that a narrower window or a higher limit would show more.
         return Logs(lines=[log_line(line) for line in lines], truncated=len(lines) >= limit)
 
-    return await bounded_read(request, read, waiting_on=f"stage {stage!r}'s log archive")
+    return await bounded_read(request, answer, waiting_on=name)
 
 
 def log_line(line: ArchivedLogLine) -> LogLine:
@@ -193,28 +236,32 @@ def _log_archive(request: Request, stage: str) -> tuple[LogArchive, str]:
     archive = request.app.state.settings.log_archives.get(stage)
     if archive is None:
         raise HTTPException(status_code=404, detail=f"no log archive is configured for stage {stage!r}")
+    return _reader(request, archive), archive.namespace
+
+
+def _reader(request: Request, archive: LogArchiveSetting) -> LogArchive:
     store = request.app.state.object_store
     if store is None:
         raise HTTPException(status_code=503, detail="the platform API holds no object-store key for the log archive")
-    return LogArchive(store, archive.base_uri), archive.namespace
+    return LogArchive(store, archive.base_uri)
 
 
 @contextmanager
-def _archive_errors(stage: str) -> Iterator[None]:
+def _archive_errors(name: str) -> Iterator[None]:
     # The store's own message goes to the log: it can name the bucket, the key
     # or the endpoint, none of which the caller needs.
     try:
         yield
     except ClientError as exc:
-        log.warning("the object store refused the log archive read for stage %s: %s", stage, exc)
-        raise HTTPException(status_code=502, detail=f"the object store refused stage {stage!r}'s log archive") from exc
+        log.warning("the object store refused a read of %s: %s", name, exc)
+        raise HTTPException(status_code=502, detail=f"the object store refused {name}") from exc
     except BotoCoreError as exc:
-        log.warning("the object store is unreachable for stage %s: %s", stage, exc)
+        log.warning("the object store is unreachable for %s: %s", name, exc)
         raise HTTPException(status_code=502, detail="the object store is unreachable") from exc
     # KeyError and TypeError: a record that is JSON but not the archiver's shape.
     except (OSError, EOFError, zlib.error, ValueError, KeyError, TypeError) as exc:
-        log.warning("stage %s's log archive is unreadable: %s", stage, exc)
-        raise HTTPException(status_code=502, detail=f"stage {stage!r}'s log archive is unreadable") from exc
+        log.warning("%s is unreadable: %s", name, exc)
+        raise HTTPException(status_code=502, detail=f"{name} is unreadable") from exc
 
 
 def _openmetadata(request: Request) -> OpenMetadataClient:

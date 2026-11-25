@@ -176,7 +176,7 @@ catalog; with identity the grant is removed. `olf` reaches the API over the
 routes' own scheme. Enforced by: `openlakeforge_platform_api/settings.py` and
 `packages/platform-api/tests/test_anonymous.py`.
 
-**D9. Log reads are bounded.** Both archived-log routes read the archive on one
+**D9. Log reads are bounded.** Every archived-log route reads the archive on one
 shared pool of two workers. A read gets 20 seconds from when a worker takes it
 (502 past that), a read that waits more than 5 seconds for a worker is answered
 503 with `Retry-After: 5`, and a client that disconnects cancels its read. The

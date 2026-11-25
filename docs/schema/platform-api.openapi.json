@@ -3254,6 +3254,195 @@
         "summary": "Monitoring Capabilities"
       }
     },
+    "/api/v1/platform/logs": {
+      "get": {
+        "description": "The shared platform services' archived pod log lines for a UTC day or one hour of it, oldest first.\n\nThese are the pods that serve every stage, such as the catalog and the object store. The filters are\n`list_logs`'s without `product` and `run_id`; `component` is the pod's `app.kubernetes.io/name` label.",
+        "operationId": "list_platform_logs_api_v1_platform_logs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hour",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 23,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hour"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pod",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Pod",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "container",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Container",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "component",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Component",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "debug",
+                    "info",
+                    "warning",
+                    "error",
+                    "critical"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "description": "Only lines whose message contains this text, ignoring case: a plain substring, not a pattern. 1 to 200 characters, no control characters.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only lines whose message contains this text, ignoring case: a plain substring, not a pattern. 1 to 200 characters, no control characters.",
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 5000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Logs"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Every log read worker stayed busy for 5 s, so nothing was read: retry after the `Retry-After` seconds. Also, without `Retry-After`, when the API holds no object-store key for the archive.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List Platform Logs"
+      }
+    },
     "/api/v1/platform/metrics/{series}": {
       "get": {
         "description": "A platform series: the nodes and the olf-system components, which serve every stage.",

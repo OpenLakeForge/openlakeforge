@@ -75,6 +75,8 @@ class Settings:
     dagster_graphql_urls: Mapping[str, str] = field(default_factory=dict)
     openmetadata_url: str | None = None
     log_archives: Mapping[str, LogArchiveSetting] = field(default_factory=dict)
+    # The shared platform namespace's archive, under no stage; read with the same key. None: no platform logs here.
+    platform_log_archive: LogArchiveSetting | None = None
     # The contract's logs.archive.retention_days when its `retention_supported` is true (ADR 0022, decision 6);
     # platform-wide, as in the profile. None: the provider applies no retention, so the API states none.
     log_archive_retention_days: int | None = None
@@ -174,6 +176,13 @@ class Settings:
                     str(stage): LogArchiveSetting(str(archive["base_uri"]), str(archive["namespace"]))
                     for stage, archive in (data.get("log_archives") or {}).items()
                 },
+                platform_log_archive=(
+                    None
+                    if data.get("platform_log_archive") is None
+                    else LogArchiveSetting(
+                        str(data["platform_log_archive"]["base_uri"]), str(data["platform_log_archive"]["namespace"])
+                    )
+                ),
                 log_archive_retention_days=(
                     None if data.get("log_archive_retention_days") is None else int(data["log_archive_retention_days"])
                 ),
@@ -337,9 +346,12 @@ class Settings:
         check_runbook_base_url(self.runbook_base_url, "runbook_base_url")
         if self.log_archive_retention_days is not None and self.log_archive_retention_days < 1:
             raise SettingsError("log_archive_retention_days must be positive")
-        for stage, archive in self.log_archives.items():
+        named = {f"log_archives[{stage!r}]": archive for stage, archive in self.log_archives.items()}
+        if self.platform_log_archive is not None:
+            named["platform_log_archive"] = self.platform_log_archive
+        for name, archive in named.items():
             if not archive.base_uri.startswith("s3://") or not archive.namespace or "/" in archive.namespace:
-                raise SettingsError(f"log_archives[{stage!r}] needs an s3:// base_uri and a namespace")
+                raise SettingsError(f"{name} needs an s3:// base_uri and a namespace")
 
     def _validate_anonymous(self) -> None:
         if self.issuer_url or self.audiences:

@@ -63,6 +63,12 @@ locals {
     { for name, prefix in local.stage_log_prefixes : name => { namespace = local.stage_namespaces[name], key_prefix = "${prefix}/v2/" } },
     { platform = { namespace = var.shared_namespace, key_prefix = "platform/logs/v2/" } },
   )
+  # The platform API's read-only log key: v1 (the polling archiver) and v2 (the collector) of each stage, and the
+  # platform archive, which only the collector writes. Which person may read which is the API's to decide.
+  log_reader_prefixes = concat(
+    flatten([for prefix in values(local.stage_log_prefixes) : ["${prefix}/k8s/", "${prefix}/v2/"]]),
+    [local.log_collector_routes.platform.key_prefix],
+  )
   # Each stage's Superset Service; the platform API's settings name it without waiting for the release.
   superset_service = { name = "superset", port = 8088 }
   # ADR 0024: Prometheus exists only when the resolved profile enables metrics, so Slim renders none of it.
@@ -271,8 +277,7 @@ module "seaweedfs" {
     namespace               = kubernetes_namespace_v1.shared.metadata[0].name
     credentials_secret_name = "platform-api-log-reader-s3-creds"
     ops_bucket_name         = var.ops_bucket_name
-    # v1 (the polling archiver) and v2 (the collector) of each stage; never the platform prefix, which no stage's reader may see.
-    prefixes = flatten([for prefix in values(local.stage_log_prefixes) : ["${prefix}/k8s/", "${prefix}/v2/"]])
+    prefixes                = local.log_reader_prefixes
   } : null
   # One read-only key per stage for its quality manifests (#1186).
   quality_reader_credentials = local.platform_api_enabled ? {
@@ -501,6 +506,10 @@ module "platform_api" {
   log_archives = {
     for name, prefix in local.stage_log_prefixes :
     name => { base_uri = "${local.artifact_base_uri}/${prefix}", namespace = local.stage_namespaces[name] }
+  }
+  platform_log_archive = {
+    base_uri  = "${local.artifact_base_uri}/${trimsuffix(local.log_collector_routes.platform.key_prefix, "/v2/")}"
+    namespace = var.shared_namespace
   }
   s3_endpoint_url        = module.seaweedfs.contract.endpoint
   s3_region              = module.seaweedfs.contract.region

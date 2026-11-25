@@ -203,6 +203,22 @@ run "the_collector_probe_url_reaches_the_settings" {
   }
 }
 
+run "the_platform_log_archive_reaches_the_settings" {
+  command = plan
+
+  variables {
+    platform_log_archive = { base_uri = "s3://ops/platform/logs", namespace = "olf-system" }
+  }
+
+  assert {
+    condition = (
+      jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).platform_log_archive.base_uri == "s3://ops/platform/logs"
+      && jsondecode(kubernetes_config_map_v1.settings.data["settings.json"]).platform_log_archive.namespace == "olf-system"
+    )
+    error_message = "the platform log archive must reach settings.json"
+  }
+}
+
 run "the_polaris_health_url_reaches_the_settings" {
   command = plan
 

@@ -116,6 +116,7 @@ the stages given.
 | `GET` | `/stages/{stage}/runs/{run_id}/quality/reports/{report_id}` | `get_run_quality_report` | `data-engineer` | every (`data-engineer`: dev) | |
 | `GET` | `/stages/{stage}/runs/{run_id}/logs` | `list_run_logs` | `data-engineer` | every (`data-engineer`: dev) | |
 | `GET` | `/stages/{stage}/logs` | `list_logs` | `data-engineer` | every (`data-engineer`: dev) | |
+| `GET` | `/platform/logs` | `list_platform_logs` | `platform-admin` | — | |
 | `GET` | `/stages/{stage}/health` | `get_stage_health` | `data-engineer` | every | |
 | `GET` | `/stages/{stage}/health/services` | `get_stage_service_health` | `data-engineer` | every | also `alert-evaluator` |
 | `GET` | `/stages/{stage}/health/pipelines` | `list_pipeline_health` | `data-engineer` | every | |
@@ -149,6 +150,8 @@ Why each floor is where it is is commented on its row in `permissions.toml`.
 In short: Dagster reads sit at the Dagster UI's floor, so the API shows no one
 a run the perimeter would not let them open; pod logs and quality reports can
 quote data a run read, so a `data-engineer` reads them on DEV only; the
+platform services' logs cover every stage at once, so only a `platform-admin`
+reads them; the
 OpenMetadata, discovery and query rows sit at `viewer` because the service
 behind them decides per person; and the files explorer is closed to `analyst`
 and `viewer`, reads included.
@@ -161,7 +164,7 @@ and `viewer`, reads included.
 | Discovery and queries | Each stage's Trino, through Polaris | The caller's token, as the `token` extra credential |
 | Jobs, runs, launch, run failure, pipeline health | Each stage's Dagster GraphQL API | None: Dagster checks nothing |
 | `import_report`, `export_report` | Each stage's Superset | The stage's Superset service user |
-| `list_logs`, `list_run_logs` | Object store | The log reader key |
+| `list_logs`, `list_run_logs`, `list_platform_logs` | Object store | The log reader key |
 | `get_run_quality`, `get_stage_quality_health`, the health routes' quality signal | Object store | The stage's quality reader key |
 | `list_alert_incidents` | Object store | The alert state key |
 | The files explorer, `get_run_quality_report`, the object-store probe | Object store | The files key |
@@ -177,7 +180,7 @@ Each has its own S3 client in the API; none is used for another's purpose.
 
 | Key | Identity | Grant |
 | --- | --- | --- |
-| Log reader | `openlakeforge-platform-api-logs` | `Read`, `List` on each stage's log archive prefix |
+| Log reader | `openlakeforge-platform-api-logs` | `Read`, `List` on each stage's log archive prefixes and on `platform/logs/v2/` |
 | Quality reader, one per stage | `openlakeforge-platform-api-quality-<stage>` | `Read`, `List` on `activations/<stage>/run-artifacts/quality/` of the ops bucket |
 | Alert state | `openlakeforge-platform-api-alerts` | `Read`, `List` on the alert evaluator's `alerts/state/` |
 | Audit | `openlakeforge-platform-api-audit` | `Write` on `audit/platform-api/` only |
@@ -261,7 +264,16 @@ control character is 422 before anything is read). `limit`, `truncated` and
 than `limit`, or none, with `next` set. The archive format is
 [ADR 0022](../adr/0022-pod-log-collection-and-archive-format.md)'s.
 
-Both routes read the archive on one shared pool of two workers
+`list_platform_logs` reads the archive of the shared platform namespace, whose
+services (the catalog, the object store, sign-in, the log collector, the alert
+evaluator and the rest) serve every stage. It takes `list_logs`'s parameters
+except `product` and `run_id`. `component` is a pod's `app.kubernetes.io/name`
+label; a pod without that label has no `component`, so find it by `pod` or
+`q`. With authentication off, every caller holds `platform-admin` and reads
+them ([ADR 0021](../adr/0021-platform-api.md) D8). Only the node collector
+writes this archive, so a provider without one has nothing to read here.
+
+All three routes read the archive on one shared pool of two workers
 (`openlakeforge_platform_api/log_reads.py`):
 
 | Situation | Answer |
@@ -270,7 +282,7 @@ Both routes read the archive on one shared pool of two workers
 | The read passes 20 seconds, counted from when a worker took it | 502 |
 | The client disconnects | The read is cancelled: a queued read never starts, a running one stops at its next check |
 | The API holds no log reader key | 503 without `Retry-After` |
-| The stage has no archive | 404 |
+| The stage, or the platform, has no archive | 404 |
 
 A request therefore takes at most 25 seconds. The archive reader checks the
 deadline and the cancellation between listing pages, objects and records, and

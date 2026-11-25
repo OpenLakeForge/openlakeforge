@@ -154,7 +154,7 @@ def _read(
     days, cut = window_days(start, end)
 
     slot.waiting_on = f"stage {stage!r}'s log archive"
-    with _archive_errors(stage):
+    with _archive_errors(f"stage {stage!r}'s log archive"):
         try:
             found = reader.read_days(
                 namespace,
