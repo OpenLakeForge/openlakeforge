@@ -209,7 +209,7 @@ class GitHubDiscussionsNotifier:
                 self._close(str(posted["id"]))
             return
 
-        if event in ("escalated", "resolved") and incident_id:
+        if event in ("opened", "escalated", "resolved") and incident_id:
             existing = next((d for d in recent if _authored(d, incident_marker(incident_id))), None)
             if existing is not None:
                 self._add_comment(str(existing["id"]), f"**{event}**\n\n{_body(payload, [marker])}")

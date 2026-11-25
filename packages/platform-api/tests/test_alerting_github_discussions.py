@@ -372,8 +372,10 @@ def test_the_token_is_reused_until_five_minutes_before_it_expires(github: FakeGi
 def test_the_category_matches_by_name_without_case_or_by_slug(github: FakeGitHub, make: Callable[..., Env]) -> None:
     github.category = "On Call"
     for category in ("on call", "ON CALL"):
-        assert make(category=category).notifier.send(OPENED, delivery_id=f"n-{category}").status == "delivered"
-    assert make(category="general").notifier.send(OPENED, delivery_id="n-slug").status == "delivered"
+        incident = {**OPENED, "incident_id": f"inc-{category}"}
+        assert make(category=category).notifier.send(incident, delivery_id=f"n-{category}").status == "delivered"
+    other = {**OPENED, "incident_id": "inc-slug"}
+    assert make(category="general").notifier.send(other, delivery_id="n-slug").status == "delivered"
     assert [d["category"] for d in github.discussions] == ["C_alerts", "C_alerts", "C_other"]
 
 
@@ -652,3 +654,20 @@ def test_a_discussion_by_someone_else_carrying_the_incident_marker_is_not_commen
     assert github.by_id("D_x")["comments"] == []
     assert github.created == 1
     assert delivery_marker("n-2") in github.discussions[-1]["body"]
+
+
+def test_a_late_opened_comments_on_the_discussion_a_resolved_already_created_and_closed(
+    github: FakeGitHub, make: Callable[..., Env]
+) -> None:
+    env = make()
+    env.notifier.send(event("resolved"), delivery_id="n-3")
+    (fallback,) = github.discussions
+    assert fallback["closed"] is True
+
+    result = env.notifier.send(OPENED, delivery_id="n-1")
+
+    assert result.status == "delivered"
+    assert github.created == 1 and len(github.discussions) == 1
+    assert len(fallback["comments"]) == 1 and delivery_marker("n-1") in fallback["comments"][0]
+    assert fallback["closed"] is True
+    assert len(github.of("close")) == 1
