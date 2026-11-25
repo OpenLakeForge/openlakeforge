@@ -536,6 +536,15 @@ run "alert_history_expires_after_30_days_and_state_never" {
   }
 
   assert {
+    condition = (
+      contains(local.log_reader_prefixes, local.log_collector_routes.platform.key_prefix)
+      && contains(local.log_reader_prefixes, "activations/dev/logs/v2/")
+      && !contains(local.log_reader_prefixes, "platform/")
+    )
+    error_message = "the platform API's log key reads what the collector writes for the platform, and no wider prefix"
+  }
+
+  assert {
     condition = length([
       for prefix in keys(local.object_retention.days_by_prefix) : prefix
       if startswith("alerts/state/", prefix) || startswith(prefix, "alerts/state/")

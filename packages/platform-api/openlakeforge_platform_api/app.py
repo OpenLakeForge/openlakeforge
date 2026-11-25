@@ -213,7 +213,7 @@ def _object_store(settings: Settings) -> ObjectStore | None:
     """
     access_key = os.environ.get("AWS_ACCESS_KEY_ID")
     secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-    if not settings.log_archives or not access_key or not secret_key:
+    if not (settings.log_archives or settings.platform_log_archive) or not access_key or not secret_key:
         return None
     client: ObjectStore = boto3.client(
         "s3",
@@ -500,6 +500,13 @@ def create_app(
         reads.list_logs,
         methods=["GET"],
         name="list_logs",
+        responses=log_reads.OVERLOADED,
+    )
+    app.add_api_route(
+        "/api/v1/platform/logs",
+        reads.list_platform_logs,
+        methods=["GET"],
+        name="list_platform_logs",
         responses=log_reads.OVERLOADED,
     )
     app.add_api_route(

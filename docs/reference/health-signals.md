@@ -449,8 +449,8 @@ found no object or could not list.
 The newest-object listing reads `logs/v2/namespace=<namespace>/date=<day>/` for today and yesterday (UTC), recursively,
 on a second S3 client with the probes' timeouts. It looks at most 5 pages of 1000 objects per day, so a runaway prefix
 errs towards a stale reading. It reads `unknown` when no object exists in the two days, so a stage whose pods log
-nothing reads like a stalled collector. The platform prefix is outside the reader key's grant, so `olf-system` has the
-spool signals only.
+nothing reads like a stalled collector. No newest-object signal is computed for the platform prefix, so `olf-system`
+has the spool signals only.
 
 The spool probe is a second container in the collector pod. It runs the platform API image as
 `python -m openlakeforge_platform_api.spool_probe` and serves `GET /spool` on port 2021 (flow F42): per stage, the

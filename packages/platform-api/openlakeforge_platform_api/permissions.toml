@@ -135,6 +135,13 @@ role = "data-engineer"
 stages = ["*"]
 role_stages = { data-engineer = ["dev"] }
 
+# The shared platform namespace's archive, under no stage (ADR 0022, decision 3), so the row names none. It holds
+# what the catalog, object store and sign-in did for every stage, PROD included, while list_logs shows a data-engineer
+# DEV only; so platform-admin alone. Read-only and not audited, like list_logs.
+[operations.list_platform_logs]
+role = "platform-admin"
+stages = []
+
 # The same archive and lines as list_logs over one run's window (#1326), so the
 # same row: the stage in the path still picks the prefix.
 [operations.list_run_logs]

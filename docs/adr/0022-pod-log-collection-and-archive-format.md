@@ -70,12 +70,18 @@ prefix and nothing else (no `Read`, no `List`), and the platform API's role
 matrix decides who reads a stage's prefix, with the stage as the path segment
 it checks. The `spool-probe` sidecar runs as uid 0, read-only, with no S3 key,
 inside the collector's boundary. `olf-system` is collected into
-`<ops>/platform/logs/v2/`, under no stage. Enforced by:
+`<ops>/platform/logs/v2/`, under no stage. Its services serve every stage, so
+one of its logs can hold any stage's activity, PROD included: the platform
+API's log reader key may read the prefix, and its matrix lets only
+`platform-admin` do so. Nothing writes v1 there, so the grant covers `v2/`
+alone and a platform read lists no v1 prefix. Enforced by:
 `fluent-bit.conf.tftpl`, the one-route-per-namespace validation in
 `log-collector/variables.tf`, `log-collector/tests/collector.tftest.hcl`, the
 `openlakeforge-log-collector` identity in
 `infra/terraform/modules/storage/seaweedfs/credentials.tf`, the `list_logs`
-row of `openlakeforge_platform_api/permissions.toml`.
+and `list_platform_logs` rows of
+`openlakeforge_platform_api/permissions.toml` and `log_reader_prefixes` in
+`infra/terraform/environments/local/main.tf`.
 
 **D4. Archive format v2 is gzipped NDJSON, partitioned by the records' own UTC
 date and hour.** An object is
@@ -161,8 +167,10 @@ signals, their thresholds and the spool probe are in
 - Which data the S3 plugin discards at the spool limit is recorded by the
   failure-injection e2e, not promised.
 - A stage whose pods log nothing reads like a stalled collector on the newest
-  object signal. The platform prefix is outside the reader's grant, so
+  object signal. That signal is not computed for the platform prefix, so
   `olf-system` has the spool signals only.
+- The API's one log reader key covers every stage's archive and the platform's,
+  so its permission matrix is all that separates their readers.
 - No workload sets `openlakeforge.io/domain` or `openlakeforge.io/product`
   yet, so those record fields stay in `missing`.
 - Per-node CPU and memory are not claimed: the footprint drill
@@ -180,7 +188,6 @@ signals, their thresholds and the spool probe are in
 | --- | --- |
 | The log routes, their role floor and how they bound a read | [ADR 0021](0021-platform-api.md) D3, D9 |
 | The collector's and the probe's network flows (F37, F42) | [ADR 0017](0017-local-network-policy-and-rbac.md), `release/network-flows.yaml` |
-| Who may read the platform prefix | Not decided: no reader is granted it |
 | Indexed log search (`logs.search`) | #795 |
 | Alerting on the delivery signals | [ADR 0023](0023-alert-evaluation-and-webhook-delivery.md) |
 
@@ -220,3 +227,5 @@ signals, their thresholds and the spool probe are in
   configuration, failure modes and record fields moved to the log archive
   guide, the delivery signals and the probe to health signals. No decision
   changed.
+- 2026-11-25: D3 gained the platform prefix's reader, until then undecided: the
+  platform API, for `platform-admin` only, as the maintainer chose.

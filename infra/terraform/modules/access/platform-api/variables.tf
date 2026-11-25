@@ -155,6 +155,15 @@ variable "s3_region" {
   default     = "us-east-1"
 }
 
+variable "platform_log_archive" {
+  description = "The shared platform namespace's log archive, read by platform-admin only: the base URI the log collector writes under and that namespace. Null leaves the platform logs route unconfigured."
+  type = object({
+    base_uri  = string
+    namespace = string
+  })
+  default = null
+}
+
 variable "log_reader_secret_name" {
   description = "Secret in `namespace` holding the read-only object-store key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) for the log prefixes. Null leaves the logs route without a key."
   type        = string

@@ -25,7 +25,8 @@ up to eight of the listed objects at once.
 On AWS and Azure there is no collector yet: a `*/15` CronJob writes the older layout, and a Job pod deleted by its TTL
 between two runs is not captured there.
 
-The platform prefix is outside every stage reader's grant, so `olf logs` does not show it.
+`olf logs` reads one stage's archive, so it does not show the platform prefix. The platform API serves it to a
+`platform-admin` at `GET /api/v1/platform/logs` ([platform API](../../reference/platform-api.md#logs)).
 
 ## Archive format
 

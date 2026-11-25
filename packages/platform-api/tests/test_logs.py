@@ -31,6 +31,8 @@ class ObjectStore:
         self.listed: list[str] = []
         self.opened: list[str] = []
         self.fail: Callable[[], Exception] | None = None
+        # The key prefix the credential may list, as the object store enforces its grant; "" is the whole store.
+        self.granted = ""
 
     def archive(self, key: str, records: list[dict[str, Any]], modified: datetime | None = None) -> None:
         body = gzip.compress("".join(json.dumps(record) + "\n" for record in records).encode())
@@ -43,6 +45,8 @@ class ObjectStore:
     ) -> dict[str, Any]:
         if self.fail:
             raise self.fail()
+        if not Prefix.startswith(self.granted):
+            raise ClientError({"Error": {"Code": "AccessDenied", "Message": "denied"}}, "ListObjectsV2")
         self.listed.append(Prefix)
         keys = sorted(key for bucket, key in self.objects if bucket == Bucket and key.startswith(Prefix))
         nested = {key for key in keys if Delimiter and Delimiter in key.removeprefix(Prefix)}
@@ -473,3 +477,92 @@ def test_the_search_text_is_not_logged(api: TestClient, store: ObjectStore, mint
     server = [record.getMessage() for record in caplog.records if not record.name.startswith("httpx")]
     assert server
     assert not any("4711" in message for message in server)
+
+
+PLATFORM_ARCHIVE = {"base_uri": "s3://ops/platform/logs", "namespace": "olf-system"}
+PLATFORM_DAY = "platform/logs/v2/namespace=olf-system/date=2026-10-30/"
+PLATFORM_LOGS = "/api/v1/platform/logs?date=2026-10-30"
+
+
+def _platform_line(component: str, message: str) -> dict[str, Any]:
+    return {
+        "schema": "openlakeforge.k8s_log.v2",
+        "time": "2026-10-30T09:00:00.000000000Z",
+        "stage": "platform",
+        "namespace": "olf-system",
+        "pod": f"{component}-0",
+        "container": component,
+        "component": component,
+        "message": message,
+        "dedup_key": f"{component}:{message}",
+    }
+
+
+@pytest.fixture
+def platform_api(settings: Settings, store: ObjectStore) -> TestClient:
+    store.archive(
+        PLATFORM_DAY + "hour=09/platform-1.ndjson.gz",
+        [_platform_line("polaris", "ERROR catalog down"), _platform_line("seaweedfs", "ERROR disk full")],
+    )
+    # The grant Terraform gives the key on this archive (`log_reader_prefixes`): nothing outside v2.
+    store.granted = "platform/logs/v2/"
+    # No stage archive: the platform route needs the key and its own setting only.
+    return TestClient(create_app(_settings(settings, platform_log_archive=PLATFORM_ARCHIVE), object_store=store))
+
+
+@pytest.mark.parametrize(
+    ("role", "status"), [("platform-admin", 200), ("data-engineer", 403), ("analyst", 403), ("viewer", 403)]
+)
+def test_platform_logs_admit_platform_admin_only(
+    platform_api: TestClient, store: ObjectStore, mint: Mint, role: str, status: int
+) -> None:
+    response = platform_api.get(PLATFORM_LOGS, headers=_as(mint, role))
+
+    assert response.status_code == status
+    assert bool(store.opened) == (status == 200)
+
+
+def test_platform_logs_read_only_the_platform_prefix_and_filter_by_component(
+    platform_api: TestClient, store: ObjectStore, mint: Mint
+) -> None:
+    response = platform_api.get(
+        PLATFORM_LOGS + "&hour=9&component=seaweedfs&severity=error", headers=_as(mint, "platform-admin")
+    )
+
+    assert [line["line"] for line in response.json()["lines"]] == ["ERROR disk full"]
+    assert response.json()["truncated"] is False
+    assert store.opened == [PLATFORM_DAY + "hour=09/platform-1.ndjson.gz"]
+
+
+@pytest.mark.parametrize("filters", ["", "&hour=9", "&pod=polaris-0", "&severity=error", "&q=catalog"])
+def test_a_platform_read_without_a_v2_only_filter_stays_within_the_grant(
+    platform_api: TestClient, mint: Mint, filters: str
+) -> None:
+    response = platform_api.get(PLATFORM_LOGS + filters, headers=_as(mint, "platform-admin"))
+
+    assert response.status_code == 200
+    assert "ERROR catalog down" in [line["line"] for line in response.json()["lines"]]
+
+
+def test_platform_logs_with_no_platform_archive_are_not_configured(api: TestClient, mint: Mint) -> None:
+    response = api.get(PLATFORM_LOGS, headers=_as(mint, "platform-admin"))
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "no platform log archive is configured"
+
+
+def test_a_refused_platform_read_names_the_archive_and_nothing_of_the_store(
+    platform_api: TestClient, store: ObjectStore, mint: Mint
+) -> None:
+    store.fail = lambda: ClientError({"Error": {"Code": "AccessDenied", "Message": "ops"}}, "ListObjectsV2")
+
+    response = platform_api.get(PLATFORM_LOGS, headers=_as(mint, "platform-admin"))
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "the object store refused the platform log archive"
+
+
+@pytest.mark.parametrize("wrong", [{"base_uri": "ops/platform/logs"}, {"namespace": "a/b"}])
+def test_a_malformed_platform_archive_refuses_to_start(settings: Settings, wrong: dict[str, str]) -> None:
+    with pytest.raises(SettingsError, match="platform_log_archive"):
+        _settings(settings, platform_log_archive={**PLATFORM_ARCHIVE, **wrong})
