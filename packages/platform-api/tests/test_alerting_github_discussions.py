@@ -511,6 +511,7 @@ def test_a_category_the_repository_lacks_is_rejected_naming_it(
         pytest.param(reply(429), id="429"),
         pytest.param(reply(403, {"message": "You have exceeded a secondary rate limit."}), id="secondary-limit-403"),
         pytest.param(reply(403, {"message": "Forbidden"}, {"Retry-After": "1"}), id="retry-after-403"),
+        pytest.param(reply(403, {"message": "Forbidden"}, {"X-RateLimit-Remaining": "0"}), id="primary-limit-403"),
         pytest.param(graphql_errors("RATE_LIMITED"), id="graphql-rate-limited"),
         pytest.param(graphql_errors("RATE_LIMITED", status=403), id="graphql-rate-limited-non-200"),
         pytest.param(requests.ConnectionError("https://api.github.com refused"), id="connection"),

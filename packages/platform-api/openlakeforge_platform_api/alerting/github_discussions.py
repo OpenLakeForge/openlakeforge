@@ -353,7 +353,10 @@ class GitHubDiscussionsNotifier:
         if status in (408, 429) or status >= 500:
             raise _Retryable(f"GitHub answered HTTP {status}", status, wait)
         types = _error_types(response)
-        limited = status == 403 and (response.headers.get("Retry-After") or "rate limit" in _message(response))
+        # The primary limit answers 403 with no Retry-After and a plain message, only X-RateLimit-Remaining: 0.
+        exhausted = response.headers.get("X-RateLimit-Remaining", "").strip() == "0"
+        asked_to_wait = bool(response.headers.get("Retry-After")) or exhausted
+        limited = status == 403 and (asked_to_wait or "rate limit" in _message(response))
         if limited or "RATE_LIMITED" in types:
             raise _Retryable("GitHub rate-limited the request", status, wait)
         if types:
