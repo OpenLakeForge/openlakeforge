@@ -52,7 +52,12 @@ the profile declares at least one receiver. The design is
                key: webhook-url
    ```
 
-2. Bind its URL into the Secret in `olf-system`. The URL is the receiver's
+2. On a first deploy, run `olf infra deploy -f openlakeforge.yaml` now. It creates
+   `olf-system`, then stops at the missing Secret and names
+   `olf infra alerts bind`. `bind` never creates the namespace and fails when it
+   is absent. On a stack that is already deployed, go straight to the next step.
+
+3. Bind its URL into the Secret in `olf-system`. The URL is the receiver's
    credential: `olf` reads it from an environment variable or a file (or asks
    for it, without echo, in a terminal), never from the command line, and
    Terraform never holds its value. It must be an `https://` URL:
@@ -69,7 +74,7 @@ the profile declares at least one receiver. The design is
    receiver as bound, Secret missing or key missing, and exits 1 unless all are
    bound. Creating the Secret another way works too.
 
-3. Validate and deploy:
+4. Validate and deploy (again, on a first deploy):
 
    ```bash
    olf profile validate --project .

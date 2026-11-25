@@ -70,27 +70,34 @@ def receiver_statuses(
 
 def validate_url(value: str) -> None:
     """The evaluator's rule (`WebhookNotifier`): https only. The message never names the value."""
-    if urlsplit(value).scheme != "https":
+    scheme: str | None = None
+    try:
+        scheme = urlsplit(value).scheme
+    except ValueError:
+        pass  # Its message names the value, so it is neither shown nor chained.
+    if scheme is None:
+        raise AlertBindingError("the webhook URL is not a valid URL")
+    if scheme != "https":
         raise AlertBindingError("the webhook URL must use https")
 
 
 def bind_receiver(receiver: AlertReceiver, value: str, cluster: StageCluster, *, dry_run: bool) -> str:
     """Write `value` as the receiver's key, keeping every other key of a shared Secret; one report line."""
     validate_url(value)
+    _require_namespace(cluster)
     ref = receiver.secret_ref
     stored = stored_data(cluster, "secret", ref.name)
     data = {**(stored or {}), ref.key: base64.b64encode(value.encode()).decode()}
     changed = stored is None or stored.get(ref.key) != data[ref.key]
     verb = "unchanged" if not changed else "create" if stored is None else "update"
     if changed and not dry_run:
-        _ensure_namespace(cluster)
         apply_manifest(cluster, _secret_manifest(ref.name, cluster.namespace, data), "secret", ref.name)
     outcome = verb if verb == "unchanged" else f"would {verb}" if dry_run else f"{verb}d"
     return f"receiver {receiver.name}: secret {ref.name} key {ref.key} in {cluster.namespace} ({outcome})"
 
 
-def _ensure_namespace(cluster: StageCluster) -> None:
-    """Bind works before the first platform apply; the deploy imports a namespace that already exists."""
+def _require_namespace(cluster: StageCluster) -> None:
+    """Never create the shared namespace: one made outside Terraform is torn down as drift by the first apply."""
     exists = cluster.kubectl.get(
         "namespace",
         name=cluster.namespace,
@@ -100,8 +107,10 @@ def _ensure_namespace(cluster: StageCluster) -> None:
         check=False,
     ).ok
     if not exists:
-        manifest = json.dumps({"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": cluster.namespace}})
-        apply_manifest(cluster, manifest, "namespace", cluster.namespace)
+        raise AlertBindingError(
+            f"the shared namespace {cluster.namespace} does not exist yet: run `olf infra deploy` first; "
+            "it creates the namespace and stops naming this command"
+        )
 
 
 def _secret_manifest(name: str, namespace: str, data: Mapping[str, str]) -> str:

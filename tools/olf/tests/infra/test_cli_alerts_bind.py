@@ -69,6 +69,7 @@ class FakeResolver:
 @pytest.fixture
 def cluster(monkeypatch: pytest.MonkeyPatch) -> FakeCluster:
     fake = FakeCluster()
+    fake.objects[("namespace", "olf-system")] = {"kind": "Namespace"}
     receivers = (
         AlertReceiver("on-call", "webhook", SecretRef("alert-webhooks", "on-call")),
         AlertReceiver("ops", "webhook", SecretRef("alert-webhooks", "ops")),
@@ -115,12 +116,15 @@ def test_bind_creates_the_secret_in_the_shared_namespace_and_reports_names_only(
     assert secret["metadata"]["labels"] == {"app.kubernetes.io/managed-by": "olf"}
 
 
-def test_a_missing_namespace_is_created_before_the_secret(cluster: FakeCluster) -> None:
-    _bind("on-call", "--from-env", "HOOK_URL")
+def test_a_missing_shared_namespace_fails_before_any_write(cluster: FakeCluster) -> None:
+    del cluster.objects[("namespace", "olf-system")]
 
-    assert ("namespace", "olf-system") in cluster.objects
-    kinds = [json.loads(stdin or "")["kind"] for _argv, stdin in cluster.applies]
-    assert kinds == ["Namespace", "Secret"]
+    for args in ((), ("--dry-run",)):
+        result = _bind("on-call", "--from-env", "HOOK_URL", *args)
+
+        assert result.exit_code == 1
+        assert "olf-system does not exist yet" in result.output and "olf infra deploy" in result.output
+    assert cluster.applies == []
 
 
 def test_the_url_reaches_kubectl_on_stdin_only(cluster: FakeCluster) -> None:
@@ -267,3 +271,20 @@ def test_bindings_reports_missing_secret_missing_key_and_bound(cluster: FakeClus
     complete = _bindings()
     assert complete.exit_code == 0, complete.output
     assert complete.output.count(": bound") == 3
+
+
+def test_an_unparseable_url_fails_without_the_value_in_output_or_exception_chain(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAD_URL", "https://hooks.example.com\uff0fs3cr3t-fullwidth")
+
+    result = _bind("on-call", "--from-env", "BAD_URL")
+
+    assert result.exit_code == 1
+    assert "not a valid URL" in result.output
+    assert "s3cr3t-fullwidth" not in result.output
+    assert cluster.applies == []
+    exc: BaseException | None = result.exception
+    while exc is not None:
+        assert "s3cr3t-fullwidth" not in repr(exc) + str(exc)
+        exc = exc.__cause__ or exc.__context__
