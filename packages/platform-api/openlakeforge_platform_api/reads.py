@@ -208,6 +208,8 @@ async def list_platform_logs(
         since=since,
         until=until,
         limit=limit,
+        # Only the collector writes this archive, and the key's grant on it is `v2/` alone.
+        v1=False,
     )
     return await _day_logs(request, "the platform log archive", read, limit)
 

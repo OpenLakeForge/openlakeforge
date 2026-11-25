@@ -73,7 +73,8 @@ inside the collector's boundary. `olf-system` is collected into
 `<ops>/platform/logs/v2/`, under no stage. Its services serve every stage, so
 one of its logs can hold any stage's activity, PROD included: the platform
 API's log reader key may read the prefix, and its matrix lets only
-`platform-admin` do so. Enforced by:
+`platform-admin` do so. Nothing writes v1 there, so the grant covers `v2/`
+alone and a platform read lists no v1 prefix. Enforced by:
 `fluent-bit.conf.tftpl`, the one-route-per-namespace validation in
 `log-collector/variables.tf`, `log-collector/tests/collector.tftest.hcl`, the
 `openlakeforge-log-collector` identity in

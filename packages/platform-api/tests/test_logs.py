@@ -31,6 +31,8 @@ class ObjectStore:
         self.listed: list[str] = []
         self.opened: list[str] = []
         self.fail: Callable[[], Exception] | None = None
+        # The key prefix the credential may list, as the object store enforces its grant; "" is the whole store.
+        self.granted = ""
 
     def archive(self, key: str, records: list[dict[str, Any]], modified: datetime | None = None) -> None:
         body = gzip.compress("".join(json.dumps(record) + "\n" for record in records).encode())
@@ -43,6 +45,8 @@ class ObjectStore:
     ) -> dict[str, Any]:
         if self.fail:
             raise self.fail()
+        if not Prefix.startswith(self.granted):
+            raise ClientError({"Error": {"Code": "AccessDenied", "Message": "denied"}}, "ListObjectsV2")
         self.listed.append(Prefix)
         keys = sorted(key for bucket, key in self.objects if bucket == Bucket and key.startswith(Prefix))
         nested = {key for key in keys if Delimiter and Delimiter in key.removeprefix(Prefix)}
@@ -500,6 +504,8 @@ def platform_api(settings: Settings, store: ObjectStore) -> TestClient:
         PLATFORM_DAY + "hour=09/platform-1.ndjson.gz",
         [_platform_line("polaris", "ERROR catalog down"), _platform_line("seaweedfs", "ERROR disk full")],
     )
+    # The grant Terraform gives the key on this archive (`log_reader_prefixes`): nothing outside v2.
+    store.granted = "platform/logs/v2/"
     # No stage archive: the platform route needs the key and its own setting only.
     return TestClient(create_app(_settings(settings, platform_log_archive=PLATFORM_ARCHIVE), object_store=store))
 
@@ -526,7 +532,16 @@ def test_platform_logs_read_only_the_platform_prefix_and_filter_by_component(
     assert [line["line"] for line in response.json()["lines"]] == ["ERROR disk full"]
     assert response.json()["truncated"] is False
     assert store.opened == [PLATFORM_DAY + "hour=09/platform-1.ndjson.gz"]
-    assert all(prefix.startswith("platform/logs/") for prefix in store.listed)
+
+
+@pytest.mark.parametrize("filters", ["", "&hour=9", "&pod=polaris-0", "&severity=error", "&q=catalog"])
+def test_a_platform_read_without_a_v2_only_filter_stays_within_the_grant(
+    platform_api: TestClient, mint: Mint, filters: str
+) -> None:
+    response = platform_api.get(PLATFORM_LOGS + filters, headers=_as(mint, "platform-admin"))
+
+    assert response.status_code == 200
+    assert "ERROR catalog down" in [line["line"] for line in response.json()["lines"]]
 
 
 def test_platform_logs_with_no_platform_archive_are_not_configured(api: TestClient, mint: Mint) -> None:

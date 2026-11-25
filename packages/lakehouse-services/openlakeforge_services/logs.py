@@ -356,6 +356,7 @@ class LogArchive:
         limit: int = 1000,
         deadline: float | None = None,
         cancelled: Callable[[], bool] | None = None,
+        v1: bool = True,
     ) -> list[ArchivedLogLine]:
         """Lines of one namespace for a UTC day, or one hour of it, oldest first, at most `limit`.
 
@@ -368,6 +369,7 @@ class LogArchive:
         `cancelled` returning true stops it there with ArchiveCancelled, and no queued fetch of the read starts.
         With `since`, an object uploaded before it (less UPLOAD_CLOCK_SLACK) is not read: it holds no line it selects.
         `hour`, `since` and `until` also pick the v2 hour partitions listed.
+        `v1=False` lists no v1 prefix, for an archive only the collector writes and a key that may not list `k8s/`.
         """
         return self.read_days(
             namespace,
@@ -385,6 +387,7 @@ class LogArchive:
             limit=limit,
             deadline=deadline,
             cancelled=cancelled,
+            v1=v1,
         ).lines
 
     def read_days(
@@ -407,6 +410,7 @@ class LogArchive:
         v1_lookback: timedelta | None = None,
         deadline: float | None = None,
         cancelled: Callable[[], bool] | None = None,
+        v1: bool = True,
     ) -> ArchiveRead:
         """`read` over several UTC days at once: one ordering and one dedup across them, at most `limit` in all.
 
@@ -483,10 +487,10 @@ class LogArchive:
                 (line.pod, line.container, line.archived_at, line.line)
                 for line in chain((line for _, line in retained), v2.at_cursor)
             }
-            v1 = _Best(limit, after)
-            if not (component or product or run_id):
+            older = _Best(limit, after)
+            if v1 and not (component or product or run_id):
                 for day in v1_days:
-                    self._v1(namespace, day, hour, selects, overlap, v1, scan)
+                    self._v1(namespace, day, hour, selects, overlap, older, scan)
         finally:
             log.info(
                 "log archive read of %s over %d day(s): %d objects listed, %d read",
@@ -495,7 +499,7 @@ class LogArchive:
                 scan.listed,
                 scan.opened,
             )
-        merged = heapq.nsmallest(limit, chain(retained, v1.sorted()), key=lambda item: item[0])
+        merged = heapq.nsmallest(limit, chain(retained, older.sorted()), key=lambda item: item[0])
         return ArchiveRead(lines=[line for _, line in merged], last=merged[-1][0] if merged else None)
 
     def _check(self) -> None:
