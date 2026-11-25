@@ -92,8 +92,10 @@ olf logs --stage dev --product <product> --component floe --since 2026-11-17T09:
 olf logs --stage dev --date 2026-11-17 --severity warning --grep "contract violated"
 ```
 
-`--severity` keeps lines at that level or above, read from the line's own text, so a line that states no level is left
-out. `--grep` keeps lines whose message contains the text, ignoring case; it is plain text, not a pattern, and does not
+Terminal colour codes are removed from the lines it returns; the archived objects keep them.
+
+`--severity` keeps lines at that level or above, read from the line's own text, so a line that states no level, such as
+the continuation lines of a stack trace, is left out. `--grep` keeps lines whose message contains the text, ignoring case; it is plain text, not a pattern, and does not
 match the kubelet timestamp of an older-layout line. Both are applied by the platform API before `--limit`, so the
 limit counts matching lines. In the API they are the `severity` and `q` parameters of
 `GET /api/v1/stages/<stage>/logs` and `GET /api/v1/stages/<stage>/runs/<run-id>/logs`. On the run route a page stops at

@@ -145,6 +145,22 @@ def test_lines_are_selected_by_run_product_component_severity_and_time(store: _S
     assert _read(store, until=datetime(2026, 11, 16, 9, 1)) == ["INFO start"]
 
 
+def test_a_coloured_line_is_returned_selected_and_matched_across_layouts_as_plain_text(store: _Store) -> None:
+    coloured = (
+        "\x1b[32m2026-11-16 09:00:00 +0000\x1b[0m - dagster.daemon.SensorDaemon - \x1b[31mERROR\x1b[0m - tick failed"
+    )
+    plain = "2026-11-16 09:00:00 +0000 - dagster.daemon.SensorDaemon - ERROR - tick failed"
+    store.put(_v2_key("dev-a"), [_v2("2026-11-16T09:00:00Z", coloured, pod="run-1")])
+    # The archiver's copy of the same line, and one only it holds.
+    store.put(
+        _v1_key(),
+        [_v1(f"2026-11-16T09:00:00Z {coloured}"), _v1("2026-11-16T09:00:01Z \x1b[31mERROR\x1b[0m only v1")],
+    )
+
+    assert _read(store, severity="error") == [plain, "2026-11-16T09:00:01Z ERROR only v1"]
+    assert _read(store, text="- ERROR - tick") == [plain]
+
+
 def test_only_the_stages_own_namespace_and_day_are_listed_or_read(store: _Store) -> None:
     store.put(_v2_key("dev-a"), [_v2("2026-11-16T09:00:00Z", "mine")])
     store.put(_v2_key("prod-a", namespace="olf-prod"), [_v2("2026-11-16T09:00:00Z", "x", namespace="olf-prod")])
@@ -272,6 +288,18 @@ def test_several_days_read_as_one_ordering_with_one_dedup(store: _Store) -> None
         ("26/11/16 09:41:07 FATAL shutdown", "critical"),
         ("[2026/11/16 09:41:07] [ warn] [output:s3] retry", "warning"),
         ("ERROR:root:boom", "error"),
+        # The Dagster daemon colours its time and level.
+        (
+            "\x1b[32m2026-11-24 18:02:03 +0000\x1b[0m - dagster.daemon.SensorDaemon - \x1b[34mINFO\x1b[0m - "
+            "Checking for new runs",
+            "info",
+        ),
+        (
+            "\x1b[32m2026-11-24 18:02:03 +0000\x1b[0m - dagster.daemon.SchedulerDaemon - \x1b[1m\x1b[31mERROR\x1b[0m - "
+            "Scheduler failed",
+            "error",
+        ),
+        ("\x1b[33mWARNING\x1b[0m disk", "warning"),
         ('{"level": "ERROR", "msg": "x"}', "error"),
         ('{"severity": "info"}', "info"),
         ('{"levelname": "WARNING"}', "warning"),
