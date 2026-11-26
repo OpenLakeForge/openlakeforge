@@ -173,5 +173,13 @@ class EvaluatorSettings:
             raise SettingsError("links.dagster_host_template must contain {stage}")
         check_runbook_base_url(self.links.runbook_base_url, "links.runbook_base_url")
         portal = self.links.portal_url
-        if portal is not None and (urlsplit(portal).scheme not in ("http", "https") or not urlsplit(portal).netloc):
-            raise SettingsError("links.portal_url must be an http or https origin")
+        if portal is not None:
+            parts = urlsplit(portal)
+            if (
+                parts.scheme not in ("http", "https")
+                or not parts.netloc
+                or parts.path.strip("/")
+                or parts.query
+                or parts.fragment
+            ):
+                raise SettingsError("links.portal_url must be an http or https origin, with no path, query or fragment")

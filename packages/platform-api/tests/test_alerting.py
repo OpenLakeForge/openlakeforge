@@ -178,7 +178,17 @@ def test_a_notification_links_the_incidents_row_in_the_portal() -> None:
     assert "portal" not in other.sent[0][1]["links"]
 
 
-@pytest.mark.parametrize("portal_url", ["lake.example.test", "ftp://lake.example.test", "https://"])
+@pytest.mark.parametrize(
+    "portal_url",
+    [
+        "lake.example.test",
+        "ftp://lake.example.test",
+        "https://",
+        "https://lake.example.test/portal",
+        "https://lake.example.test?view=alerts",
+        "https://lake.example.test#top",
+    ],
+)
 def test_a_portal_url_that_is_not_an_http_origin_is_refused(portal_url: str) -> None:
     with pytest.raises(SettingsError, match="links.portal_url"):
         _settings(A, portal_url=portal_url)

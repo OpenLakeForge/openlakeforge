@@ -11,6 +11,9 @@ that opened it, a run's by a third, and a delivery already posted is recognised 
 
 A delivered send answers the discussion's URL, which the evaluator keeps for the Portal to link.
 
+An incident that joins a discussion also has its marker added to the discussion's body, so a long thread cannot push
+it out of the comment window and close the discussion while it still fires.
+
 Known limit: the lookup reads the category's 50 newest discussions (and the last 20 comments of each). An incident
 whose discussion has been pushed out of that window gets a fresh discussion on its next event, and a delivery
 retried after that long is posted again.
@@ -68,6 +71,10 @@ mutation($repository: ID!, $category: ID!, $title: String!, $body: String!) {
 _ADD_COMMENT = """
 mutation($discussion: ID!, $body: String!) {
   addDiscussionComment(input: {discussionId: $discussion, body: $body}) { comment { id } }
+}"""
+_UPDATE_DISCUSSION = """
+mutation($discussion: ID!, $body: String!) {
+  updateDiscussion(input: {discussionId: $discussion, body: $body}) { discussion { id } }
 }"""
 _CLOSE_DISCUSSION = """
 mutation($discussion: ID!) {
@@ -237,7 +244,10 @@ class GitHubDiscussionsNotifier:
 
         posted = next((d for d in recent if _carries(d, marker)), None)
         if posted is not None:
-            # A retry after a partial send: the post is there, but the close that follows it may not have happened.
+            # A retry after a partial send: the post is there, but the membership update or the close that follows it
+            # may not have happened.
+            if event == "opened" and incident_id:
+                self._remember_member(posted, incident_id)
             if not posted.get("closed") and (event == "test" or (event == "resolved" and _all_resolved(posted))):
                 self._close(str(posted["id"]))
             return _url(posted)
@@ -260,6 +270,8 @@ class GitHubDiscussionsNotifier:
                 if event == "resolved":
                     markers.append(resolved_marker(incident_id))
                 self._add_comment(str(existing["id"]), _comment(payload, event, markers, shared=shared))
+                if joined:
+                    self._remember_member(existing, incident_id)
                 if event == "resolved" and not existing.get("closed") and _all_resolved(existing, incident_id):
                     self._close(str(existing["id"]))
                 return _url(existing)
@@ -308,6 +320,16 @@ class GitHubDiscussionsNotifier:
 
     def _add_comment(self, discussion_id: str, body: str) -> None:
         self._graphql(_ADD_COMMENT, {"discussion": discussion_id, "body": body})
+
+    def _remember_member(self, discussion: dict[str, Any], incident_id: str) -> None:
+        """Add a joined incident's marker to the App's own discussion body, which no later comment can push out of the
+        lookup's comment window: membership decides when a shared discussion closes."""
+        marker = incident_marker(incident_id)
+        body = str(discussion.get("body") or "")
+        if discussion.get("viewerDidAuthor") is not True or marker in body:
+            return
+        self._graphql(_UPDATE_DISCUSSION, {"discussion": str(discussion["id"]), "body": f"{body}\n{marker}"})
+        discussion["body"] = f"{body}\n{marker}"
 
     def _close(self, discussion_id: str) -> None:
         self._graphql(_CLOSE_DISCUSSION, {"discussion": discussion_id})

@@ -111,6 +111,7 @@ class FakeGitHub:
             ("create", "createDiscussion"),
             ("comment", "addDiscussionComment"),
             ("close", "closeDiscussion"),
+            ("update", "updateDiscussion"),
             ("repository", "hasDiscussionsEnabled"),
         ):
             if needle in query:
@@ -171,6 +172,10 @@ class FakeGitHub:
     def _comment(self, body: Any) -> requests.Response:
         self.by_id(body["variables"]["discussion"])["comments"].append(body["variables"]["body"])
         return reply(200, {"data": {"addDiscussionComment": {"comment": {"id": "DC_1"}}}})
+
+    def _update(self, body: Any) -> requests.Response:
+        self.by_id(body["variables"]["discussion"])["body"] = body["variables"]["body"]
+        return reply(200, {"data": {"updateDiscussion": {"discussion": {"id": "x"}}}})
 
     def _close(self, body: Any) -> requests.Response:
         self.by_id(body["variables"]["discussion"])["closed"] = True
@@ -434,6 +439,40 @@ def test_a_shared_discussion_closes_only_once_every_incident_in_it_resolved(
     # A retried resolve of the first finds its comment and leaves the closed discussion alone.
     env.notifier.send({**QUALITY, "event": "resolved"}, delivery_id="q-3")
     assert len(discussion["comments"]) == 3 and len(github.of("close")) == 1
+
+
+def test_a_joined_incident_keeps_a_shared_discussion_open_however_long_the_thread_grows(
+    github: FakeGitHub, make: Callable[..., Env]
+) -> None:
+    env = make()
+    env.notifier.send(OPENED, delivery_id="n-1")
+    env.notifier.send(QUALITY, delivery_id="q-1")
+    (discussion,) = github.discussions
+    # The join is recorded where the comment window cannot lose it.
+    assert incident_marker("inc-q") in discussion["body"]
+    discussion["comments"] += [f"operator note {n}" for n in range(25)]
+
+    env.notifier.send(event("resolved"), delivery_id="n-3")
+
+    assert discussion["closed"] is False
+    env.notifier.send({**QUALITY, "event": "resolved"}, delivery_id="q-3")
+    assert github.by_id("D_1")["closed"] is True
+
+
+def test_a_retried_join_records_the_membership_its_first_attempt_missed(
+    github: FakeGitHub, make: Callable[..., Env]
+) -> None:
+    env = make()
+    env.notifier.send(OPENED, delivery_id="n-1")
+    github.faults["update"] = [reply(502)] * 3
+
+    assert env.notifier.send(QUALITY, delivery_id="q-1").status == "retryable"
+    assert incident_marker("inc-q") not in github.discussions[0]["body"]
+
+    assert env.notifier.send(QUALITY, delivery_id="q-1").status == "delivered"
+    (discussion,) = github.discussions
+    assert len(discussion["comments"]) == 1
+    assert incident_marker("inc-q") in discussion["body"]
 
 
 @pytest.mark.parametrize("change", ["another-run", "closed", "foreign"])
