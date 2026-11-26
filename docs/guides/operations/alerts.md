@@ -1,10 +1,18 @@
-# Send alerts to a webhook
+# Send alerts to a webhook or GitHub Discussions
 
-Configure a webhook receiver so OpenLakeForge posts a notification when a
-pipeline run fails, a scheduled run never starts, output goes stale or a
-quality check fails. It covers the receiver and its Secret, the alert policy
-that says which products alert and who is told, what a notification contains,
-and what to do for each condition.
+Configure a receiver so OpenLakeForge notifies you when a pipeline run fails, a
+scheduled run never starts, output goes stale or a quality check fails. It
+covers the two receiver types, the alert policy that says which products alert
+and who is told, what a notification contains, and what to do for each
+condition.
+
+| Receiver type | Where alerts go | Set it up |
+| --- | --- | --- |
+| `webhook` | An HTTPS endpoint that accepts a JSON `POST`: Slack, an incident tool, your own service. | [Configure a receiver](#configure-a-receiver) |
+| `github-discussions` | A discussion in a GitHub repository, posted by the OpenLakeForge GitHub App. Watching the repository emails you or notifies the GitHub mobile app. | [Send alerts to GitHub Discussions](#send-alerts-to-github-discussions) |
+
+`olf infra alerts test <receiver>` sends one test notification to either type
+before a real alert depends on it ([Check it](#check-it)).
 
 An alert evaluator runs every 5 minutes as a CronJob in `olf-system`, on the
 local provider. It reads each enabled stage's Dagster and its quality
@@ -36,6 +44,9 @@ the profile declares at least one receiver. The design is
 > every firing product incident that no rule covers.
 
 ## Configure a receiver
+
+These steps set up a `webhook` receiver; a GitHub Discussions receiver needs no
+URL, see [its own section](#send-alerts-to-github-discussions).
 
 1. Declare the receiver in `openlakeforge.yaml`:
 
@@ -87,8 +98,8 @@ To change the URL, run `olf infra alerts bind` again; the next evaluation reads 
 | Field | Meaning |
 | --- | --- |
 | `name` | Names the receiver in logs and history. The URL never appears there. |
-| `type` | `webhook` only: an HTTPS endpoint that accepts a JSON `POST`. |
-| `secret_ref` | The Secret and key that hold the URL. |
+| `type` | `webhook`, an HTTPS endpoint that accepts a JSON `POST`, or `github-discussions`. |
+| `secret_ref` | `webhook` only: the Secret and key that hold the URL. |
 | `stages` | Optional. The stages this receiver hears about, for example `[prod]` to keep DEV quiet. Omitted means every enabled stage. It is a ceiling: a rule in `alerts.yml` cannot send a stage's alerts to a receiver that leaves that stage out. |
 
 The field reference is in the
@@ -164,6 +175,93 @@ to read its state, and
 evaluator has not written one yet. `stale: true` means the last evaluation is
 more than 10 minutes old, so the list may be out of date. Receiver names and
 URLs never appear in the answer.
+
+## Send alerts to GitHub Discussions
+
+A `github-discussions` receiver posts each notification as a discussion in a
+GitHub repository, as the OpenLakeForge GitHub App. It needs no webhook URL and
+no `olf infra alerts bind`. Anyone who watches the repository is notified by
+email or the GitHub mobile app. An incident's later events (`escalated`,
+`resolved`) are added to its discussion as comments, and `resolved` closes it.
+
+> [!NOTE]
+> Use a private repository. A public one shows alert titles and summaries
+> (stage, product and condition names) to anyone who can read it.
+
+1. Create a private repository for alerts, for example `my-org/olf-alerts`.
+   In **Settings**, then **General**, then **Features**, turn on Discussions.
+   Under **Discussions**, create a category such as `Alerts`. Use an open
+   category: an Announcement category may refuse posts from an App.
+
+2. Install the OpenLakeForge GitHub App on that repository: on all of the
+   organization's repositories, or add the repository to the selected ones.
+   The receiver posts with the App that [Connect GitHub](../identity/connect-github.md)
+   registers, so the profile must set `spec.identity.issuer: github`. The App
+   needs the `Discussions: write` permission. An App created before
+   0.7.0-beta.2 lacks it: add the permission in the App's settings, and an
+   organization owner must accept the request.
+
+3. Declare the receiver in `openlakeforge.yaml`, next to the identity block
+   from that guide. To keep DEV and PROD apart, declare one receiver per stage
+   and point each at its own category, for example `Alerts (prod)` and
+   `Alerts (dev)`:
+
+   ```yaml
+   spec:
+     observability:
+       alerts:
+         receivers:
+           - name: alerts-prod
+             type: github-discussions
+             repository: my-org/olf-alerts
+             category: Alerts (prod)
+             stages: [prod]
+           - name: alerts-dev
+             type: github-discussions
+             repository: my-org/olf-alerts
+             category: Alerts (dev)
+             stages: [dev]
+   ```
+
+   `category` matches a category's name or its slug, ignoring case. Leave out
+   `stages` to send every stage to one category. Route products to these
+   receivers in [`alerts.yml`](#write-the-alert-policy), like any receiver.
+
+4. Deploy, then send a test:
+
+   ```bash
+   olf profile validate --project .
+   olf infra platform apply -f openlakeforge.yaml
+   olf infra alerts test alerts-prod -f openlakeforge.yaml
+   ```
+
+   The test opens a discussion titled `[test] OpenLakeForge alert test` and
+   closes it at once, and the command prints what GitHub answered. It exits 0
+   only when the discussion was posted. With no `--stage`, the test names the
+   first enabled stage the receiver hears about; `--stage` picks another one
+   from the receiver's `stages`.
+
+5. Watch the repository to be notified: on GitHub, **Watch**, then **Custom**,
+   then **Discussions**. The GitHub mobile app delivers the same notifications.
+
+The test names the cause when GitHub refuses it. Each row is a line of the
+command's output and what fixes it:
+
+| The output says | Fix |
+| --- | --- |
+| `the GitHub App is not installed on <owner>/<name>` | Install the App on the repository (step 2). |
+| `the GitHub App installation no longer exists` | The App was uninstalled; install it again. |
+| `category '<name>' not found in <owner>/<name>` | Create the category, or correct `category` in the profile and deploy again. |
+| `the GitHub App lacks discussions: write on <owner>/<name>`, or `cannot be granted discussions: write` | Add `Discussions: write` to the App's permissions, and have an organization owner accept the request (step 2). |
+| `Discussions are not enabled on <owner>/<name>` | Turn on Discussions in the repository's settings (step 1). |
+| `repository <owner>/<name> was not found, or the GitHub App cannot see it` | Correct `repository`, or add the repository to the App's installation. |
+| `the GitHub App private key is not a usable RSA key`, or `GitHub rejected the App credentials` | The App's Secret holds a wrong id or key. Replace it with [`olf infra secrets rotate github-app`](../identity/rotate-secrets.md#the-github-app). |
+| `could not reach the GitHub API`, and `retryable` | The evaluator could not reach the GitHub API. Check the cluster's egress and CA bundle. |
+
+A webhook that filters on `event` sees a value it has not seen before:
+`olf infra alerts test` sends `event: test` in a body with the same schema as any
+notification (`incident_id` is `test-<UTC time>`), under the `Idempotency-Key`
+`<incident_id>:test`.
 
 ## Write the alert policy
 
@@ -372,7 +470,7 @@ The body is built from this closed list of fields and nothing else:
 | Field | Content |
 | --- | --- |
 | `schema` | `openlakeforge.alert.v1`. |
-| `event` | `opened`, `escalated` or `resolved`. |
+| `event` | `opened`, `escalated` or `resolved`; `test` only from `olf infra alerts test`. |
 | `incident_id` | `<fingerprint>-<opened_at>-<seq>`; see [Incidents and state](#incidents-and-state). |
 | `condition` | One of the conditions below. |
 | `severity` | `warning` or `critical`. |
@@ -729,6 +827,21 @@ The URL must be `https` and carry no `#fragment`: the link appends
 anchor.
 
 ## Check it
+
+Send one test notification to a receiver, of either type, before a real alert
+depends on it:
+
+```bash
+olf infra alerts test on-call -f openlakeforge.yaml
+```
+
+It runs the evaluator once as a Job made from the deployed CronJob, so the
+image, credentials, network policy and CA bundle are those of a real alert,
+and sends `event: test` to that receiver alone. It prints the receiver's answer
+and its log lines, deletes the Job and exits 0 only when the notification was
+delivered. `--stage <stage>` picks the stage the notification names, from the
+receiver's `stages`. It reads and writes no alert state, so it opens no
+incident. Without a deployed receiver it says so and names `olf infra deploy`.
 
 The health routes do not depend on receivers: with none declared,
 `GET /api/v1/stages/{stage}/health` still reports a failed run as `critical`.

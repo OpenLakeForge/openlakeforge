@@ -1,17 +1,21 @@
-"""`olf infra alerts bind|bindings` -- write and report alert receiver webhook URLs (#1425)."""
+"""`olf infra alerts bind|bindings|test`: bind receiver webhook URLs (#1425) and prove a receiver works (#1431)."""
 
 from __future__ import annotations
 
+import json
 import os
+import time
+import uuid
 from pathlib import Path
+from typing import Any
 
 import typer
 
 from olf.common.log import fail
 from olf.infra.commands.source import _stdin_is_tty
-from olf.infra.deployment.source_bind import SourceBindingError, StageCluster
+from olf.infra.deployment.source_bind import SourceBindingError, StageCluster, apply_manifest
 
-app = typer.Typer(help="Bind alert receivers' webhook URLs in the shared namespace.")
+app = typer.Typer(help="Bind alert receivers' webhook URLs in the shared namespace, and test a receiver.")
 
 _PROFILE = typer.Option(..., "--file", "-f", help="Deployment Profile v1 path.")
 
@@ -126,3 +130,143 @@ def bind(
     except SourceBindingError as exc:
         raise typer.Exit(code=fail(str(exc))) from exc
     typer.echo(line)
+
+
+_TEST_TIMEOUT_SECONDS = 180
+_POLL_SECONDS = 3
+
+
+def _heard_stages(receiver, context) -> list[str]:  # noqa: ANN001
+    """The stages a receiver hears about: its `stages`, or every enabled stage when it names none."""
+    return [str(stage) for stage in (receiver.stages or context.enabled_stages)]
+
+
+def _outcome(logs: str) -> dict[str, object] | None:
+    """The evaluator's one JSON result line, if it got as far as printing it."""
+    for line in reversed(logs.splitlines()):
+        if line.startswith("{"):
+            try:
+                found = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(found, dict) and "status" in found:
+                return found
+    return None
+
+
+def _stuck_pods(cluster: StageCluster, job: str, scope: dict[str, Any]) -> list[str]:
+    """What the Job's pods are doing and what Kubernetes said about them, read before the Job is deleted."""
+    pods = cluster.kubectl.get(
+        "pods", namespace=cluster.namespace, output="json", extra_args=["-l", f"job-name={job}"], check=False, **scope
+    )
+    try:
+        items = json.loads(pods.stdout).get("items", [])
+    except ValueError:
+        items = []
+    if not items:
+        return ["no pod was created for the Job"]
+    lines = []
+    for pod in items:
+        name = pod["metadata"]["name"]
+        status = pod.get("status", {})
+        waiting = [
+            f"{c.get('name')}: {c['state']['waiting'].get('reason')}"
+            for c in status.get("containerStatuses", [])
+            if c.get("state", {}).get("waiting")
+        ]
+        lines.append(f"pod {name}: {status.get('phase', 'Unknown')}" + (f" ({'; '.join(waiting)})" if waiting else ""))
+        events = cluster.kubectl.get(
+            "events",
+            namespace=cluster.namespace,
+            extra_args=["--field-selector", f"involvedObject.name={name}"],
+            check=False,
+            **scope,
+        )
+        lines += [f"  {line}" for line in events.stdout.splitlines()[-6:] if line.strip()]
+    return lines
+
+
+@app.command("test")
+def send_test(
+    receiver_name: str = typer.Argument(..., metavar="RECEIVER", help="Receiver name, as in the profile."),
+    profile_file: str = _PROFILE,
+    stage: str | None = typer.Option(
+        None, "--stage", help="Stage the notification names. Default: the first enabled stage the receiver hears."
+    ),
+) -> None:
+    """Send one test notification through the deployed evaluator and report what the receiver answered.
+
+    It runs the evaluator as a one-off Job made from its CronJob, so the image, credentials, network policy and CA
+    bundle are the ones a real alert uses. The notification carries `event: test`; a GitHub Discussions receiver
+    opens a discussion and closes it. No alert state is read or written. Exits non-zero unless it was delivered.
+    """
+    from olf.infra.deployment.alert_job import EVALUATOR, evaluator_job, job_outcome
+
+    try:
+        context = _context(profile_file)
+        receivers = context.topology.observability.alert_receivers
+        receiver = next((candidate for candidate in receivers if candidate.name == receiver_name), None)
+        if receiver is None:
+            known = ", ".join(sorted(candidate.name for candidate in receivers)) or "(none)"
+            raise SourceBindingError(f"unknown alert receiver {receiver_name!r}; the profile declares: {known}.")
+        heard = _heard_stages(receiver, context)
+        if stage is None:
+            if not heard:
+                raise SourceBindingError(f"receiver {receiver_name!r} hears about no enabled stage")
+            stage = heard[0]
+        elif stage not in heard:
+            raise SourceBindingError(
+                f"receiver {receiver_name!r} does not hear about stage {stage!r}; it hears: {', '.join(heard)}."
+            )
+        cluster = _cluster(context)
+        scope: dict[str, Any] = {"context": cluster.context, "kubeconfig": cluster.kubeconfig, "env": cluster.env}
+        found = cluster.kubectl.get(
+            "cronjob", name=EVALUATOR, namespace=cluster.namespace, output="json", check=False, **scope
+        )
+        if found.returncode != 0:
+            if "NotFound" in found.stderr:
+                raise SourceBindingError(
+                    "no alert receivers are deployed; declare one and run `olf infra deploy`"
+                )
+            raise SourceBindingError(f"could not read the {EVALUATOR} CronJob: {found.stderr.strip()}")
+        name = f"alert-test-{uuid.uuid4().hex[:8]}"
+        job = evaluator_job(
+            json.loads(found.stdout), name, ["--test-receiver", receiver_name, "--test-stage", stage]
+        )
+        # A failed send must not be retried: every retry would be another discussion.
+        job["spec"]["backoffLimit"] = 0
+        apply_manifest(cluster, json.dumps(job), "Job", name)
+    except SourceBindingError as exc:
+        raise typer.Exit(code=fail(str(exc))) from exc
+
+    typer.echo(f"Sending a test notification to receiver {receiver_name} (stage {stage}) ...")
+    try:
+        deadline = time.monotonic() + _TEST_TIMEOUT_SECONDS
+        while (
+            outcome := job_outcome(
+                json.loads(
+                    cluster.kubectl.get("job", name=name, namespace=cluster.namespace, output="json", **scope).stdout
+                )
+            )
+        ) is None:
+            if time.monotonic() >= deadline:
+                for line in _stuck_pods(cluster, name, scope):
+                    typer.echo(f"  {line}")
+                raise typer.Exit(code=fail(f"the test Job {name} did not finish in {_TEST_TIMEOUT_SECONDS} seconds"))
+            time.sleep(_POLL_SECONDS)
+        logs = cluster.kubectl.logs(f"job/{name}", namespace=cluster.namespace, check=False, **scope).stdout
+    finally:
+        cluster.kubectl.delete("job", name, namespace=cluster.namespace, extra_args=["--wait=false"], **scope)
+
+    result = _outcome(logs)
+    lines = [line for line in logs.splitlines() if receiver_name in line and not line.startswith("{")]
+    # The evaluator names the receiver on every send line; a refusal before the send (settings, unknown receiver)
+    # does not, so without a result the whole log is the explanation.
+    for line in lines if result else logs.splitlines()[-10:]:
+        typer.echo(f"  {line}")
+    if result is None:
+        raise typer.Exit(code=fail(f"the test Job {outcome} without reporting a result for receiver {receiver_name}"))
+    http = f"HTTP {result['http_status']}, " if result.get("http_status") else ""
+    typer.echo(f"receiver {receiver_name}: {result['status']} ({http}{result.get('attempts')} attempt(s))")
+    if result["status"] != "delivered":
+        raise typer.Exit(code=3)

@@ -153,6 +153,20 @@ class Kubectl:
         args.extend(extra_args)
         return self._run(args, context=context, kubeconfig=kubeconfig, env=env)
 
+    def logs(
+        self,
+        resource: str,
+        *,
+        namespace: str,
+        context: str | None = None,
+        kubeconfig: Path | None = None,
+        env: Mapping[str, str] | None = None,
+        check: bool = True,
+    ) -> CommandResult:
+        return self._run(
+            ["logs", resource, "-n", namespace], context=context, kubeconfig=kubeconfig, env=env, check=check
+        )
+
     def exec(
         self,
         pod: str,
