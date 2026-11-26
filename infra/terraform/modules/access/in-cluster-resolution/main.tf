@@ -23,7 +23,17 @@ locals {
 # https://auth.<base_domain> (token and JWKS back-channels) would never reach
 # Traefik. The rewrite sends <base_domain> and every name under it to the
 # Traefik Service, so the URL, its certificate and the token `iss` are the
-# ones a browser sees. Everything else keeps the stock kubeadm Corefile.
+# ones a browser sees.
+#
+# A pod's resolv.conf ends with the host's own search domains (kind copies the
+# Docker host's, e.g. `home` on a home router), so a short or cluster-local
+# name such as dex.olf-system.svc.cluster.local is also asked as
+# dex.olf-system.svc.cluster.local.home. CoreDNS would forward that to the host's
+# resolver, and a slow or silent one stalls every such lookup: a Dex token
+# refresh then outlasts oauth2-proxy's wait and the session is dropped. No name
+# under cluster.local carries another suffix, so the template answers those
+# NXDOMAIN at once and the resolver moves on to the real name. Everything else
+# keeps the stock kubeadm Corefile.
 #
 # Owns the whole Corefile key and removes it on destroy; platform teardown
 # (deployment/local/teardown.py) restores the stock Corefile afterwards.
@@ -46,6 +56,11 @@ resource "kubernetes_config_map_v1_data" "corefile" {
           rewrite stop {
              name regex ^(.+\.)?${local.escaped_domain}\.$ ${local.ingress_fqdn}
              answer auto
+          }
+          template ANY ANY {
+             match \.cluster\.local\.[^.]+.*$
+             rcode NXDOMAIN
+             fallthrough
           }
           kubernetes cluster.local in-addr.arpa ip6.arpa {
              pods insecure
