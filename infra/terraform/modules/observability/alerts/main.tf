@@ -12,25 +12,42 @@ locals {
   token_dir = "/var/run/secrets/openlakeforge/platform-api"
 
   # Named by position: receiver names allow '-', which an environment variable
-  # name does not, and two names could otherwise map to one variable.
-  receiver_envs = {
-    for index, receiver in var.receivers : "OPENLAKEFORGE_ALERT_RECEIVER_${index}" => receiver
-  }
+  # name does not, and two names could otherwise map to one variable. A webhook
+  # holds one variable (its URL); a github-discussions receiver two (the App's
+  # id and private key), whose Secret keys are fixed by `olf infra github connect`.
+  receiver_prefix = { for index, receiver in var.receivers : receiver.name => "OPENLAKEFORGE_ALERT_RECEIVER_${index}" }
 
-  # The URL is the credential (ADR 0023, decision 4), so this file names the
-  # variable that holds it and never the value.
+  # Environment variable name => the Secret and key it is read from.
+  secret_envs = merge(
+    { for receiver in var.receivers : local.receiver_prefix[receiver.name] => { name = receiver.secret_name, key = receiver.secret_key } if receiver.type == "webhook" },
+    { for receiver in var.receivers : "${local.receiver_prefix[receiver.name]}_APP_ID" => { name = receiver.secret_name, key = "app-id" } if receiver.type == "github-discussions" },
+    { for receiver in var.receivers : "${local.receiver_prefix[receiver.name]}_PRIVATE_KEY" => { name = receiver.secret_name, key = "private-key" } if receiver.type == "github-discussions" },
+  )
+
+  # The URL and the App's private key are credentials (ADR 0023, decision 4),
+  # so this file names the variables that hold them and never a value.
   settings = {
     stages               = var.stages
     dagster_graphql_urls = var.dagster_graphql_urls
     state_base_uri       = var.state_base_uri
     quality_manifests    = var.quality_manifests
     receivers = [
-      for env, receiver in local.receiver_envs : {
-        name     = receiver.name
-        url_env  = env
-        stages   = receiver.stages
-        platform = receiver.platform
-      }
+      for receiver in var.receivers : merge(
+        {
+          name     = receiver.name
+          type     = receiver.type
+          stages   = receiver.stages
+          platform = receiver.platform
+        },
+        { for key, value in { url_env = local.receiver_prefix[receiver.name] } : key => value if receiver.type == "webhook" },
+        { for key, value in {
+          repository      = receiver.repository
+          category        = receiver.category
+          api_url         = receiver.api_url
+          app_id_env      = "${local.receiver_prefix[receiver.name]}_APP_ID"
+          private_key_env = "${local.receiver_prefix[receiver.name]}_PRIVATE_KEY"
+        } : key => value if receiver.type == "github-discussions" },
+      )
     ]
     links = {
       dagster_scheme        = var.dagster_scheme
@@ -158,13 +175,13 @@ resource "kubernetes_cron_job_v1" "evaluator" {
                 value = "/tmp"
               }
               dynamic "env" {
-                for_each = local.receiver_envs
+                for_each = local.secret_envs
                 content {
                   name = env.key
                   value_from {
                     secret_key_ref {
-                      name = env.value.secret_name
-                      key  = env.value.secret_key
+                      name = env.value.name
+                      key  = env.value.key
                     }
                   }
                 }

@@ -52,6 +52,7 @@ from olf.infra.commands import (
     smoke,
     superset,
 )
+from olf.infra.commands import alerts as infra_alerts
 from olf.infra.commands import contracts as infra_contracts
 from olf.infra.commands import diagnostics as infra_diagnostics
 from olf.infra.commands import images as infra_images
@@ -177,6 +178,7 @@ _infra_group(infra_project.app, "project", common=project.app)
 _infra_group(platform.app, "platform")
 # Born after the 2b move: there is no pre-2b top-level path to alias.
 infra_app.add_typer(infra_source.app, name="source")
+infra_app.add_typer(infra_alerts.app, name="alerts")
 infra_app.add_typer(infra_maintenance.app, name="maintenance")
 
 _infra_command("deploy", deployment.deploy)

@@ -391,10 +391,49 @@ no running component yet.
 | `alerts.platform_receivers` | list of receiver names | every receiver | The receivers told about platform conditions: a stage whose Dagster cannot be read (`stage_unreadable`), an alert policy the evaluator cannot use (`policy_unreadable`), a degraded platform service (`service_degraded`) and a platform API the evaluator cannot read (`health_unreadable`). A project's `alerts.yml` cannot route these. Each name must be a declared receiver; the list is non-empty and has no repeats. |
 
 A receiver takes `name` (lowercase, same pattern as `metadata.name`, unique in
-the list), `type` (only `webhook` today: a generic HTTPS endpoint; `email` and `slack` are rejected until they exist) and `secret_ref`, all
-required. `secret_ref` takes `name` and `key`, both required: the Kubernetes
-Secret (created out-of-band) and the data key that hold the receiver's
-credential. A credential written inline is rejected as an unknown field.
+the list) and `type`, both required. The types are `webhook`, a generic HTTPS
+endpoint, and `github-discussions`, a repository's Discussions; `email` and
+`slack` are rejected until they exist. The other required fields depend on the
+type:
+
+| Type | Required | Rejected |
+| --- | --- | --- |
+| `webhook` | `secret_ref` | `repository`, `category` |
+| `github-discussions` | `repository`, `category` | `secret_ref` |
+
+`secret_ref` takes `name` and `key`, both required: the Kubernetes Secret
+(created out-of-band) and the data key that hold the receiver's credential. A
+credential written inline is rejected as an unknown field.
+
+`repository` is `owner/name` (letters, digits and `-` in the owner; letters,
+digits, `.`, `_` and `-` in the name) and `category` is the name of a
+Discussions category in it. A `github-discussions` receiver holds no
+credential of its own: it posts as the GitHub App whose credentials sit in the
+Secret `spec.identity.github.oauth_app_secret_ref` names (keys `app-id` and
+`private-key`), so the profile must set `spec.identity.issuer: github` and the
+App must be installed on the repository's owner with the Discussions
+permission ([Connect GitHub](../guides/identity/connect-github.md)).
+
+`olf infra alerts bind` has nothing to bind for a `github-discussions` receiver.
+
+```yaml
+identity:
+  issuer: github
+  github:
+    organization: my-org
+    teams:
+      platform-admin: [olf-admins]
+    oauth_app_secret_ref:
+      name: github-oauth-app
+observability:
+  alerts:
+    receivers:
+      - name: team-discussions
+        type: github-discussions
+        repository: my-org/olf-alerts
+        category: Alerts
+        stages: [dev, prod]
+```
 
 A receiver may also take `stages`, a non-empty list of stage names without
 repeats (`dev`, `uat`, `prod`), each of which must be enabled in `spec.stages`.

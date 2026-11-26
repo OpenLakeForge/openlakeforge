@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from olf.common.deployment.context import (
@@ -11,6 +12,9 @@ from olf.common.deployment.context import (
 from olf.common.profile import (
     AlertReceiver,
     DeploymentProfile,
+    GitHubOAuthRef,
+    GitHubSpec,
+    IdentitySpec,
     ObservabilitySpec,
     Preset,
     Provider,
@@ -109,3 +113,43 @@ def test_only_the_named_receivers_are_marked_for_platform_conditions(tmp_path: P
 
 def test_no_receivers_emit_no_secret_variable(tmp_path: Path) -> None:
     assert alert_receiver_secrets_variables(_receiver_context(tmp_path, ())) == {}
+
+
+def _github_context(tmp_path: Path, receivers: tuple[AlertReceiver, ...], host: str | None = None) -> DeploymentContext:
+    context = _receiver_context(tmp_path, receivers)
+    github = GitHubSpec(
+        organization="my-org",
+        teams={"platform-admin": ("olf-admins",)},
+        oauth_app_secret_ref=GitHubOAuthRef(name="github-app"),
+        host=host,
+    )
+    topology = replace(context.topology, identity=IdentitySpec(issuer="github", github=github))
+    return replace(context, topology=topology)
+
+
+def test_a_github_discussions_receiver_carries_the_app_secret_name_and_its_destination(tmp_path: Path) -> None:
+    receivers = (
+        AlertReceiver(name="ops", type="webhook", secret_ref=SecretRef(name="ops-webhook", key="webhook-url")),
+        AlertReceiver(name="team", type="github-discussions", repository="my-org/olf-alerts", category="Alerts"),
+    )
+
+    variables = alert_receiver_secrets_variables(_github_context(tmp_path, receivers))
+
+    assert json.loads(variables["alert_receiver_secrets"]) == {
+        "ops": {"secret_name": "ops-webhook", "key": "webhook-url", "platform": True},
+        "team": {
+            "secret_name": "github-app",
+            "repository": "my-org/olf-alerts",
+            "category": "Alerts",
+            "api_url": "https://api.github.com",
+            "platform": True,
+        },
+    }
+
+
+def test_a_github_enterprise_host_selects_its_api_url(tmp_path: Path) -> None:
+    receivers = (AlertReceiver(name="team", type="github-discussions", repository="o/r", category="Alerts"),)
+
+    variables = alert_receiver_secrets_variables(_github_context(tmp_path, receivers, host="ghe.example.com"))
+
+    assert json.loads(variables["alert_receiver_secrets"])["team"]["api_url"] == "https://ghe.example.com/api/v3"

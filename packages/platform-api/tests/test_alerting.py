@@ -910,3 +910,210 @@ def test_the_platform_api_url_and_its_token_file_come_together() -> None:
     ):
         with pytest.raises(SettingsError):
             EvaluatorSettings.from_mapping({**settings_mapping(), **broken})
+
+
+_GITHUB_RECEIVER = {
+    "name": "team",
+    "type": "github-discussions",
+    "repository": "my-org/olf-alerts",
+    "category": "Alerts",
+    "api_url": "https://api.github.com",
+    "app_id_env": "TEAM_APP_ID",
+    "private_key_env": "TEAM_PRIVATE_KEY",
+}
+
+
+def test_a_receiver_without_a_type_is_a_webhook() -> None:
+    parsed = EvaluatorSettings.from_mapping(settings_mapping())
+
+    assert [(r.name, r.type, r.url_env) for r in parsed.receivers] == [("ops", "webhook", "OPS_URL")]
+
+
+def test_a_github_discussions_receiver_is_parsed_with_its_destination_and_variables() -> None:
+    parsed = EvaluatorSettings.from_mapping({**settings_mapping(), "receivers": [_GITHUB_RECEIVER]})
+
+    receiver = parsed.receivers[0]
+    assert (receiver.type, receiver.repository, receiver.category, receiver.api_url) == (
+        "github-discussions",
+        "my-org/olf-alerts",
+        "Alerts",
+        "https://api.github.com",
+    )
+    assert (receiver.app_id_env, receiver.private_key_env) == ("TEAM_APP_ID", "TEAM_PRIVATE_KEY")
+
+
+@pytest.mark.parametrize(
+    "receiver",
+    [
+        {"name": "ops", "type": "email", "url_env": "X"},
+        {"name": "ops", "type": "webhook"},
+        {**_GITHUB_RECEIVER, "repository": ""},
+        {**_GITHUB_RECEIVER, "private_key_env": ""},
+    ],
+)
+def test_settings_refuse_a_receiver_that_lacks_what_its_type_needs(receiver: dict[str, Any]) -> None:
+    with pytest.raises(SettingsError, match="receiver 'ops'|receiver 'team'"):
+        EvaluatorSettings.from_mapping({**settings_mapping(), "receivers": [receiver]})
+
+
+def _notifiers_for(*receivers: dict[str, Any]) -> dict[str, Any]:
+    return entrypoint._notifiers(EvaluatorSettings.from_mapping({**settings_mapping(), "receivers": list(receivers)}))
+
+
+def test_each_receiver_type_gets_its_own_notifier(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPS_URL", "https://hooks.example.test/ops")
+    monkeypatch.setenv("TEAM_APP_ID", "12345")
+    monkeypatch.setenv("TEAM_PRIVATE_KEY", "not-a-real-key")
+
+    notifiers = _notifiers_for({"name": "ops", "url_env": "OPS_URL"}, _GITHUB_RECEIVER)
+
+    assert {name: type(notifier).__name__ for name, notifier in notifiers.items()} == {
+        "ops": "WebhookNotifier",
+        "team": "GitHubDiscussionsNotifier",
+    }
+
+
+@pytest.mark.parametrize("missing", ["TEAM_APP_ID", "TEAM_PRIVATE_KEY"])
+def test_a_missing_github_variable_names_the_receiver_and_variable_not_a_value(
+    monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    monkeypatch.setenv("TEAM_APP_ID", "12345")
+    monkeypatch.setenv("TEAM_PRIVATE_KEY", "secret-key-material")
+    monkeypatch.delenv(missing)
+
+    with pytest.raises(SettingsError) as error:
+        _notifiers_for(_GITHUB_RECEIVER)
+
+    assert f"receiver 'team': {missing} is not set" in str(error.value)
+    assert "secret-key-material" not in str(error.value)
+
+
+def test_a_missing_webhook_variable_still_names_the_receiver(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPS_URL", raising=False)
+
+    with pytest.raises(SettingsError, match="receiver 'ops': OPS_URL is not set"):
+        _notifiers_for({"name": "ops", "url_env": "OPS_URL"})
+
+
+def test_a_github_receiver_the_notifier_refuses_is_a_settings_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEAM_APP_ID", "12345")
+    monkeypatch.setenv("TEAM_PRIVATE_KEY", "k")
+
+    with pytest.raises(SettingsError, match="repository must be owner/name"):
+        _notifiers_for({**_GITHUB_RECEIVER, "repository": "no-slash"})
+
+
+class _RecordingNotifier:
+    def __init__(self, result: DeliveryResult) -> None:
+        self.result = result
+        self.sent: list[tuple[dict[str, Any], str]] = []
+
+    def send(self, payload: Mapping[str, Any], *, delivery_id: str) -> DeliveryResult:
+        self.sent.append((dict(payload), delivery_id))
+        return self.result
+
+
+def _test_send(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    result: DeliveryResult,
+    *flags: str,
+    mapping: dict[str, Any] | None = None,
+) -> tuple[int, _RecordingNotifier, str]:
+    notifier = _RecordingNotifier(result)
+
+    def untouched(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("a test send must not read or write state, history or Dagster")
+
+    for name in ("_object_store", "_quality_readers", "_health_reader", "run_once", "AlertStore", "DagsterClient"):
+        monkeypatch.setattr(entrypoint, name, untouched)
+    monkeypatch.setattr(entrypoint, "_notifier", lambda receiver, ca_file: notifier)
+    path = tmp_path / "alerts.json"
+    path.write_text(json.dumps(mapping or settings_mapping()))
+    code = entrypoint.main(["--settings", str(path), *flags])
+    return code, notifier, capsys.readouterr().out
+
+
+def test_a_test_send_posts_one_synthetic_payload_and_touches_no_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, notifier, out = _test_send(
+        monkeypatch, tmp_path, capsys, DeliveryResult("delivered", 201, 1), "--test-receiver", "ops"
+    )
+
+    assert code == 0
+    assert json.loads(out) == {"receiver": "ops", "status": "delivered", "http_status": 201, "attempts": 1}
+    (payload, delivery_id), = notifier.sent
+    assert payload["schema"] == "openlakeforge.alert.v1"
+    assert (payload["event"], payload["stage"], payload["summary"]) == ("test", "dev", "OpenLakeForge alert test")
+    assert payload["incident_id"].startswith("test-")
+    assert delivery_id == f"{payload['incident_id']}:test"
+
+
+@pytest.mark.parametrize(
+    ("result", "code"),
+    [
+        (DeliveryResult("rejected", 403, 1), 3),
+        (DeliveryResult("retryable", 503, 3), 3),
+        (DeliveryResult("delivered", 200, 1), 0),
+    ],
+)
+def test_a_test_send_exits_zero_only_when_delivered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], result: DeliveryResult, code: int
+) -> None:
+    exit_code, _, out = _test_send(monkeypatch, tmp_path, capsys, result, "--test-receiver", "ops")
+
+    assert exit_code == code
+    assert json.loads(out)["status"] == result.status
+
+
+def test_a_test_send_defaults_to_the_first_stage_the_receiver_hears_and_takes_an_explicit_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mapping = {
+        **settings_mapping(),
+        "stages": ["dev", "prod"],
+        "dagster_graphql_urls": {"dev": "http://d/graphql", "prod": "http://p/graphql"},
+        "receivers": [{"name": "ops", "url_env": "OPS_URL", "stages": ["prod"]}],
+    }
+    ok = DeliveryResult("delivered", 200, 1)
+
+    _, notifier, _ = _test_send(monkeypatch, tmp_path, capsys, ok, "--test-receiver", "ops", mapping=mapping)
+    assert notifier.sent[0][0]["stage"] == "prod"
+
+    code, notifier, _ = _test_send(
+        monkeypatch, tmp_path, capsys, ok, "--test-receiver", "ops", "--test-stage", "dev", mapping=mapping
+    )
+    assert code == 2 and notifier.sent == []
+
+
+def test_a_test_send_to_an_unknown_receiver_exits_two_naming_the_declared_ones(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    code, notifier, out = _test_send(
+        monkeypatch, tmp_path, capsys, DeliveryResult("delivered", 200, 1), "--test-receiver", "nope"
+    )
+
+    assert code == 2 and notifier.sent == [] and out == ""
+    assert "unknown receiver 'nope'" in caplog.text and "ops" in caplog.text
+
+
+def test_two_tests_in_one_second_do_not_share_a_delivery_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ok = DeliveryResult("delivered", 200, 1)
+    _, first, _ = _test_send(monkeypatch, tmp_path, capsys, ok, "--test-receiver", "ops")
+    _, second, _ = _test_send(monkeypatch, tmp_path, capsys, ok, "--test-receiver", "ops")
+
+    assert first.sent[0][1] != second.sent[0][1]
+
+
+def test_an_empty_test_receiver_is_refused_not_run_as_an_evaluation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, notifier, out = _test_send(
+        monkeypatch, tmp_path, capsys, DeliveryResult("delivered", 200, 1), "--test-receiver", ""
+    )
+
+    assert code == 2 and notifier.sent == [] and out == ""

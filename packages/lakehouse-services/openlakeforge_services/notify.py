@@ -79,6 +79,12 @@ def _random_jitter(ceiling: float) -> float:
     return random.uniform(0.0, ceiling)
 
 
+def backoff_wait(attempt: int, retry_after: float, jitter: Callable[[float], float] = _random_jitter) -> float:
+    """Seconds to wait after failed `attempt` (1-based): jittered exponential backoff, or `retry_after` if longer."""
+    ceiling = min(BACKOFF_BASE_SECONDS * 2 ** (attempt - 1), BACKOFF_MAX_SECONDS)
+    return max(ceiling / 2 + jitter(ceiling / 2), retry_after)
+
+
 @dataclass(frozen=True)
 class WebhookNotifier:
     name: str
@@ -139,8 +145,7 @@ class WebhookNotifier:
         return result
 
     def _wait(self, attempt: int, retry_after: float) -> float:
-        ceiling = min(BACKOFF_BASE_SECONDS * 2 ** (attempt - 1), BACKOFF_MAX_SECONDS)
-        return max(ceiling / 2 + self.jitter(ceiling / 2), retry_after)
+        return backoff_wait(attempt, retry_after, self.jitter)
 
 
 def _retry_after(response: requests.Response, now: Callable[[], datetime] = lambda: datetime.now(UTC)) -> float:

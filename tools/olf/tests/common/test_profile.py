@@ -1261,13 +1261,168 @@ def test_the_removed_archive_enabled_field_fails_with_its_path(enabled: bool) ->
 
 
 @pytest.mark.parametrize("receiver_type", ["email", "slack"])
-def test_only_webhook_receivers_exist(receiver_type: str) -> None:
+def test_unknown_receiver_types_are_rejected(receiver_type: str) -> None:
     document = _observability_document(alerts={"receivers": [{**_RECEIVER, "type": receiver_type}]})
 
     with pytest.raises(DeploymentProfileError) as exc:
         validate_deployment_profile(document)
 
-    assert "spec.observability.alerts.receivers[0].type must be one of ['webhook']" in str(exc.value)
+    assert (
+        "spec.observability.alerts.receivers[0].type must be one of ['webhook', 'github-discussions']"
+        in str(exc.value)
+    )
+
+
+_DISCUSSIONS = {
+    "name": "team",
+    "type": "github-discussions",
+    "repository": "my-org/olf-alerts",
+    "category": "Alerts",
+}
+
+
+def _discussions_document(*, github: bool = True, **receiver: object) -> dict:
+    document = _observability_document(alerts={"receivers": [{**_DISCUSSIONS, **receiver}]})
+    if github:
+        document["spec"]["access"] = {}
+        document["spec"]["identity"] = _github_identity()
+    return document
+
+
+def test_a_github_discussions_receiver_resolves_without_a_secret_reference() -> None:
+    receiver = _resolved_observability(_discussions_document(stages=["dev"]))["alerts"]["receivers"][0]
+
+    assert receiver == {**_DISCUSSIONS, "stages": ["dev"]}
+
+
+def test_a_github_discussions_receiver_without_stages_resolves_to_every_enabled_stage() -> None:
+    receiver = _resolved_observability(_discussions_document())["alerts"]["receivers"][0]
+
+    assert receiver["stages"] == ["dev"]
+
+
+@pytest.mark.parametrize(
+    ("receiver", "path"),
+    [
+        ({"repository": None}, "alerts.receivers[0]: missing required field 'repository'"),
+        ({"category": None}, "alerts.receivers[0]: missing required field 'category'"),
+        ({"repository": "my-org"}, "alerts.receivers[0].repository"),
+        ({"repository": "my-org/a/b"}, "alerts.receivers[0].repository"),
+        ({"repository": "my org/alerts"}, "alerts.receivers[0].repository"),
+        ({"repository": 7}, "alerts.receivers[0].repository"),
+        ({"category": ""}, "alerts.receivers[0].category"),
+        ({"category": "  "}, "alerts.receivers[0].category"),
+        ({"category": 7}, "alerts.receivers[0].category"),
+        ({"secret_ref": {"name": "a", "key": "k"}}, "alerts.receivers[0].secret_ref is not allowed"),
+        ({"url": "https://example.test"}, "alerts.receivers[0]"),
+    ],
+)
+def test_an_invalid_github_discussions_receiver_fails_with_the_offending_path(receiver: dict, path: str) -> None:
+    document = _discussions_document()
+    # None drops the field, so the cases cover a field that is missing as well as one that is wrong.
+    entry = {**_DISCUSSIONS, **receiver}
+    document["spec"]["observability"]["alerts"]["receivers"] = [
+        {key: value for key, value in entry.items() if value is not None}
+    ]
+
+    with pytest.raises(DeploymentProfileError) as exc:
+        validate_deployment_profile(document)
+
+    assert path in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "receiver",
+    [
+        {},
+        {"stages": ["dev"]},
+        {"category": "Alerts "},
+        {"repository": "my-org/olf.alerts_2"},
+        {"secret_ref": {"name": "a", "key": "k"}},
+        {"repository": None},
+        {"category": None},
+        {"category": ""},
+        {"repository": "my-org"},
+        {"repository": "my-org/a/b"},
+        {"url": "https://example.test"},
+    ],
+)
+def test_the_schema_agrees_with_the_parser_on_github_discussions_receivers(receiver: dict, tmp_path: Path) -> None:
+    entry = {key: value for key, value in {**_DISCUSSIONS, **receiver}.items() if value is not None}
+    document = _discussions_document()
+    document["spec"]["observability"]["alerts"]["receivers"] = [entry]
+
+    try:
+        validate_deployment_profile(document)
+    except DeploymentProfileError:
+        parser_accepts = False
+    else:
+        parser_accepts = True
+
+    assert (not _schema_errors(document, tmp_path)) == parser_accepts
+
+
+def test_the_schema_rejects_receiver_fields_of_the_other_type(tmp_path: Path) -> None:
+    document = _observability_document(alerts={"receivers": [{**_RECEIVER, "repository": "o/r"}]})
+
+    assert _schema_errors(document, tmp_path)
+
+
+def test_the_schema_agrees_with_the_parser_on_the_identity_a_github_discussions_receiver_needs(
+    tmp_path: Path,
+) -> None:
+    external = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"platform-admin": ["olf-admins"]},
+    }
+    no_identity = _discussions_document(github=False)
+    wrong_issuer = _discussions_document(github=False)
+    wrong_issuer["spec"]["access"] = {}
+    wrong_issuer["spec"]["identity"] = external
+
+    for rejected in (no_identity, wrong_issuer):
+        with pytest.raises(DeploymentProfileError):
+            validate_deployment_profile(rejected)
+        assert _schema_errors(rejected, tmp_path)
+
+    valid = _discussions_document()
+    validate_deployment_profile(valid)
+    assert not _schema_errors(valid, tmp_path)
+
+
+@pytest.mark.parametrize("field", ["repository", "category"])
+def test_a_webhook_receiver_rejects_the_github_discussions_fields(field: str) -> None:
+    document = _observability_document(alerts={"receivers": [{**_RECEIVER, field: "x/y"}]})
+
+    with pytest.raises(DeploymentProfileError) as exc:
+        validate_deployment_profile(document)
+
+    assert f"alerts.receivers[0].{field} is not allowed on a 'webhook' receiver" in str(exc.value)
+
+
+def test_a_github_discussions_receiver_requires_the_github_issuer() -> None:
+    with pytest.raises(DeploymentProfileError) as exc:
+        validate_deployment_profile(_discussions_document(github=False))
+
+    message = str(exc.value)
+    assert "alerts.receivers[0] ('team')" in message
+    assert "spec.identity.issuer 'github'" in message
+
+
+def test_a_github_discussions_receiver_rejects_an_external_issuer() -> None:
+    document = _discussions_document(github=False)
+    document["spec"]["access"] = {}
+    document["spec"]["identity"] = {
+        "issuer": "external",
+        "issuer_url": "https://login.example.com/",
+        "role_claim": "groups",
+        "role_mapping": {"platform-admin": ["olf-admins"]},
+    }
+
+    with pytest.raises(DeploymentProfileError, match="requires spec.identity.issuer 'github'"):
+        validate_deployment_profile(document)
 
 
 _RECEIVER = {"name": "ops", "type": "webhook", "secret_ref": {"name": "alerts", "key": "url"}}

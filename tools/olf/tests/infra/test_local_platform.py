@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import re
 import tarfile
 from pathlib import Path
 
@@ -1237,7 +1238,96 @@ def test_a_missing_receiver_secret_or_key_fails_the_deploy_before_apply(
         )
 
     assert got == made
-    assert "kubectl -n olf-system create secret generic ops-webhook --from-literal=url=" in str(error.value)
+    assert "olf infra alerts bind ops -f <profile>" in str(error.value)
+    assert "kubectl" not in str(error.value)
+
+
+def _discussions_config(tmp_path: Path, *webhooks: tuple[str, str, str]):  # noqa: ANN202
+    from dataclasses import replace
+
+    from olf.common.profile import (
+        AlertReceiver,
+        GitHubOAuthRef,
+        GitHubSpec,
+        IdentitySpec,
+        ResolvedObservability,
+        SecretRef,
+    )
+
+    receivers = (
+        *(
+            AlertReceiver(name=name, type="webhook", secret_ref=SecretRef(name=secret, key=key))
+            for name, secret, key in webhooks
+        ),
+        AlertReceiver(name="team", type="github-discussions", repository="my-org/olf-alerts", category="Alerts"),
+    )
+    github = GitHubSpec(
+        organization="my-org",
+        teams={"platform-admin": ("olf-admins",)},
+        oauth_app_secret_ref=GitHubOAuthRef(name="github-oauth-app", client_id_key="id", client_secret_key="secret"),
+    )
+    topology = replace(
+        _topology(analytics=False),
+        identity=IdentitySpec(issuer="github", github=github),
+        observability=ResolvedObservability(
+            alert_receivers=receivers, alert_platform_receivers=tuple(r.name for r in receivers)
+        ),
+    )
+    return _config(tmp_path, topology=topology)
+
+
+def test_a_github_discussions_receiver_with_the_app_keys_passes_the_check(tmp_path: Path) -> None:
+    runner = _SecretRunner(keys="app-id\napp-slug\nprivate-key\nid\nsecret\n")
+
+    platform.require_alert_receiver_secrets(
+        _discussions_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: None
+    )
+
+
+@pytest.mark.parametrize(
+    ("runner", "cause"),
+    [
+        (_SecretRunner(keys="id\nsecret\n"), r"lacks key\(s\) \['app-id', 'private-key'\]"),
+        (_SecretRunner(keys="app-id\n"), r"lacks key\(s\) \['private-key'\]"),
+        (_SecretRunner(keys=None, stderr="NotFound"), "Secret 'github-oauth-app' is not readable"),
+    ],
+)
+def test_a_github_discussions_receiver_needs_the_github_app_secret_keys(
+    tmp_path: Path, runner: RecordingRunner, cause: str
+) -> None:
+    with pytest.raises(DeploymentPreconditionError) as error:
+        platform.require_alert_receiver_secrets(
+            _discussions_config(tmp_path), _toolkit(runner), env={}, create_namespace=lambda: None
+        )
+
+    message = str(error.value)
+    assert "receiver 'team': a github-discussions receiver needs the GitHub App" in message
+    assert re.search(cause, message)
+    assert "olf infra github connect" in message
+
+
+def test_a_webhook_secret_problem_is_reported_before_a_github_discussions_receiver(tmp_path: Path) -> None:
+    config = _discussions_config(tmp_path, ("ops", "ops-webhook", "url"))
+
+    with pytest.raises(DeploymentPreconditionError, match="olf infra alerts bind ops -f <profile>"):
+        platform.require_alert_receiver_secrets(
+            config, _toolkit(_SecretRunner(keys="app-id\nprivate-key\n")), env={}, create_namespace=lambda: None
+        )
+
+
+def test_a_github_discussions_receiver_reaches_the_secret_variable_with_the_app_secret(tmp_path: Path) -> None:
+    variables = platform.platform_apply_variables(_discussions_config(tmp_path, ("ops", "ops-webhook", "url")))
+
+    assert json.loads(variables["alert_receiver_secrets"]) == {
+        "ops": {"secret_name": "ops-webhook", "key": "url", "platform": True},
+        "team": {
+            "secret_name": "github-oauth-app",
+            "repository": "my-org/olf-alerts",
+            "category": "Alerts",
+            "api_url": "https://api.github.com",
+            "platform": True,
+        },
+    }
 
 
 def test_no_receivers_means_no_secret_check(tmp_path: Path) -> None:

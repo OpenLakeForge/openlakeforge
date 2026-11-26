@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
+from olf.common.profile import github_api_base as api_base
 from olf.common.tooling.process import DEVNULL, ProcessRunner
 
 TIMEOUT_SECONDS = 900
@@ -40,8 +41,9 @@ def build_manifest(*, name: str, callback_url: str, redirect_url: str, homepage:
         "callback_urls": [callback_url],
         "redirect_url": redirect_url,
         "public": False,
-        # members: team listing and membership for the sign-in filter; emails: Dex reads the primary address.
-        "default_permissions": {"members": "read", "emails": "read"},
+        # members: team listing and membership for the sign-in filter; emails: Dex reads the primary address;
+        # discussions: github-discussions alert receivers post as the App.
+        "default_permissions": {"members": "read", "emails": "read", "discussions": "write"},
     }
 
 
@@ -114,10 +116,6 @@ def wait_for_code(
     if "next" not in result:
         raise GitHubConnectError(f"no GitHub App was created within {int(timeout)}s; nothing was written")
     return result["next"]
-
-
-def api_base(host: str) -> str:
-    return "https://api.github.com" if host == "github.com" else f"https://{host}/api/v3"
 
 
 def convert_code(code: str, *, host: str) -> dict[str, Any]:

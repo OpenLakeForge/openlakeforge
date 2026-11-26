@@ -42,15 +42,34 @@ variable "dagster_graphql_urls" {
 }
 
 variable "receivers" {
-  description = "One entry per webhook receiver; with none, the module creates nothing (ADR 0023: the evaluator exists only with a receiver to notify). Each names, the Secret and key holding its URL, and the stages it is limited to. The Secret is created out-of-band; only its name and key are passed, and the pod gets the value through secretKeyRef."
+  description = "One entry per receiver; with none, the module creates nothing (ADR 0023: the evaluator exists only with a receiver to notify). A webhook receiver (the default type) names the Secret and key holding its URL; a github-discussions receiver names the Secret holding the GitHub App's `app-id` and `private-key` keys and the repository, category and API URL it posts to. Each is limited to its stages. The Secrets are created out-of-band; only names and keys are passed, and the pod gets the values through secretKeyRef."
   type = list(object({
-    name        = string
+    name = string
+    type = optional(string, "webhook")
+    # webhook: the Secret and key holding the URL. github-discussions: the App Secret, whose keys are fixed.
     secret_name = string
-    secret_key  = string
+    secret_key  = optional(string)
     stages      = optional(list(string), [])
     # Whether platform conditions (stage_unreadable, policy_unreadable) go to this receiver (ADR 0023, decision 11).
     platform = optional(bool, true)
+    # github-discussions only.
+    repository = optional(string)
+    category   = optional(string)
+    api_url    = optional(string)
   }))
+
+  validation {
+    condition     = alltrue([for receiver in var.receivers : contains(["webhook", "github-discussions"], receiver.type)])
+    error_message = "A receiver type is webhook or github-discussions."
+  }
+
+  validation {
+    condition = alltrue([
+      for receiver in var.receivers : receiver.type == "webhook" ? receiver.secret_key != null :
+      alltrue([for field in [receiver.repository, receiver.category, receiver.api_url] : field != null])
+    ])
+    error_message = "A webhook receiver sets secret_key; a github-discussions receiver sets repository, category and api_url."
+  }
 
   validation {
     condition     = length(distinct([for receiver in var.receivers : receiver.name])) == length(var.receivers)
