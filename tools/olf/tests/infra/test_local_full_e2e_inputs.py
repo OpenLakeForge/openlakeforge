@@ -30,6 +30,13 @@ def test_a_manual_run_defaults_to_dev_only_core_checks_without_the_optional_dril
     assert INPUTS["registry_pull_check"]["default"] is False
 
 
+def test_the_nightly_gets_the_same_time_budget_as_a_manual_run() -> None:
+    """A schedule has no inputs, so it takes the expression's fallback and not the input's default."""
+    fallback = f"inputs.timeout_minutes || {INPUTS['timeout_minutes']['default']}"
+
+    assert fallback in WORKFLOW["jobs"]["e2e"]["timeout-minutes"]
+
+
 def test_checks_can_be_skipped_entirely() -> None:
     assert "none" in INPUTS["checks"]["options"]
 
