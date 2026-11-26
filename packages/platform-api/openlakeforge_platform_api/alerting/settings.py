@@ -179,7 +179,8 @@ class EvaluatorSettings:
                 parts.scheme not in ("http", "https")
                 or not parts.netloc
                 or parts.path.strip("/")
-                or parts.query
-                or parts.fragment
+                # A bare `?` or `#` parses as no query or fragment, but `/monitoring` appended would land inside it.
+                or "?" in portal
+                or "#" in portal
             ):
                 raise SettingsError("links.portal_url must be an http or https origin, with no path, query or fragment")

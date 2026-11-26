@@ -20,6 +20,7 @@ from openlakeforge_platform_api.alerting.github_discussions import (
     delivery_marker,
     graphql_url,
     incident_marker,
+    resolved_marker,
     run_marker,
 )
 
@@ -456,6 +457,22 @@ def test_a_joined_incident_keeps_a_shared_discussion_open_however_long_the_threa
 
     assert discussion["closed"] is False
     env.notifier.send({**QUALITY, "event": "resolved"}, delivery_id="q-3")
+    assert github.by_id("D_1")["closed"] is True
+
+
+def test_a_shared_discussion_closes_when_its_first_resolution_has_scrolled_out_of_the_window(
+    github: FakeGitHub, make: Callable[..., Env]
+) -> None:
+    env = make()
+    env.notifier.send(OPENED, delivery_id="n-1")
+    env.notifier.send(QUALITY, delivery_id="q-1")
+    env.notifier.send({**QUALITY, "event": "resolved"}, delivery_id="q-3")
+    (discussion,) = github.discussions
+    assert resolved_marker("inc-q") in discussion["body"]
+    discussion["comments"] += [f"operator note {n}" for n in range(25)]
+
+    env.notifier.send(event("resolved"), delivery_id="n-3")
+
     assert github.by_id("D_1")["closed"] is True
 
 

@@ -187,6 +187,8 @@ def test_a_notification_links_the_incidents_row_in_the_portal() -> None:
         "https://lake.example.test/portal",
         "https://lake.example.test?view=alerts",
         "https://lake.example.test#top",
+        "https://lake.example.test?",
+        "https://lake.example.test#",
     ],
 )
 def test_a_portal_url_that_is_not_an_http_origin_is_refused(portal_url: str) -> None:
