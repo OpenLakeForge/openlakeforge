@@ -69,8 +69,10 @@ runs:
       # `olf infra deploy --phase platform` alone needs the cluster, which the
       # destroy removed: `platform apply` runs the foundation, the image
       # prefetch and the platform phase. Its first run stops at the missing
-      # GitHub OAuth Secret of the e2e profile (as in local-full-e2e.yml);
-      # restore replaces the placeholder with the backed-up Secret.
+      # GitHub OAuth Secret of the e2e profile (as in local-full-e2e.yml). The
+      # second refuses to run without the Secrets the profile names, so both
+      # are created as placeholders; restore replaces the OAuth one with the
+      # backed-up Secret.
       shell: bash
       run: |
         set -uo pipefail
@@ -80,6 +82,9 @@ runs:
         set -e
         kubectl --kubeconfig "${KUBECONFIG}" -n olf-system create secret generic github-oauth-app \
           --from-literal=client-id=olf-e2e --from-literal=client-secret=olf-e2e \
+          --dry-run=client -o yaml | kubectl --kubeconfig "${KUBECONFIG}" -n olf-system apply -f -
+        kubectl --kubeconfig "${KUBECONFIG}" -n olf-system create secret generic olf-e2e-alert-receiver \
+          --from-literal=webhook-url=https://olf-e2e-alert-receiver.olf-system.svc/hook \
           --dry-run=client -o yaml | kubectl --kubeconfig "${KUBECONFIG}" -n olf-system apply -f -
         olf infra platform apply -f "${DRILL_PROFILE}" 2>&1 | tee -a "${DRILL_DIR}/logs/platform.log"
 
