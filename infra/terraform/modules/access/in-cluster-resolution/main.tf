@@ -30,10 +30,12 @@ locals {
 # name such as dex.olf-system.svc.cluster.local is also asked as
 # dex.olf-system.svc.cluster.local.home. CoreDNS would forward that to the host's
 # resolver, and a slow or silent one stalls every such lookup: a Dex token
-# refresh then outlasts oauth2-proxy's wait and the session is dropped. No name
-# under cluster.local carries another suffix, so the template answers those
-# NXDOMAIN at once and the resolver moves on to the real name. Everything else
-# keeps the stock kubeadm Corefile.
+# refresh then outlasts oauth2-proxy's wait and the session is dropped. No
+# Service or Pod name carries another suffix after .svc.cluster.local or
+# .pod.cluster.local, so the template answers those NXDOMAIN at once and the
+# resolver moves on to the real name; a name that only contains cluster.local
+# earlier (a Service `cluster` in namespace `local`) is left alone. Everything
+# else keeps the stock kubeadm Corefile.
 #
 # Owns the whole Corefile key and removes it on destroy; platform teardown
 # (deployment/local/teardown.py) restores the stock Corefile afterwards.
@@ -58,7 +60,7 @@ resource "kubernetes_config_map_v1_data" "corefile" {
              answer auto
           }
           template ANY ANY {
-             match \.cluster\.local\.[^.]+.*$
+             match \.(svc|pod)\.cluster\.local\.[^.]+.*$
              rcode NXDOMAIN
              fallthrough
           }

@@ -15,8 +15,30 @@ run "a_cluster_local_name_with_a_host_search_domain_is_answered_locally" {
 
   assert {
     # Unquoted, with single backslashes: CoreDNS keeps a quoted `\\` as two characters, which never matches.
-    condition     = strcontains(kubernetes_config_map_v1_data.corefile[0].data.Corefile, "match \\.cluster\\.local\\.[^.]+.*$\n")
-    error_message = "the template matches a cluster.local name followed by another suffix"
+    condition     = strcontains(kubernetes_config_map_v1_data.corefile[0].data.Corefile, "match \\.(svc|pod)\\.cluster\\.local\\.[^.]+.*$\n")
+    error_message = "the template matches a Service or Pod name followed by another suffix"
+  }
+
+  # The rendered pattern, applied as RE2 (what CoreDNS uses) to names a pod asks for.
+  assert {
+    condition = alltrue([
+      for name in ["dex.olf-system.svc.cluster.local.home.", "10-244-0-5.olf-dev.pod.cluster.local.corp.example."] :
+      can(regex(regex("match (\\S+)\n", kubernetes_config_map_v1_data.corefile[0].data.Corefile)[0], name))
+    ])
+    error_message = "a Service or Pod name with a host search domain appended is answered locally"
+  }
+
+  assert {
+    condition = !anytrue([
+      for name in [
+        "dex.olf-system.svc.cluster.local.",
+        "pod-0.cluster.local.svc.cluster.local.",
+        "_grpc._tcp.cluster.local.svc.cluster.local.",
+        "api.github.com.",
+      ] :
+      can(regex(regex("match (\\S+)\n", kubernetes_config_map_v1_data.corefile[0].data.Corefile)[0], name))
+    ])
+    error_message = "real names, including a Service `cluster` in namespace `local`, still resolve"
   }
 
   assert {
