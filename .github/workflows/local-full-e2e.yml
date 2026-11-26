@@ -120,23 +120,22 @@ on:
         default: false
       timeout_minutes:
         description: >
-          Hard wall-clock budget for the whole job. Measured baseline for one
-          stage was 25m33s (18m15s deploy, 7m02s suite); the DEV+PROD
-          lifecycle adds a second stage's platform, one revision build/push,
-          two activations, and a second full suite -- projected at 60-90
-          minutes, plus an estimated 35 for the restore drill. 180 keeps roughly 2x headroom over that projection while
-          staying well clear of the 6-hour hard limit GitHub-hosted runners
-          enforce (a single job that cannot be split -- the kind cluster does
-          not survive a job boundary). Raise it if a real run needs more.
+          Hard wall-clock budget for the whole job. On 2026-11-24 and
+          2026-11-25 the nightly reached the restore drill after about 165
+          minutes (the DEV suite with its drills alone took 105-116), and the
+          drill took 44 on 2026-11-15. 240 covers that with about 30 minutes
+          to spare, within the 6-hour limit of a GitHub-hosted runner (the
+          job cannot be split: the kind cluster does not survive a job
+          boundary). Raise it if a real run needs more.
         type: number
-        default: 180
+        default: 240
       restore_drill:
         description: >
           'full' suite only. After every other step, back the deployment up,
           destroy the cluster, create the platform again, restore, and verify
           each stage against a baseline taken before the backup
           (.github/actions/restore-drill, docs/guides/backup-and-restore.md).
-          Estimated at 35 minutes. The nightly schedule always runs it.
+          Measured at 44 minutes. The nightly schedule always runs it.
         type: boolean
         default: false
       stage_drill:
@@ -222,7 +221,7 @@ jobs:
   e2e:
     name: Deploy and validate local stack (${{ inputs.suite || 'full' }})
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes || 180) }}
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes || 240) }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5

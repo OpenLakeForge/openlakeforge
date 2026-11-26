@@ -6,6 +6,7 @@ passphrase never appearing unmasked, and the backup directory never leaving the 
 
 from __future__ import annotations
 
+import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -38,6 +39,20 @@ def test_the_drill_captures_backs_up_destroys_rebuilds_restores_verifies_then_sc
     positions = [_first_step_running(command) for command in order]
 
     assert positions == sorted(set(positions))
+
+
+def test_the_rebuild_creates_every_secret_the_first_deploy_needed_before_applying() -> None:
+    """The destroy removes them, and `platform apply` refuses to run without the ones the profile names."""
+    deploy = next(step["run"] for step in JOB_STEPS if step.get("name", "").startswith("Apply the local platform"))
+    rebuild = DRILL_STEPS[_first_step_running("olf infra platform apply")]["run"]
+    created = re.compile(r"create secret generic (\S+)")
+    profile = yaml.safe_load((ROOT / "openlakeforge.conformance.yaml").read_text())
+    receivers = profile["spec"]["observability"]["alerts"]["receivers"]
+
+    before_the_last_apply = rebuild[: rebuild.rindex("olf infra platform apply")]
+
+    assert set(created.findall(before_the_last_apply)) == set(created.findall(deploy))
+    assert {receiver["secret_ref"]["name"] for receiver in receivers} <= set(created.findall(before_the_last_apply))
 
 
 def test_the_nightly_runs_the_drill_after_every_step_that_needs_the_cluster() -> None:
