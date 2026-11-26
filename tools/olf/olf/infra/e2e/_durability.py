@@ -12,6 +12,7 @@ to write one that holds the value of a Secret.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,10 @@ DAGSTER_RUN_LIMIT = 10_000
 OPENMETADATA_PAGE_SIZE = 1000
 SUPERSET_PAGE_SIZE = 100
 SEARCH_INDEX = "table_search_index"
+# Ops objects a running stack rewrites on a schedule, so their size can move between capture and verify with nothing
+# lost: the quality reconciler's stage summary (every 5 minutes) and the alert evaluator's state. Only their presence
+# is durable.
+REWRITTEN_IN_PLACE = re.compile(r"[^/]+/(activations/[^/]+/quality-sync/summary\.json|alerts/state/v1/[^/]+\.json)")
 
 State = dict[str, Any]
 
@@ -130,7 +135,7 @@ def differences(baseline: State, current: State) -> list[str]:
     for key, size in baseline["objects"].items():
         if key not in current["objects"]:
             found.append(f"object {key} is missing")
-        elif current["objects"][key] != size:
+        elif current["objects"][key] != size and not REWRITTEN_IN_PLACE.fullmatch(key):
             found.append(f"object {key} changed size: {size} bytes before, {current['objects'][key]} now")
     return found
 
