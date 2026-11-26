@@ -12,7 +12,7 @@ what a tagged release publishes as of the last catalog update.
 regenerate it whenever release/component-catalog.yaml changes.
 -->
 
-# OpenLakeForge 0.7.0-beta.1 compatibility matrix
+# OpenLakeForge 0.7.0-beta.2 compatibility matrix
 
 Generated from `release/component-catalog.yaml`. Every version below is the exact input pinned for this release; see [docs/reference/component-catalog.md](component-catalog.md) for the update process.
 
@@ -101,7 +101,7 @@ Terraform, Helm, kubectl, and kind are provisioned by `olf toolchain` (#127) rat
 | opensearch | `opensearchproject/opensearch:3.3.2@sha256:798cf28e226a32f5c928dd1ed9478dd3a33d2212176aad3679020088ad3afa1a` |
 | polaris | `apache/polaris:1.9.0@sha256:bc548500f5ba8e798b7f8e107ad0b8fbd5b5c6d0c5437f56c5ca101219b796d0` |
 | polaris_admin_tool | `apache/polaris-admin-tool:1.9.0@sha256:9ec2467615132f6a837b13fcbb8be23d770c0ffa5a8bb90faf8ebdf513ab14a0` |
-| portal | `ghcr.io/openlakeforge/openlakeforge-portal:0.7.4@sha256:3ef9c4ca50feeecad6c028eb1fde138d0b764194a04f5d6f83e557c5e1a35043` |
+| portal | `ghcr.io/openlakeforge/openlakeforge-portal:0.7.7@sha256:b503f7a8ed4c2108bfbd6fea8b41e424230df3691e96a0fe41a371dfef5f0bf2` |
 | postgres | `postgres:18.7-alpine@sha256:0115267ab5a509022df9319c77be365cef335adb71556c75f60f5360ee247e71` |
 | project_code_base | `python:3.12.16-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b` |
 | prometheus | `prom/prometheus:v3.13.5@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9` |

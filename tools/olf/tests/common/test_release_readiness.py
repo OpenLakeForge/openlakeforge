@@ -616,7 +616,7 @@ def test_check_actions_flags_unused_catalog_entry(tmp_path: Path) -> None:
 
 
 def test_run_release_check_passes_on_real_repo_catalog() -> None:
-    report = _readiness.run_release_check(ROOT, tag="v0.7.0-beta.1")
+    report = _readiness.run_release_check(ROOT, tag="v0.7.0-beta.2")
     assert report.ok, report.render()
 
 
