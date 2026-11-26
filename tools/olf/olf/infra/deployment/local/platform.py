@@ -819,7 +819,7 @@ def _retry_if_logging(description: str, policy: RetryPolicy):  # noqa: ANN202
 
 
 # The kubeadm Corefile the foundation's CoreDNS starts with: the same as
-# modules/access/in-cluster-resolution minus its `rewrite` line. Destroying that
+# modules/access/in-cluster-resolution minus its `rewrite` and `template` blocks. Destroying that
 # module removes the whole key, so a platform-only teardown, and a
 # platform apply that drops spec.access, put this back.
 _STOCK_COREFILE = """.:53 {
