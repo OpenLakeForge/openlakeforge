@@ -16,14 +16,38 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
-## [0.7.0-beta.2] - 2026-11-25
+## [0.7.0-beta.2] - 2026-11-26
 
-This beta redesigns the Portal's Monitoring page (Portal 0.7.6), gives Dagster's
-coloured log lines their level again and lets a platform admin read the shared
-services' archived logs through the platform API.
+This beta makes alerting easy to set up and try: `olf` binds a receiver's
+Secret and sends a test notification, and a new receiver posts to GitHub
+Discussions through the GitHub App `olf` already creates. It also redesigns the
+Portal's Monitoring page (Portal 0.7.6), gives Dagster's coloured log lines
+their level again and lets a platform admin read the shared services' archived
+logs through the platform API.
 
 ### Added
 
+- `olf infra alerts bind <receiver>` writes a webhook receiver's URL into the
+  Secret its `secret_ref` names, from a hidden prompt, `--from-env` or
+  `--from-file`, never the command line, and keeps the other keys of a shared
+  Secret. It refuses a URL that is not `https` and never prints it.
+  `olf infra alerts bindings` reports each receiver as bound or missing. A deploy
+  that misses a receiver's Secret now names `bind` instead of a `kubectl`
+  command. On a first deploy, run `olf infra deploy` first: `bind` never creates
+  the `olf-system` namespace (#1425).
+- A `github-discussions` alert receiver: `repository` and `category` in
+  `openlakeforge.yaml`, no Secret of its own, and `spec.identity.issuer: github`
+  required. It posts as the GitHub App, with a token limited to that repository
+  and `discussions: write`: one discussion per incident, opened when the
+  incident opens, commented on when it escalates, and commented on and closed
+  when it resolves. Its hidden markers count only in posts the App wrote, so a
+  comment in a public repository cannot suppress or redirect an alert. The
+  evaluator pod now holds the App's private key (#1428, #1429, #1430).
+- `olf infra alerts test <receiver> [--stage]` sends one test notification
+  through the deployed evaluator, the same image, Secrets and network path as a
+  real alert, and prints what the receiver answered. A GitHub test discussion is
+  created and closed. A webhook that filters on `event` sees the new value
+  `test` (#1431).
 - `GET /api/v1/platform/logs` reads the archive of the shared `olf-system`
   namespace (Polaris, object storage, the log collector and the alert
   evaluator), with the stage log route's filters except `product` and `run_id`.
@@ -33,6 +57,10 @@ services' archived logs through the platform API.
 
 ### Changed
 
+- The GitHub App `olf infra github connect` creates also asks for
+  `Discussions: write`. An App created earlier keeps its permissions: add
+  Discussions write in its settings and have an organization owner accept the
+  request before using a `github-discussions` receiver (#1429).
 - Portal 0.7.6 redesigns Monitoring (openlakeforge-portal#52, #54). The overview
   has four gauges (services, runs of the last day, quality checks, open
   incidents), one list of what needs attention that now includes services, and one
@@ -52,7 +80,9 @@ services' archived logs through the platform API.
 
 From 0.7.0-beta.1, upgrade `olf` and run `olf infra deploy` again: it grants the
 API's log key the platform prefix and sets the new Portal image. No data is
-moved or rewritten, and no project file changes.
+moved or rewritten, and no project file changes. Webhook receivers work as
+before. To post alerts to GitHub Discussions, see [Send alerts to GitHub
+Discussions](docs/guides/operations/alerts.md#send-alerts-to-github-discussions).
 
 ## [0.7.0-beta.1] - 2026-11-24
 
