@@ -21,7 +21,7 @@ for how a release is cut and verified.
 This beta makes alerting easy to set up and try: `olf` binds a receiver's
 Secret and sends a test notification, and a new receiver posts to GitHub
 Discussions through the GitHub App `olf` already creates. It also redesigns the
-Portal's Monitoring page (Portal 0.7.6), gives Dagster's coloured log lines
+Portal's Monitoring page (Portal 0.7.7), gives Dagster's coloured log lines
 their level again and lets a platform admin read the shared services' archived
 logs through the platform API.
 
@@ -40,9 +40,21 @@ logs through the platform API.
   required. It posts as the GitHub App, with a token limited to that repository
   and `discussions: write`: one discussion per incident, opened when the
   incident opens, commented on when it escalates, and commented on and closed
-  when it resolves. Its hidden markers count only in posts the App wrote, so a
-  comment in a public repository cannot suppress or redirect an alert. The
-  evaluator pod now holds the App's private key (#1428, #1429, #1430).
+  when it resolves. Incidents opened by the same run, such as a blocking
+  quality check and the run it failed, share one discussion, which closes once
+  all of them resolve. A post opens with one sentence (severity, product, stage
+  and what happened), then when, then links to the Portal, the Dagster run and
+  the runbook, with the raw fields folded under Details; a resolve is one line.
+  Its hidden markers count only in posts the App wrote, so a comment in a
+  public repository cannot suppress or redirect an alert. The evaluator pod now
+  holds the App's private key (#1428, #1429, #1430, #1446).
+- A notification links the incident in the Portal (`links.portal`,
+  `/monitoring?stage=<stage>&incident=<id>`), which opens its row (#1446).
+- `GET /api/v1/stages/{stage}/alerts/incidents` lists each receiver of an
+  incident's latest notification as `delivery.targets`: its name in
+  `openlakeforge.yaml`, its status (`delivered`, `rejected`, `retrying`,
+  `expired`), its attempts and, for a GitHub discussion, its URL. A webhook's
+  URL and headers are still never answered (#1446).
 - `olf infra alerts test <receiver> [--stage]` sends one test notification
   through the deployed evaluator, the same image, Secrets and network path as a
   real alert, and prints what the receiver answered. A GitHub test discussion is
@@ -61,13 +73,16 @@ logs through the platform API.
   `Discussions: write`. An App created earlier keeps its permissions: add
   Discussions write in its settings and have an organization owner accept the
   request before using a `github-discussions` receiver (#1429).
-- Portal 0.7.6 redesigns Monitoring (openlakeforge-portal#52, #54). The overview
-  has four gauges (services, runs of the last day, quality checks, open
+- Portal 0.7.7 redesigns Monitoring (openlakeforge-portal#52, #54, #56). The
+  overview has four gauges (services, runs of the last day, quality checks, open
   incidents), one list of what needs attention that now includes services, and one
   table of pipelines with their quality checks, with details on demand. Dagster
   and Trino link to their logs; a failing one opens just before its alert opened,
   or just before the last check when no alert is open. Logs is one search bar
-  with removable filters and one row per line.
+  with removable filters and one row per line. The Alerts gauge filters the list
+  to open incidents; an incident shows one line per receiver, with a link to its
+  GitHub discussion. A quality row says whether failed checks were blocking and,
+  opened, names them. A run's page keeps the Monitoring tabs.
 
 ### Fixed
 
