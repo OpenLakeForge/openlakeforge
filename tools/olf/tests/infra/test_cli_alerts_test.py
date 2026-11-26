@@ -1,4 +1,4 @@
-"""`olf infra alerts test` runs the evaluator once as a Job built from its CronJob and reports the receiver's answer (#1431).
+"""`olf infra alerts test` runs the evaluator once as a Job built from its CronJob and reports the answer (#1431).
 
 Only the cluster is faked: a runner standing in for `kubectl` that holds the CronJob, keeps the Job it is applied and
 answers its status and logs. The real `Kubectl` adapter builds the argv.
