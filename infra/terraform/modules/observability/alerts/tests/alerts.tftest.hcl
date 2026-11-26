@@ -232,6 +232,31 @@ run "a_runbook_base_reaches_the_settings" {
   }
 }
 
+run "a_portal_origin_reaches_the_settings" {
+  command = plan
+
+  variables {
+    receivers  = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" }]
+    portal_url = "https://lake.example.test"
+  }
+
+  assert {
+    condition     = jsondecode(output.settings_json).links.portal_url == "https://lake.example.test"
+    error_message = "the evaluator links incidents to the Portal at the given origin"
+  }
+}
+
+run "a_portal_url_with_a_path_is_refused" {
+  command = plan
+
+  variables {
+    receivers  = [{ name = "ops", secret_name = "ops-webhook", secret_key = "webhook-url" }]
+    portal_url = "https://lake.example.test/monitoring"
+  }
+
+  expect_failures = [var.portal_url]
+}
+
 run "without_a_runbook_base_no_link_is_configured" {
   command = plan
 

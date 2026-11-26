@@ -163,6 +163,61 @@ def test_without_a_runbook_base_a_notification_carries_no_runbook_link() -> None
     assert "runbook" not in notifier.sent[0][1]["links"]
 
 
+def test_a_notification_links_the_incidents_row_in_the_portal() -> None:
+    bucket, notifier, dagster = FakeBucket(), FakeNotifier(), {"dev": FakeDagster([_failed()])}
+
+    _evaluate(_settings(A, portal_url="https://lake.example.test/"), bucket, dagster, {"ops": notifier})
+
+    (payload,) = [p for _, p in notifier.sent]
+    assert payload["links"]["portal"] == (
+        f"https://lake.example.test/monitoring?stage=dev&incident={payload['incident_id']}"
+    )
+    # Without the Portal's origin there is no link.
+    other, bucket = FakeNotifier(), FakeBucket()
+    _evaluate(_settings(A), bucket, dagster, {"ops": other})
+    assert "portal" not in other.sent[0][1]["links"]
+
+
+@pytest.mark.parametrize(
+    "portal_url",
+    [
+        "lake.example.test",
+        "ftp://lake.example.test",
+        "https://",
+        "https://lake.example.test/portal",
+        "https://lake.example.test?view=alerts",
+        "https://lake.example.test#top",
+        "https://lake.example.test?",
+        "https://lake.example.test#",
+    ],
+)
+def test_a_portal_url_that_is_not_an_http_origin_is_refused(portal_url: str) -> None:
+    with pytest.raises(SettingsError, match="links.portal_url"):
+        _settings(A, portal_url=portal_url)
+
+
+@dataclass
+class LandingNotifier(FakeNotifier):
+    url: str = "https://github.com/acme/alerts/discussions/9"
+
+    def send(self, payload: Mapping[str, Any], *, delivery_id: str) -> DeliveryResult:
+        self.sent.append((delivery_id, dict(payload)))
+        return DeliveryResult("delivered", 200, 1, self.url)
+
+
+def test_where_a_receiver_says_a_notification_landed_is_kept_on_the_incident() -> None:
+    bucket, dagster = FakeBucket(), {"dev": FakeDagster([_failed()])}
+    landing, failing = LandingNotifier(), FakeNotifier(up=False)
+    settings = _settings(A, ReceiverSetting("chat", "CHAT_URL"))
+
+    _evaluate(settings, bucket, dagster, {"ops": landing, "chat": failing})
+
+    state = bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]
+    (entry,) = state["outbox"]
+    assert entry["urls"] == {"ops": landing.url}
+    assert entry["delivered"] == ["ops"]
+
+
 def _told(notifier: FakeNotifier) -> list[tuple[str, str, str]]:
     """(stage, condition, event) of everything sent, in order."""
     return [(p["stage"], p["condition"], p["event"]) for _, p in notifier.sent]
@@ -505,6 +560,7 @@ def test_a_rejected_delivery_is_not_resent_and_is_recorded_as_rejected() -> None
         "receivers": 1,
         "delivered": 0,
         "attempts": 1,
+        "targets": [{"receiver": "ops", "status": "rejected", "attempts": 1, "url": None}],
     }
 
 
@@ -550,6 +606,7 @@ def test_a_notification_whose_failing_receiver_is_removed_from_the_routes_is_unr
     assert len(notifier.sent) == 1
     state = bucket.under("alerts/state/v1/state.json")["alerts/state/v1/state.json"]
     assert state["outbox"] == []
+    # The receiver taken out of the routes is no longer one of its receivers, so none is listed.
     assert state["incidents"][0]["delivery"] == {
         "event": "opened",
         "outcome": "unrouted",

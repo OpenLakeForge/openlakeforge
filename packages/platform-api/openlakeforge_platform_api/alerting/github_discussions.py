@@ -1,9 +1,19 @@
 """Alert delivery to GitHub Discussions, authenticated as the organization's GitHub App.
 
 One discussion per incident: `opened` creates it, `escalated` and `resolved` comment on it, `resolved` also closes it.
-The evaluator keeps no discussion ids, so the incident's discussion is found by a hidden marker in its body, and a
-delivery already posted is recognised by a second marker. Delivery is at-least-once (ADR 0023, decision 3) and a retry
-runs the whole flow again, so every step checks the markers before it writes.
+Incidents opened by the same run share one discussion: a blocking quality check that fails a run opens `quality` and
+`run_failed` together, and the second joins the first's discussion as a comment. A shared discussion closes once every
+incident in it has resolved.
+
+The evaluator keeps no discussion ids, so an incident's discussion is found by a hidden marker in the post or comment
+that opened it, a run's by a third, and a delivery already posted is recognised by a fourth. Delivery is at-least-once
+(ADR 0023, decision 3) and a retry runs the whole flow again, so every step checks the markers before it writes.
+
+A delivered send answers the discussion's URL, which the evaluator keeps for the Portal to link.
+
+An incident that joins a discussion also has its marker added to the discussion's body, and so does each resolution in
+a shared discussion, so a long thread can neither close the discussion while one still fires nor keep it open once
+all have resolved.
 
 Known limit: the lookup reads the category's 50 newest discussions (and the last 20 comments of each). An incident
 whose discussion has been pushed out of that window gets a fresh discussion on its next event, and a delivery
@@ -19,9 +29,10 @@ logs or raises the key, a JWT, the token or a payload: rejections name the recei
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 from urllib.parse import urlsplit
 
@@ -55,12 +66,16 @@ _API_HEADERS = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version":
 _CREATE_DISCUSSION = """
 mutation($repository: ID!, $category: ID!, $title: String!, $body: String!) {
   createDiscussion(input: {repositoryId: $repository, categoryId: $category, title: $title, body: $body}) {
-    discussion { id }
+    discussion { id url }
   }
 }"""
 _ADD_COMMENT = """
 mutation($discussion: ID!, $body: String!) {
   addDiscussionComment(input: {discussionId: $discussion, body: $body}) { comment { id } }
+}"""
+_UPDATE_DISCUSSION = """
+mutation($discussion: ID!, $body: String!) {
+  updateDiscussion(input: {discussionId: $discussion, body: $body}) { discussion { id } }
 }"""
 _CLOSE_DISCUSSION = """
 mutation($discussion: ID!) {
@@ -81,6 +96,7 @@ query($owner: String!, $name: String!, $category: ID!) {{
     discussions(categoryId: $category, first: {NEWEST_DISCUSSIONS}, orderBy: {{field: CREATED_AT, direction: DESC}}) {{
       nodes {{
         id
+        url
         body
         closed
         viewerDidAuthor
@@ -121,6 +137,18 @@ def incident_marker(incident_id: str) -> str:
 
 def delivery_marker(delivery_id: str) -> str:
     return f"<!-- olf-delivery: {delivery_id} -->"
+
+
+def run_marker(stage: str, run_id: str) -> str:
+    return f"<!-- olf-run: {stage}:{run_id} -->"
+
+
+def resolved_marker(incident_id: str) -> str:
+    return f"<!-- olf-resolved: {incident_id} -->"
+
+
+_INCIDENT_IDS = re.compile(r"<!-- olf-incident: (\S+) -->")
+_RESOLVED_IDS = re.compile(r"<!-- olf-resolved: (\S+) -->")
 
 
 def graphql_url(api_url: str) -> str:
@@ -189,7 +217,7 @@ class GitHubDiscussionsNotifier:
             retry_after = 0.0
             self._last_status = None
             try:
-                self._deliver(payload, delivery_id)
+                url = self._deliver(payload, delivery_id)
             except _Rejected as rejected:
                 logger.warning("github-discussions %s: rejected: %s", self.name, rejected)
                 return DeliveryResult("rejected", rejected.http_status or self._last_status, attempt)
@@ -198,7 +226,7 @@ class GitHubDiscussionsNotifier:
                 status = failed.http_status or self._last_status
                 retry_after = failed.retry_after
             else:
-                return DeliveryResult("delivered", self._last_status, attempt)
+                return DeliveryResult("delivered", self._last_status, attempt, url)
             if attempt < MAX_ATTEMPTS:
                 wait = backoff_wait(attempt, retry_after, self._jitter)
                 if wait + _REQUEST_SECONDS > self._deadline - self._clock():
@@ -207,7 +235,8 @@ class GitHubDiscussionsNotifier:
                 self._sleep(wait)
         return DeliveryResult("retryable", status, MAX_ATTEMPTS)
 
-    def _deliver(self, payload: Mapping[str, Any], delivery_id: str) -> None:
+    def _deliver(self, payload: Mapping[str, Any], delivery_id: str) -> str | None:
+        """Post the notification; the URL of the discussion it is in."""
         event = str(payload.get("event", ""))
         incident_id = str(payload.get("incident_id", ""))
         marker = delivery_marker(delivery_id)
@@ -216,25 +245,48 @@ class GitHubDiscussionsNotifier:
 
         posted = next((d for d in recent if _carries(d, marker)), None)
         if posted is not None:
-            # A retry after a partial send: the post is there, but the close that follows it may not have happened.
-            if event in ("resolved", "test") and not posted.get("closed"):
+            # A retry after a partial send: the post is there, but the membership update or the close that follows it
+            # may not have happened.
+            if event == "opened" and incident_id:
+                self._remember(posted, incident_marker(incident_id))
+            if event == "resolved" and incident_id and len(_incidents(posted)) > 1:
+                self._remember(posted, resolved_marker(incident_id))
+            if not posted.get("closed") and (event == "test" or (event == "resolved" and _all_resolved(posted))):
                 self._close(str(posted["id"]))
-            return
-
-        if event in ("opened", "escalated", "resolved") and incident_id:
-            existing = next((d for d in recent if _authored(d, incident_marker(incident_id))), None)
-            if existing is not None:
-                self._add_comment(str(existing["id"]), f"**{event}**\n\n{_body(payload, [marker])}")
-                if event == "resolved" and not existing.get("closed"):
-                    self._close(str(existing["id"]))
-                return
+            return _url(posted)
 
         markers = [marker]
         if incident_id:
             markers.insert(0, incident_marker(incident_id))
-        created = self._create_discussion(category_id, _title(payload, event), _body(payload, markers))
+        run = _run_marker(payload)
+        if run and event == "opened":
+            markers.insert(0, run)
+
+        if event in ("opened", "escalated", "resolved") and incident_id:
+            existing = next((d for d in recent if _carries(d, incident_marker(incident_id))), None)
+            joined = False
+            if existing is None and event == "opened" and run is not None:
+                existing = next((d for d in recent if not d.get("closed") and _carries(d, run)), None)
+                joined = existing is not None
+            if existing is not None:
+                shared = joined or len(_incidents(existing)) > 1
+                if event == "resolved":
+                    markers.append(resolved_marker(incident_id))
+                self._add_comment(str(existing["id"]), _comment(payload, event, markers, shared=shared))
+                if joined:
+                    self._remember(existing, incident_marker(incident_id))
+                if event == "resolved" and shared:
+                    self._remember(existing, resolved_marker(incident_id))
+                if event == "resolved" and not existing.get("closed") and _all_resolved(existing, incident_id):
+                    self._close(str(existing["id"]))
+                return _url(existing)
+
+        if event == "resolved" and incident_id:
+            markers.append(resolved_marker(incident_id))
+        created, url = self._create_discussion(category_id, _title(payload, event), _body(payload, event, markers))
         if event in ("resolved", "test"):
             self._close(created)
+        return url
 
     def _resolve_category(self) -> str:
         if self._category_id is not None:
@@ -260,18 +312,28 @@ class GitHubDiscussionsNotifier:
         nodes = ((data.get("repository") or {}).get("discussions") or {}).get("nodes") or []
         return [node for node in nodes if isinstance(node, dict)]
 
-    def _create_discussion(self, category_id: str, title: str, body: str) -> str:
+    def _create_discussion(self, category_id: str, title: str, body: str) -> tuple[str, str | None]:
         data = self._graphql(
             _CREATE_DISCUSSION,
             {"repository": self._repository_id, "category": category_id, "title": title, "body": body},
         )
         try:
-            return str(data["createDiscussion"]["discussion"]["id"])
+            discussion = data["createDiscussion"]["discussion"]
+            return str(discussion["id"]), _url(discussion)
         except (KeyError, TypeError):
             raise _Retryable("GitHub answered createDiscussion without a discussion", self._last_status) from None
 
     def _add_comment(self, discussion_id: str, body: str) -> None:
         self._graphql(_ADD_COMMENT, {"discussion": discussion_id, "body": body})
+
+    def _remember(self, discussion: dict[str, Any], marker: str) -> None:
+        """Add a shared discussion's membership or resolution marker to the App's own discussion body, which no later
+        comment can push out of the lookup's comment window: both decide when the discussion closes."""
+        body = str(discussion.get("body") or "")
+        if discussion.get("viewerDidAuthor") is not True or marker in body:
+            return
+        self._graphql(_UPDATE_DISCUSSION, {"discussion": str(discussion["id"]), "body": f"{body}\n{marker}"})
+        discussion["body"] = f"{body}\n{marker}"
 
     def _close(self, discussion_id: str) -> None:
         self._graphql(_CLOSE_DISCUSSION, {"discussion": discussion_id})
@@ -420,22 +482,131 @@ def _expiry(value: object, now: float) -> float:
         return now + _TOKEN_FALLBACK_SECONDS
 
 
-def _authored(discussion: Mapping[str, Any], marker: str) -> bool:
-    return discussion.get("viewerDidAuthor") is True and marker in str(discussion.get("body") or "")
+def _authored_texts(discussion: Mapping[str, Any]) -> list[str]:
+    """The discussion's body and recent comments that the App itself wrote: the only places a marker is trusted."""
+    texts = [str(discussion.get("body") or "")] if discussion.get("viewerDidAuthor") is True else []
+    nodes = (discussion.get("comments") or {}).get("nodes") or []
+    texts += [
+        str(node.get("body") or "") for node in nodes if isinstance(node, dict) and node.get("viewerDidAuthor") is True
+    ]
+    return texts
 
 
 def _carries(discussion: Mapping[str, Any], marker: str) -> bool:
-    if _authored(discussion, marker):
-        return True
-    nodes = (discussion.get("comments") or {}).get("nodes") or []
-    return any(
-        node.get("viewerDidAuthor") is True and marker in str(node.get("body") or "")
-        for node in nodes
-        if isinstance(node, dict)
-    )
+    return any(marker in text for text in _authored_texts(discussion))
 
 
-_FIELDS = ("event", "severity", "condition", "stage", "domain", "product", "table", "run_id", "opened_at", "event_at")
+def _incidents(discussion: Mapping[str, Any]) -> set[str]:
+    return {found for text in _authored_texts(discussion) for found in _INCIDENT_IDS.findall(text)}
+
+
+def _all_resolved(discussion: Mapping[str, Any], resolving: str | None = None) -> bool:
+    """Whether every incident in the discussion has resolved, counting `resolving`, whose comment is being posted."""
+    resolved = {found for text in _authored_texts(discussion) for found in _RESOLVED_IDS.findall(text)}
+    if resolving:
+        resolved.add(resolving)
+    return _incidents(discussion) <= resolved
+
+
+def _url(discussion: Mapping[str, Any]) -> str | None:
+    url = discussion.get("url")
+    return url if isinstance(url, str) and url.startswith("https://") else None
+
+
+def _run_marker(payload: Mapping[str, Any]) -> str | None:
+    stage, run_id = payload.get("stage"), payload.get("run_id")
+    return run_marker(str(stage), str(run_id)) if stage and run_id else None
+
+
+_SEVERITY_MARK = {"critical": "🔴", "warning": "🟠"}
+_LINK_LABELS = {"portal": "Open in the Portal", "run": "Dagster run", "runbook": "Runbook"}
+_FIELDS = ("condition", "severity", "stage", "domain", "product", "table", "run_id", "opened_at", "event_at")
+_TIMES = frozenset({"opened_at", "event_at"})
+
+
+def _label(condition: object) -> str:
+    return str(condition or "alert").replace("_", " ")
+
+
+def _cell(value: object) -> str:
+    return " ".join(str(value).split()).replace("|", "\\|")
+
+
+def _moment(value: object) -> datetime | None:
+    try:
+        moment = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo is not None else None
+
+
+def _when(value: object) -> str:
+    moment = _moment(value)
+    return f"{moment.astimezone(UTC):%Y-%m-%d %H:%M} UTC" if moment else _cell(value)
+
+
+def _clock(value: object) -> str:
+    moment = _moment(value)
+    return f"{moment.astimezone(UTC):%H:%M} UTC" if moment else _cell(value)
+
+
+def _duration(start: object, end: object) -> str | None:
+    began, ended = _moment(start), _moment(end)
+    if began is None or ended is None or ended < began:
+        return None
+    minutes = int((ended - began).total_seconds() // 60)
+    if minutes < 1:
+        return "under a minute"
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours} h {minutes} min" if minutes else f"{hours} h"
+    return f"{hours // 24} d {hours % 24} h" if hours % 24 else f"{hours // 24} d"
+
+
+def _sentence(text: str) -> str:
+    text = " ".join(text.split())
+    return text if not text or text[-1] in ".!?" else f"{text}."
+
+
+def _where(payload: Mapping[str, Any]) -> str:
+    """`**product** in **stage**`, or the stage alone for a platform condition."""
+    stage = _cell(payload.get("stage") or "")
+    scope = "/".join(_cell(part) for part in (payload.get("domain"), payload.get("product")) if part)
+    if table := payload.get("table"):
+        scope = f"{scope} · {_cell(table)}" if scope else _cell(table)
+    if scope and stage:
+        return f"**{scope}** in **{stage}**"
+    return f"**{scope or stage or 'OpenLakeForge'}**"
+
+
+def _links_line(payload: Mapping[str, Any]) -> str | None:
+    links = payload.get("links")
+    if not isinstance(links, Mapping) or not links:
+        return None
+    ordered = [name for name in _LINK_LABELS if name in links] + sorted(set(links) - set(_LINK_LABELS))
+    return " · ".join(f"[{_LINK_LABELS.get(name, _cell(name))}]({_cell(links[name])})" for name in ordered)
+
+
+def _details(payload: Mapping[str, Any]) -> list[str]:
+    rows = [
+        f"| {key.replace('_', ' ')} | {_when(payload[key]) if key in _TIMES else _cell(payload[key])} |"
+        for key in _FIELDS
+        if payload.get(key) not in (None, "")
+    ]
+    if not rows:
+        return []
+    return [
+        "<details><summary>Details</summary>",
+        "",
+        "| Field | Value |",
+        "| --- | --- |",
+        *rows,
+        "",
+        "</details>",
+        "",
+    ]
 
 
 def _title(payload: Mapping[str, Any], event: str) -> str:
@@ -444,24 +615,58 @@ def _title(payload: Mapping[str, Any], event: str) -> str:
         return f"[test] OpenLakeForge alert test · {stage}" if stage else "[test] OpenLakeForge alert test"
     severity, condition = payload.get("severity"), payload.get("condition")
     scope = "/".join(str(part) for part in (payload.get("domain"), payload.get("product")) if part)
-    head = " ".join(str(part) for part in (f"[{severity}]" if severity else "", condition or "") if part)
+    head = " ".join(
+        part for part in (f"[{severity}]" if severity else "", _label(condition) if condition else "") if part
+    )
     title = " · ".join(str(part) for part in (head, stage, scope) if part) or "OpenLakeForge alert"
     # `opened` keeps the plain title; any other event got here because it is unknown or had no discussion to join.
     return title if event == "opened" else f"{event or 'alert'}: {title}"
 
 
-def _cell(value: object) -> str:
-    return " ".join(str(value).split()).replace("|", "\\|")
+def _lead(payload: Mapping[str, Any], event: str) -> list[str]:
+    """The sentence a reader needs, then when, then where to look."""
+    if event == "test":
+        stage = _cell(payload.get("stage") or "")
+        where = f" for stage **{stage}**" if stage else ""
+        return [f"🧪 A test notification{where}, sent by `olf infra alerts test`. Nothing is wrong.", ""]
+    severity = str(payload.get("severity") or "")
+    mark = _SEVERITY_MARK.get(severity, "⚪")
+    summary = _sentence(_cell(payload.get("summary") or _label(payload.get("condition"))))
+    lines = [f"{mark} **{severity.capitalize() or 'Alert'}** · {_where(payload)}: {summary}", ""]
+    when = [f"Opened {_when(payload['opened_at'])}"] if payload.get("opened_at") else []
+    if run_id := payload.get("run_id"):
+        when.append(f"run `{_cell(run_id)[:8]}`")
+    if when:
+        lines += [" · ".join(when), ""]
+    if links := _links_line(payload):
+        lines += [links, ""]
+    return lines
 
 
-def _body(payload: Mapping[str, Any], markers: list[str]) -> str:
-    lines: list[str] = []
-    if summary := str(payload.get("summary") or ""):
-        lines += [summary, ""]
-    rows = [f"| {key} | {_cell(payload[key])} |" for key in _FIELDS if payload.get(key) not in (None, "")]
-    if rows:
-        lines += ["| Field | Value |", "| --- | --- |", *rows, ""]
-    links = payload.get("links")
-    if isinstance(links, Mapping) and links:
-        lines += [*(f"- {_cell(name)}: {_cell(url)}" for name, url in links.items()), ""]
+def _body(payload: Mapping[str, Any], event: str, markers: list[str]) -> str:
+    return "\n".join([*_lead(payload, event), *_details(payload), *markers])
+
+
+def _comment(payload: Mapping[str, Any], event: str, markers: list[str], *, shared: bool) -> str:
+    """A later event of the discussion's incident, or a second incident of the same run joining it."""
+    label = _label(payload.get("condition"))
+    severity = str(payload.get("severity") or "")
+    at = payload.get("event_at")
+    if event == "resolved":
+        took = _duration(payload.get("opened_at"), at)
+        head = f"{label.capitalize()} resolved" if shared else "Resolved"
+        lines = [f"✅ **{head}** at {_clock(at)}" + (f", after {took}." if took else "."), ""]
+    elif event == "escalated":
+        what = f"{label.capitalize()} escalated" if shared else "Escalated"
+        summary = _sentence(_cell(payload.get("summary") or ""))
+        lines = [f"⬆️ **{what} to {severity}** at {_clock(at)}" + (f": {summary}" if summary else "."), ""]
+    elif event == "opened" and shared:
+        mark = _SEVERITY_MARK.get(severity, "⚪")
+        summary = _sentence(_cell(payload.get("summary") or label))
+        lines = [f"{mark} **{label.capitalize()}** ({severity}) on the same run: {summary}", ""]
+        if links := _links_line(payload):
+            lines += [links, ""]
+        lines += _details(payload)
+    else:
+        lines = [*_lead(payload, event), *_details(payload)]
     return "\n".join([*lines, *markers])

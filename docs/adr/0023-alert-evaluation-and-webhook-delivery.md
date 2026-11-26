@@ -94,7 +94,9 @@ unparsable, and every firing incident is notified again under a new id.
 Conditional writes are not relied on; `Forbid` is what keeps one writer, and an
 overlap after a node loss costs a duplicate. The platform API reads the state
 with a read-only key (`GET /api/v1/stages/{stage}/alerts/incidents`) and never
-writes it. `--now`, `--state-prefix` and `--policy-file` are for the e2e only;
+writes it; its answer names each receiver of an incident's latest notification
+by its profile name, with that receiver's status and, when the receiver has a
+page for it, where it landed, and never a webhook URL or header. `--now`, `--state-prefix` and `--policy-file` are for the e2e only;
 the CronJob never passes them. History under `alerts/history/` is kept 30 days,
 as a filer path TTL of [ADR 0022](0022-pod-log-collection-and-archive-format.md)
 D6 on that prefix, independent of the log archive's retention; `alerts/state/`
@@ -135,7 +137,10 @@ authenticates as the GitHub App whose `app-id` and `private-key` sit in the
 Secret `spec.identity.github.oauth_app_secret_ref` names, and posts with an
 installation token requested for its one repository with `discussions: write`.
 It keeps one discussion per incident, found by a hidden marker trusted only in
-posts the App authored, so the evaluator keeps no discussion state. The
+posts the App authored, so the evaluator keeps no discussion state; incidents
+opened by the same run share one discussion, which closes once all of them
+resolve. A delivered send answers the discussion's URL, kept per receiver with
+the notification's outcome so the Portal can link it. The
 evaluator pod therefore holds the App's private key: Terraform gives the CronJob
 the two keys as `secretKeyRef` environment variables, and the settings JSON
 names those variables with the receiver's `repository`, `category` and
@@ -150,8 +155,11 @@ Enforced by: `packages/lakehouse-services/openlakeforge_services/notify.py`,
 `tools/olf/olf/infra/deployment/local/platform.py`, the route check in
 `tools/olf/olf/infra/deployment/activation.py`.
 
-**D5. A notification links the run in the stage's Dagster and the runbook
-section of its condition.** `links.run` is
+**D5. A notification links the incident in the Portal, the run in the stage's
+Dagster and the runbook section of its condition.** `links.portal` is
+`<scheme>://<base_domain>/monitoring?stage=<stage>&incident=<id>`, which opens
+the incident's row on the Monitoring page, omitted without `spec.access`.
+`links.run` is
 `<scheme>://dagster-<stage>.<base_domain>/runs/<run_id>`, with the scheme taken
 from the access contract (`http` only for `spec.access.tls: none`), omitted
 without `spec.access`. It goes through the perimeter, so the reader must sign in
@@ -161,7 +169,7 @@ token for it. `links.runbook` is `<runbook page>#<condition>`: the alerts
 guide's per-condition sections, headed by each `AlertKind` value, are the
 runbook. The local root defaults the page to that guide on GitHub at `main`,
 overridable with `runbook_base_url` (https, no fragment), and the platform API's
-incident answer carries the same link. `links.portal` is omitted until #333.
+incident answer carries the same link.
 Enforced by: `test_every_condition_has_a_runbook_section_its_link_anchors_at`
 and `test_the_default_runbook_link_names_a_ref_at_which_the_runbook_exists` in
 `tools/olf/tests/common/test_alerts.py`.
@@ -342,3 +350,7 @@ Enforced by: `packages/core/openlakeforge_core/alerts.py`,
   changed.
 - 2026-11-25 (#1430): D4 gains the GitHub Discussions adapter; the evaluator pod
   holds the GitHub App's private key through `secretKeyRef`.
+- 2026-11-26: D3's incident answer names each receiver of the latest
+  notification (profile name and status, never a webhook URL or header) and
+  where it landed; D4's discussions are shared by incidents of the same run;
+  D5 adds `links.portal`.

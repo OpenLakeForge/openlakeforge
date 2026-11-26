@@ -330,7 +330,9 @@ selector that matches nothing is `unknown`. Restarts are counted over the last
 
 `list_alert_incidents` answers the stage's open incidents from the alert
 evaluator's state, with each one's latest delivery, from payload-allowlist
-fields and counts only, and a `runbook` link built from `runbook_base_url`. A
+fields, counts and each receiver by its profile name (its status, attempts and,
+for a GitHub discussion, where the notification landed; never a webhook URL or
+header), and a `runbook` link built from `runbook_base_url`. A
 missing or unreadable state is `unavailable` with no incidents, and a state
 older than two evaluator runs (10 minutes) is `stale`. The read is held to 10
 seconds; each incident's `job`, `domain` and `product` are `null` when Dagster

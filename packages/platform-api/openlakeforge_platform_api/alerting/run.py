@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
 
 from openlakeforge_core.alert_policy import AlertPolicy, ResolvedPolicy, resolve_policy
 from openlakeforge_core.alerts import (
@@ -153,7 +154,7 @@ def run_once(
                 },
             )
             if result.status == "delivered":
-                state = record_delivery(state, notification.id, name, routed=routed)
+                state = record_delivery(state, notification.id, name, routed=routed, url=result.url)
                 delivered += 1
             elif result.status == "rejected":
                 # A 4xx other than 408/429 will not change on retry (ADR 0023, decision 4): settle this receiver so the
@@ -309,6 +310,10 @@ def _read_stages(
 
 def _links(links: LinkSettings, incident: Incident) -> dict[str, str]:
     found: dict[str, str] = {}
+    if links.portal_url:
+        # The Portal's Monitoring page opens the incident's row (`incident`), on its stage.
+        query = urlencode({"stage": incident.scope.stage, "incident": incident.id})
+        found["portal"] = f"{links.portal_url.rstrip('/')}/monitoring?{query}"
     if links.dagster_host_template and incident.run_ids:
         host = links.dagster_host_template.format(stage=incident.scope.stage)
         found["run"] = f"{links.dagster_scheme}://{host}/runs/{incident.run_ids[-1]}"
