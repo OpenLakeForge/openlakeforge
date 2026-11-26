@@ -20,6 +20,7 @@ from openlakeforge_platform_api.alerting.github_discussions import (
     delivery_marker,
     graphql_url,
     incident_marker,
+    run_marker,
 )
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -47,6 +48,10 @@ OPENED = {
     "summary": "order_revenue failed in dev",
     "links": {"run": "https://dagster.example/runs/run-9"},
 }
+
+
+def url_of(discussion_id: str) -> str:
+    return f"https://github.com/acme/ops-alerts/discussions/{discussion_id}"
 
 
 def reply(status: int, body: object = None, headers: dict[str, str] | None = None) -> requests.Response:
@@ -132,6 +137,7 @@ class FakeGitHub:
         nodes = [
             {
                 "id": d["id"],
+                "url": url_of(d["id"]),
                 "body": d["body"],
                 "closed": d["closed"],
                 "viewerDidAuthor": not d.get("foreign", False),
@@ -159,7 +165,8 @@ class FakeGitHub:
             "repository": variables["repository"],
         }
         self.discussions.append(discussion)
-        return reply(200, {"data": {"createDiscussion": {"discussion": {"id": discussion["id"]}}}})
+        created = {"id": discussion["id"], "url": url_of(discussion["id"])}
+        return reply(200, {"data": {"createDiscussion": {"discussion": created}}})
 
     def _comment(self, body: Any) -> requests.Response:
         self.by_id(body["variables"]["discussion"])["comments"].append(body["variables"]["body"])
@@ -212,24 +219,62 @@ def event(name: str, **fields: Any) -> dict[str, Any]:
 def test_opened_creates_one_discussion_carrying_both_markers(github: FakeGitHub, make: Callable[..., Env]) -> None:
     result = make().notifier.send(OPENED, delivery_id="n-1")
 
-    assert (result.status, result.attempts) == ("delivered", 1)
+    assert (result.status, result.attempts, result.url) == ("delivered", 1, url_of("D_1"))
     (discussion,) = github.discussions
-    assert discussion["title"] == "[critical] run_failed · dev · sales/order_revenue"
+    assert discussion["title"] == "[critical] run failed · dev · sales/order_revenue"
     assert discussion["category"] == "C_alerts"
     assert discussion["repository"] == "R_1"
     assert incident_marker("inc-1") in discussion["body"]
     assert delivery_marker("n-1") in discussion["body"]
-    assert "order_revenue failed in dev" in discussion["body"]
-    assert "https://dagster.example/runs/run-9" in discussion["body"]
-    assert "| run_id | run-9 |" in discussion["body"]
+    assert run_marker("dev", "run-9") in discussion["body"]
+    assert "| run id | run-9 |" in discussion["body"]
     assert discussion["closed"] is False
+
+
+def test_the_body_leads_with_one_sentence_then_when_and_where_to_look(
+    github: FakeGitHub, make: Callable[..., Env]
+) -> None:
+    links = {
+        "runbook": "https://docs.example/alerts.md#run_failed",
+        "run": "https://dagster.example/runs/run-9",
+        "portal": "https://lake.example/monitoring?stage=dev&incident=inc-1",
+    }
+    make().notifier.send({**OPENED, "event_at": "2026-11-25T10:00:01.830169+00:00", "links": links}, delivery_id="n-1")
+
+    lines = github.discussions[0]["body"].splitlines()
+    assert lines[0] == "🔴 **Critical** · **sales/order_revenue** in **dev**: order_revenue failed in dev."
+    assert lines[2] == "Opened 2026-11-25 10:00 UTC · run `run-9`"
+    assert lines[4] == (
+        "[Open in the Portal](https://lake.example/monitoring?stage=dev&incident=inc-1)"
+        " · [Dagster run](https://dagster.example/runs/run-9)"
+        " · [Runbook](https://docs.example/alerts.md#run_failed)"
+    )
+    # The fields stay for whoever needs them, folded, with times to the minute.
+    assert lines[6] == "<details><summary>Details</summary>"
+    assert "| event at | 2026-11-25 10:00 UTC |" in lines
+    assert not any(line.startswith("| event |") for line in lines)
+
+
+def test_a_platform_condition_leads_with_its_stage(github: FakeGitHub, make: Callable[..., Env]) -> None:
+    degraded = {
+        "event": "opened",
+        "incident_id": "inc-s",
+        "condition": "service_degraded",
+        "severity": "warning",
+        "stage": "dev",
+        "summary": "Dagster workloads are degraded",
+        "opened_at": "2026-11-26T09:35:01+00:00",
+    }
+    make().notifier.send(degraded, delivery_id="n-1")
+
+    assert github.discussions[0]["body"].splitlines()[0] == "🟠 **Warning** · **dev**: Dagster workloads are degraded."
 
 
 def test_the_title_leaves_out_what_the_payload_lacks(github: FakeGitHub, make: Callable[..., Env]) -> None:
     sparse = {"event": "opened", "incident_id": "inc-2", "condition": "stale_data", "stage": "prod"}
     make().notifier.send(sparse, delivery_id="n-1")
 
-    assert github.discussions[0]["title"] == "stale_data · prod"
+    assert github.discussions[0]["title"] == "stale data · prod"
 
 
 def test_resending_a_delivery_creates_nothing(github: FakeGitHub, make: Callable[..., Env]) -> None:
@@ -239,7 +284,7 @@ def test_resending_a_delivery_creates_nothing(github: FakeGitHub, make: Callable
 
     result = env.notifier.send(OPENED, delivery_id="n-1")
 
-    assert result.status == "delivered"
+    assert (result.status, result.url) == ("delivered", url_of("D_1"))
     assert len(github.of("create")) == writes == 1
 
 
@@ -255,14 +300,20 @@ def test_a_new_notifier_instance_also_recognises_a_posted_delivery(
 def test_escalated_comments_on_the_incidents_discussion(github: FakeGitHub, make: Callable[..., Env]) -> None:
     env = make()
     env.notifier.send(OPENED, delivery_id="n-1")
-    env.notifier.send(event("opened", incident_id="inc-other"), delivery_id="n-other")
+    env.notifier.send(event("opened", incident_id="inc-other", run_id="run-other"), delivery_id="n-other")
 
-    result = env.notifier.send(event("escalated", severity="critical"), delivery_id="n-2")
+    escalated = event(
+        "escalated", severity="critical", event_at="2026-11-25T10:20:00Z", summary="a blocking quality check failed"
+    )
+    result = env.notifier.send(escalated, delivery_id="n-2")
 
-    assert result.status == "delivered"
+    assert (result.status, result.url) == ("delivered", url_of("D_1"))
     assert len(github.discussions) == 2
     first, other = github.discussions
     assert len(first["comments"]) == 1 and delivery_marker("n-2") in first["comments"][0]
+    assert first["comments"][0].splitlines()[0] == (
+        "⬆️ **Escalated to critical** at 10:20 UTC: a blocking quality check failed."
+    )
     assert other["comments"] == []
     assert first["closed"] is False
 
@@ -274,11 +325,15 @@ def test_resolved_comments_then_closes_as_resolved(github: FakeGitHub, make: Cal
     env = make()
     env.notifier.send(OPENED, delivery_id="n-1")
 
-    result = env.notifier.send(event("resolved"), delivery_id="n-3")
+    result = env.notifier.send(event("resolved", event_at="2026-11-25T11:25:00Z"), delivery_id="n-3")
 
     assert result.status == "delivered"
     (discussion,) = github.discussions
-    assert delivery_marker("n-3") in discussion["comments"][0]
+    (comment,) = discussion["comments"]
+    assert delivery_marker("n-3") in comment
+    # One line: when, and for how long. Nothing the opening post already said.
+    assert comment.splitlines()[0] == "✅ **Resolved** at 11:25 UTC, after 1 h 25 min."
+    assert "<details>" not in comment and "|" not in comment
     assert discussion["closed"] is True
     assert "reason: RESOLVED" in github.of("close")[0]["json"]["query"]
 
@@ -306,7 +361,7 @@ def test_a_missing_discussion_leads_to_a_new_one_titled_with_the_event(
 
     assert result.status == "delivered"
     (discussion,) = github.discussions
-    assert discussion["title"] == f"{name}: [critical] run_failed · dev · sales/order_revenue"
+    assert discussion["title"] == f"{name}: [critical] run failed · dev · sales/order_revenue"
     assert incident_marker("inc-1") in discussion["body"]
     assert discussion["closed"] is (name == "resolved")
 
@@ -325,8 +380,89 @@ def test_a_test_event_creates_a_discussion_and_closes_it(github: FakeGitHub, mak
     assert result.status == "delivered"
     (discussion,) = github.discussions
     assert discussion["title"] == "[test] OpenLakeForge alert test · dev"
+    assert discussion["body"].startswith("🧪 A test notification for stage **dev**, sent by `olf infra alerts test`.")
     assert delivery_marker("t-1") in discussion["body"]
     assert discussion["closed"] is True
+
+
+QUALITY = {
+    **OPENED,
+    "incident_id": "inc-q",
+    "condition": "quality",
+    "summary": "a blocking quality check failed",
+    "links": {"runbook": "https://docs.example/alerts.md#quality"},
+}
+
+
+def test_a_second_incident_of_the_same_run_joins_the_first_ones_discussion(
+    github: FakeGitHub, make: Callable[..., Env]
+) -> None:
+    env = make()
+    env.notifier.send(OPENED, delivery_id="n-1")
+
+    result = env.notifier.send(QUALITY, delivery_id="q-1")
+
+    assert (result.status, result.url) == ("delivered", url_of("D_1"))
+    (discussion,) = github.discussions
+    (comment,) = discussion["comments"]
+    assert comment.splitlines()[0] == "🔴 **Quality** (critical) on the same run: a blocking quality check failed."
+    assert incident_marker("inc-q") in comment and delivery_marker("q-1") in comment
+
+    # Its later events find it there too.
+    env.notifier.send({**QUALITY, "event": "escalated"}, delivery_id="q-2")
+    assert len(github.discussions) == 1 and len(discussion["comments"]) == 2
+    assert discussion["comments"][1].startswith("⬆️ **Quality escalated to critical**")
+
+
+def test_a_shared_discussion_closes_only_once_every_incident_in_it_resolved(
+    github: FakeGitHub, make: Callable[..., Env]
+) -> None:
+    env = make()
+    env.notifier.send(OPENED, delivery_id="n-1")
+    env.notifier.send(QUALITY, delivery_id="q-1")
+    (discussion,) = github.discussions
+
+    env.notifier.send({**QUALITY, "event": "resolved", "event_at": "2026-11-25T10:05:00Z"}, delivery_id="q-3")
+
+    assert discussion["comments"][-1].splitlines()[0] == "✅ **Quality resolved** at 10:05 UTC, after 5 min."
+    assert discussion["closed"] is False
+
+    env.notifier.send(event("resolved"), delivery_id="n-3")
+
+    assert discussion["comments"][-1].startswith("✅ **Run failed resolved**")
+    assert discussion["closed"] is True
+    # A retried resolve of the first finds its comment and leaves the closed discussion alone.
+    env.notifier.send({**QUALITY, "event": "resolved"}, delivery_id="q-3")
+    assert len(discussion["comments"]) == 3 and len(github.of("close")) == 1
+
+
+@pytest.mark.parametrize("change", ["another-run", "closed", "foreign"])
+def test_only_an_open_discussion_the_app_wrote_for_the_same_run_is_joined(
+    github: FakeGitHub, make: Callable[..., Env], change: str
+) -> None:
+    env = make()
+    if change == "foreign":
+        github.discussions.append(
+            {
+                "id": "D_x",
+                "title": "t",
+                "body": run_marker("dev", "run-9"),
+                "closed": False,
+                "comments": [],
+                "foreign": True,
+            }
+        )
+    else:
+        env.notifier.send(OPENED, delivery_id="n-1")
+        if change == "closed":
+            github.discussions[0]["closed"] = True
+
+    quality = {**QUALITY, "run_id": "run-10"} if change == "another-run" else QUALITY
+    result = env.notifier.send(quality, delivery_id="q-1")
+
+    assert result.url == url_of(github.discussions[-1]["id"])
+    assert github.discussions[-1]["title"].startswith("[critical] quality")
+    assert all(not d["comments"] for d in github.discussions)
 
 
 def test_the_installation_token_is_scoped_to_the_one_repository_and_signed_as_the_app(
@@ -373,9 +509,9 @@ def test_the_token_is_reused_until_five_minutes_before_it_expires(github: FakeGi
 def test_the_category_matches_by_name_without_case_or_by_slug(github: FakeGitHub, make: Callable[..., Env]) -> None:
     github.category = "On Call"
     for category in ("on call", "ON CALL"):
-        incident = {**OPENED, "incident_id": f"inc-{category}"}
+        incident = {**OPENED, "incident_id": f"inc-{category}", "run_id": f"run-{category}"}
         assert make(category=category).notifier.send(incident, delivery_id=f"n-{category}").status == "delivered"
-    other = {**OPENED, "incident_id": "inc-slug"}
+    other = {**OPENED, "incident_id": "inc-slug", "run_id": "run-slug"}
     assert make(category="general").notifier.send(other, delivery_id="n-slug").status == "delivered"
     assert [d["category"] for d in github.discussions] == ["C_alerts", "C_alerts", "C_other"]
 

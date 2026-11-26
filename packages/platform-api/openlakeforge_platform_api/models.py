@@ -504,10 +504,23 @@ class AlertStateStatus(BaseModel):
     stale: bool | None
 
 
-class AlertDelivery(BaseModel):
-    """The incident's latest notification: queued (`pending`) or how it left the outbox. Counts only, never a receiver.
+class AlertDeliveryTarget(BaseModel):
+    """One receiver of the notification, by its profile name; never a webhook URL or header.
 
-    `unknown` is a notification settled by an evaluator that did not keep outcomes yet; its counts are None.
+    `url` is where it landed when the receiver has a page for it (a GitHub discussion), null for a webhook.
+    """
+
+    receiver: str
+    status: Literal["delivered", "rejected", "retrying", "expired"]
+    attempts: int
+    url: str | None
+
+
+class AlertDelivery(BaseModel):
+    """The incident's latest notification: queued (`pending`) or how it left the outbox.
+
+    `unknown` is a notification settled by an evaluator that did not keep outcomes yet; its counts are None. `targets`
+    is None where the state predates per-receiver outcomes.
     """
 
     status: Literal["pending", "delivered", "undeliverable", "unrouted", "unknown"]
@@ -515,6 +528,7 @@ class AlertDelivery(BaseModel):
     attempts: int | None
     receivers: int | None
     delivered: int | None
+    targets: list[AlertDeliveryTarget] | None = None
 
 
 class AlertIncident(BaseModel):

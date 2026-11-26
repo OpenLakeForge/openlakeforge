@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "AlertDelivery": {
-        "description": "The incident's latest notification: queued (`pending`) or how it left the outbox. Counts only, never a receiver.\n\n`unknown` is a notification settled by an evaluator that did not keep outcomes yet; its counts are None.",
+        "description": "The incident's latest notification: queued (`pending`) or how it left the outbox.\n\n`unknown` is a notification settled by an evaluator that did not keep outcomes yet; its counts are None. `targets`\nis None where the state predates per-receiver outcomes.",
         "properties": {
           "attempts": {
             "anyOf": [
@@ -63,6 +63,20 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AlertDeliveryTarget"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targets"
           }
         },
         "required": [
@@ -73,6 +87,48 @@
           "delivered"
         ],
         "title": "AlertDelivery",
+        "type": "object"
+      },
+      "AlertDeliveryTarget": {
+        "description": "One receiver of the notification, by its profile name; never a webhook URL or header.\n\n`url` is where it landed when the receiver has a page for it (a GitHub discussion), null for a webhook.",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "receiver": {
+            "title": "Receiver",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "delivered",
+              "rejected",
+              "retrying",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "receiver",
+          "status",
+          "attempts",
+          "url"
+        ],
+        "title": "AlertDeliveryTarget",
         "type": "object"
       },
       "AlertIncident": {

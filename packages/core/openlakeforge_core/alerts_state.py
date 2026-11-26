@@ -19,9 +19,11 @@ from .alerts import (
     AlertState,
     Delivery,
     DeliveryOutcome,
+    DeliveryTarget,
     Incident,
     Notification,
     OutboxEntry,
+    TargetStatus,
 )
 from .health import Scope
 
@@ -48,17 +50,30 @@ def record_attempt(state: AlertState, notification_id: str, receiver: str) -> Al
 
 
 def record_delivery(
-    state: AlertState, notification_id: str, receiver: str, *, routed: Collection[str], rejected: bool = False
+    state: AlertState,
+    notification_id: str,
+    receiver: str,
+    *,
+    routed: Collection[str],
+    rejected: bool = False,
+    url: str | None = None,
 ) -> AlertState:
     """Mark a receiver as having settled a notification; the entry goes once every routed receiver has.
 
-    `rejected` settles it without delivering: the receiver refused it in a way a retry will not change.
+    `rejected` settles it without delivering: the receiver refused it in a way a retry will not change. `url` is where
+    the receiver says it landed (a GitHub discussion), kept for the Portal to link.
     """
     refused = frozenset({receiver}) if rejected else frozenset()
+    landed = {receiver: url} if url and not rejected else {}
     marked = _update(
         state,
         notification_id,
-        lambda entry: replace(entry, delivered=entry.delivered | {receiver}, rejected=entry.rejected | refused),
+        lambda entry: replace(
+            entry,
+            delivered=entry.delivered | {receiver},
+            rejected=entry.rejected | refused,
+            urls={**entry.urls, **landed},
+        ),
     )
     return _settle(
         marked,
@@ -128,7 +143,30 @@ def _delivery(entry: OutboxEntry, *, expired: bool) -> Delivery:
         receivers=len(receivers),
         delivered=len(accepted),
         attempts=sum(entry.attempts.values()),
+        targets=delivery_targets(entry, settled=True, expired=expired),
     )
+
+
+def delivery_targets(entry: OutboxEntry, *, settled: bool = False, expired: bool = False) -> tuple[DeliveryTarget, ...]:
+    """Each receiver the entry was sent to, by name, and where it stands.
+
+    A queued entry's unsettled receivers are still retrying. Once it settles they either expired with it or, when it
+    left because they were taken out of the routes, are no longer its receivers and are left out.
+    """
+    targets = []
+    for receiver in sorted(set(entry.attempts) | entry.delivered):
+        if receiver in entry.rejected:
+            status = TargetStatus.REJECTED
+        elif receiver in entry.delivered:
+            status = TargetStatus.DELIVERED
+        elif expired:
+            status = TargetStatus.EXPIRED
+        elif settled:
+            continue
+        else:
+            status = TargetStatus.RETRYING
+        targets.append(DeliveryTarget(receiver, status, entry.attempts.get(receiver, 0), entry.urls.get(receiver)))
+    return tuple(targets)
 
 
 def _update(state: AlertState, notification_id: str, change: Any) -> AlertState:
@@ -170,9 +208,9 @@ def state_from_json(text: str) -> AlertState:
         raise AlertStateError(f"alert state is malformed: {error!r}") from error
 
 
-# `rejected` and `delivery` are written only when set, so a state without them serializes exactly as the evaluator
-# before them wrote it: pending history is tagged with a digest of that text (`state_digest` in the platform API), and
-# a digest that changed across an upgrade would drop history still waiting to be replayed.
+# `rejected`, `urls`, `delivery` and its `targets` are written only when set, so a state without them serializes exactly
+# as the evaluator before them wrote it: pending history is tagged with a digest of that text (`state_digest` in the
+# platform API), and a digest that changed across an upgrade would drop history still waiting to be replayed.
 def _entry_to_dict(entry: OutboxEntry) -> dict[str, Any]:
     item: dict[str, Any] = {
         "notification": _notification_to_dict(entry.notification),
@@ -182,6 +220,8 @@ def _entry_to_dict(entry: OutboxEntry) -> dict[str, Any]:
     }
     if entry.rejected:
         item["rejected"] = sorted(entry.rejected)
+    if entry.urls:
+        item["urls"] = dict(sorted(entry.urls.items()))
     return item
 
 
@@ -209,13 +249,20 @@ def _incident_to_dict(incident: Incident) -> dict[str, Any]:
 
 
 def _delivery_to_dict(delivery: Delivery) -> dict[str, Any]:
-    return {
+    item: dict[str, Any] = {
         "event": delivery.event.value,
         "outcome": delivery.outcome.value,
         "receivers": delivery.receivers,
         "delivered": delivery.delivered,
         "attempts": delivery.attempts,
     }
+    if delivery.targets:
+        item["targets"] = [_target_to_dict(target) for target in delivery.targets]
+    return item
+
+
+def _target_to_dict(target: DeliveryTarget) -> dict[str, Any]:
+    return {"receiver": target.receiver, "status": target.status.value, "attempts": target.attempts, "url": target.url}
 
 
 def _notification_to_dict(notification: Notification) -> dict[str, Any]:
@@ -312,6 +359,17 @@ def _delivery_from_dict(value: Any) -> Delivery:
         receivers=_int(item["receivers"]),
         delivered=_int(item["delivered"]),
         attempts=_int(item["attempts"]),
+        targets=tuple(_target_from_dict(target) for target in _list(item.get("targets", []))),
+    )
+
+
+def _target_from_dict(value: Any) -> DeliveryTarget:
+    item = _dict(value)
+    return DeliveryTarget(
+        receiver=_str(item["receiver"]),
+        status=TargetStatus(_str(item["status"])),
+        attempts=_int(item["attempts"]),
+        url=_opt_str(item.get("url")),
     )
 
 
@@ -322,6 +380,7 @@ def _entry_from_dict(value: Any) -> OutboxEntry:
         attempts=_counts(item["attempts"]),
         delivered=frozenset(_str(receiver) for receiver in _list(item["delivered"])),
         rejected=frozenset(_str(receiver) for receiver in _list(item.get("rejected", []))),
+        urls={_str(name): _str(url) for name, url in _dict(item.get("urls", {})).items()},
         runs=_int(item["runs"]),
     )
 

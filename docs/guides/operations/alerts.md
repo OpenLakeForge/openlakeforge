@@ -169,12 +169,20 @@ runbook page), and its latest notification's `delivery`:
 | `unrouted` | No receiver was, or still is, routed to it, so nobody was told: its receivers may have been removed from the routes while it was retried |
 | `unknown` | It left the queue before the evaluator kept outcomes |
 
+`delivery.targets` lists each receiver of that notification by its name in
+`openlakeforge.yaml`, with its own `status` (`delivered`, `rejected`,
+`retrying` or `expired`), its `attempts`, and `url`, where the notification
+landed when the receiver has a page for it: the discussion, for a
+`github-discussions` receiver. The Portal's Monitoring page shows one line per
+receiver and links the discussion. `targets` is `null` for a notification
+settled before 0.7.0-beta.2.
+
 The answer's `state` is `not_provided` without an evaluator or the API's key
 to read its state, and
 `unavailable` with `incidents: null` when the state cannot be read or the
 evaluator has not written one yet. `stale: true` means the last evaluation is
-more than 10 minutes old, so the list may be out of date. Receiver names and
-URLs never appear in the answer.
+more than 10 minutes old, so the list may be out of date. A webhook's URL and
+headers never appear in the answer.
 
 ## Send alerts to GitHub Discussions
 
@@ -183,6 +191,11 @@ GitHub repository, as the OpenLakeForge GitHub App. It needs no webhook URL and
 no `olf infra alerts bind`. Anyone who watches the repository is notified by
 email or the GitHub mobile app. An incident's later events (`escalated`,
 `resolved`) are added to its discussion as comments, and `resolved` closes it.
+Incidents opened by the same run, such as a blocking quality check and the run
+it failed, share one discussion, which closes once every one of them has
+resolved. A post opens with one sentence (severity, product, stage and what
+happened), then when, then links to the incident in the Portal, the Dagster run
+and the runbook; the raw fields are folded under **Details**.
 
 > [!NOTE]
 > Use a private repository. A public one shows alert titles and summaries
@@ -460,6 +473,7 @@ the evaluator reads no service signal and raises neither.
   "event_at": "2026-11-16T12:05:00+00:00",
   "summary": "latest run failed",
   "links": {
+    "portal": "https://olf.example.com/monitoring?stage=prod&incident=3d1ff9b1577ee2ce-1795690201-1",
     "run": "https://dagster-prod.olf.example.com/runs/8f1c2d3e-0000-4000-8000-000000000000"
   }
 }
@@ -478,13 +492,13 @@ The body is built from this closed list of fields and nothing else:
 | `run_id` | The Dagster run, when the condition has one. |
 | `opened_at`, `event_at` | UTC timestamps. |
 | `summary` | A fixed phrase, never log or error text. For `service_degraded` it names the component (`Dagster workloads are degraded`), which is not a field of its own. |
+| `links.portal` | The incident's row on the Portal's Monitoring page, opened, behind the perimeter. |
 | `links.run` | The run in the stage's Dagster, behind the perimeter: the reader signs in and needs a role for that stage. |
 | `links.runbook` | The condition's section of the alert runbook: [What to do for each condition](#what-to-do-for-each-condition) at the deployed release, unless [overridden](#the-runbook-link). |
 
 A payload never carries log lines, run tags, error text, row contents, storage
-URLs or credentials. `links.run` is `http` only where `spec.access.tls` is
-`none`, and is left out without `spec.access`; a Portal link is added when the
-Portal has an incident page (#333).
+URLs or credentials. `links.portal` and `links.run` are `http` only where
+`spec.access.tls` is `none`, and are left out without `spec.access`.
 
 ## Incidents and state
 

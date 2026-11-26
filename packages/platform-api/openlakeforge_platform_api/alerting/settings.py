@@ -12,7 +12,6 @@ from urllib.parse import urlsplit
 
 from openlakeforge_platform_api.settings import SettingsError, check_runbook_base_url
 
-
 WEBHOOK = "webhook"
 GITHUB_DISCUSSIONS = "github-discussions"
 
@@ -49,6 +48,9 @@ class LinkSettings:
     # The Dagster host with a `{stage}` placeholder, e.g. `dagster-{stage}.example.com`.
     dagster_host_template: str | None = None
     runbook_base_url: str | None = None
+    # The Portal's origin, e.g. `https://lakehouse.example.com`: a notification links the incident's row on its
+    # Monitoring page. Null without `spec.access`, which leaves the link out.
+    portal_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +100,7 @@ class EvaluatorSettings:
                     dagster_scheme=str(links.get("dagster_scheme", "https")),
                     dagster_host_template=links.get("dagster_host_template") or None,
                     runbook_base_url=links.get("runbook_base_url") or None,
+                    portal_url=links.get("portal_url") or None,
                 ),
                 s3_endpoint_url=data.get("s3_endpoint_url") or None,
                 s3_region=str(data.get("s3_region") or "us-east-1"),
@@ -169,3 +172,6 @@ class EvaluatorSettings:
         if template is not None and "{stage}" not in template:
             raise SettingsError("links.dagster_host_template must contain {stage}")
         check_runbook_base_url(self.links.runbook_base_url, "links.runbook_base_url")
+        portal = self.links.portal_url
+        if portal is not None and (urlsplit(portal).scheme not in ("http", "https") or not urlsplit(portal).netloc):
+            raise SettingsError("links.portal_url must be an http or https origin")

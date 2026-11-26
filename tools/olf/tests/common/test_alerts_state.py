@@ -14,11 +14,14 @@ from openlakeforge_core import (
     AlertStateError,
     Delivery,
     DeliveryOutcome,
+    DeliveryTarget,
     HealthState,
     OutboxEntry,
     Scope,
     Signal,
     SignalKind,
+    TargetStatus,
+    delivery_targets,
     drop_notification,
     expire_outbox,
     record_attempt,
@@ -126,8 +129,37 @@ def test_a_settled_notification_leaves_its_outcome_on_the_open_incident() -> Non
 
     assert state.outbox == ()
     assert state.incidents[0].delivery == Delivery(
-        event=AlertEvent.OPENED, outcome=DeliveryOutcome.DELIVERED, receivers=1, delivered=1, attempts=2
+        event=AlertEvent.OPENED,
+        outcome=DeliveryOutcome.DELIVERED,
+        receivers=1,
+        delivered=1,
+        attempts=2,
+        targets=(DeliveryTarget("ops", TargetStatus.DELIVERED, 2),),
     )
+
+
+def test_where_a_notification_landed_is_kept_per_receiver_and_round_trips() -> None:
+    state, notification_id = _queued()
+    routed = {"discussions", "ops"}
+    for name in sorted(routed):
+        state = record_attempt(state, notification_id, name)
+    url = "https://github.com/acme/alerts/discussions/7"
+    state = record_delivery(state, notification_id, "discussions", routed=routed, url=url)
+    assert state.outbox[0].urls == {"discussions": url}
+    assert state_from_json(state_to_json(state)) == state
+    assert delivery_targets(state.outbox[0]) == (
+        DeliveryTarget("discussions", TargetStatus.DELIVERED, 1, url),
+        DeliveryTarget("ops", TargetStatus.RETRYING, 1),
+    )
+
+    state = record_delivery(state, notification_id, "ops", routed=routed)
+
+    delivery = state.incidents[0].delivery
+    assert delivery is not None and delivery.targets == (
+        DeliveryTarget("discussions", TargetStatus.DELIVERED, 1, url),
+        DeliveryTarget("ops", TargetStatus.DELIVERED, 1),
+    )
+    assert state_from_json(state_to_json(state)) == state
 
 
 def test_a_refusal_by_one_receiver_makes_the_notification_undeliverable() -> None:
@@ -142,7 +174,15 @@ def test_a_refusal_by_one_receiver_makes_the_notification_undeliverable() -> Non
     assert state.outbox == ()
     assert state_from_json(state_to_json(state)) == state
     assert state.incidents[0].delivery == Delivery(
-        event=AlertEvent.OPENED, outcome=DeliveryOutcome.UNDELIVERABLE, receivers=2, delivered=1, attempts=2
+        event=AlertEvent.OPENED,
+        outcome=DeliveryOutcome.UNDELIVERABLE,
+        receivers=2,
+        delivered=1,
+        attempts=2,
+        targets=(
+            DeliveryTarget("chat", TargetStatus.REJECTED, 1),
+            DeliveryTarget("ops", TargetStatus.DELIVERED, 1),
+        ),
     )
 
 
@@ -159,7 +199,12 @@ def test_an_expired_notification_is_undeliverable_and_a_dropped_one_unrouted() -
 
     assert [entry.notification.id for entry in expired] == [notification_id]
     assert state.incidents[0].delivery == Delivery(
-        event=AlertEvent.OPENED, outcome=DeliveryOutcome.UNDELIVERABLE, receivers=1, delivered=0, attempts=1
+        event=AlertEvent.OPENED,
+        outcome=DeliveryOutcome.UNDELIVERABLE,
+        receivers=1,
+        delivered=0,
+        attempts=1,
+        targets=(DeliveryTarget("ops", TargetStatus.EXPIRED, 1),),
     )
 
 
@@ -174,6 +219,24 @@ def test_a_state_written_before_outcomes_were_kept_reads_and_writes_back_unchang
 
     assert restored.incidents[0].delivery is None
     assert restored.outbox[0].rejected == frozenset()
+    assert restored.outbox[0].urls == {}
+    assert state_to_json(restored) == text
+
+
+def test_an_outcome_written_before_targets_were_kept_reads_with_none_and_writes_back_unchanged() -> None:
+    document = _document()
+    document["incidents"][0]["delivery"] = {
+        "event": "opened",
+        "outcome": "delivered",
+        "receivers": 1,
+        "delivered": 1,
+        "attempts": 1,
+    }
+    text = json.dumps(document, sort_keys=True, separators=(",", ":"))
+
+    restored = state_from_json(text)
+
+    assert restored.incidents[0].delivery is not None and restored.incidents[0].delivery.targets == ()
     assert state_to_json(restored) == text
 
 
@@ -203,7 +266,12 @@ def test_an_older_notification_settling_last_does_not_replace_the_newer_outcome(
 
     assert [entry.notification.id for entry in expired] == [opened]
     assert state.incidents[0].delivery == Delivery(
-        event=AlertEvent.ESCALATED, outcome=DeliveryOutcome.DELIVERED, receivers=1, delivered=1, attempts=1
+        event=AlertEvent.ESCALATED,
+        outcome=DeliveryOutcome.DELIVERED,
+        receivers=1,
+        delivered=1,
+        attempts=1,
+        targets=(DeliveryTarget("ops", TargetStatus.DELIVERED, 1),),
     )
 
 

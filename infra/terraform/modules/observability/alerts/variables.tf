@@ -146,6 +146,17 @@ variable "dagster_host_template" {
   }
 }
 
+variable "portal_url" {
+  description = "The Portal's origin, <scheme>://<base_domain>. A notification links the incident's row on its Monitoring page; null without spec.access, which leaves the link out."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.portal_url == null || can(regex("^https?://[^/?#\\s]+$", coalesce(var.portal_url, "x")))
+    error_message = "portal_url is an http or https origin, with no path."
+  }
+}
+
 variable "runbook_base_url" {
   description = "The alert runbook page a notification's runbook link anchors into with #<condition>; null omits the link."
   type        = string

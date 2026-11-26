@@ -189,7 +189,18 @@ def test_a_firing_incident_with_a_queued_notification_is_pending(
         "last_seen_at": incident.last_seen_at.isoformat().replace("+00:00", "Z"),
         "summary": "latest run failed",
         "run_ids": ["run-1", "run-2"],
-        "delivery": {"status": "pending", "event": "opened", "attempts": 3, "receivers": 2, "delivered": 1},
+        "delivery": {
+            "status": "pending",
+            "event": "opened",
+            "attempts": 3,
+            "receivers": 2,
+            "delivered": 1,
+            # Each receiver by its profile name: the one that has it, and the one still being retried.
+            "targets": [
+                {"receiver": "chat", "status": "delivered", "attempts": 1, "url": None},
+                {"receiver": "ops", "status": "retrying", "attempts": 2, "url": None},
+            ],
+        },
         # The deployment configures no runbook page.
         "runbook": None,
     }
@@ -216,7 +227,31 @@ def test_an_escalated_incident_reads_its_queued_escalation(api: TestClient, mint
         "attempts": 0,
         "receivers": 0,
         "delivered": 0,
+        "targets": None,
     }
+
+
+def test_a_discussion_link_stays_while_the_next_notification_is_queued(
+    api: TestClient, mint: Mint, bucket: FakeBucket
+) -> None:
+    incident = _incident(severity=AlertSeverity.WARNING)
+    state = AlertState(incidents=(incident,), outbox=(_queued(incident),))
+    opening = state.outbox[0].notification.id
+    for name in ("discussions", "ops"):
+        state = record_attempt(state, opening, name)
+    url = "https://github.com/acme/alerts/discussions/7"
+    state = record_delivery(state, opening, "discussions", routed={"discussions", "ops"}, url=url)
+    state = record_delivery(state, opening, "ops", routed={"discussions", "ops"})
+    escalated = replace(state.incidents[0], severity=AlertSeverity.CRITICAL, notified_severity=AlertSeverity.CRITICAL)
+    state = replace(state, incidents=(escalated,), outbox=(_queued(escalated, AlertEvent.ESCALATED),))
+    escalation = state.outbox[0].notification.id
+    state = record_attempt(record_attempt(state, escalation, "discussions"), escalation, "ops")
+    _write(bucket, state)
+
+    assert _only(api, mint)["delivery"]["targets"] == [
+        {"receiver": "discussions", "status": "retrying", "attempts": 1, "url": url},
+        {"receiver": "ops", "status": "retrying", "attempts": 1, "url": None},
+    ]
 
 
 def test_an_opening_still_queued_behind_a_delivered_escalation_reads_the_escalation(
@@ -236,6 +271,7 @@ def test_an_opening_still_queued_behind_a_delivered_escalation_reads_the_escalat
         "attempts": 1,
         "receivers": 1,
         "delivered": 1,
+        "targets": [{"receiver": "ops", "status": "delivered", "attempts": 1, "url": None}],
     }
 
 
@@ -243,7 +279,9 @@ def test_a_delivered_notification_reads_delivered(api: TestClient, mint: Mint, b
     incident = _incident()
     state = AlertState(incidents=(incident,), outbox=(_queued(incident),))
     notification_id = state.outbox[0].notification.id
-    state = record_delivery(record_attempt(state, notification_id, "ops"), notification_id, "ops", routed={"ops"})
+    url = "https://github.com/acme/alerts/discussions/7"
+    state = record_attempt(state, notification_id, "ops")
+    state = record_delivery(state, notification_id, "ops", routed={"ops"}, url=url)
     _write(bucket, state)
 
     assert _only(api, mint)["delivery"] == {
@@ -252,6 +290,7 @@ def test_a_delivered_notification_reads_delivered(api: TestClient, mint: Mint, b
         "attempts": 1,
         "receivers": 1,
         "delivered": 1,
+        "targets": [{"receiver": "ops", "status": "delivered", "attempts": 1, "url": url}],
     }
 
 
@@ -271,6 +310,7 @@ def test_an_expired_notification_reads_undeliverable_not_delivered(
         "attempts": 1,
         "receivers": 1,
         "delivered": 0,
+        "targets": [{"receiver": "ops", "status": "expired", "attempts": 1, "url": None}],
     }
 
 
@@ -282,7 +322,14 @@ def test_a_notification_settled_before_outcomes_were_kept_is_unknown(
 
     delivery = _only(api, mint)["delivery"]
 
-    assert delivery == {"status": "unknown", "event": None, "attempts": None, "receivers": None, "delivered": None}
+    assert delivery == {
+        "status": "unknown",
+        "event": None,
+        "attempts": None,
+        "receivers": None,
+        "delivered": None,
+        "targets": None,
+    }
 
 
 def test_only_the_stages_own_incidents_are_listed_platform_conditions_included(
@@ -550,23 +597,25 @@ def test_without_an_evaluator_or_a_key_alerts_are_not_provided(
     assert (body["state"]["status"], body["incidents"]) == ("not_provided", None)
 
 
-def test_the_answer_carries_no_receiver_url_header_or_name(api: TestClient, mint: Mint, bucket: FakeBucket) -> None:
+def test_the_answer_names_receivers_but_carries_no_webhook_url_or_header(
+    api: TestClient, mint: Mint, bucket: FakeBucket
+) -> None:
     incident = _incident()
     state = AlertState(incidents=(incident,), outbox=(_queued(incident),))
-    state = record_attempt(state, state.outbox[0].notification.id, "pager-team-secret")
+    state = record_attempt(state, state.outbox[0].notification.id, "on-call")
     _write(bucket, state)
-    # The evaluator never stores a URL or a header; a state that somehow did must still not leak one.
+    # The evaluator never stores a webhook URL or a header; a state that somehow did must still not leak one.
     document = json.loads(bucket.objects[STATE_KEY])
-    document["receivers"] = [
-        {"name": "pager-team-secret", "url": RECEIVER_URL, "headers": {"Authorization": "Bearer x"}}
-    ]
+    document["receivers"] = [{"name": "on-call", "url": RECEIVER_URL, "headers": {"Authorization": "Bearer x"}}]
     bucket.objects[STATE_KEY] = json.dumps(document).encode()
 
     text = api.get(INCIDENTS, headers=_as(mint, "platform-admin")).text
 
-    for leaked in ("pager-team-secret", "hooks.example.test", "secret-token", "Authorization", "Bearer", "https://"):
+    for leaked in ("hooks.example.test", "secret-token", "Authorization", "Bearer", "https://"):
         assert leaked not in text
-    assert json.loads(text)["incidents"][0]["delivery"]["attempts"] == 1
+    delivery = json.loads(text)["incidents"][0]["delivery"]
+    assert delivery["attempts"] == 1
+    assert delivery["targets"] == [{"receiver": "on-call", "status": "retrying", "attempts": 1, "url": None}]
 
 
 @pytest.mark.parametrize("uri", ["s3://ops/alerts", "https://ops/alerts/", "s3:///alerts/"])
