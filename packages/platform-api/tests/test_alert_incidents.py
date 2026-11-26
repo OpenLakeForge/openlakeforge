@@ -227,7 +227,8 @@ def test_an_escalated_incident_reads_its_queued_escalation(api: TestClient, mint
         "attempts": 0,
         "receivers": 0,
         "delivered": 0,
-        "targets": None,
+        # Not tried yet: the opening's receiver, untried.
+        "targets": [{"receiver": "ops", "status": "retrying", "attempts": 0, "url": None}],
     }
 
 
@@ -244,6 +245,13 @@ def test_a_discussion_link_stays_while_the_next_notification_is_queued(
     state = record_delivery(state, opening, "ops", routed={"discussions", "ops"})
     escalated = replace(state.incidents[0], severity=AlertSeverity.CRITICAL, notified_severity=AlertSeverity.CRITICAL)
     state = replace(state, incidents=(escalated,), outbox=(_queued(escalated, AlertEvent.ESCALATED),))
+    # Not tried yet (a run's delivery budget ran out first): the opening's receivers, untried, keep its link.
+    _write(bucket, state)
+    assert _only(api, mint)["delivery"]["targets"] == [
+        {"receiver": "discussions", "status": "retrying", "attempts": 0, "url": url},
+        {"receiver": "ops", "status": "retrying", "attempts": 0, "url": None},
+    ]
+
     escalation = state.outbox[0].notification.id
     state = record_attempt(record_attempt(state, escalation, "discussions"), escalation, "ops")
     _write(bucket, state)

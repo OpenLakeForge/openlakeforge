@@ -28,7 +28,15 @@ from urllib.parse import urlsplit
 
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Request
-from openlakeforge_core.alerts import AlertState, Delivery, DeliveryTarget, Incident, OutboxEntry, runbook_link
+from openlakeforge_core.alerts import (
+    AlertState,
+    Delivery,
+    DeliveryTarget,
+    Incident,
+    OutboxEntry,
+    TargetStatus,
+    runbook_link,
+)
 from openlakeforge_core.alerts_state import AlertStateError, delivery_targets, notification_order, state_from_json
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
@@ -124,6 +132,14 @@ def _latest_queued(state: AlertState) -> dict[str, OutboxEntry]:
     return queued
 
 
+def _not_tried_yet(earlier: Delivery | None) -> tuple[DeliveryTarget, ...]:
+    """A queued notification no receiver has been tried with yet (a run's delivery budget ran out first): the receivers
+    of the incident's earlier notification, untried, so the discussion it landed at stays linked meanwhile."""
+    if earlier is None:
+        return ()
+    return tuple(DeliveryTarget(t.receiver, TargetStatus.RETRYING, 0) for t in earlier.targets)
+
+
 def _targets(targets: tuple[DeliveryTarget, ...], earlier: Delivery | None) -> list[dict[str, Any]] | None:
     """The receivers as the answer lists them. A receiver with no URL of its own yet (an escalation still queued) keeps
     the one its earlier notification landed at: the incident's discussion stays the same."""
@@ -153,7 +169,7 @@ def _delivery(incident: Incident, queued: OutboxEntry | None) -> dict[str, Any]:
             "attempts": sum(queued.attempts.values()),
             "receivers": len(set(queued.attempts) | queued.delivered),
             "delivered": len(queued.delivered - queued.rejected),
-            "targets": _targets(delivery_targets(queued), settled),
+            "targets": _targets(delivery_targets(queued) or _not_tried_yet(settled), settled),
         }
     if settled is None:
         return {"status": "unknown", "event": None, "attempts": None, "receivers": None, "delivered": None}

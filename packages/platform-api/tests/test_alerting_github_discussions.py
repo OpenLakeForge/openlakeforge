@@ -430,7 +430,7 @@ def test_a_shared_discussion_closes_only_once_every_incident_in_it_resolved(
     env.notifier.send(event("resolved"), delivery_id="n-3")
 
     assert discussion["comments"][-1].startswith("✅ **Run failed resolved**")
-    assert discussion["closed"] is True
+    assert github.by_id("D_1")["closed"] is True
     # A retried resolve of the first finds its comment and leaves the closed discussion alone.
     env.notifier.send({**QUALITY, "event": "resolved"}, delivery_id="q-3")
     assert len(discussion["comments"]) == 3 and len(github.of("close")) == 1
