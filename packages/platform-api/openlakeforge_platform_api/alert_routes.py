@@ -132,12 +132,16 @@ def _latest_queued(state: AlertState) -> dict[str, OutboxEntry]:
     return queued
 
 
-def _not_tried_yet(earlier: Delivery | None) -> tuple[DeliveryTarget, ...]:
-    """A queued notification no receiver has been tried with yet (a run's delivery budget ran out first): the receivers
-    of the incident's earlier notification, untried, so the discussion it landed at stays linked meanwhile."""
-    if earlier is None:
-        return ()
-    return tuple(DeliveryTarget(t.receiver, TargetStatus.RETRYING, 0) for t in earlier.targets)
+def _with_untried(targets: tuple[DeliveryTarget, ...], earlier: Delivery | None) -> tuple[DeliveryTarget, ...]:
+    """A queued notification's receivers, with those of the incident's earlier notification it has not tried yet (a
+    run's delivery budget ran out first) listed untried, so the discussion that one landed at stays linked meanwhile."""
+    tried = {t.receiver for t in targets}
+    untried = (
+        DeliveryTarget(t.receiver, TargetStatus.RETRYING, 0)
+        for t in (earlier.targets if earlier else ())
+        if t.receiver not in tried
+    )
+    return tuple(sorted((*targets, *untried), key=lambda t: t.receiver))
 
 
 def _targets(targets: tuple[DeliveryTarget, ...], earlier: Delivery | None) -> list[dict[str, Any]] | None:
@@ -169,7 +173,7 @@ def _delivery(incident: Incident, queued: OutboxEntry | None) -> dict[str, Any]:
             "attempts": sum(queued.attempts.values()),
             "receivers": len(set(queued.attempts) | queued.delivered),
             "delivered": len(queued.delivered - queued.rejected),
-            "targets": _targets(delivery_targets(queued) or _not_tried_yet(settled), settled),
+            "targets": _targets(_with_untried(delivery_targets(queued), settled), settled),
         }
     if settled is None:
         return {"status": "unknown", "event": None, "attempts": None, "receivers": None, "delivered": None}

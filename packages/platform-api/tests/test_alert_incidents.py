@@ -253,7 +253,15 @@ def test_a_discussion_link_stays_while_the_next_notification_is_queued(
     ]
 
     escalation = state.outbox[0].notification.id
-    state = record_attempt(record_attempt(state, escalation, "discussions"), escalation, "ops")
+    # Only `ops` tried so far: `discussions` stays listed, untried, with its link.
+    state = record_attempt(state, escalation, "ops")
+    _write(bucket, state)
+    assert _only(api, mint)["delivery"]["targets"] == [
+        {"receiver": "discussions", "status": "retrying", "attempts": 0, "url": url},
+        {"receiver": "ops", "status": "retrying", "attempts": 1, "url": None},
+    ]
+
+    state = record_attempt(state, escalation, "discussions")
     _write(bucket, state)
 
     assert _only(api, mint)["delivery"]["targets"] == [
