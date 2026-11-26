@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import boto3
 import yaml
@@ -74,7 +75,7 @@ PAYLOAD_FIELDS = frozenset(
         "schema event incident_id condition severity stage domain product table run_id opened_at event_at summary links"
     ).split()
 )
-LINK_FIELDS = frozenset({"run", "runbook"})
+LINK_FIELDS = frozenset({"portal", "run", "runbook"})
 DOMAIN_TAG = "openlakeforge/silver-domain"
 TERMINAL = {"SUCCESS", "FAILURE", "CANCELED"}
 
@@ -181,12 +182,25 @@ def runbook_base(settings_json: str) -> str | None:
     return json.loads(settings_json).get("links", {}).get("runbook_base_url") or None
 
 
+def portal_base(settings_json: str) -> str | None:
+    """The Portal origin the deployed evaluator links incidents to (ADR 0023, decision 5); none without spec.access, or
+    from an evaluator deployed before the link existed."""
+    return json.loads(settings_json).get("links", {}).get("portal_url") or None
+
+
 def payload_problems(
-    payload: Mapping[str, Any], *, link: str | None, secrets: Mapping[str, str], runbook: str | None = None
+    payload: Mapping[str, Any],
+    *,
+    link: str | None,
+    secrets: Mapping[str, str],
+    runbook: str | None = None,
+    portal: str | None = None,
 ) -> list[str]:
     """Why a payload breaks the contract: a field off the allowlist, a wrong or missing link, or a Secret value.
 
     With a `runbook` page the runbook link must be that page anchored at the payload's condition; without one, absent.
+    With a `portal` origin the portal link must open the payload's incident on its stage's Monitoring page; without one,
+    absent.
     """
     body = {key: value for key, value in payload.items() if key != HARNESS_FIELD}
     problems = [f"unlisted field {key!r}" for key in sorted(set(body) - PAYLOAD_FIELDS)]
@@ -197,6 +211,10 @@ def payload_problems(
     expected = f"{runbook}#{body.get('condition')}" if runbook else None
     if links.get("runbook") != expected:
         problems.append(f"runbook link is {links.get('runbook')!r}, expected {expected!r}")
+    query = urlencode({"stage": body.get("stage", ""), "incident": body.get("incident_id", "")})
+    expected = f"{portal.rstrip('/')}/monitoring?{query}" if portal else None
+    if links.get("portal") != expected:
+        problems.append(f"portal link is {links.get('portal')!r}, expected {expected!r}")
     problems += find_exposures(secrets, {"the payload": json.dumps(body)})
     return problems
 
@@ -278,6 +296,7 @@ class Harness:
     routes: dict[str, str]
     secrets: dict[str, str]
     runbook: str | None = None
+    portal: str | None = None
     jobs: int = 0
 
     def stub(self, method: str, path: str) -> str:
@@ -320,7 +339,7 @@ class Harness:
     def verify(self, found: list[dict[str, Any]]) -> None:
         for item in found:
             link = expected_run_link(self.routes, self.stage, item.get("run_id", ""))
-            problems = payload_problems(item, link=link, secrets=self.secrets, runbook=self.runbook)
+            problems = payload_problems(item, link=link, secrets=self.secrets, runbook=self.runbook, portal=self.portal)
             if problems:
                 raise E2EError(f"alert payload {item.get('incident_id')}: " + "; ".join(problems))
 
@@ -648,6 +667,7 @@ def check_alert_delivery(cfg: E2EConfig) -> None:
     log.step("Checking alert notifications reach a receiver once per incident...")
     live_settings = kubectl(cfg, ["get", "configmap", EVALUATOR, "-n", namespace, "-o", "json"], capture=True)
     runbook = runbook_base(json.loads(live_settings)["data"]["alerts.json"])
+    portal = portal_base(json.loads(live_settings)["data"]["alerts.json"])
     stage = cfg.namespace.removeprefix("olf-")
     token = uuid.uuid4().hex
     url = k8s.secret_value(
@@ -661,7 +681,7 @@ def check_alert_delivery(cfg: E2EConfig) -> None:
         _ops_bucket(cfg) as (s3, bucket),
         dagster_client(cfg) as client,
     ):
-        h = Harness(cfg, client, s3, bucket, stage, pod, cronjob, routes, secrets, runbook)
+        h = Harness(cfg, client, s3, bucket, stage, pod, cronjob, routes, secrets, runbook, portal)
         h.clear_state()
         try:
             # A real failure of the job as its latest run would hold its run_failed incident open, and the cases'

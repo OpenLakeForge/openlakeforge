@@ -237,6 +237,33 @@ def test_without_a_runbook_page_no_runbook_link_is_sent() -> None:
     assert any("runbook link is" in problem for problem in problems)
 
 
+PORTAL = "http://olf.localhost"
+
+
+def test_with_a_portal_origin_the_link_must_open_the_incident_on_its_stage() -> None:
+    base = {**GOOD, "incident_id": "abc-1-1", "stage": "dev"}
+    good = {**base, "links": {**GOOD["links"], "portal": f"{PORTAL}/monitoring?stage=dev&incident=abc-1-1"}}
+    assert _alerts.payload_problems(good, link="https://d/runs/r1", secrets={}, portal=PORTAL) == []
+
+    other = {**good, "incident_id": "abc-2-1"}
+    for payload in (base, other):
+        problems = _alerts.payload_problems(payload, link="https://d/runs/r1", secrets={}, portal=PORTAL)
+        assert any("portal link is" in problem for problem in problems)
+
+
+def test_without_a_portal_origin_no_portal_link_is_sent() -> None:
+    sent = {**GOOD, "links": {**GOOD["links"], "portal": f"{PORTAL}/monitoring?stage=dev&incident=x"}}
+    problems = _alerts.payload_problems(sent, link="https://d/runs/r1", secrets={})
+    assert any("portal link is" in problem for problem in problems)
+    assert not any("unlisted link" in problem for problem in problems)
+
+
+def test_the_portal_origin_is_read_from_the_deployed_settings() -> None:
+    assert _alerts.portal_base(json.dumps({"links": {"portal_url": PORTAL}})) == PORTAL
+    assert _alerts.portal_base(json.dumps({"links": {"portal_url": None}})) is None
+    assert _alerts.portal_base(json.dumps({})) is None
+
+
 def test_the_runbook_page_is_read_from_the_deployed_settings() -> None:
     assert _alerts.runbook_base(json.dumps({"links": {"runbook_base_url": RUNBOOK}})) == RUNBOOK
     assert _alerts.runbook_base(json.dumps({"links": {"runbook_base_url": None}})) is None
