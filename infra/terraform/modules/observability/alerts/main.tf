@@ -53,6 +53,7 @@ locals {
       dagster_scheme        = var.dagster_scheme
       dagster_host_template = var.dagster_host_template
       runbook_base_url      = var.runbook_base_url
+      portal_url            = var.portal_url
     }
     # The platform API's stage health route (ADR 0023, decision 11), read with the projected token below.
     platform_api_url        = var.platform_api_url

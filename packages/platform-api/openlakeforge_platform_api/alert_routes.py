@@ -3,7 +3,9 @@
 The evaluator is the only writer of `alerts/` (ADR 0023, decision 3), and this route never writes: a state that does not
 parse is answered `unavailable` and left for the evaluator, which keeps the corrupt copy, rather than through
 `AlertStore.read_state`, which would write that copy itself and answer an empty state. An answer carries the fields of
-the notification payload allowlist and delivery counts only: no receiver name, URL or header. Of the payload's links
+the notification payload allowlist and its delivery: counts, and each receiver by its profile name with where the
+notification landed when the receiver has a page for it (a GitHub discussion), never a webhook URL or header. Of the
+payload's links
 it carries the runbook (#1344), built from this API's own `runbook_base_url` as the evaluator builds it from the same
 URL, and not the run link, which names the stage's Dagster.
 
@@ -26,8 +28,16 @@ from urllib.parse import urlsplit
 
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Request
-from openlakeforge_core.alerts import AlertState, Incident, OutboxEntry, runbook_link
-from openlakeforge_core.alerts_state import AlertStateError, notification_order, state_from_json
+from openlakeforge_core.alerts import (
+    AlertState,
+    Delivery,
+    DeliveryTarget,
+    Incident,
+    OutboxEntry,
+    TargetStatus,
+    runbook_link,
+)
+from openlakeforge_core.alerts_state import AlertStateError, delivery_targets, notification_order, state_from_json
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.dagster import DagsterClient
 
@@ -122,6 +132,35 @@ def _latest_queued(state: AlertState) -> dict[str, OutboxEntry]:
     return queued
 
 
+def _with_untried(targets: tuple[DeliveryTarget, ...], earlier: Delivery | None) -> tuple[DeliveryTarget, ...]:
+    """A queued notification's receivers, with those of the incident's earlier notification it has not tried yet (a
+    run's delivery budget ran out first) listed untried, so the discussion that one landed at stays linked meanwhile."""
+    tried = {t.receiver for t in targets}
+    untried = (
+        DeliveryTarget(t.receiver, TargetStatus.RETRYING, 0)
+        for t in (earlier.targets if earlier else ())
+        if t.receiver not in tried
+    )
+    return tuple(sorted((*targets, *untried), key=lambda t: t.receiver))
+
+
+def _targets(targets: tuple[DeliveryTarget, ...], earlier: Delivery | None) -> list[dict[str, Any]] | None:
+    """The receivers as the answer lists them. A receiver with no URL of its own yet (an escalation still queued) keeps
+    the one its earlier notification landed at: the incident's discussion stays the same."""
+    if not targets:
+        return None
+    landed = {t.receiver: t.url for t in (earlier.targets if earlier else ()) if t.url}
+    return [
+        {
+            "receiver": t.receiver,
+            "status": t.status.value,
+            "attempts": t.attempts,
+            "url": t.url or landed.get(t.receiver),
+        }
+        for t in targets
+    ]
+
+
 def _delivery(incident: Incident, queued: OutboxEntry | None) -> dict[str, Any]:
     settled = incident.delivery
     # An older notification still queued behind a newer one that already settled is not the latest: the settled is.
@@ -134,6 +173,7 @@ def _delivery(incident: Incident, queued: OutboxEntry | None) -> dict[str, Any]:
             "attempts": sum(queued.attempts.values()),
             "receivers": len(set(queued.attempts) | queued.delivered),
             "delivered": len(queued.delivered - queued.rejected),
+            "targets": _targets(_with_untried(delivery_targets(queued), settled), settled),
         }
     if settled is None:
         return {"status": "unknown", "event": None, "attempts": None, "receivers": None, "delivered": None}
@@ -143,6 +183,7 @@ def _delivery(incident: Incident, queued: OutboxEntry | None) -> dict[str, Any]:
         "attempts": settled.attempts,
         "receivers": settled.receivers,
         "delivered": settled.delivered,
+        "targets": _targets(settled.targets, None),
     }
 
 

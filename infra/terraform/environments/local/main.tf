@@ -381,6 +381,7 @@ module "alerts" {
   ca_configmap_name     = local.route_tls ? module.in_cluster_resolution[0].ca_configmap_name : null
   dagster_scheme        = local.route_scheme
   dagster_host_template = local.access_enabled ? "dagster-{stage}.${local.base_domain}" : null
+  portal_url            = local.access_enabled ? "${local.route_scheme}://${local.base_domain}" : null
   # Flow F44. Built from the module's defaults, never from module.platform_api, so the evaluator does not order after
   # the API and the API's service caller below needs only this module's ServiceAccount name.
   platform_api_url = local.platform_api_enabled && local.alerts_enabled ? "http://platform-api.${kubernetes_namespace_v1.shared.metadata[0].name}:8080" : null

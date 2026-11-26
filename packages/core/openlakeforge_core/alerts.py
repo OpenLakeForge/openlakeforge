@@ -183,12 +183,36 @@ _SILENT_ON_DISABLED = frozenset({AlertKind.MISSED_RUN, AlertKind.SCHEDULE_MISMAT
 _STALE_CAUSES = frozenset({AlertKind.RUN_FAILED, AlertKind.MISSED_RUN})
 
 
+class TargetStatus(StrEnum):
+    """Where one receiver stands with one notification."""
+
+    DELIVERED = "delivered"
+    REJECTED = "rejected"
+    # Tried, not settled yet: the next evaluation tries again.
+    RETRYING = "retrying"
+    # The notification expired before this receiver accepted it.
+    EXPIRED = "expired"
+
+
+@dataclass(frozen=True)
+class DeliveryTarget:
+    """One receiver's part in a notification's delivery: its profile name, never its webhook URL or headers.
+
+    `url` is where the notification landed when the receiver says so (a GitHub discussion); a webhook has none.
+    """
+
+    receiver: str
+    status: TargetStatus
+    attempts: int
+    url: str | None = None
+
+
 @dataclass(frozen=True)
 class Delivery:
     """The outcome of an incident's latest notification to leave the outbox (ADR 0023, decision 3).
 
     Kept on the open incident because the outbox forgets a notification once it settles: without this, a delivered one
-    and an expired one would read the same. Counts only, never a receiver's name or URL.
+    and an expired one would read the same. Receivers by profile name only, never a webhook URL or header.
     """
 
     event: AlertEvent
@@ -197,6 +221,8 @@ class Delivery:
     receivers: int
     delivered: int
     attempts: int
+    # Per receiver; empty in a state written before they were kept.
+    targets: tuple[DeliveryTarget, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -279,6 +305,8 @@ class OutboxEntry:
     delivered: frozenset[str] = frozenset()
     # Those of `delivered` that refused it for good rather than accepting it.
     rejected: frozenset[str] = frozenset()
+    # Where it landed, per receiver that said so (a GitHub discussion's URL).
+    urls: Mapping[str, str] = field(default_factory=dict)
     # Evaluations this entry has waited through, so an undeliverable one can expire.
     runs: int = 0
 

@@ -48,6 +48,9 @@ class DeliveryResult:
     status: DeliveryStatus
     http_status: int | None
     attempts: int
+    # Where a delivered notification landed, when the receiver has a page for it (a GitHub discussion); never a
+    # webhook's own URL.
+    url: str | None = None
 
 
 class Notifier(Protocol):
