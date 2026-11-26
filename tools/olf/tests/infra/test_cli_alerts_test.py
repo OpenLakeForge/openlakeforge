@@ -44,6 +44,8 @@ class FakeCluster(ProcessRunner):
         self.job: dict[str, Any] | None = None
         self.job_status: dict[str, Any] = {"succeeded": 1}
         self.logs = DELIVERED
+        self.pods: list[dict[str, Any]] = []
+        self.events = ""
         self.deleted: list[str] = []
         self.calls: list[list[str]] = []
 
@@ -64,6 +66,10 @@ class FakeCluster(ProcessRunner):
                 code, stderr = 1, 'Error from server (NotFound): cronjobs.batch "alert-evaluator" not found'
             else:
                 stdout = json.dumps(self.cronjob)
+        elif argv[argv.index("get") + 1] == "pods":
+            stdout = json.dumps({"items": self.pods})
+        elif argv[argv.index("get") + 1] == "events":
+            stdout = self.events
         else:
             stdout = json.dumps({"status": self.job_status})
         return CommandResult(argv=tuple(argv), returncode=code, stdout=stdout, stderr=stderr, duration_seconds=0.0)
@@ -167,16 +173,29 @@ def test_a_rejection_exits_non_zero_with_the_receivers_log_lines(cluster: FakeCl
     assert cluster.deleted
 
 
-def test_a_job_that_never_finishes_times_out_and_is_still_deleted(
+def test_a_job_that_never_finishes_times_out_shows_its_pod_and_is_still_deleted(
     cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cluster.job_status = {}
+    cluster.pods = [
+        {
+            "metadata": {"name": "alert-test-x-abc"},
+            "status": {
+                "phase": "Pending",
+                "containerStatuses": [{"name": "evaluator", "state": {"waiting": {"reason": "ImagePullBackOff"}}}],
+            },
+        }
+    ]
+    cluster.events = 'Warning  Failed  pod/alert-test-x-abc  Failed to pull image "x"'
     monkeypatch.setattr(alerts_cmd, "_TEST_TIMEOUT_SECONDS", 0)
 
     result = _test("on-call")
 
     assert result.exit_code == 1
     assert "did not finish" in result.output
+    assert "pod alert-test-x-abc: Pending (evaluator: ImagePullBackOff)" in result.output
+    assert "Failed to pull image" in result.output
+    assert "describe pod" not in result.output
     assert cluster.deleted
 
 

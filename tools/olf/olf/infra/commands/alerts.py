@@ -154,6 +154,38 @@ def _outcome(logs: str) -> dict[str, object] | None:
     return None
 
 
+def _stuck_pods(cluster: StageCluster, job: str, scope: dict[str, Any]) -> list[str]:
+    """What the Job's pods are doing and what Kubernetes said about them, read before the Job is deleted."""
+    pods = cluster.kubectl.get(
+        "pods", namespace=cluster.namespace, output="json", extra_args=["-l", f"job-name={job}"], check=False, **scope
+    )
+    try:
+        items = json.loads(pods.stdout).get("items", [])
+    except ValueError:
+        items = []
+    if not items:
+        return ["no pod was created for the Job"]
+    lines = []
+    for pod in items:
+        name = pod["metadata"]["name"]
+        status = pod.get("status", {})
+        waiting = [
+            f"{c.get('name')}: {c['state']['waiting'].get('reason')}"
+            for c in status.get("containerStatuses", [])
+            if c.get("state", {}).get("waiting")
+        ]
+        lines.append(f"pod {name}: {status.get('phase', 'Unknown')}" + (f" ({'; '.join(waiting)})" if waiting else ""))
+        events = cluster.kubectl.get(
+            "events",
+            namespace=cluster.namespace,
+            extra_args=["--field-selector", f"involvedObject.name={name}"],
+            check=False,
+            **scope,
+        )
+        lines += [f"  {line}" for line in events.stdout.splitlines()[-6:] if line.strip()]
+    return lines
+
+
 @app.command("test")
 def send_test(
     receiver_name: str = typer.Argument(..., metavar="RECEIVER", help="Receiver name, as in the profile."),
@@ -218,12 +250,9 @@ def send_test(
             )
         ) is None:
             if time.monotonic() >= deadline:
-                raise typer.Exit(
-                    code=fail(
-                        f"the test Job {name} did not finish in {_TEST_TIMEOUT_SECONDS} seconds; "
-                        f"check `kubectl -n {cluster.namespace} describe pod -l job-name={name}`"
-                    )
-                )
+                for line in _stuck_pods(cluster, name, scope):
+                    typer.echo(f"  {line}")
+                raise typer.Exit(code=fail(f"the test Job {name} did not finish in {_TEST_TIMEOUT_SECONDS} seconds"))
             time.sleep(_POLL_SECONDS)
         logs = cluster.kubectl.logs(f"job/{name}", namespace=cluster.namespace, check=False, **scope).stdout
     finally:

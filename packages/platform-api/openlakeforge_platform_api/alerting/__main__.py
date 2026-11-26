@@ -12,6 +12,7 @@ import logging
 import os
 import sys
 import tempfile
+import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
@@ -61,7 +62,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     quiet_transport_logs()
-    if args.test_receiver:
+    if args.test_receiver is not None:
         return _send_test(args.settings, args.test_receiver, args.test_stage)
     try:
         override = load_alert_policy(args.policy_file) if args.policy_file else None
@@ -154,7 +155,9 @@ def _send_test(settings_path: str, name: str, stage: str | None) -> int:
         log.error("alert test cannot run: %s", error)
         return 2
     now = datetime.now(UTC)
-    incident_id = f"test-{now.strftime('%Y%m%dT%H%M%SZ')}"
+    # The suffix keeps two tests in one second from sharing a delivery id, which the GitHub notifier would treat as
+    # already posted. It is fixed for this invocation, so retries still dedupe.
+    incident_id = f"test-{now.strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     payload = {
         "schema": PAYLOAD_SCHEMA,
         "event": "test",

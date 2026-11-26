@@ -1097,3 +1097,23 @@ def test_a_test_send_to_an_unknown_receiver_exits_two_naming_the_declared_ones(
 
     assert code == 2 and notifier.sent == [] and out == ""
     assert "unknown receiver 'nope'" in caplog.text and "ops" in caplog.text
+
+
+def test_two_tests_in_one_second_do_not_share_a_delivery_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ok = DeliveryResult("delivered", 200, 1)
+    _, first, _ = _test_send(monkeypatch, tmp_path, capsys, ok, "--test-receiver", "ops")
+    _, second, _ = _test_send(monkeypatch, tmp_path, capsys, ok, "--test-receiver", "ops")
+
+    assert first.sent[0][1] != second.sent[0][1]
+
+
+def test_an_empty_test_receiver_is_refused_not_run_as_an_evaluation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, notifier, out = _test_send(
+        monkeypatch, tmp_path, capsys, DeliveryResult("delivered", 200, 1), "--test-receiver", ""
+    )
+
+    assert code == 2 and notifier.sent == [] and out == ""
