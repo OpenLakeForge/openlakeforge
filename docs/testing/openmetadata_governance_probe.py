@@ -242,6 +242,11 @@ SCHEMAS = [
         ["constraintType", "columns", "referredColumns", "relationshipType"],
     ),
     (f"{GEN}.metadataIngestion.databaseServiceProfilerPipeline", "DatabaseServiceProfilerPipeline", []),
+    (
+        f"{GEN}.metadataIngestion.databaseServiceMetadataPipeline",
+        "DatabaseServiceMetadataPipeline",
+        ["overrideMetadata"],
+    ),
 ]
 
 
@@ -266,7 +271,7 @@ def setup(ctx: Ctx) -> None:
     team = om(ctx, "GET", "/api/v1/teams/name/Organization")
     if not users.ok or not team.ok:
         raise E2EError(f"cannot resolve the admin user ({users.brief()}) or the Organization team ({team.brief()})")
-    ctx.fix["user"], ctx.fix["team"] = ref(users.data["id"], "user"), ref(team.data["id"], "team")
+    ctx.fix["user"], ctx.fix["organization"] = ref(users.data["id"], "user"), ref(team.data["id"], "team")
 
     def create(kind: str, name: str, body: dict[str, Any]) -> dict[str, Any]:
         response = om(ctx, "POST", f"/api/v1/{kind}", {"name": name, "description": "OLF governance probe", **body})
@@ -288,6 +293,8 @@ def setup(ctx: Ctx) -> None:
         )
         return response.data
 
+    group = create("teams", f"{P}_team", {"teamType": "Group"})
+    ctx.fix["team"] = ref(group["id"], "team")
     ctx.fix["domain"] = create("domains", f"{P}_domain", {"domainType": "Aggregate"})
     for key, name in (("product", f"{P}_product"), ("upstream", f"{P}_upstream")):
         ctx.fix[key] = create("dataProducts", name, {"domains": [f"{P}_domain"]})
@@ -311,9 +318,16 @@ def setup(ctx: Ctx) -> None:
     }
 
 
+# `fields` is refused whole when it names one the entity does not have, so each kind lists only its own.
+READ_FIELDS = {
+    "dataProducts": "domains,owners,experts,reviewers,consumesFrom,providesTo,tags,extension",
+    "domains": "owners,experts,tags,extension",
+    "metrics": "owners,domains,dataProducts,reviewers,tags,extension",
+}
+
+
 def stored(ctx: Ctx, kind: str, entity_id: str, name: str) -> Any:
-    fields = "owners,domains,experts,reviewers,consumesFrom,providesTo,tags,extension,dataProducts"
-    return (read(ctx, kind, entity_id, fields).data or {}).get(name)
+    return (read(ctx, kind, entity_id, READ_FIELDS[kind]).data or {}).get(name)
 
 
 def try_candidates(
@@ -376,6 +390,16 @@ def probe_lifecycle(ctx: Ctx) -> None:
         )
     except Exception as exc:  # noqa: BLE001 - evidence only
         attempts.append({"step": "governance workflow definitions", "result": f"error {exc}"})
+    replaced = patch(
+        ctx, "dataProducts", product["id"], {"op": "replace", "path": "/lifecycleStage", "value": "TESTING"}
+    )
+    attempts.append(
+        {
+            "step": "PATCH replace /lifecycleStage TESTING",
+            "result": replaced.brief(),
+            "read_back": (read(ctx, "dataProducts", product["id"], "").data or {}).get("lifecycleStage"),
+        }
+    )
     after = (read(ctx, "dataProducts", product["id"], "").data or {}).get("lifecycleStage")
     time.sleep(20)  # a lifecycle workflow, if one is active, runs on the update event within seconds
     later = (read(ctx, "dataProducts", product["id"], "").data or {}).get("lifecycleStage")
@@ -417,12 +441,8 @@ def probe_native_fields(ctx: Ctx) -> None:
         product,
         "sla",
         [
-            {"tier": "Gold"},
-            {"slaLevel": "Gold"},
-            {"availability": "99.9"},
-            {"freshness": "PT24H"},
-            {"uptime": 99.9},
-            {"description": "probe"},
+            {"tier": "GOLD", "availability": 99.9, "dataFreshness": 1440, "dataQuality": 95.0, "responseTime": 2000},
+            {"availability": 99.9},
         ],
     )
     try_candidates(
@@ -480,7 +500,10 @@ def probe_metric(ctx: Ctx) -> None:
     if not r.ok:
         base = {k: body[k] for k in ("name", "description", "metricExpression")}
         for key in ("metricType", "owners", "domains", "dataProducts", "tags", "extension"):
-            part = om(ctx, "POST", "/api/v1/metrics", {**base, "name": f"{P}_metric_{key.lower()}", key: body[key]})
+            extra = {"domains": body["domains"]} if key == "dataProducts" else {}
+            part = om(
+                ctx, "POST", "/api/v1/metrics", {**base, "name": f"{P}_metric_{key.lower()}", key: body[key], **extra}
+            )
             attempts.append({f"minimal + {key}": part.brief()})
             if part.ok:
                 ctx.cleanups.append(
@@ -504,7 +527,7 @@ def probe_metric(ctx: Ctx) -> None:
             lambda: om(ctx, "DELETE", f"/api/v1/metrics/{metric['id']}", params={"hardDelete": "true"}) and None,
         )
     )
-    got = read(ctx, "metrics", metric["id"], "owners,domains,dataProducts,tags,extension").data or {}
+    got = read(ctx, "metrics", metric["id"], READ_FIELDS["metrics"]).data or {}
     summary = {
         k: got.get(k)
         for k in ("metricType", "metricExpression", "owners", "domains", "dataProducts", "tags", "extension")
@@ -672,95 +695,151 @@ def verify_descriptions(ctx: Ctx, label: str, table_comment: str, column_comment
         f.note(f"Trino comments were {table_comment!r} / {column_comment!r}")
 
 
-def probe_profile(ctx: Ctx) -> None:
-    f = ctx.finding(
-        "7", "`metadata profile` against one Gold table: accepted options, stored statistics, no sample data"
-    )
-    a = ctx.fix["table_a"]
-    database, schema, table = ctx.catalog, a["fullyQualifiedName"].split(".")[-2], a["name"]
-    wanted = {
-        "type": "Profiler",
-        "generateSampleData": False,
-        "computeTableMetrics": True,
-        "computeColumnMetrics": True,
-        "metrics": PROFILE_METRICS,
-        "profileSampleType": "PERCENTAGE",
-        "profileSample": 100,
-        "threadCount": 1,
-        "timeoutSeconds": 900,
-        "processPiiSensitive": False,
-        "includeViews": False,
-        "databaseFilterPattern": {"includes": [f"^{database}$"]},
-        "schemaFilterPattern": {"includes": [f"^{schema}$"]},
-        "tableFilterPattern": {"includes": [f"^{table}$"]},
-    }
-    known = ctx.fix.get("profiler_properties") or set()
-    source_config = {k: v for k, v in wanted.items() if not known or k in known}
-    dropped = sorted(set(wanted) - set(source_config))
+def om_api(ctx: Ctx) -> str:
     environ = cfg_environ(ctx.cfg)
-    om_host = f"{config.env('OPENMETADATA_SERVICE', 'openmetadata', environ=environ)}.{ctx.cfg.platform_namespace}"
-    om_api = f"http://{om_host}:{config.env('OPENMETADATA_SERVICE_PORT', '8585', environ=environ)}/api"
-    # The crawl's own workflow (same Trino connection, bot and Polaris placeholders) with the profiler's source
-    # config and processor swapped in, so the profile runs as the crawl does.
-    workflow = _ingestion.ingestion_config(environ, service=ctx.service, om_api=om_api)
-    workflow["source"]["sourceConfig"]["config"] = source_config
-    workflow["processor"] = {"type": "orm-profiler", "config": {}}
+    host = f"{config.env('OPENMETADATA_SERVICE', 'openmetadata', environ=environ)}.{ctx.cfg.platform_namespace}"
+    return f"http://{host}:{config.env('OPENMETADATA_SERVICE_PORT', '8585', environ=environ)}/api"
+
+
+def run_workflow(ctx: Ctx, name: str, workflow: dict[str, Any], command: str) -> tuple[str, str]:
+    """The crawl Job (identity, Secrets, resources) running `metadata <command>` on `workflow`: (outcome, log tail)."""
+    environ = cfg_environ(ctx.cfg)
     job = _ingestion.ingestion_job(
-        environ, image=ingestion_image(ctx), namespace=job_namespace(ctx), service=ctx.service, om_api=om_api
+        environ, image=ingestion_image(ctx), namespace=job_namespace(ctx), service=ctx.service, om_api=om_api(ctx)
     )
-    job["metadata"]["name"] = f"{P}-profile"
+    job["metadata"]["name"] = name
     job["metadata"]["labels"] = {"openlakeforge.io/job": P}
     job["spec"]["template"]["metadata"]["labels"] = {"openlakeforge.io/job": P}
     job["spec"]["backoffLimit"] = 0
     container = job["spec"]["template"]["spec"]["containers"][0]
     container["env"][0]["value"] = yaml.safe_dump(workflow)
-    container["command"][2] = container["command"][2].replace("metadata ingest", "metadata profile")
-    f.payload = {
-        "workflow sourceConfig": source_config,
-        "processor": workflow["processor"],
-        "options not in the 1.13.6 model, dropped": dropped,
-    }
+    container["command"][2] = container["command"][2].replace("metadata ingest", f"metadata {command}")
+    namespace = job_namespace(ctx)
+    ctx.cleanups.append(
+        (
+            name,
+            lambda: (
+                kubectl(ctx.cfg, ["delete", "job", name, "-n", namespace, "--ignore-not-found"], capture=True) and None
+            ),
+        )
+    )
     try:
         k8s.run_job(job, timeout_seconds=1500, environ=environ)
         outcome = "job completed"
     except k8s.KubectlError as exc:
         outcome = f"job failed: {JWT.sub('***', str(exc))[-700:]}"
-    namespace = job_namespace(ctx)
-    logs = kubectl(ctx.cfg, ["logs", f"job/{P}-profile", "-n", namespace, "--tail=80"], capture=True)
-    ctx.cleanups.append(
-        (
-            "profile job",
-            lambda: (
-                kubectl(ctx.cfg, ["delete", "job", f"{P}-profile", "-n", namespace, "--ignore-not-found"], capture=True)
-                and None
-            ),
-        )
-    )
-    detail = get_table(ctx, a["fullyQualifiedName"], "columns,profile,sampleData")
-    data = detail.data if detail.ok else {}
-    sample = om(ctx, "GET", f"/api/v1/tables/{a['id']}/sampleData")
-    column_profiles = {
-        c["name"]: sorted(k for k, v in (c.get("profile") or {}).items() if v is not None)
-        for c in data.get("columns") or []
+    logs = kubectl(ctx.cfg, ["logs", f"job/{name}", "-n", namespace, "--tail=200"], capture=True, retry_transient=True)
+    return outcome, JWT.sub("***", logs)
+
+
+def stored_profile(ctx: Ctx, table: dict[str, Any]) -> dict[str, Any]:
+    """What OpenMetadata returns for the table's profile and sample data, by every route that could hold them."""
+    fqn, now = quote(table["fullyQualifiedName"]), int(time.time() * 1000)
+    window = {"startTs": now - 6 * 3600 * 1000, "endTs": now + 3600 * 1000}
+    routes = {
+        "table fields=profile": ("/api/v1/tables/name/" + fqn, {"fields": "columns,profile,sampleData"}),
+        "tableProfile/latest": (f"/api/v1/tables/{fqn}/tableProfile/latest", None),
+        "tableProfile": (f"/api/v1/tables/{fqn}/tableProfile", window),
+        "columnProfile": (f"/api/v1/tables/{fqn}/columnProfile", window),
+        "sampleData": (f"/api/v1/tables/{table['id']}/sampleData", None),
     }
-    table_profile = {k: v for k, v in (data.get("profile") or {}).items() if v is not None}
+    found: dict[str, Any] = {}
+    for label, (path, params) in routes.items():
+        r = om(ctx, "GET", path, params=params)
+        found[label] = {"result": r.brief(), "body": json.dumps(r.data, default=str)[:700]}
+    return found
+
+
+def profile_has_statistics(found: dict[str, Any]) -> bool:
+    return any(
+        v["result"] == "HTTP 200"
+        and ("rowCount" in v["body"] or "nullCount" in v["body"] or "distinctCount" in v["body"])
+        for label, v in found.items()
+        if label != "sampleData"
+    )
+
+
+def probe_profile(ctx: Ctx) -> None:
+    f = ctx.finding(
+        "7", "`metadata profile` against one Gold table: accepted options, stored statistics, no sample data"
+    )
+    a = ctx.fix["table_a"]
+    schema, table = a["fullyQualifiedName"].split(".")[-2], a["name"]
+    base = {
+        "type": "Profiler",
+        "computeTableMetrics": True,
+        "computeColumnMetrics": True,
+        "threadCount": 1,
+        "timeoutSeconds": 900,
+        "includeViews": False,
+        "databaseFilterPattern": {"includes": [f"^{ctx.catalog}$"]},
+        "schemaFilterPattern": {"includes": [f"^{schema}$"]},
+        "tableFilterPattern": {"includes": [f"^{table}$"]},
+    }
+    variants = {"explicit metric list": {**base, "metrics": PROFILE_METRICS}, "default metrics": base}
+    workflow = _ingestion.ingestion_config(cfg_environ(ctx.cfg), service=ctx.service, om_api=om_api(ctx))
+    workflow["processor"] = {"type": "orm-profiler", "config": {}}
+    runs: list[dict[str, Any]] = []
+    f.payload = {"processor": workflow["processor"], "sourceConfig variants": variants}
+    f.response = {"runs": runs}
+    for label, source_config in variants.items():
+        workflow["source"]["sourceConfig"]["config"] = source_config
+        outcome, logs = run_workflow(ctx, f"{P}-profile", workflow, "profile")
+        found = stored_profile(ctx, a)
+        runs.append({"variant": label, "outcome": outcome, "log tail": logs[-3500:], "stored": found})
+        sample = found["sampleData"]["body"]
+        has_sample = (
+            '"rows": [[' in sample
+            or '"rows": [{' in sample
+            or '"sampleData": {' in found["table fields=profile"]["body"]
+        )
+        f.detail = (
+            f"{label}: {outcome}; statistics stored: {profile_has_statistics(found)}; sample data present: {has_sample}"
+        )
+        if outcome != "job completed":
+            f.verdict = "REFUSED"
+            return
+        if profile_has_statistics(found):
+            f.verdict = "SAMPLE DATA STORED" if has_sample else "ACCEPTED"
+            return
+    f.verdict = "NOTHING STORED"
+
+
+def probe_override_crawl(ctx: Ctx) -> None:
+    f = ctx.finding("5b", "Crawl with overrideMetadata: refreshes descriptions, and what else it overwrites")
+    workflow = _ingestion.ingestion_config(cfg_environ(ctx.cfg), service=ctx.service, om_api=om_api(ctx))
+    workflow["source"]["sourceConfig"]["config"]["overrideMetadata"] = True
+    outcome, logs = run_workflow(ctx, f"{P}-override-crawl", workflow, "ingest")
+    row = get_table(ctx, table_fqn(ctx, ctx.fix["probe_schema"], TRINO_TABLE), "columns").data or {}
+    columns = {c["name"]: c.get("description") for c in row.get("columns") or []}
+    a = get_table(ctx, ctx.fix["table_a"]["fullyQualifiedName"]).data or {}
+    cols = a.get("columns") or []
+    kept = {c.get("constraintType") for c in a.get("tableConstraints") or []}
+    tags = [t.get("tagFQN") for t in cols[0].get("tags") or []]
+    f.payload = {"sourceConfig.overrideMetadata": True}
     f.response = {
         "outcome": outcome,
-        "log tail": logs[-2500:],
-        "GET table fields=columns,profile,sampleData": detail.brief(),
-        "table profile": table_profile,
-        "column profile keys": column_profiles,
-        "sampleData in table response": data.get("sampleData"),
-        "GET sampleData": sample.brief(),
+        "log tail": logs[-1500:],
+        "probe table": {"description": row.get("description"), "columns": columns},
+        "Gold table A after": {
+            "constraints": sorted(kept),
+            "column 0 tags": tags,
+            "column 1 description": cols[1].get("description"),
+        },
     }
-    has_sample = bool(data.get("sampleData")) or (sample.ok and bool((sample.data or {}).get("rows")))
-    stored = bool(table_profile) or any(column_profiles.values())
-    f.verdict = (
-        "ACCEPTED"
-        if outcome == "job completed" and stored and not has_sample
-        else ("SAMPLE DATA STORED" if has_sample else "REFUSED" if outcome != "job completed" else "NOTHING STORED")
+    f.detail = (
+        f"{outcome}; table description {row.get('description')!r}; column id {columns.get('id')!r} "
+        f"(a human had set 'human description'); A keeps constraints {sorted(kept)}, glossary tag "
+        f"{'kept' if TERM_FQN in tags else 'gone'}, human column description "
+        f"{'kept' if cols[1].get('description') == 'human column description' else 'gone'}"
     )
-    f.detail = f"{outcome}; stored a profile: {stored}; sample data present: {has_sample}"
+    f.verdict = (
+        "REFUSED"
+        if outcome != "job completed"
+        else "ACCEPTED"
+        if row.get("description") == "probe table comment v2"
+        else "IGNORED"
+    )
 
 
 def restore(ctx: Ctx) -> None:
@@ -809,6 +888,7 @@ QUESTIONS = {
     "4": "PATCH Table.tableConstraints and survive the re-crawl",
     "5": "Iceberg comments through Trino and Polaris, then OpenMetadata descriptions",
     "6": "Glossary term tag on a column survives the re-crawl",
+    "5b": "Crawl with overrideMetadata",
     "7": "`metadata profile` on one Gold table",
 }
 
@@ -850,6 +930,7 @@ def run_probe(ctx: Ctx) -> None:
             ),
         )
         guarded(ctx, ("4", "6"), lambda c: verify_after_crawl(c, "crawl B"))
+    guarded(ctx, ("5b",), probe_override_crawl)
     guarded(ctx, ("7",), probe_profile)
 
 
