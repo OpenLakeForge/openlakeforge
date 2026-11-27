@@ -32,6 +32,15 @@ def test_release_identity_escapes_tag_and_repository() -> None:
     )
 
 
+def test_image_verify_reads_the_v2_signature_format_cosign_v3_skips() -> None:
+    # With cosign v3.1.6 and no flag, `verify-install --tag v0.7.0-beta.2` failed: "no matching signatures exist".
+    command = release._image_verify_command("cosign", "^id$", "ghcr.io/x/project-code@sha256:abc")
+
+    assert command[:3] == ["cosign", "verify", "--new-bundle-format=false"]
+    assert command[-1] == "ghcr.io/x/project-code@sha256:abc"
+    assert command[command.index("--certificate-identity-regexp") + 1] == "^id$"
+
+
 def test_verify_release_assets_rejects_checksum_path_traversal(tmp_path: Path) -> None:
     (tmp_path / "checksums.txt").write_text("deadbeef  ../outside\n")
     (tmp_path / "checksums.txt.bundle").write_text("bundle")

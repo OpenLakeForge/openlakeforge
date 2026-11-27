@@ -26,9 +26,7 @@ _RELEASE_CACHE_METADATA = ".olf-release-cache.json"
 
 @app.command("manifest")
 def release_manifest(
-    catalog: str = typer.Option(
-        "release/component-catalog.yaml", "--catalog", help="Path to the component catalog."
-    ),
+    catalog: str = typer.Option("release/component-catalog.yaml", "--catalog", help="Path to the component catalog."),
     git_sha: str = typer.Option("", "--git-sha", help="Git commit SHA for this build (defaults to HEAD)."),
     image: list[str] | None = typer.Option(  # noqa: B008 - typer's repeatable-option pattern
         None,
@@ -81,9 +79,7 @@ def release_checksums(
 
 @app.command("compatibility-matrix")
 def release_compatibility_matrix(
-    catalog: str = typer.Option(
-        "release/component-catalog.yaml", "--catalog", help="Path to the component catalog."
-    ),
+    catalog: str = typer.Option("release/component-catalog.yaml", "--catalog", help="Path to the component catalog."),
     output: str = typer.Option("", "--output", help="Write to this path instead of stdout."),
 ) -> None:
     """Render the OpenLakeForge compatibility matrix from the component catalog."""
@@ -104,9 +100,7 @@ def release_compatibility_matrix(
 
 @app.command("check")
 def release_check(
-    catalog: str = typer.Option(
-        "release/component-catalog.yaml", "--catalog", help="Path to the component catalog."
-    ),
+    catalog: str = typer.Option("release/component-catalog.yaml", "--catalog", help="Path to the component catalog."),
     tag: str = typer.Option(
         "", "--tag", help="Release tag to validate against the catalog version (e.g. v0.1.0-alpha.1)."
     ),
@@ -157,9 +151,7 @@ def build_bundle(
         },
     )
     (output / "component-manifest.json").write_text(release_module.render_manifest(manifest, fmt="json"))
-    (output / "compatibility-matrix.md").write_text(
-        release_module.render_compatibility_matrix(catalog, root)
-    )
+    (output / "compatibility-matrix.md").write_text(release_module.render_compatibility_matrix(catalog, root))
     shutil.copy2(root / "release/component-catalog.yaml", output / "component-catalog.yaml")
     shutil.copy2(root / "CHANGELOG.md", output / "CHANGELOG.md")
     _write_local_sboms(output, images={"project-code": project, "superset": superset}, tools=tools)
@@ -222,8 +214,15 @@ def verify_install(
             directory.mkdir(parents=True, exist_ok=True)
             tools.runner.run(
                 [
-                    str(tools.resolver.resolve("gh")), "release", "download", resolved_tag,
-                    "--repo", repo_slug, "--clobber", "--dir", str(directory),
+                    str(tools.resolver.resolve("gh")),
+                    "release",
+                    "download",
+                    resolved_tag,
+                    "--repo",
+                    repo_slug,
+                    "--clobber",
+                    "--dir",
+                    str(directory),
                 ],
                 cwd=root,
                 stream_output=True,
@@ -238,14 +237,7 @@ def verify_install(
             reference = images.get(name)
             if not isinstance(reference, str) or "@sha256:" not in reference:
                 raise typer.Exit(code=fail(f"component-manifest.json lacks a digest-pinned {name} image"))
-            tools.runner.run(
-                [
-                    cosign, "verify", "--certificate-identity-regexp", identity,
-                    "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", reference,
-                ],
-                cwd=directory,
-                stream_output=True,
-            )
+            tools.runner.run(_image_verify_command(cosign, identity, reference), cwd=directory, stream_output=True)
         _verify_clean_checkout(root, work_dir, resolved_tag, repo_slug, manifest, tools)
         if pull_images:
             docker = str(tools.resolver.resolve("docker"))
@@ -332,6 +324,22 @@ def _require_green_main(repo_slug: str, git_sha: str, tools: Toolkit) -> None:
         )
 
 
+def _image_verify_command(cosign: str, identity: str, reference: str) -> list[str]:
+    """`release.yml` signs images with cosign v2, which stores signatures as `.sig` tags. cosign v3 looks only for
+    the new bundle format unless told otherwise, so without the flag it reports "no matching signatures exist" for a
+    valid release. cosign v2.6 accepts the same flag."""
+    return [
+        cosign,
+        "verify",
+        "--new-bundle-format=false",
+        "--certificate-identity-regexp",
+        identity,
+        "--certificate-oidc-issuer",
+        "https://token.actions.githubusercontent.com",
+        reference,
+    ]
+
+
 def _release_identity(repo_slug: str, tag: str) -> str:
     subject = f"https://github.com/{repo_slug}/.github/workflows/release.yml@refs/tags/{tag}"
     return "^" + re.escape(subject) + "$"
@@ -348,9 +356,15 @@ def _verify_release_assets(directory: Path, *, tag: str, repo_slug: str, tools: 
         raise typer.Exit(code=fail(f"missing release asset(s): {', '.join(missing)}"))
     tools.runner.run(
         [
-            str(tools.resolver.resolve("cosign")), "verify-blob", str(checksums), "--bundle", str(bundle),
-            "--certificate-identity-regexp", _release_identity(repo_slug, tag),
-            "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com",
+            str(tools.resolver.resolve("cosign")),
+            "verify-blob",
+            str(checksums),
+            "--bundle",
+            str(bundle),
+            "--certificate-identity-regexp",
+            _release_identity(repo_slug, tag),
+            "--certificate-oidc-issuer",
+            "https://token.actions.githubusercontent.com",
         ],
         cwd=directory,
         stream_output=True,
@@ -409,9 +423,7 @@ def _verify_clean_checkout(
 def _git_sha() -> str:
     try:
         tools = Toolkit.default()
-        result = tools.runner.run(
-            [str(tools.resolver.resolve("git")), "rev-parse", "HEAD"], cwd=config.repo_root()
-        )
+        result = tools.runner.run([str(tools.resolver.resolve("git")), "rev-parse", "HEAD"], cwd=config.repo_root())
         return result.stdout.strip()
     except DeploymentError:
         return "unknown"
