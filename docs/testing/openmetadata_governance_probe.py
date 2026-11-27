@@ -771,6 +771,7 @@ def stored_profile(ctx: Ctx, table: dict[str, Any]) -> dict[str, Any]:
         r = om(ctx, "GET", f"/api/v1/tables/{quote(column['fullyQualifiedName'])}/columnProfile", params=window)
         rows = r.data.get("data") if isinstance(r.data, dict) else None
         columns[column["name"]] = {
+            "dataType": column.get("dataTypeDisplay"),
             "result": r.brief(),
             "metrics": sorted({k for row in rows or [] for k, v in row.items() if v is not None}),
             "latest": (rows or [None])[-1],
@@ -796,11 +797,48 @@ def has_sample_data(found: dict[str, Any]) -> bool:
     return any(isinstance(b, dict) and b.get("sampleData") for b in bodies)
 
 
+PROFILE_TABLE = f"{P}_profile"
+
+
+def profile_target(ctx: Ctx) -> dict[str, Any]:
+    """A throwaway table with a decimal, a date, a varchar and a bigint column, known values and one NULL each."""
+    schema = ctx.fix["probe_schema"]
+    t = f"{ctx.catalog}.{schema}.{PROFILE_TABLE}"
+    ctx.cleanups.append(("trino profile table", lambda: trino_try(ctx, f"DROP TABLE IF EXISTS {t}") and None))
+    fqn = table_fqn(ctx, schema, PROFILE_TABLE)
+    ctx.cleanups.append(
+        (
+            "om profile table",
+            lambda: om(ctx, "DELETE", f"/api/v1/tables/name/{quote(fqn)}", params={"hardDelete": "true"}) and None,
+        )
+    )
+    created = (
+        trino_try(ctx, f"DROP TABLE IF EXISTS {t}"),
+        trino_try(
+            ctx,
+            f"CREATE TABLE {t} AS SELECT * FROM (VALUES "
+            "(CAST(10.50 AS decimal(18,2)), DATE '2026-01-01', 'a', CAST(1 AS bigint)), "
+            "(CAST(20.25 AS decimal(18,2)), DATE '2026-02-01', 'b', CAST(2 AS bigint)), "
+            "(CAST(NULL AS decimal(18,2)), DATE '2026-03-01', 'b', CAST(3 AS bigint)), "
+            "(CAST(40.00 AS decimal(18,2)), DATE '2026-04-01', CAST(NULL AS varchar), CAST(4 AS bigint))"
+            ") AS v(amount, order_date, name, id)",
+        ),
+    )
+    if not created[1]["ok"]:
+        raise E2EError(f"cannot create the profile table: {created[1]['output']}")
+    run_crawl(ctx, "P")
+    row = get_table(ctx, fqn, "columns")
+    if not row.ok:
+        raise E2EError(f"the crawl did not register {fqn}: {row.brief()}")
+    return row.data
+
+
 def probe_profile(ctx: Ctx) -> None:
     f = ctx.finding(
-        "7", "`metadata profile` against one Gold table: accepted options, stored statistics, no sample data"
+        "7",
+        "`metadata profile` against a probe table with decimal, date, varchar and bigint columns: accepted options, stored statistics, no sample data",
     )
-    a = ctx.fix["table_a"]
+    a = profile_target(ctx)
     schema, table = a["fullyQualifiedName"].split(".")[-2], a["name"]
     base = {
         "type": "Profiler",
