@@ -190,6 +190,19 @@ def check_openmetadata_redeploy_is_idempotent(cfg: E2EConfig) -> None:
         raise E2EError("A repeat deploy of the same revision wrote to OpenMetadata:\n" + "\n".join(writes))
 
 
+def _masked(value: Any) -> Any:  # TEMPORARY, with check_openmetadata_capture
+    import re
+
+    if isinstance(value, dict):
+        return {
+            key: "***" if re.search(r"token|password|secret|jwt|credential|authorization", key, re.I) else _masked(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_masked(item) for item in value]
+    return value
+
+
 def check_openmetadata_capture(cfg: E2EConfig) -> None:  # TEMPORARY: removed before #1471 is ready
     import json
 
@@ -204,7 +217,8 @@ def check_openmetadata_capture(cfg: E2EConfig) -> None:  # TEMPORARY: removed be
         if key in seen:
             continue
         seen.add(key)
-        print("CAPTURE " + json.dumps({"method": method, "path": path, "response": response})[:6000], flush=True)
+        shown = json.dumps({"method": method, "path": path, "response": _masked(response)})
+        print("CAPTURE " + shown[:6000], flush=True)
 
 
 # Lines the OpenMetadata 1.13 server writes for OpenLineage requests: the access log line of each POST and the
