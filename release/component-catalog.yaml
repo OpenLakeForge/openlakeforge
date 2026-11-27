@@ -122,7 +122,7 @@ components:
     fluent_bit: fluent/fluent-bit:5.2.0@sha256:e2718c47aaab7d99587fdffe78818549bdd09dee5e30a9199d2ff3da6e2c7628
     prometheus: prom/prometheus:v3.13.5@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9
     kube_state_metrics: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0@sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b
-    superset_redis: docker.io/redis:7.4.12-bookworm@sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90
+    superset_redis: docker.io/redis:7.4.12-bookworm@sha256:6b645a37f49b0546582468706b32e71a8b7fbb5ba4583d0f9e27a8004716b738
     polaris: apache/polaris:1.9.0@sha256:bc548500f5ba8e798b7f8e107ad0b8fbd5b5c6d0c5437f56c5ca101219b796d0
     polaris_admin_tool: apache/polaris-admin-tool:1.9.0@sha256:9ec2467615132f6a837b13fcbb8be23d770c0ffa5a8bb90faf8ebdf513ab14a0
     trino: trinodb/trino:484@sha256:2704eb53935af5e582d63d6033e9bf99d20c325e9b0e30b1016ef59a4773979f

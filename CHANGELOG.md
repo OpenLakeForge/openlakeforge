@@ -90,6 +90,8 @@ logs through the platform API.
   its level again, so a severity floor no longer drops it, errors included. The
   log API and `olf` return lines without the codes; archived objects are not
   rewritten. Continuation lines of a stack trace still state no level (#1422).
+- Superset's Redis is pinned to the rebuilt `redis:7.4.12-bookworm` image, which
+  carries Debian's linux-pam fix for CVE-2025-6020.
 
 ### Migration notes
 
