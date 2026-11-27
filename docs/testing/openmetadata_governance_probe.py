@@ -836,7 +836,7 @@ def profile_target(ctx: Ctx) -> dict[str, Any]:
 def probe_profile(ctx: Ctx) -> None:
     f = ctx.finding(
         "7",
-        "`metadata profile` against a probe table with decimal, date, varchar and bigint columns: accepted options, stored statistics, no sample data",
+        "`metadata profile` on a decimal, date, varchar and bigint probe table",
     )
     a = profile_target(ctx)
     schema, table = a["fullyQualifiedName"].split(".")[-2], a["name"]
