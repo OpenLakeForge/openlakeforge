@@ -283,3 +283,17 @@ def test_a_ref_mentioned_in_a_description_is_not_a_dependency(project: Path) -> 
     )
 
     assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).dependencies == ()
+
+
+def test_a_disabled_models_schema_tests_add_no_dependency(project: Path) -> None:
+    _model(project, "widgets_beta", "mart_widgets", "select 1 as widget_id")
+    folder = project / "lakehouse_code" / "gold" / "models" / "widgets_beta"
+    (folder / "schema.yml").write_text(
+        "version: 2\nmodels:\n  - name: mart_widgets\n    config:\n      enabled: false\n    data_tests:\n"
+        "      - relationships:\n          to: ref('dim_widget')\n          field: widget_id\n",
+        encoding="utf-8",
+    )
+
+    found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
+
+    assert (found.dependencies, found.violations) == ((), ())

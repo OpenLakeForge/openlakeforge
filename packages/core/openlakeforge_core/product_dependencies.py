@@ -99,7 +99,7 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
     sql: dict[str, Path] = {}
     declared: dict[str, str] = {}
     disabled: set[str] = set()
-    schema_refs: dict[str, set[tuple[str, str]]] = {}
+    schema_refs: dict[str, dict[str, set[tuple[str, str]]]] = {}
     for product in sorted(products):
         folder = models_root / product
         for path in sorted(folder.rglob("*.sql")) if folder.is_dir() else ():
@@ -109,7 +109,8 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
             access_levels, switched_off, tested = _declared_properties(path)
             declared.update(access_levels)
             disabled |= switched_off
-            schema_refs.setdefault(product, set()).update(tested)
+            for model, refs in tested.items():
+                schema_refs.setdefault(product, {}).setdefault(model, set()).update(refs)
 
     def access_of(model: str, text: str) -> str:
         # dbt's precedence: the model's own config(), then its properties file, then dbt_project.yml.
@@ -135,16 +136,20 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
                 f"(set it on that model in {producer}'s schema.yml)"
             )
 
+    disabled |= {name for name, text in texts.items() if _CONFIG_DISABLED.search(_executable(text))}
     for name, text in sorted(texts.items()):
-        executable = _executable(text)
-        if name in disabled or _CONFIG_DISABLED.search(executable):
+        if name in disabled:
             continue
+        executable = _executable(text)
         for package, referenced in sorted(set(_REF.findall(executable))):
             consider(owner[name], name, package, referenced)
     # A relationships test declared in schema.yml reads the model its `to: ref(...)` names, with no ref() in any SQL.
-    for consumer, tested in sorted(schema_refs.items()):
-        for package, referenced in sorted(tested):
-            consider(consumer, "schema.yml", package, referenced)
+    for consumer, by_model in sorted(schema_refs.items()):
+        for model, model_refs in sorted(by_model.items()):
+            if model in disabled:
+                continue
+            for package, referenced in sorted(model_refs):
+                consider(consumer, "schema.yml", package, referenced)
     dependencies = tuple(
         ProductDependency(consumer, producer, tuple(sorted(models)))
         for (consumer, producer), models in sorted(edges.items())
@@ -201,15 +206,15 @@ def _test_strings(node: Any, in_test: bool = False) -> list[str]:
     return []
 
 
-def _declared_properties(path: Path) -> tuple[dict[str, str], set[str], set[tuple[str, str]]]:
+def _declared_properties(path: Path) -> tuple[dict[str, str], set[str], dict[str, set[tuple[str, str]]]]:
     """What a properties file declares: `access` per model, the models it disables, and the `(package, model)`
-    refs its tests name (a relationships test's `to: ref('x')`)."""
+    refs each model's tests name (a relationships test's `to: ref('x')`)."""
     try:
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError:
-        return {}, set(), set()
+        return {}, set(), {}
     if not isinstance(document, Mapping):
-        return {}, set(), set()
+        return {}, set(), {}
     declared: dict[str, str] = {}
     disabled: set[str] = set()
     for model in document.get("models") or ():
@@ -222,7 +227,12 @@ def _declared_properties(path: Path) -> tuple[dict[str, str], set[str], set[tupl
             declared[str(model["name"])] = level
         if config.get("enabled") is False:
             disabled.add(str(model["name"]))
-    tested = {ref for text in _test_strings(document.get("models")) for ref in _REF.findall(text)}
+    tested: dict[str, set[tuple[str, str]]] = {}
+    for model in document.get("models") or ():
+        if isinstance(model, Mapping) and "name" in model:
+            refs = {ref for text in _test_strings(model) for ref in _REF.findall(text)}
+            if refs:
+                tested[str(model["name"])] = refs
     return declared, disabled, tested
 
 

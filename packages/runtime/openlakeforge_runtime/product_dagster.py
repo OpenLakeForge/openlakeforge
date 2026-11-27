@@ -546,15 +546,11 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             known={key.name for key in context.assets_def.check_keys},
             selected={key.name for key in context.selected_asset_check_keys},
         )
-        explicit_tests = [test.unique_id for test in all_tests.values() if test.explicit]
-        _require_upstream_products_ready(
-            context.instance, spec.product, upstream_models(manifest, selected, spec.product, explicit_tests)
-        )
-        # After the readiness check: a refused run must leave the process environment as it found it.
+        explicit_tests = sorted(test.unique_id for test in all_tests.values() if test.explicit)
         previous_job_name = os.environ.get("OPENLINEAGE_DBT_JOB_NAME")
         os.environ["OPENLINEAGE_DBT_JOB_NAME"] = spec.job_name
         # Before the build, so a run that dies early still says which tests it meant to run (dbt_quality).
-        _upload_selected_tests(context, spec, sorted(t.unique_id for t in all_tests.values() if t.explicit))
+        _upload_selected_tests(context, spec, explicit_tests)
 
         def build_generation(models: list[str], tests: list[DbtTest]):
             args = [
@@ -579,21 +575,28 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             context.log.info(f"Pausing {pause}s before the next generation (e2e, #1061).")
             time.sleep(float(pause or 0))
 
+        def guarded_build():
+            # Inside the retention scope: a refused run still leaves the incomplete-artifacts marker and the manifest.
+            _require_upstream_products_ready(
+                context.instance, spec.product, upstream_models(manifest, selected, spec.product, explicit_tests)
+            )
+            yield from build_by_generation(
+                dependencies,
+                all_tests,
+                build_generation,
+                generation_token,
+                lambda models, tests: failed_nodes_in(target_paths[-1], models, tests),
+                sources=model_sources(manifest, selected),
+                between=None if pause is None else between_generations,
+            )
+
         try:
             # A dbt process holds its token for good and Polaris lets it expire, so each generation gets its own.
             yield from _retaining_artifacts_on_failure(
                 context,
                 spec,
                 target_paths,
-                build_by_generation(
-                    dependencies,
-                    all_tests,
-                    build_generation,
-                    generation_token,
-                    lambda models, tests: failed_nodes_in(target_paths[-1], models, tests),
-                    sources=model_sources(manifest, selected),
-                    between=None if pause is None else between_generations,
-                ),
+                guarded_build(),
                 baked_manifest=manifest_path,
             )
         finally:

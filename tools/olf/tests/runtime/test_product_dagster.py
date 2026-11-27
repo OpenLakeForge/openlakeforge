@@ -1560,3 +1560,27 @@ def test_a_run_refused_by_the_readiness_guard_leaves_the_lineage_job_name_unset(
         [event.event_specific_data for event in result.get_step_failure_events()]
     )
     assert "OPENLINEAGE_DBT_JOB_NAME" not in os.environ
+
+
+def test_a_run_refused_by_the_readiness_guard_leaves_its_incomplete_artifacts_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dagster import DagsterInstance
+
+    defs = _consumer_defs(tmp_path, monkeypatch)
+    (dbt_assets,) = defs.assets
+    (tmp_path / "profiles.yml").write_text("gold: {}\n", encoding="utf-8")
+    monkeypatch.setenv("OPENLAKEFORGE_DBT_EXECUTABLE", sys.executable)
+    monkeypatch.setenv("OPENLAKEFORGE_RUN_ARTIFACT_BASE_URI", "s3://ops/run-artifacts")
+    keys: list[str] = []
+
+    def upload(path: Path, *, base_uri: str, relative_key: str) -> str:
+        keys.append(relative_key)
+        return f"{base_uri}/{relative_key}"
+
+    monkeypatch.setattr(product_dagster, "upload_file_to_base_uri", upload)
+
+    result = materialize([dbt_assets], instance=DagsterInstance.ephemeral(), raise_on_error=False)
+
+    assert not result.success
+    assert any(key.endswith("/artifacts_incomplete.json") for key in keys)
