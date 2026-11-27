@@ -21,12 +21,10 @@ domains:
   - name: {domain}
     displayName: {domain.title()}
     description: {domain} domain.
-    status: planned
     products:
       - id: {product_id}
         displayName: {product_id.replace('_', ' ').title()}
         description: {product_id} product.
-        status: planned
 """
 
 
@@ -207,16 +205,13 @@ domains:
   - name: hr
     displayName: Hr
     description: hr domain.
-    status: planned
   - name: sales
     displayName: Sales
     description: sales domain.
-    status: planned
     products:
       - id: revenue
         displayName: Revenue
         description: revenue product.
-        status: planned
 """,
         encoding="utf-8",
     )
@@ -249,7 +244,6 @@ domains:
   - name: hr
     displayName: Hr
     description: hr domain.
-    status: planned
     products: []
 """,
         encoding="utf-8",

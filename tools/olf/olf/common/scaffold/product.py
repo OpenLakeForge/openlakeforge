@@ -125,7 +125,6 @@ def _render_product_block(*, product: str, display_name: str) -> str:
         f"- id: {product}\n"
         f"  displayName: {yaml_dq(display_name)}\n"
         f"  description: {yaml_dq(display_name + ' product.')}\n"
-        "  status: planned\n"
     )
 
 

@@ -4,22 +4,20 @@ domains:
   - name: sales
     displayName: Sales
     description: Sales proof-of-concept domain for the OpenLakeForge v1 lakehouse path.
-    status: planned
     products:
       - id: order_revenue
         displayName: Sales Order Revenue
         description: Curated revenue, channel, discount, and product margin marts for Sales.
-        status: planned
+        lifecycle: DEVELOPMENT
       - id: customer_health
         displayName: Sales Customer Health
         description: Curated customer health, churn risk, support SLA, and NPS marts for Sales.
-        status: planned
+        lifecycle: DEVELOPMENT
   - name: supply_chain
     displayName: Supply Chain
     description: Supply Chain proof-of-concept domain for inventory and supplier reliability analytics.
-    status: planned
     products:
       - id: inventory_reliability
         displayName: Supply Chain Inventory Reliability
         description: Curated inventory position, supplier delivery, and stockout risk marts for Supply Chain.
-        status: planned
+        lifecycle: DEVELOPMENT

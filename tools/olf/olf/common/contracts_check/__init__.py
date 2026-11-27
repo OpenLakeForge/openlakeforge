@@ -38,7 +38,7 @@ __all__ = [
 
 
 def run_contracts_check(
-    repo_root: str | Path = ".", *, distribution_root: str | Path | None = None
+    repo_root: str | Path = ".", *, distribution_root: str | Path | None = None, strict: bool = False
 ) -> ContractsCheckReport:
     """Run every behavioral contract check against `repo_root`.
 
@@ -49,6 +49,9 @@ def run_contracts_check(
     every payload-owned check below runs against `distribution_root` instead;
     the Floe project under `lakehouse_code/silver/` remains project-owned and
     always reads from `repo_root`.
+
+    `strict` additionally requires every product to resolve an owner, a tier
+    and a lifecycle; without it those governance fields are optional.
     """
     root = Path(repo_root).resolve()
     if not root.is_dir():
@@ -57,7 +60,7 @@ def run_contracts_check(
 
     report = ContractsCheckReport()
     report.results.append(_check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema"))
-    report.results.append(_check_governance_conformance(root, schema_root=dist_root / "docs" / "schema"))
+    report.results.append(_check_governance_conformance(root, schema_root=dist_root / "docs" / "schema", strict=strict))
     report.results.append(_check_alert_policy_conformance(root, schema_root=dist_root / "docs" / "schema"))
     report.results.append(
         _check_deployment_profile_schema_conformance(

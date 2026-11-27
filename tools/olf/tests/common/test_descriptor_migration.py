@@ -26,7 +26,6 @@ kind: Governance
 domains:
   - name: sales
     displayName: Sales
-    status: planned
   # Supply chain is planned.
   - name: supply_chain
     displayName: Supply Chain
@@ -37,7 +36,6 @@ products:
   - id: order_revenue
     domain: sales
     displayName: Order Revenue
-    status: planned
   - domain: sales
     id: customer_health
     displayName: Customer Health
@@ -363,3 +361,10 @@ def test_an_unmigratable_profile_leaves_the_descriptors_untouched(tmp_path: Path
     assert "openlakeforge.yaml" in result.output
     assert profile.read_text(encoding="utf-8") == broken
     assert governance.read_text(encoding="utf-8") == FLAT
+
+
+def test_a_v1beta1_status_is_not_carried_into_v1beta2() -> None:
+    text = FLAT.replace("    displayName: Order Revenue\n", "    displayName: Order Revenue\n    status: planned\n", 1)
+
+    with pytest.raises(MigrationError, match="use `lifecycle`"):
+        migrate_governance_text(text)

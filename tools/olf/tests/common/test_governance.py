@@ -139,7 +139,7 @@ def test_valid_governance_passes_the_json_schema() -> None:
 def test_domains_may_have_no_products_in_the_schema_and_loader(tmp_path: Path) -> None:
     text = (
         GOVERNANCE
-        + "  - name: hr\n    displayName: Hr\n    status: planned\n    products: []\n  - {name: it, displayName: IT}\n"
+        + "  - name: hr\n    displayName: Hr\n    products: []\n  - {name: it, displayName: IT}\n"
     )
     path = tmp_path / "governance.yml"
     path.write_text(text, encoding="utf-8")
