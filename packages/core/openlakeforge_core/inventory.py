@@ -30,6 +30,7 @@ from .descriptors import (
     load_source_descriptor,
 )
 from .governance import EntityRef, load_governance_lakehouse_document
+from .product_dependencies import ProductDependencies, scan_product_dependencies
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -307,6 +308,11 @@ class LakehouseInventory:
     @property
     def silver_namespace_names(self) -> frozenset[str]:
         return frozenset(domain.silver_namespace for domain in self.domains)
+
+    @property
+    def product_dependencies(self) -> ProductDependencies:
+        """Which products read which others through dbt `ref()`, for consumesFrom and freshness propagation."""
+        return scan_product_dependencies(self.lakehouse_root / "gold", [product.id for product in self.products])
 
     def domain_for_product(self, product: Product) -> Domain:
         return next(domain for domain in self.domains if domain.name == product.domain_name)
