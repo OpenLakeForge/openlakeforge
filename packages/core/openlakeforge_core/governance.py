@@ -8,6 +8,7 @@ under them. Tables belong to a domain or product by their schema
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +19,77 @@ from .descriptors import LakehouseDescriptorError, _identifier, _non_empty_strin
 GOVERNANCE_API_VERSION = "openlakeforge.io/v1beta2"
 GOVERNANCE_KIND = "Governance"
 _LEGACY_API_VERSION = "openlakeforge.io/v1beta1"
-_ENTRY_FIELDS = {"displayName", "description", "status"}
+# The enums below are the OpenMetadata 1.13.6 ones (`entity/domains/domain.json`,
+# `dataProduct.json`), so the deployer publishes values without translating them.
+DOMAIN_TYPES = ("Source-aligned", "Consumer-aligned", "Aggregate")
+PRODUCT_TYPES = (
+    "RAW_DATA",
+    "DERIVED_DATA",
+    "DATASET",
+    "REPORTS",
+    "ANALYTIC_VIEW",
+    "VISUALISATION_3D",
+    "ALGORITHM",
+    "DECISION_SUPPORT",
+    "AUTOMATED_DECISION_MAKING",
+    "DATA_ENHANCED_PRODUCT",
+    "DATA_DRIVEN_SERVICE",
+    "DATA_ENABLED_PERFORMANCE",
+    "BI_DIRECTIONAL",
+)
+LIFECYCLES = ("IDEATION", "DESIGN", "DEVELOPMENT", "TESTING", "PRODUCTION", "DEPRECATED", "RETIRED")
+TIERS = ("Tier1", "Tier2", "Tier3", "Tier4", "Tier5")
+CLASSIFICATIONS = ("Public", "Internal", "Confidential", "Restricted")
+REF_TYPES = ("user", "team")
+
+_COMMON_FIELDS = {"displayName", "description", "owner", "experts", "classification"}
+_DOMAIN_FIELDS = _COMMON_FIELDS | {"domainType", "products"}
+_PRODUCT_FIELDS = _COMMON_FIELDS | {"reviewers", "type", "tier", "lifecycle", "termsOfUse"}
+_INHERITED = ("owner", "experts", "classification")
 
 
-def _check_entry(entry: object, *, id_field: str, where: str, extra: set[str]) -> Mapping[str, Any]:
+@dataclass(frozen=True)
+class EntityRef:
+    """A reference to an existing OpenMetadata user or team; never a new one."""
+
+    type: str
+    ref: str
+
+
+def _enum(value: object, *, field: str, allowed: tuple[str, ...], where: str) -> None:
+    if value not in allowed:
+        raise LakehouseDescriptorError(f"{where}: {field} must be one of {list(allowed)!r}, got {value!r}")
+
+
+def _entity_ref(value: object, *, field: str, where: str) -> EntityRef:
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != {"type", "ref"}
+        or value["type"] not in REF_TYPES
+        or not isinstance(value["ref"], str)
+        or not value["ref"].strip()
+    ):
+        raise LakehouseDescriptorError(
+            f"{where}: {field} must be an object {{type: user|team, ref: <name>}}, got {value!r}"
+        )
+    return EntityRef(value["type"], value["ref"])
+
+
+def _entity_refs(value: object, *, field: str, where: str) -> tuple[EntityRef, ...]:
+    if not isinstance(value, list) or not value:
+        raise LakehouseDescriptorError(f"{where}: {field} must be a non-empty array of {{type, ref}} objects")
+    return tuple(_entity_ref(item, field=f"{field}[{index}]", where=where) for index, item in enumerate(value))
+
+
+def _terms_of_use(value: object, *, where: str) -> None:
+    if not isinstance(value, Mapping) or not value or set(value) - {"allowed", "prohibited"}:
+        raise LakehouseDescriptorError(f"{where}: termsOfUse must be an object with `allowed` and/or `prohibited`")
+    for key, items in value.items():
+        if not isinstance(items, list) or not items or not all(isinstance(i, str) and i.strip() for i in items):
+            raise LakehouseDescriptorError(f"{where}: termsOfUse.{key} must be a non-empty array of strings")
+
+
+def _check_entry(entry: object, *, id_field: str, where: str, fields: set[str]) -> Mapping[str, Any]:
     if not isinstance(entry, Mapping):
         raise LakehouseDescriptorError(f"{where}: must be an object")
     _identifier(entry.get(id_field), field=id_field, source=where)
@@ -29,14 +97,47 @@ def _check_entry(entry: object, *, id_field: str, where: str, extra: set[str]) -
     _non_empty_string(entry.get("displayName"), field="displayName", source=where)
     _optional_string(entry.get("description"), field="description", source=where)
     if "status" in entry:
-        _non_empty_string(entry["status"], field="status", source=where)
-    unexpected = sorted(set(entry) - _ENTRY_FIELDS - extra - {id_field})
+        raise LakehouseDescriptorError(
+            f"{where}: `status` is not part of {GOVERNANCE_API_VERSION!r}; "
+            + (
+                "use `lifecycle` (" + ", ".join(LIFECYCLES) + ")"
+                if id_field == "id"
+                else "domains have no lifecycle, so remove it"
+            )
+        )
+    unexpected = sorted(set(entry) - fields - {id_field})
     if unexpected:
         hint = ""
         if "domain" in unexpected:
             hint = "; a product belongs to the domain it is nested under, so `domain` is not declared"
         raise LakehouseDescriptorError(f"{where}: must not contain {unexpected!r}{hint}")
+    if "owner" in entry:
+        _entity_ref(entry["owner"], field="owner", where=where)
+    for field in ("experts", "reviewers"):
+        if field in entry:
+            _entity_refs(entry[field], field=field, where=where)
+    if "classification" in entry:
+        _enum(entry["classification"], field="classification", allowed=CLASSIFICATIONS, where=where)
+    for field, allowed in (
+        ("domainType", DOMAIN_TYPES),
+        ("type", PRODUCT_TYPES),
+        ("tier", TIERS),
+        ("lifecycle", LIFECYCLES),
+    ):
+        if field in entry:
+            _enum(entry[field], field=field, allowed=allowed, where=where)
+    if "termsOfUse" in entry:
+        _terms_of_use(entry["termsOfUse"], where=where)
     return entry
+
+
+def resolve_product(domain: Mapping[str, Any], product: Mapping[str, Any]) -> dict[str, Any]:
+    """The product with `owner`, `experts` and `classification` inherited from its domain unless it sets them.
+
+    `tier`, `lifecycle` and `type` do not inherit: a domain is not a tier.
+    """
+    inherited = {field: domain[field] for field in _INHERITED if field in domain and field not in product}
+    return {**inherited, **product}
 
 
 def governance_products(document: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -76,7 +177,7 @@ def validate_governance_descriptor(document: Mapping[str, Any], *, source: str =
     seen_domains: set[str] = set()
     owner_of: dict[str, str] = {}
     for domain in domains:
-        entry = _check_entry(domain, id_field="name", where=f"{source}: domains[]", extra={"products"})
+        entry = _check_entry(domain, id_field="name", where=f"{source}: domains[]", fields=_DOMAIN_FIELDS)
         name = entry["name"]
         if name in seen_domains:
             raise LakehouseDescriptorError(f"{source}: duplicate name {name!r} in domains")
@@ -87,7 +188,7 @@ def validate_governance_descriptor(document: Mapping[str, Any], *, source: str =
             raise LakehouseDescriptorError(f"{source}: domains[{name}].products must be an array")
         for product in products:
             where = f"{source}: domains[{name}].products[]"
-            checked = _check_entry(product, id_field="id", where=where, extra=set())
+            checked = _check_entry(product, id_field="id", where=where, fields=_PRODUCT_FIELDS)
             if checked["id"] in owner_of:
                 raise LakehouseDescriptorError(
                     f"{source}: duplicate id {checked['id']!r} in domains[{name}].products[{checked['id']}]; "
@@ -125,7 +226,7 @@ def load_governance_lakehouse_document(path: str | Path, *, allow_incomplete: bo
         "name": "openlakeforge",
         "sources": sorted(p.parent.name for p in code.glob("bronze/*/source.yaml")),
         "domains": [
-            {**domain, "products": [dict(p) for p in domain.get("products", [])]}
+            {**domain, "products": [resolve_product(domain, p) for p in domain.get("products", [])]}
             for domain in document["domains"]
         ],
         "dashboards": dashboards,

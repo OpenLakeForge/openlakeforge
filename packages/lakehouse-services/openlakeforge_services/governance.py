@@ -75,19 +75,17 @@ class DomainSpec:
     name: str
     display_name: str
     description: str
-    status: str
     silver_tables: tuple[str, ...]
     bronze: tuple[BronzeContainer, ...]
     products: tuple[ProductSpec, ...]
 
 
 def domain_payload(domain: DomainSpec) -> dict:
-    description = "\n".join(part for part in (domain.description, domain.status and f"Status: {domain.status}") if part)
     return {
         "name": domain.name,
         "displayName": domain.display_name,
         "domainType": "Source-aligned",
-        "description": description,
+        "description": domain.description,
     }
 
 
@@ -359,7 +357,7 @@ class MetadataDeployer:
         cross-descriptor validation: a Silver table naming a source or resource
         no Source descriptor declares fails here, before any write, instead of
         publishing a phantom Bronze container. The governance and source
-        documents are read again for the `description`/`status` text the
+        documents are read again for the `description` text the
         inventory does not keep.
         """
         descriptor_paths = self.domain_files()
@@ -402,7 +400,6 @@ class MetadataDeployer:
                     name=domain["name"],
                     display_name=domain["displayName"],
                     description=domain.get("description", ""),
-                    status=domain.get("status", ""),
                     silver_tables=tuple(entity.name for entity in domain_entities),
                     bronze=tuple(bronze.values()),
                     products=products,
