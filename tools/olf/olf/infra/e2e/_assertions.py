@@ -152,14 +152,24 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
             raise E2EError(f"{exc}\nOpenMetadata's OpenLineage log lines:\n{openmetadata_lineage_log(cfg)}") from exc
 
 
+def _admin_login(cfg: E2EConfig, token: str | None) -> dict[str, str]:
+    """The admin credentials a token-less client logs in with, as `check_openmetadata_assets` reads them."""
+    if token:
+        return {}
+    return {
+        "admin_email": config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org", environ=cfg_environ(cfg)),
+        "admin_password": admin_password(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ),
+    }
+
+
 def check_openmetadata_drift(cfg: E2EConfig) -> None:
     """A clean deploy leaves nothing to report: every declared entity exists and matches Git, none is stale."""
     from olf.infra.openmetadata._drift import drift_report
 
     log.step("Checking OpenMetadata against Git (drift report)...")
-    with openmetadata_client(cfg) as (client, _token):
+    with openmetadata_client(cfg) as (client, token):
         try:
-            items = drift_report(cfg_environ(cfg), client)
+            items = drift_report(cfg_environ(cfg), client, **_admin_login(cfg, token))
         except OpenMetadataError as exc:
             raise E2EError(str(exc)) from exc
     if items:
@@ -171,9 +181,9 @@ def check_openmetadata_redeploy_is_idempotent(cfg: E2EConfig) -> None:
     from olf.infra.openmetadata._drift import redeploy_writes
 
     log.step("Redeploying OpenMetadata governance metadata, expecting no write...")
-    with openmetadata_client(cfg) as (client, _token):
+    with openmetadata_client(cfg) as (client, token):
         try:
-            writes = redeploy_writes(cfg_environ(cfg), client)
+            writes = redeploy_writes(cfg_environ(cfg), client, **_admin_login(cfg, token))
         except OpenMetadataError as exc:
             raise E2EError(str(exc)) from exc
     if writes:
@@ -185,9 +195,9 @@ def check_openmetadata_capture(cfg: E2EConfig) -> None:  # TEMPORARY: removed be
 
     from olf.infra.openmetadata._drift import _deployer, _SpyClient
 
-    with openmetadata_client(cfg) as (client, _token):
+    with openmetadata_client(cfg) as (client, token):
         spy = _SpyClient(client.base_url, token=client.token, session=client.session)
-        _deployer(cfg_environ(cfg), spy, revision="capture").deploy()
+        _deployer(cfg_environ(cfg), spy, revision="capture", **_admin_login(cfg, token)).deploy()
     seen: set[tuple[str, str]] = set()
     for method, path, response in spy.exchanges:
         key = (method, path.split("?")[0].rsplit("/", 1)[0] if method != "GET" else path)

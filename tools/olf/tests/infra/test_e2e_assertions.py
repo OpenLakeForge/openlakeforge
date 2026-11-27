@@ -411,26 +411,43 @@ def test_openmetadata_check_skips_stage_roots_for_a_v2_contract(
     assert checked == ["assets"]
 
 
-def _drift_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, items: list) -> E2EConfig:
+def _drift_cfg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, items: list, seen: list, token: str | None = "bot"
+) -> E2EConfig:
     @contextmanager
-    def client(_cfg: E2EConfig) -> Iterator[tuple[object, None]]:
-        yield object(), None
+    def client(_cfg: E2EConfig) -> Iterator[tuple[object, str | None]]:
+        yield object(), token
+
+    def drift_report(_environ: object, _client: object, **login: str) -> list:
+        seen.append(login)
+        return items
 
     monkeypatch.setattr(_assertions, "openmetadata_client", client)
-    monkeypatch.setattr("olf.infra.openmetadata._drift.drift_report", lambda _environ, _client: items)
+    monkeypatch.setattr(_assertions, "admin_password", lambda *_a, **_k: "admin-secret")
+    monkeypatch.setattr("olf.infra.openmetadata._drift.drift_report", drift_report)
     from conftest import e2e_cfg
 
     return e2e_cfg(tmp_path)
 
 
 def test_drift_check_passes_when_openmetadata_matches_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _assertions.check_openmetadata_drift(_drift_cfg(tmp_path, monkeypatch, []))
+    _assertions.check_openmetadata_drift(_drift_cfg(tmp_path, monkeypatch, [], []))
+
+
+def test_drift_check_logs_in_as_the_admin_when_the_client_has_no_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list = []
+
+    _assertions.check_openmetadata_drift(_drift_cfg(tmp_path, monkeypatch, [], seen, token=None))
+
+    assert seen == [{"admin_email": "admin@open-metadata.org", "admin_password": "admin-secret"}]
 
 
 def test_drift_check_names_each_difference_after_a_deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from openlakeforge_services.drift import DriftItem
 
-    cfg = _drift_cfg(tmp_path, monkeypatch, [DriftItem("stale", "table", "polaris.lakehouse_dev.x.y", "dev")])
+    cfg = _drift_cfg(tmp_path, monkeypatch, [DriftItem("stale", "table", "polaris.lakehouse_dev.x.y", "dev")], [])
 
     with pytest.raises(E2EError, match="stale +dev +table polaris.lakehouse_dev.x.y"):
         _assertions.check_openmetadata_drift(cfg)

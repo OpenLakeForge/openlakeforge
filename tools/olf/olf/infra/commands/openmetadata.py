@@ -183,7 +183,7 @@ def openmetadata_drift(
     from olf.infra import k8s
     from olf.infra import openmetadata as om
     from olf.infra.commands.runtime import provider_contract_environment
-    from olf.infra.openmetadata._auth import automation_token
+    from olf.infra.openmetadata._auth import admin_password, automation_token
     from olf.infra.openmetadata._drift import drift_report
 
     with provider_contract_environment(
@@ -199,7 +199,15 @@ def openmetadata_drift(
         with governance.url(contract) as route:
             try:
                 token = automation_token(governance.namespace, environ=contract)
-                items = drift_report(contract, route.client(om.OpenMetadataClient, token=token))
+                override = config.env("OPENMETADATA_ADMIN_PASSWORD", environ=contract)
+                items = drift_report(
+                    contract,
+                    route.client(om.OpenMetadataClient, token=token),
+                    admin_email=config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org", environ=contract),
+                    admin_password=(
+                        override if token else admin_password(governance.namespace, override, environ=contract)
+                    ),
+                )
             except (om.OpenMetadataError, k8s.KubectlError) as exc:
                 raise typer.Exit(code=fail(str(exc))) from exc
     for item in items:

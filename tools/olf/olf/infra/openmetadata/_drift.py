@@ -28,11 +28,16 @@ class _SpyClient(OpenMetadataClient):
 
 
 def _deployer(
-    environ: Mapping[str, str], client: OpenMetadataClient, revision: str | None = None
+    environ: Mapping[str, str],
+    client: OpenMetadataClient,
+    *,
+    revision: str | None = None,
+    admin_email: str = "",
+    admin_password: str = "",
 ) -> OpenMetadataDeployer:
     """The deployer `deploy-metadata` builds, from the project and contract environment in `environ`.
 
-    The client carries the automation token, so no admin password is used.
+    A client without a token logs in as the admin (SSO off), so the caller passes the credentials then.
     """
     project = ProjectSpec(
         root=config.project_root(environ=environ), distribution_root=config.distribution_root(environ=environ)
@@ -40,8 +45,8 @@ def _deployer(
     cfg = OpenMetadataConfig.from_environment(
         environ,
         base_url=client.base_url,
-        admin_email="",
-        admin_password="",
+        admin_email=admin_email,
+        admin_password=admin_password,
         metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root), environ=environ),
         metadata_source_dir=environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
         allow_missing_assets=True,
@@ -57,16 +62,20 @@ def _deployer(
     return OpenMetadataDeployer(cfg, client, revision=revision)
 
 
-def drift_report(environ: Mapping[str, str], client: OpenMetadataClient) -> list[DriftItem]:
+def drift_report(
+    environ: Mapping[str, str], client: OpenMetadataClient, *, admin_email: str = "", admin_password: str = ""
+) -> list[DriftItem]:
     """What differs between the project in `environ` and the stage its contract environment names. Never writes."""
-    return _deployer(environ, client).drift()
+    return _deployer(environ, client, admin_email=admin_email, admin_password=admin_password).drift()
 
 
-def redeploy_writes(environ: Mapping[str, str], client: OpenMetadataClient) -> list[str]:
+def redeploy_writes(
+    environ: Mapping[str, str], client: OpenMetadataClient, *, admin_email: str = "", admin_password: str = ""
+) -> list[str]:
     """Deploy the project again and return the write requests it made: none when the stage already matches Git.
 
     The marker revision is the one the previous deploy of this checkout stamped, so a clean stage needs no write.
     """
     spy = _SpyClient(client.base_url, token=client.token, session=client.session)
-    _deployer(environ, spy).deploy()
+    _deployer(environ, spy, admin_email=admin_email, admin_password=admin_password).deploy()
     return [f"{method} {path}" for method, path, _ in spy.exchanges if method != "GET"]

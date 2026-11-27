@@ -534,6 +534,7 @@ class MetadataDeployer:
         """What differs between Git and OpenMetadata for this stage; reads only (see `drift.detect_drift`)."""
         from .drift import detect_drift
 
+        self.login()
         domains = self._domain_specs()
         self.validate_deployment_inputs(domains)
         containers = [{**c, "parent_fqn": None} for c in self.storage_bucket_specs()] + list(
