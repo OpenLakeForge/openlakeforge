@@ -64,14 +64,15 @@ def _selected_upstream(
 
 
 def upstream_models(
-    manifest: Mapping[str, Any], selected: Collection[str], product: str
+    manifest: Mapping[str, Any], selected: Collection[str], product: str, tests: Collection[str] = ()
 ) -> dict[str, tuple[str, ...]]:
     """The models of other products that `selected` models read, by the product that owns each.
 
     A materialised parent outside the selection and outside `product`'s own folder is another product's public
     model (dbt refuses a private one), which that product's own job builds. An ephemeral parent has no table, so
     its own parents are looked through. A parent in `product`'s folder that a subset run did not select is this
-    product's own table, not an upstream product.
+    product's own table, not an upstream product. `tests` are the unique ids of the tests the run executes: a
+    relationships test can read another product's model that no selected model does.
     """
     nodes = manifest.get("nodes", {})
     project = manifest.get("metadata", {}).get("project_name")
@@ -80,6 +81,9 @@ def upstream_models(
     pending = [
         parent for model in _project_models(manifest, selected).values() for parent in model["depends_on"]["nodes"]
     ]
+    for unique_id in tests:
+        test = nodes.get(unique_id) or manifest.get("unit_tests", {}).get(unique_id) or {}
+        pending.extend(test.get("depends_on", {}).get("nodes", []))
     while pending:
         parent_id = pending.pop()
         parent = nodes.get(parent_id)

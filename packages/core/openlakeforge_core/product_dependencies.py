@@ -24,7 +24,10 @@ _JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.DOTALL)
 _JINJA_BLOCK = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
 _CONFIG_ACCESS = re.compile(r"""\bconfig\([^)]*?\baccess\s*=\s*['"](\w+)['"]""", re.DOTALL)
 # `ref('model')`, `ref("model")` and `ref('package', 'model')`: the model is the last argument.
-_REF = re.compile(r"""\bref\s*\(\s*(?:['"][^'"]+['"]\s*,\s*)?['"]([^'"]+)['"]\s*(?:,\s*v(?:ersion)?\s*=[^)]*)?\)""")
+_REF = re.compile(
+    r"""\bref\s*\(\s*(?:['"]([^'"]+)['"]\s*,\s*)?['"]([^'"]+)['"]\s*(?:,\s*v(?:ersion)?\s*=[^)]*)?\)"""
+)
+_CONFIG_DISABLED = re.compile(r"\bconfig\([^)]*?\benabled\s*=\s*(?:false|False)\b", re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -91,16 +94,20 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
     """
     models_root = gold_root / "models"
     defaults = _project_access(gold_root)
+    project_name = _project_name(gold_root)
     owner: dict[str, str] = {}
     sql: dict[str, Path] = {}
     declared: dict[str, str] = {}
+    disabled: set[str] = set()
     for product in sorted(products):
         folder = models_root / product
         for path in sorted(folder.rglob("*.sql")) if folder.is_dir() else ():
             owner.setdefault(path.stem, product)
             sql[path.stem] = path
         for path in sorted(folder.rglob("*.yml")) if folder.is_dir() else ():
-            declared.update(_declared_access(path))
+            access_levels, switched_off = _declared_properties(path)
+            declared.update(access_levels)
+            disabled |= switched_off
 
     def access_of(model: str, text: str) -> str:
         # dbt's precedence: the model's own config(), then its properties file, then dbt_project.yml.
@@ -114,8 +121,12 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
     violations: list[str] = []
     for name, text in sorted(texts.items()):
         consumer = owner[name]
+        if name in disabled or _CONFIG_DISABLED.search(text):
+            continue
         executable = " ".join(_JINJA_BLOCK.findall(text))
-        for referenced in sorted(set(_REF.findall(executable))):
+        for package, referenced in sorted(set(_REF.findall(executable))):
+            if package and package != project_name:
+                continue
             producer = owner.get(referenced)
             if producer is None or producer == consumer:
                 continue
@@ -153,22 +164,36 @@ def _project_access(gold_root: Path) -> dict[str, str]:
     return found
 
 
-def _declared_access(path: Path) -> dict[str, str]:
+def _project_name(gold_root: Path) -> str | None:
+    try:
+        document = yaml.safe_load((gold_root / "dbt_project.yml").read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    name = document.get("name") if isinstance(document, Mapping) else None
+    return name if isinstance(name, str) else None
+
+
+def _declared_properties(path: Path) -> tuple[dict[str, str], set[str]]:
+    """The `access` levels a properties file declares per model, and the models it disables."""
     try:
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError:
-        return {}
+        return {}, set()
     if not isinstance(document, Mapping):
-        return {}
+        return {}, set()
     declared: dict[str, str] = {}
+    disabled: set[str] = set()
     for model in document.get("models") or ():
         if not isinstance(model, Mapping) or "name" not in model:
             continue
         config: Any = model.get("config")
-        level = model.get("access") or (config.get("access") if isinstance(config, Mapping) else None)
+        config = config if isinstance(config, Mapping) else {}
+        level = model.get("access") or config.get("access")
         if isinstance(level, str):
             declared[str(model["name"])] = level
-    return declared
+        if config.get("enabled") is False:
+            disabled.add(str(model["name"]))
+    return declared, disabled
 
 
 def _cycles(dependencies: Collection[ProductDependency]) -> list[str]:

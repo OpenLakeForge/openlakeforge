@@ -174,3 +174,37 @@ def test_whitespace_between_ref_and_its_parenthesis_still_finds_the_dependency(p
     found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
 
     assert found.producers_by_consumer == {"widgets_beta": ("widgets_alpha",)}
+
+
+def test_a_disabled_model_adds_no_dependency(project: Path) -> None:
+    _model(project, "widgets_beta", "mart_widgets", "{{ config(enabled=false) }} select * from {{ ref('dim_widget') }}")
+
+    found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
+
+    assert (found.dependencies, found.violations) == ((), ())
+
+
+def test_a_model_disabled_in_its_properties_file_adds_no_dependency(project: Path) -> None:
+    folder = project / "lakehouse_code" / "gold" / "models" / "widgets_beta"
+    (folder / "schema.yml").write_text(
+        "version: 2\nmodels:\n  - name: mart_widgets\n    config:\n      enabled: false\n", encoding="utf-8"
+    )
+
+    assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).dependencies == ()
+
+
+def test_a_ref_into_another_dbt_package_is_not_a_product_dependency(project: Path) -> None:
+    (_gold(project) / "dbt_project.yml").write_text("name: gold\n", encoding="utf-8")
+    _model(project, "widgets_beta", "mart_widgets", "select * from {{ ref('some_package', 'dim_widget') }}")
+
+    assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).dependencies == ()
+
+
+def test_a_ref_qualified_with_this_projects_name_is_a_product_dependency(project: Path) -> None:
+    (_gold(project) / "dbt_project.yml").write_text("name: gold\n", encoding="utf-8")
+    _schema(project, "widgets_alpha", dim_widget="public")
+    _model(project, "widgets_beta", "mart_widgets", "select * from {{ ref('gold', 'dim_widget') }}")
+
+    found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
+
+    assert found.producers_by_consumer == {"widgets_beta": ("widgets_alpha",)}

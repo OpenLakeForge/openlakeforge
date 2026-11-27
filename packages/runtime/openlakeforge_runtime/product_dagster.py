@@ -542,13 +542,15 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         target_paths: list[Path] = []
         selected = {key.path[-1] for key in context.selected_asset_keys}
         manifest = json.loads(manifest_path.read_text())
-        upstream = upstream_models(manifest, selected, spec.product)
-        _require_upstream_products_ready(context.instance, spec.product, upstream)
         dependencies = model_dependencies(manifest, selected)
         all_tests = without_deselected_checks(
             dbt_tests(manifest, selected),
             known={key.name for key in context.assets_def.check_keys},
             selected={key.name for key in context.selected_asset_check_keys},
+        )
+        explicit_tests = [test.unique_id for test in all_tests.values() if test.explicit]
+        _require_upstream_products_ready(
+            context.instance, spec.product, upstream_models(manifest, selected, spec.product, explicit_tests)
         )
         # Before the build, so a run that dies early still says which tests it meant to run (dbt_quality).
         _upload_selected_tests(context, spec, sorted(t.unique_id for t in all_tests.values() if t.explicit))

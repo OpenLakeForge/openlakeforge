@@ -579,3 +579,18 @@ def test_another_products_model_read_through_an_ephemeral_model_is_upstream() ->
     }
 
     assert dbt_build.upstream_models(manifest, {"reader"}, "consumer") == {"sales_core": ("dim_account",)}
+
+
+def test_another_products_model_read_only_by_a_test_the_run_executes_is_upstream() -> None:
+    manifest = _cross_product_manifest()
+    manifest["nodes"]["test.gold.fk"] = {
+        "name": "fk",
+        "resource_type": "test",
+        "package_name": "gold",
+        "depends_on": {"nodes": ["model.gold.own", "model.gold.dim_account"]},
+    }
+
+    assert dbt_build.upstream_models(manifest, {"own"}, "consumer") == {}
+    assert dbt_build.upstream_models(manifest, {"own"}, "consumer", ["test.gold.fk"]) == {
+        "sales_core": ("dim_account",)
+    }
