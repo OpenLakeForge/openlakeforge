@@ -70,7 +70,7 @@ def upstream_models(
 
     A materialised parent outside the selection and outside `product`'s own folder is another product's public
     model (dbt refuses a private one), which that product's own job builds. An ephemeral parent has no table, so
-    its own parents are looked through, and so are those of another product's view. A parent in `product`'s own
+    its own parents are looked through, and so are those of any view. A parent in `product`'s own
     folder that a subset run did not select is this product's own table, not an upstream product. `tests` are the
     unique ids of the tests the run executes: a relationships test can read another product's model that no
     selected model does.
@@ -97,11 +97,13 @@ def upstream_models(
             pending.extend(parent.get("depends_on", {}).get("nodes", []))
             continue
         owner = parent["fqn"][1] if len(parent.get("fqn", ())) > 2 else product
-        if parent["name"] not in selected and owner != product:
+        if parent["name"] in selected:
+            continue
+        if owner != product:
             found.setdefault(owner, set()).add(parent["name"])
-            # A view holds no data: reading it reads the tables behind it, which their own product may be replacing.
-            if parent.get("config", {}).get("materialized") == "view":
-                pending.extend(parent.get("depends_on", {}).get("nodes", []))
+        # A view holds no data: reading it reads the tables behind it, which their own product may be replacing.
+        if parent.get("config", {}).get("materialized") == "view":
+            pending.extend(parent.get("depends_on", {}).get("nodes", []))
     return {owner: tuple(sorted(names)) for owner, names in sorted(found.items())}
 
 

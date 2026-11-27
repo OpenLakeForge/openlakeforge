@@ -619,3 +619,25 @@ def test_the_tables_behind_another_products_view_are_upstream_too() -> None:
         "reporting": ("shared_view",),
         "sales_core": ("dim_account",),
     }
+
+
+def test_another_products_table_read_through_this_products_unselected_view_is_upstream() -> None:
+    manifest = _cross_product_manifest()
+    manifest["nodes"]["model.gold.local_view"] = {
+        "name": "local_view",
+        "resource_type": "model",
+        "package_name": "gold",
+        "fqn": ["gold", "consumer", "local_view"],
+        "config": {"materialized": "view"},
+        "depends_on": {"nodes": ["model.gold.dim_account"]},
+    }
+    manifest["nodes"]["model.gold.reader"] = {
+        "name": "reader",
+        "resource_type": "model",
+        "package_name": "gold",
+        "fqn": ["gold", "consumer", "reader"],
+        "config": {"materialized": "table"},
+        "depends_on": {"nodes": ["model.gold.local_view"]},
+    }
+
+    assert dbt_build.upstream_models(manifest, {"reader"}, "consumer") == {"sales_core": ("dim_account",)}
