@@ -232,3 +232,34 @@ def test_access_and_enablement_come_from_executable_jinja_not_sql_comments(proje
     _model(project, "widgets_beta", "mart_widgets", "-- config(enabled=false)\nselect * from {{ ref('dim_widget') }}")
 
     assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).dependencies
+
+
+def test_a_relationships_test_in_schema_yml_is_a_dependency_without_a_ref_in_sql(project: Path) -> None:
+    _model(project, "widgets_beta", "mart_widgets", "select 1 as widget_id")
+    _schema(project, "widgets_alpha", dim_widget="public")
+    folder = project / "lakehouse_code" / "gold" / "models" / "widgets_beta"
+    (folder / "schema.yml").write_text(
+        "version: 2\nmodels:\n  - name: mart_widgets\n    columns:\n      - name: widget_id\n"
+        "        data_tests:\n          - relationships:\n              to: ref('dim_widget')\n"
+        "              field: widget_id\n",
+        encoding="utf-8",
+    )
+
+    found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
+
+    assert found.producers_by_consumer == {"widgets_beta": ("widgets_alpha",)}
+    assert found.violations == ()
+
+
+def test_a_relationships_test_against_a_private_model_of_another_product_is_refused(project: Path) -> None:
+    _model(project, "widgets_beta", "mart_widgets", "select 1 as widget_id")
+    folder = project / "lakehouse_code" / "gold" / "models" / "widgets_beta"
+    (folder / "schema.yml").write_text(
+        "version: 2\nmodels:\n  - name: mart_widgets\n    data_tests:\n      - relationships:\n"
+        "          to: ref('dim_widget')\n          field: widget_id\n",
+        encoding="utf-8",
+    )
+
+    found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
+
+    assert any("widgets_beta.schema.yml refs widgets_alpha.dim_widget" in v for v in found.violations)

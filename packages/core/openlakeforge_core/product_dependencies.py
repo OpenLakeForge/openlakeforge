@@ -99,15 +99,17 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
     sql: dict[str, Path] = {}
     declared: dict[str, str] = {}
     disabled: set[str] = set()
+    schema_refs: dict[str, set[tuple[str, str]]] = {}
     for product in sorted(products):
         folder = models_root / product
         for path in sorted(folder.rglob("*.sql")) if folder.is_dir() else ():
             owner.setdefault(path.stem, product)
             sql[path.stem] = path
         for path in sorted(folder.rglob("*.yml")) if folder.is_dir() else ():
-            access_levels, switched_off = _declared_properties(path)
+            access_levels, switched_off, tested = _declared_properties(path)
             declared.update(access_levels)
             disabled |= switched_off
+            schema_refs.setdefault(product, set()).update(tested)
 
     def access_of(model: str, text: str) -> str:
         # dbt's precedence: the model's own config(), then its properties file, then dbt_project.yml.
@@ -119,23 +121,30 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
     texts = {name: _JINJA_COMMENT.sub("", path.read_text(encoding="utf-8")) for name, path in sql.items()}
     edges: dict[tuple[str, str], set[str]] = {}
     violations: list[str] = []
+
+    def consider(consumer: str, reader: str, package: str, referenced: str) -> None:
+        if package and package != project_name:
+            return
+        producer = owner.get(referenced)
+        if producer is None or producer == consumer:
+            return
+        edges.setdefault((consumer, producer), set()).add(referenced)
+        if access_of(referenced, texts[referenced]) != "public":
+            violations.append(
+                f"{consumer}.{reader} refs {producer}.{referenced}, which is not `access: public` "
+                f"(set it on that model in {producer}'s schema.yml)"
+            )
+
     for name, text in sorted(texts.items()):
-        consumer = owner[name]
         executable = _executable(text)
         if name in disabled or _CONFIG_DISABLED.search(executable):
             continue
         for package, referenced in sorted(set(_REF.findall(executable))):
-            if package and package != project_name:
-                continue
-            producer = owner.get(referenced)
-            if producer is None or producer == consumer:
-                continue
-            edges.setdefault((consumer, producer), set()).add(referenced)
-            if access_of(referenced, texts[referenced]) != "public":
-                violations.append(
-                    f"{consumer}.{name} refs {producer}.{referenced}, which is not `access: public` "
-                    f"(set it on that model in {producer}'s schema.yml)"
-                )
+            consider(owner[name], name, package, referenced)
+    # A relationships test declared in schema.yml reads the model its `to: ref(...)` names, with no ref() in any SQL.
+    for consumer, tested in sorted(schema_refs.items()):
+        for package, referenced in sorted(tested):
+            consider(consumer, "schema.yml", package, referenced)
     dependencies = tuple(
         ProductDependency(consumer, producer, tuple(sorted(models)))
         for (consumer, producer), models in sorted(edges.items())
@@ -178,14 +187,25 @@ def _project_name(gold_root: Path) -> str | None:
     return name if isinstance(name, str) else None
 
 
-def _declared_properties(path: Path) -> tuple[dict[str, str], set[str]]:
-    """The `access` levels a properties file declares per model, and the models it disables."""
+def _strings(node: Any) -> list[str]:
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, Mapping):
+        return [text for value in node.values() for text in _strings(value)]
+    if isinstance(node, list):
+        return [text for item in node for text in _strings(item)]
+    return []
+
+
+def _declared_properties(path: Path) -> tuple[dict[str, str], set[str], set[tuple[str, str]]]:
+    """What a properties file declares: `access` per model, the models it disables, and the `(package, model)`
+    refs its tests name (a relationships test's `to: ref('x')`)."""
     try:
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError:
-        return {}, set()
+        return {}, set(), set()
     if not isinstance(document, Mapping):
-        return {}, set()
+        return {}, set(), set()
     declared: dict[str, str] = {}
     disabled: set[str] = set()
     for model in document.get("models") or ():
@@ -198,7 +218,8 @@ def _declared_properties(path: Path) -> tuple[dict[str, str], set[str]]:
             declared[str(model["name"])] = level
         if config.get("enabled") is False:
             disabled.add(str(model["name"]))
-    return declared, disabled
+    tested = {ref for text in _strings(document.get("models")) for ref in _REF.findall(text)}
+    return declared, disabled, tested
 
 
 def _cycles(dependencies: Collection[ProductDependency]) -> list[str]:
