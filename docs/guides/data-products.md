@@ -161,6 +161,43 @@ stages per table a query reads and stops at `max_stage_count` (300 in every
 `QUERY_HAS_TOO_MANY_STAGES`. A union over a whole domain should be split into
 staging models.
 
+## Link a glossary term to a product and a column
+
+Business terms live in `lakehouse_code/glossaries/<name>.yml`; see the
+[Glossary reference](../reference/descriptors.md#glossary) for the fields.
+Link a term by its `<glossary>.<Term>` reference.
+
+1. To the product, in `governance.yml`:
+
+   ```yaml
+   products:
+     - id: order_revenue
+       displayName: Sales Order Revenue
+       glossaryTerms: [sales.NetRevenue, sales.GrossRevenue]
+   ```
+
+2. To the column that holds the term, in the product's `schema.yml`:
+
+   ```yaml
+   columns:
+     - name: net_amount
+       meta:
+         openlakeforge:
+           glossaryTerms: [sales.NetRevenue]
+   ```
+
+   Put it on a fact or dimension column (`fct_`, `dim_`), not on a `mart_`
+   column; `olf check contracts` warns about the latter.
+
+3. Check the references resolve:
+
+   ```bash
+   olf check contracts
+   ```
+
+   A reference to a term that no glossary declares fails the check and names
+   the file and path to fix.
+
 ## Remove a product
 
 Delete its entry from `governance.yml`, its `gold/models/<product>/` folder,

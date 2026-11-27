@@ -144,6 +144,9 @@
                       }
                     }
                   }
+                },
+                "glossaryTerms": {
+                  "$ref": "#/$defs/glossaryTerms"
                 }
               }
             }
@@ -172,6 +175,9 @@
               "Consumer-aligned",
               "Aggregate"
             ]
+          },
+          "glossaryTerms": {
+            "$ref": "#/$defs/glossaryTerms"
           }
         }
       }
@@ -196,6 +202,16 @@
           "type": "string",
           "minLength": 1
         }
+      }
+    },
+    "glossaryTerms": {
+      "description": "Glossary terms that define this entity, as <glossary>.<Term>. Resolved against lakehouse_code/glossaries/*.yml by `olf check contracts`.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*\\.[A-Za-z][A-Za-z0-9_]*$"
       }
     }
   }
