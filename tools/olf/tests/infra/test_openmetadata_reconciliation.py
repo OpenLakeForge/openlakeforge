@@ -39,12 +39,10 @@ domains:
   - name: sales
     displayName: Sales
     description: Sales domain
-    status: active
     products:
       - id: order_revenue
         displayName: Sales Order Revenue
         description: Revenue from orders.
-        status: active
 """
     )
     cfg = OpenMetadataConfig.from_environment(

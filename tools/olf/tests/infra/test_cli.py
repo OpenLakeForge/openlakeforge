@@ -392,12 +392,10 @@ domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
-    status: planned
     products:
       - id: orders
         displayName: Sales Orders Product Metadata Name
         description: Sales orders.
-        status: planned
 """,
         encoding="utf-8",
     )
@@ -450,12 +448,10 @@ domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
-    status: planned
     products:
       - id: orders
         displayName: Sales Orders Product Metadata Name
         description: Sales orders.
-        status: planned
 """,
         encoding="utf-8",
     )

@@ -65,7 +65,6 @@ def test_deployment_input_validation_rejects_new_product_without_contract() -> N
             name="sales",
             display_name="Sales",
             description="",
-            status="",
             silver_tables=(),
             bronze=(),
             products=(product,),
@@ -97,12 +96,10 @@ domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
-    status: active
     products:
       - id: customer_health
         displayName: Customer Health
         description: Customer health product.
-        status: active
 """
     )
     write_floe_entity(tmp_path, "sales", "accounts", "crm")
@@ -157,12 +154,10 @@ domains:
   - name: sales
     displayName: Sales
     description: Sales domain
-    status: active
     products:
       - id: order_revenue
         displayName: Sales Order Revenue
         description: Revenue from orders.
-        status: active
 """
     )
     write_floe_entity(tmp_path, "sales", "orders", "crm")
@@ -233,12 +228,10 @@ domains:
   - name: sales
     displayName: Sales
     description: Sales domain
-    status: active
     products:
       - id: order_revenue
         displayName: Sales Order Revenue
         description: Revenue from orders.
-        status: active
 """
     )
     write_floe_entity(tmp_path, "sales", "orders", "crm")

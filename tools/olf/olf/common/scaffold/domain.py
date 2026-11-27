@@ -145,7 +145,6 @@ def build_domain_artifacts(
         f"  - name: {domain}\n"
         f"    displayName: {yaml_dq(display_name)}\n"
         f"    description: {yaml_dq(display_name + ' domain.')}\n"
-        "    status: planned\n"
         "    products: []\n"
     )
 

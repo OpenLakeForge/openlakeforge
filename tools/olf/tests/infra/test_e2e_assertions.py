@@ -209,12 +209,10 @@ domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
-    status: planned
     products:
       - id: orders
         displayName: Orders
         description: Orders product.
-        status: planned
 """,
         encoding="utf-8",
     )
@@ -279,16 +277,13 @@ domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
-    status: planned
     products:
       - id: orders
         displayName: Orders
         description: Orders product.
-        status: planned
       - id: internal_only
         displayName: Internal Only
         description: Product with no dashboard.
-        status: planned
 """,
         encoding="utf-8",
     )
