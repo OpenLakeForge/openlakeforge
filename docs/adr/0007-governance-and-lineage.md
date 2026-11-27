@@ -51,7 +51,11 @@ tables.** `olf infra openmetadata deploy-metadata` adds each stage's domains and
 descriptions under that stage's root and sets a domain on the
 `<domain>_silver` and `<product>_gold` schemas; the tables found there inherit
 it. A product's assets are the tables under its Gold schema, attached once the
-crawl has found them; its Silver inputs appear as lineage. Enforced by:
+crawl has found them; its Silver inputs appear as lineage. Every entity it
+creates or manages carries the `olfManaged` custom property (`git:<revision>`),
+and an existing entity is changed only by a JSON Patch of the fields OLF owns,
+so a repeat deploy of one revision writes nothing and deletes nothing; see
+[metadata ownership](../guides/operations/metadata-ownership.md). Enforced by:
 `MetadataReconciler` in `packages/lakehouse-services/openlakeforge_services/governance.py`.
 
 **D5. Each governed stage's lineage lands on its own tables, which are
@@ -247,3 +251,4 @@ are revoked from a stage that drops governance. Enforced by:
   only, since ADR 0016 D1 removed the HTTPS listener (#983). D15 added: the
   OLF-owned Trino crawl Job, decided under ADR 0016 (#26, #471) and recorded
   only in its former History until now.
+- 2026-11-27 (#55): D4 records the ownership marker and patch-only writes.

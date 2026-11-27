@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from conftest import write_floe_entity
+from fake_openmetadata import FakeOpenMetadata
 from openlakeforge_services import governance
 
 from olf.infra import openmetadata as om
@@ -183,12 +184,10 @@ domains:
     monkeypatch.setattr(deployer, "login", lambda: None)
     monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
 
-    def request(method: str, path: str, **_kwargs):
-        if method == "GET" and path.startswith("/api/v1/tables?"):
-            return {"data": [{"id": "table-id"}]}
-        return {}
+    fake = FakeOpenMetadata()
+    fake.seed("tables", "polaris.lakehouse_dev.order_revenue_gold.crawled", {})
+    monkeypatch.setattr(deployer.client, "request", fake.request)
 
-    monkeypatch.setattr(deployer.client, "request", request)
     def record_container(name, parent_fqn, full_path, description) -> None:
         seeded_containers.append((name, parent_fqn, full_path, description))
 
@@ -264,22 +263,19 @@ def test_deploy_does_not_touch_the_unscoped_legacy_database(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deployer = _single_product_deployer(tmp_path)
-    requests: list[tuple[str, str]] = []
 
     monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
     monkeypatch.setattr(deployer, "login", lambda: None)
     monkeypatch.setattr(deployer, "_domain_specs", lambda: [])
     monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
     monkeypatch.setattr(deployer, "storage_bucket_specs", lambda: [])
-    monkeypatch.setattr(
-        deployer.client,
-        "request",
-        lambda method, path, **_kwargs: requests.append((method, path)) or {"id": "legacy"},
-    )
+    fake = FakeOpenMetadata()
+    monkeypatch.setattr(deployer.client, "request", fake.request)
 
     deployer.deploy()
 
-    assert requests == []
+    # The marker property is defined on the entity types; no entity is written.
+    assert [call for call in fake.writes if "/metadata/types/" not in call[1]] == []
 
 
 DEV = "polaris.lakehouse_dev"
@@ -292,64 +288,46 @@ def test_deploy_registers_every_table_a_pipeline_writes_before_it_runs(
     each Silver (Floe entity) and Gold (dbt model) table is registered first,
     and an existing table is never overwritten."""
     deployer = _single_product_deployer(tmp_path)
-    tables: list[tuple[str, object, tuple[int, ...]]] = []
+    fake = FakeOpenMetadata()
 
     monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
     monkeypatch.setattr(deployer, "login", lambda: None)
     monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
     monkeypatch.setattr(deployer, "ensure_container", lambda *args, **kwargs: None)
-
-    def request(method: str, path: str, **kwargs):
-        if path == "/api/v1/tables":
-            tables.append((method, kwargs.get("json_body"), kwargs.get("ok_statuses")))
-        if method == "GET":
-            return {"data": [{"id": "gold-table"}]}
-        return {}
-
-    monkeypatch.setattr(deployer.client, "request", request)
+    monkeypatch.setattr(deployer.client, "request", fake.request)
 
     deployer.deploy()
 
-    kept = (200, 201, 409)
-    assert tables == [
-        ("POST", {"name": "orders", "databaseSchema": f"{DEV}.sales_silver", "columns": []}, kept),
-        ("POST", {"name": "mart_revenue_by_day", "databaseSchema": f"{DEV}.order_revenue_gold", "columns": []}, kept),
-    ]
+    posts = [call for call in fake.calls if call == ("POST", "/api/v1/tables")]
+    assert len(posts) == 2
+    assert set(fake.entities["tables"]) == {
+        f"{DEV}.sales_silver.orders",
+        f"{DEV}.order_revenue_gold.mart_revenue_by_day",
+    }
 
 
 def test_deploy_sets_the_domain_on_schemas_and_attaches_only_gold_tables(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deployer = _single_product_deployer(tmp_path)
-    writes: list[tuple[str, str, object]] = []
-    gold = "polaris.lakehouse_dev.order_revenue_gold"
+    fake = FakeOpenMetadata()
 
     monkeypatch.setattr(deployer, "wait_for_openmetadata", lambda: None)
     monkeypatch.setattr(deployer, "login", lambda: None)
     monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
     monkeypatch.setattr(deployer, "ensure_container", lambda *args, **kwargs: None)
-
-    def request(method: str, path: str, **kwargs):
-        if method == "GET":
-            assert path.startswith("/api/v1/tables?") and gold in path.replace("%2E", ".")
-            return {"data": [{"id": "gold-table"}]}
-        writes.append((method, path, kwargs.get("json_body")))
-        return {}
-
-    monkeypatch.setattr(deployer.client, "request", request)
+    monkeypatch.setattr(deployer.client, "request", fake.request)
 
     deployer.deploy()
 
-    assert [(path, body.get("name"), body.get("domains")) for _, path, body in writes if "Schemas" in path] == [
-        ("/api/v1/databaseSchemas", "sales_silver", ["sales"]),
-        ("/api/v1/databaseSchemas", "order_revenue_gold", ["sales"]),
-    ]
-    assert [body["name"] for _, path, body in writes if path == "/api/v1/tables"] == ["orders", "mart_revenue_by_day"]
-    assert writes[-1] == (
-        "PUT",
-        "/api/v1/dataProducts/order_revenue/assets/add",
-        {"assets": [{"id": "gold-table", "type": "table"}], "dryRun": False},
-    )
+    domain_id = fake.entities["domains"]["sales"]["id"]
+    schemas = fake.entities["databaseSchemas"]
+    assert {fqn: [ref["id"] for ref in schema["domains"]] for fqn, schema in schemas.items()} == {
+        f"{DEV}.sales_silver": [domain_id],
+        f"{DEV}.order_revenue_gold": [domain_id],
+    }
+    gold_table = fake.entities["tables"][f"{DEV}.order_revenue_gold.mart_revenue_by_day"]
+    assert fake.entities["dataProducts"]["order_revenue"]["assets"] == [{"id": gold_table["id"], "type": "table"}]
 
 
 def test_deploy_reports_an_empty_gold_schema_as_pending(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -359,7 +337,8 @@ def test_deploy_reports_an_empty_gold_schema_as_pending(tmp_path: Path, monkeypa
     monkeypatch.setattr(deployer, "login", lambda: None)
     monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
     monkeypatch.setattr(deployer, "ensure_container", lambda *args, **kwargs: None)
-    monkeypatch.setattr(deployer.client, "request", lambda *args, **kwargs: {})
+    monkeypatch.setattr(deployer.client, "request", FakeOpenMetadata().request)
+    monkeypatch.setattr(deployer, "list_schema_tables", lambda schema_fqn: [])
 
     with pytest.raises(om.OpenMetadataError, match="order_revenue_gold"):
         deployer.deploy()
@@ -440,11 +419,8 @@ def test_missing_assets_guidance_is_stage_neutral_in_error_and_warning_modes(
     monkeypatch.setattr(deployer, "login", lambda: None)
     monkeypatch.setattr(deployer, "ensure_storage_service", lambda: None)
     monkeypatch.setattr(deployer, "ensure_container", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        deployer.client,
-        "request",
-        lambda method, path, **_kwargs: {"data": []} if method == "GET" else {},
-    )
+    monkeypatch.setattr(deployer.client, "request", FakeOpenMetadata().request)
+    monkeypatch.setattr(deployer, "list_schema_tables", lambda schema_fqn: [])
 
     with pytest.raises(om.OpenMetadataError) as excinfo:
         deployer.deploy()

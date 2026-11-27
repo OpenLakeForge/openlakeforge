@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from conftest import write_floe_entity
+from fake_openmetadata import FakeOpenMetadata
 from openlakeforge_services.governance import MetadataConfig, MetadataDeployer
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
@@ -42,7 +43,13 @@ def _descriptors(root: Path) -> list[Path]:
 
 
 def _deployer(
-    root: Path, *, allow_missing_assets: bool, progress: _Recorder, descriptor_paths: list[Path] | None = None
+    root: Path,
+    *,
+    allow_missing_assets: bool,
+    progress: _Recorder,
+    descriptor_paths: list[Path] | None = None,
+    revision: str = "rev1",
+    gold_root: str = GOLD,
 ) -> MetadataDeployer:
     config = MetadataConfig(
         base_url="http://openmetadata",
@@ -53,7 +60,7 @@ def _deployer(
         catalog_database="lakehouse_dev",
         catalog_database_fqn="polaris.lakehouse_dev",
         catalog_silver_schema_fqns={"sales": "polaris.lakehouse_dev.sales_silver"},
-        catalog_gold_schema_fqns={"order_revenue": GOLD},
+        catalog_gold_schema_fqns={"order_revenue": gold_root},
         storage_service="seaweedfs",
         storage_display_name="SeaweedFS S3",
         storage_endpoint="http://seaweedfs-s3:8333",
@@ -68,25 +75,19 @@ def _deployer(
         OpenMetadataClient(config.base_url, token="bot-token"),
         descriptor_paths=_descriptors(root) if descriptor_paths is None else descriptor_paths,
         rerun_hint="then run it again.",
+        revision=revision,
         progress=progress,
     )
 
 
 def _serve(
-    deployer: MetadataDeployer, monkeypatch: pytest.MonkeyPatch, *, gold_tables: list[dict]
-) -> list[tuple[str, str]]:
-    calls: list[tuple[str, str]] = []
-
-    def request(method: str, path: str, **_kwargs: object) -> dict:
-        calls.append((method, path))
-        if path.startswith("/api/v1/tables?"):
-            return {"data": gold_tables}
-        if path.startswith("/api/v1/containers/name/"):
-            return {"id": "parent"}
-        return {}
-
-    monkeypatch.setattr(deployer.client, "request", request)
-    return calls
+    deployer: MetadataDeployer, monkeypatch: pytest.MonkeyPatch, *, gold_tables: list[str]
+) -> FakeOpenMetadata:
+    fake = FakeOpenMetadata()
+    for name in gold_tables:  # tables the Trino crawler found, with the columns it read
+        fake.seed("tables", f"{GOLD}.{name}", {"columns": [{"name": "revenue", "description": "from dbt"}]})
+    monkeypatch.setattr(deployer.client, "request", fake.request)
+    return fake
 
 
 def test_deployer_seeds_the_descriptors_it_was_given_and_reports_each_upsert(
@@ -94,16 +95,15 @@ def test_deployer_seeds_the_descriptors_it_was_given_and_reports_each_upsert(
 ) -> None:
     progress = _Recorder()
     deployer = _deployer(tmp_path, allow_missing_assets=False, progress=progress)
-    calls = _serve(deployer, monkeypatch, gold_tables=[{"id": "gold-table"}])
+    fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
 
     deployer.deploy()
 
-    assert ("PUT", "/api/v1/dataProducts/order_revenue/assets/add") in calls
-    assert not [path for _, path in calls if "login" in path]
+    assert ("PUT", "/api/v1/dataProducts/order_revenue/assets/add") in fake.calls
+    assert not [path for _, path in fake.calls if "login" in path]
     infos = [message for level, message in progress.messages if level == "info"]
-    assert "Upserted OpenMetadata domain: sales" in infos
-    assert "Upserted OpenMetadata container: s3://lakehouse-bronze/crm/orders" in infos
-    assert infos[-1] == "Attached 1 OpenMetadata asset(s) to data product: order_revenue"
+    assert "Reconciled OpenMetadata domain: sales" in infos
+    assert infos[-1] == "OpenMetadata data product order_revenue holds 1 asset(s); attached 1"
 
 
 def test_deployer_ends_its_missing_tables_advice_with_the_callers_hint(
@@ -132,8 +132,108 @@ def test_deployer_warns_instead_when_missing_tables_are_allowed(
 
 def test_deployer_with_no_descriptors_refuses_before_any_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder(), descriptor_paths=[])
-    calls = _serve(deployer, monkeypatch, gold_tables=[])
+    fake = _serve(deployer, monkeypatch, gold_tables=[])
 
     with pytest.raises(OpenMetadataError, match="No OpenMetadata lakehouse descriptor to deploy"):
         deployer.deploy()
-    assert [call for call in calls if call[0] != "GET"] == []
+    assert fake.writes == []
+
+
+def test_every_entity_a_deploy_creates_carries_the_marker_and_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _deployer(tmp_path, allow_missing_assets=True, progress=_Recorder(), revision="abc123")
+    fake = _serve(deployer, monkeypatch, gold_tables=[])
+
+    deployer.deploy()
+
+    managed = {
+        collection: {fqn for fqn, entity in entities.items() if entity.get("extension") == {"olfManaged": "git:abc123"}}
+        for collection, entities in fake.entities.items()
+    }
+    assert managed["domains"] == {"sales"}
+    assert managed["dataProducts"] == {"order_revenue"}
+    assert managed["databaseSchemas"] == {"polaris.lakehouse_dev.sales_silver", GOLD}
+    assert managed["tables"] == {"polaris.lakehouse_dev.sales_silver.orders"}
+    assert len(managed["containers"]) == 5
+    assert all(
+        any(prop["name"] == "olfManaged" for prop in fake.types[t]["customProperties"])
+        for t in ("domain", "dataProduct", "databaseSchema", "table", "container")
+    )
+
+
+def test_a_second_deploy_of_the_same_revision_makes_no_write_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
+    fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
+    deployer.deploy()
+    fake.calls.clear()
+    second = _deployer(
+        tmp_path, allow_missing_assets=False, progress=_Recorder(), descriptor_paths=deployer.domain_files()
+    )
+    monkeypatch.setattr(second.client, "request", fake.request)
+
+    second.deploy()
+
+    assert fake.writes == []
+
+
+def test_a_new_revision_restamps_the_marker_and_patches_nothing_else(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder(), revision="rev1")
+    fake = _serve(first, monkeypatch, gold_tables=["order_revenue"])
+    first.deploy()
+    fake.calls.clear()
+    second = _deployer(
+        tmp_path,
+        allow_missing_assets=False,
+        progress=_Recorder(),
+        descriptor_paths=first.domain_files(),
+        revision="rev2",
+    )
+    monkeypatch.setattr(second.client, "request", fake.request)
+
+    second.deploy()
+
+    assert {method for method, _ in fake.writes} == {"PATCH"}
+    assert fake.entities["domains"]["sales"]["extension"] == {"olfManaged": "git:rev2"}
+
+
+def test_a_deploy_corrects_an_owned_field_and_leaves_crawled_and_human_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
+    fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
+    deployer.deploy()
+    fake.entities["dataProducts"]["order_revenue"].update(description="edited in the UI", tags=[{"tagFQN": "PII.None"}])
+    fake.entities["tables"][f"{GOLD}.order_revenue"].update(tags=[{"tagFQN": "Tier.Tier1"}])
+    fake.calls.clear()
+
+    deployer.deploy()
+
+    assert fake.writes == [("PATCH", f"/api/v1/dataProducts/{fake.entities['dataProducts']['order_revenue']['id']}")]
+    product = fake.entities["dataProducts"]["order_revenue"]
+    assert product["description"] == "Revenue from orders."
+    assert product["tags"] == [{"tagFQN": "PII.None"}]
+    table = fake.entities["tables"][f"{GOLD}.order_revenue"]
+    assert table["columns"] == [{"name": "revenue", "description": "from dbt"}]
+    assert table["tags"] == [{"tagFQN": "Tier.Tier1"}]
+
+
+def test_a_wrong_stage_mapping_is_rejected_before_any_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _deployer(
+        tmp_path,
+        allow_missing_assets=False,
+        progress=_Recorder(),
+        gold_root="polaris.lakehouse_prod.order_revenue_gold",
+    )
+    fake = _serve(deployer, monkeypatch, gold_tables=[])
+
+    with pytest.raises(OpenMetadataError, match="belongs to another stage"):
+        deployer.deploy()
+
+    assert fake.writes == []
