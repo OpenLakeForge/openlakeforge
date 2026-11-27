@@ -138,6 +138,7 @@ from .inventory import (
     load_source,
     load_transitional_lakehouse_inventory,
 )
+from .product_dependencies import ProductDependencies, ProductDependency, scan_product_dependencies
 from .quality import (
     HealthQualityFields,
     PipelineOutcome,
@@ -271,6 +272,8 @@ __all__ = [
     "Table",
     "full_refresh_scope",
     "full_refresh_tags",
+    "ProductDependencies",
+    "ProductDependency",
     "inventory_for",
     "governance_products",
     "load_governance_descriptor",
@@ -278,6 +281,7 @@ __all__ = [
     "load_lakehouse_inventory",
     "load_lakehouse_inventory_from_descriptors",
     "load_transitional_lakehouse_inventory",
+    "scan_product_dependencies",
     "load_source",
     "load_source_descriptor",
     "validate_governance_descriptor",

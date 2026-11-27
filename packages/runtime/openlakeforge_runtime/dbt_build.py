@@ -63,6 +63,50 @@ def _selected_upstream(
     return found
 
 
+def upstream_models(
+    manifest: Mapping[str, Any], selected: Collection[str], product: str, tests: Collection[str] = ()
+) -> dict[str, tuple[str, ...]]:
+    """The models of other products that `selected` models read, by the product that owns each.
+
+    A materialised parent outside the selection and outside `product`'s own folder is another product's public
+    model (dbt refuses a private one), which that product's own job builds. An ephemeral parent has no table, so
+    its own parents are looked through, and so are those of any view. A parent in `product`'s own
+    folder that a subset run did not select is this product's own table, not an upstream product. `tests` are the
+    unique ids of the tests the run executes: a relationships test can read another product's model that no
+    selected model does.
+    """
+    nodes = manifest.get("nodes", {})
+    project = manifest.get("metadata", {}).get("project_name")
+    found: dict[str, set[str]] = {}
+    seen: set[str] = set()
+    pending = [
+        parent for model in _project_models(manifest, selected).values() for parent in model["depends_on"]["nodes"]
+    ]
+    for unique_id in tests:
+        test = nodes.get(unique_id) or manifest.get("unit_tests", {}).get(unique_id) or {}
+        pending.extend(test.get("depends_on", {}).get("nodes", []))
+    while pending:
+        parent_id = pending.pop()
+        parent = nodes.get(parent_id)
+        if parent_id in seen or parent is None:
+            continue
+        seen.add(parent_id)
+        if parent.get("resource_type") != "model" or parent.get("package_name") != project:
+            continue
+        if _is_ephemeral(parent):
+            pending.extend(parent.get("depends_on", {}).get("nodes", []))
+            continue
+        owner = parent["fqn"][1] if len(parent.get("fqn", ())) > 2 else product
+        if parent["name"] in selected:
+            continue
+        if owner != product:
+            found.setdefault(owner, set()).add(parent["name"])
+        # A view holds no data: reading it reads the tables behind it, which their own product may be replacing.
+        if parent.get("config", {}).get("materialized") == "view":
+            pending.extend(parent.get("depends_on", {}).get("nodes", []))
+    return {owner: tuple(sorted(names)) for owner, names in sorted(found.items())}
+
+
 def model_dependencies(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, tuple[str, ...]]:
     """Each selected model of the manifest's project, with the selected models it reads from."""
     models = _project_models(manifest, selected)

@@ -79,10 +79,20 @@ Enforced by:
 product's `schema.yml` declares a group named after the product, and
 `dbt_project.yml` defaults every model to `access: private`, so dbt refuses a
 `ref()` to another product's model unless that model is `access: public`.
-Without a published mart a product reads only Silver. A `ref()` to a public
-mart is a Dagster asset dependency; the reading product's job does not
-rebuild it. Enforced by: `+access: private` in
-`lakehouse_code/gold/dbt_project.yml`.
+Without a published model a product reads only Silver. A `ref()` to a public
+model is a Dagster asset dependency; the reading product's job does not
+rebuild it. Separate jobs order nothing by themselves, so the reading
+product's dbt step fails before it starts when a product it reads has never
+materialised the model on that stage, or has a run queued or running (a
+consumer started mid-run would read one table from the new run beside another
+from the last). The producer's schedule belongs before its consumers'. The
+inventory exports the product graph (`LakehouseInventory.product_dependencies`)
+and `olf check contracts` refuses a cross-product `ref()` to a model that is
+not `access: public`, and a cycle between products. Enforced by:
+`+access: private` in `lakehouse_code/gold/dbt_project.yml`,
+`_require_upstream_products_ready` in
+`packages/runtime/openlakeforge_runtime/product_dagster.py`, and
+`packages/core/openlakeforge_core/product_dependencies.py`.
 
 **D7. Dagster selects each product out of one manifest.** The image parses the
 Gold project once, and each product's assets are
@@ -199,3 +209,5 @@ Enforced by: `artifact_prefixes` and `dbt_artifact_prefix` in
 - 2026-11-23: Rewritten in the standard form; no decision changed.
 - 2026-11-23: D9 changed: on AWS the prefix budget counts the 9-character
   `-<suffix>` the aws-s3 module appends, so `metadata.name` is at most 42 there.
+- 2026-11-27 (#1464): D6 changed: a cross-product `ref()` has a run-order
+  guard, a contracts check and an inventory graph.

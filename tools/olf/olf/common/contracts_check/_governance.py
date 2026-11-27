@@ -7,7 +7,12 @@ from pathlib import Path
 
 import jsonschema
 import yaml
-from openlakeforge_core import LakehouseDescriptorError, governance_products, load_governance_descriptor
+from openlakeforge_core import (
+    LakehouseDescriptorError,
+    governance_products,
+    load_governance_descriptor,
+    scan_product_dependencies,
+)
 from openlakeforge_core.governance import resolve_product
 
 from olf.common.contracts_check._report import CheckResult
@@ -77,3 +82,28 @@ def _check_governance_conformance(
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))
     return CheckResult(name, ok=True, detail="governance.yml matches project code")
+
+
+def _check_product_dependencies(repo_root: Path) -> CheckResult:
+    """A `ref()` across products must reach a model with `access: public`; the products it joins are reported.
+
+    A cycle between products is refused too: every product's job reads its producers' tables, so a cycle has no
+    run order. Offline, from the SQL and `schema.yml` files.
+    """
+    name = "product_dependencies"
+    code = repo_root / "lakehouse_code"
+    path = code / "governance.yml"
+    if not path.is_file():
+        return CheckResult(name, ok=True, detail="no governance.yml")
+    try:
+        products = [p["id"] for p in governance_products(load_governance_descriptor(path))]
+    except LakehouseDescriptorError:
+        # The governance check reports the broken descriptor.
+        return CheckResult(name, ok=True, detail="governance.yml unreadable; see governance_conformance")
+    found = scan_product_dependencies(code / "gold", products)
+    if found.violations:
+        return CheckResult(name, ok=False, detail="; ".join(found.violations))
+    if not found.dependencies:
+        return CheckResult(name, ok=True, detail="no product reads another product's models")
+    edges = ", ".join(f"{d.consumer} -> {d.producer} ({', '.join(d.models)})" for d in found.dependencies)
+    return CheckResult(name, ok=True, detail=f"product dependencies: {edges}")

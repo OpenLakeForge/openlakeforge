@@ -92,7 +92,10 @@ def launch_and_poll_dagster_jobs(
 ) -> None:
     log.step("Launching and polling Dagster product jobs...")
     with dagster_client(cfg) as client:
-        for product in products or cfg.inventory.products:
+        chosen = list(products or cfg.inventory.products)
+        # A product that reads another's models fails its run until the other has built: producers go first.
+        order = cfg.inventory.product_dependencies.launch_order([product.id for product in chosen])
+        for product in sorted(chosen, key=lambda candidate: order.index(candidate.id)):
             launch_and_poll(cfg, client, product.job_name, tags=tags)
 
 
