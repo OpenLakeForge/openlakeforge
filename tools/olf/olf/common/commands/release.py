@@ -238,14 +238,7 @@ def verify_install(
             reference = images.get(name)
             if not isinstance(reference, str) or "@sha256:" not in reference:
                 raise typer.Exit(code=fail(f"component-manifest.json lacks a digest-pinned {name} image"))
-            tools.runner.run(
-                [
-                    cosign, "verify", "--certificate-identity-regexp", identity,
-                    "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", reference,
-                ],
-                cwd=directory,
-                stream_output=True,
-            )
+            tools.runner.run(_image_verify_command(cosign, identity, reference), cwd=directory, stream_output=True)
         _verify_clean_checkout(root, work_dir, resolved_tag, repo_slug, manifest, tools)
         if pull_images:
             docker = str(tools.resolver.resolve("docker"))
@@ -330,6 +323,16 @@ def _require_green_main(repo_slug: str, git_sha: str, tools: Toolkit) -> None:
         raise DeploymentPreconditionError(
             f"release commit {git_sha} does not have a successful completed Repository checks run on main"
         )
+
+
+def _image_verify_command(cosign: str, identity: str, reference: str) -> list[str]:
+    """`release.yml` signs images with cosign v2, which stores signatures as `.sig` tags. cosign v3 looks only for
+    the new bundle format unless told otherwise, so without the flag it reports "no matching signatures exist" for a
+    valid release. cosign v2.6 accepts the same flag."""
+    return [
+        cosign, "verify", "--new-bundle-format=false", "--certificate-identity-regexp", identity,
+        "--certificate-oidc-issuer", "https://token.actions.githubusercontent.com", reference,
+    ]
 
 
 def _release_identity(repo_slug: str, tag: str) -> str:

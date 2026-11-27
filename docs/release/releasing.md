@@ -230,8 +230,13 @@ path in the commands below, and pass `--repo malon64/openlakeforge` to
 
 ### Verify signatures
 
+Releases are signed with cosign v2, which stores signatures in its older
+format. cosign v3 finds them only with `--new-bundle-format=false`, which v2.6
+also accepts, so the commands below pass it.
+
 ```sh
 cosign verify \
+  --new-bundle-format=false \
   --certificate-identity-regexp '^https://github\.com/OpenLakeForge/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/openlakeforge/openlakeforge/project-code@sha256:<digest>
@@ -245,6 +250,7 @@ a mutable tag.
 
 ```sh
 cosign verify-attestation \
+  --new-bundle-format=false \
   --type spdxjson \
   --certificate-identity-regexp '^https://github\.com/OpenLakeForge/openlakeforge/\.github/workflows/release\.yml@refs/tags/v0\.1\.0-alpha\.1$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
@@ -277,7 +283,7 @@ runs `olf check structure` and `olf check components` from that clean checkout
 Pass `--pull-images` to additionally `docker pull` both published images by
 digest.
 
-This script requires `git`, `gh`, `cosign`, `uv`, `docker` (only for
+This script requires `git`, `gh`, `cosign` (v2.6 or later), `uv`, `docker` (only for
 `--pull-images`), and either `sha256sum` or `shasum`. It is safe to run by
 anyone: it only reads public release assets and verifies public Sigstore
 signatures.
