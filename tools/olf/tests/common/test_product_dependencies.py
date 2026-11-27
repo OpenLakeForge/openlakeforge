@@ -263,3 +263,23 @@ def test_a_relationships_test_against_a_private_model_of_another_product_is_refu
     found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
 
     assert any("widgets_beta.schema.yml refs widgets_alpha.dim_widget" in v for v in found.violations)
+
+
+def test_a_properties_file_with_the_yaml_extension_is_scanned(project: Path) -> None:
+    folder = project / "lakehouse_code" / "gold" / "models" / "widgets_alpha"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "schema.yaml").write_text("version: 2\nmodels:\n  - name: dim_widget\n    access: public\n")
+
+    assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).violations == ()
+
+
+def test_a_ref_mentioned_in_a_description_is_not_a_dependency(project: Path) -> None:
+    _model(project, "widgets_beta", "mart_widgets", "select 1 as widget_id")
+    folder = project / "lakehouse_code" / "gold" / "models" / "widgets_beta"
+    (folder / "schema.yml").write_text(
+        "version: 2\nmodels:\n  - name: mart_widgets\n    description: Previously used ref('dim_widget')\n"
+        "    columns:\n      - name: widget_id\n        description: ref('dim_widget') key\n",
+        encoding="utf-8",
+    )
+
+    assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).dependencies == ()

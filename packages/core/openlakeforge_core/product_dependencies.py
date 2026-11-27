@@ -105,7 +105,7 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
         for path in sorted(folder.rglob("*.sql")) if folder.is_dir() else ():
             owner.setdefault(path.stem, product)
             sql[path.stem] = path
-        for path in sorted(folder.rglob("*.yml")) if folder.is_dir() else ():
+        for path in sorted([*folder.rglob("*.yml"), *folder.rglob("*.yaml")]) if folder.is_dir() else ():
             access_levels, switched_off, tested = _declared_properties(path)
             declared.update(access_levels)
             disabled |= switched_off
@@ -187,13 +187,17 @@ def _project_name(gold_root: Path) -> str | None:
     return name if isinstance(name, str) else None
 
 
-def _strings(node: Any) -> list[str]:
+_TEST_KEYS = frozenset({"tests", "data_tests"})
+
+
+def _test_strings(node: Any, in_test: bool = False) -> list[str]:
+    """The strings under a `tests` / `data_tests` key at any depth: a description that mentions `ref('x')` is text."""
     if isinstance(node, str):
-        return [node]
+        return [node] if in_test else []
     if isinstance(node, Mapping):
-        return [text for value in node.values() for text in _strings(value)]
+        return [text for key, value in node.items() for text in _test_strings(value, in_test or key in _TEST_KEYS)]
     if isinstance(node, list):
-        return [text for item in node for text in _strings(item)]
+        return [text for item in node for text in _test_strings(item, in_test)]
     return []
 
 
@@ -218,7 +222,7 @@ def _declared_properties(path: Path) -> tuple[dict[str, str], set[str], set[tupl
             declared[str(model["name"])] = level
         if config.get("enabled") is False:
             disabled.add(str(model["name"]))
-    tested = {ref for text in _strings(document.get("models")) for ref in _REF.findall(text)}
+    tested = {ref for text in _test_strings(document.get("models")) for ref in _REF.findall(text)}
     return declared, disabled, tested
 
 
