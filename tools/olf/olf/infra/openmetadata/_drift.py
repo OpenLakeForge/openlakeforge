@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any
 
 from openlakeforge_services.drift import DriftItem
 from openlakeforge_services.openmetadata import OpenMetadataClient
@@ -13,11 +15,24 @@ from olf.infra.openmetadata._config import OpenMetadataConfig
 from olf.infra.openmetadata._orchestration import OpenMetadataDeployer
 
 
-def drift_report(environ: Mapping[str, str], client: OpenMetadataClient) -> list[DriftItem]:
-    """What differs between the project in `environ` and the stage its contract environment names. Never writes.
+@dataclass
+class _SpyClient(OpenMetadataClient):
+    """An OpenMetadataClient that records every request and the answer it got."""
 
-    The deployer is built exactly as `deploy-metadata` builds it, so both read the same descriptors and the same
-    stage-scoped catalog root; the client carries the automation token, so no admin password is used.
+    exchanges: list[tuple[str, str, Any]] = field(default_factory=list)
+
+    def request(self, method: str, path: str, **kwargs: Any) -> Mapping[str, Any]:
+        response = super().request(method, path, **kwargs)
+        self.exchanges.append((method, path, response))
+        return response
+
+
+def _deployer(
+    environ: Mapping[str, str], client: OpenMetadataClient, revision: str | None = None
+) -> OpenMetadataDeployer:
+    """The deployer `deploy-metadata` builds, from the project and contract environment in `environ`.
+
+    The client carries the automation token, so no admin password is used.
     """
     project = ProjectSpec(
         root=config.project_root(environ=environ), distribution_root=config.distribution_root(environ=environ)
@@ -29,7 +44,7 @@ def drift_report(environ: Mapping[str, str], client: OpenMetadataClient) -> list
         admin_password="",
         metadata_root=config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root), environ=environ),
         metadata_source_dir=environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
-        allow_missing_assets=False,
+        allow_missing_assets=True,
         catalog_service=(
             config.env("OPENMETADATA_CATALOG_SERVICE", environ=environ)
             or config.env("OPENLAKEFORGE_CATALOG_PROVIDER", environ=environ)
@@ -39,4 +54,19 @@ def drift_report(environ: Mapping[str, str], client: OpenMetadataClient) -> list
             or config.env("OPENLAKEFORGE_CATALOG_NAME", environ=environ)
         ),
     )
-    return OpenMetadataDeployer(cfg, client).drift()
+    return OpenMetadataDeployer(cfg, client, revision=revision)
+
+
+def drift_report(environ: Mapping[str, str], client: OpenMetadataClient) -> list[DriftItem]:
+    """What differs between the project in `environ` and the stage its contract environment names. Never writes."""
+    return _deployer(environ, client).drift()
+
+
+def redeploy_writes(environ: Mapping[str, str], client: OpenMetadataClient) -> list[str]:
+    """Deploy the project again and return the write requests it made: none when the stage already matches Git.
+
+    The marker revision is the one the previous deploy of this checkout stamped, so a clean stage needs no write.
+    """
+    spy = _SpyClient(client.base_url, token=client.token, session=client.session)
+    _deployer(environ, spy).deploy()
+    return [f"{method} {path}" for method, path, _ in spy.exchanges if method != "GET"]

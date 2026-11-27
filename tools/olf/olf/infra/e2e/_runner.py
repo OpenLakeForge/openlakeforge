@@ -21,7 +21,13 @@ from olf.common.project import ProjectSpec
 from olf.infra.deployment.cloud.cluster_name import aws_cluster_name
 from olf.infra.e2e._alerts import check_alert_delivery
 from olf.infra.e2e._artifacts import check_ops_artifacts
-from olf.infra.e2e._assertions import check_openmetadata_assets, check_openmetadata_drift, check_superset_dashboards
+from olf.infra.e2e._assertions import (
+    check_openmetadata_assets,
+    check_openmetadata_capture,
+    check_openmetadata_drift,
+    check_openmetadata_redeploy_is_idempotent,
+    check_superset_dashboards,
+)
 from olf.infra.e2e._break_glass import check_break_glass
 from olf.infra.e2e._credential_preservation import check_credential_preservation
 from olf.infra.e2e._dagster import launch_and_poll_dagster_jobs
@@ -401,7 +407,11 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         [
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
             FullAssertion("OpenMetadata governance assets", check_openmetadata_assets, layer="governance"),
+            FullAssertion(
+                "OpenMetadata redeploy writes nothing", check_openmetadata_redeploy_is_idempotent, layer="governance"
+            ),
             FullAssertion("OpenMetadata drift report", check_openmetadata_drift, layer="governance"),
+            FullAssertion("OpenMetadata capture (temporary)", check_openmetadata_capture, layer="governance"),
             FullAssertion("OpenMetadata quality publication", check_quality_publication, layer="governance"),
             FullAssertion(
                 "OpenMetadata quality writer permissions", check_quality_writer_permissions, layer="governance"

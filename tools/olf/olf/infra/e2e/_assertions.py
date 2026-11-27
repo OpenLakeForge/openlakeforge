@@ -166,6 +166,37 @@ def check_openmetadata_drift(cfg: E2EConfig) -> None:
         raise E2EError("OpenMetadata differs from Git after a clean deploy:\n" + "\n".join(i.line() for i in items))
 
 
+def check_openmetadata_redeploy_is_idempotent(cfg: E2EConfig) -> None:
+    """Deploying the same revision again changes nothing: the deploy's reads find every owned field already in place."""
+    from olf.infra.openmetadata._drift import redeploy_writes
+
+    log.step("Redeploying OpenMetadata governance metadata, expecting no write...")
+    with openmetadata_client(cfg) as (client, _token):
+        try:
+            writes = redeploy_writes(cfg_environ(cfg), client)
+        except OpenMetadataError as exc:
+            raise E2EError(str(exc)) from exc
+    if writes:
+        raise E2EError("A repeat deploy of the same revision wrote to OpenMetadata:\n" + "\n".join(writes))
+
+
+def check_openmetadata_capture(cfg: E2EConfig) -> None:  # TEMPORARY: removed before #1471 is ready
+    import json
+
+    from olf.infra.openmetadata._drift import _deployer, _SpyClient
+
+    with openmetadata_client(cfg) as (client, _token):
+        spy = _SpyClient(client.base_url, token=client.token, session=client.session)
+        _deployer(cfg_environ(cfg), spy, revision="capture").deploy()
+    seen: set[tuple[str, str]] = set()
+    for method, path, response in spy.exchanges:
+        key = (method, path.split("?")[0].rsplit("/", 1)[0] if method != "GET" else path)
+        if key in seen:
+            continue
+        seen.add(key)
+        print("CAPTURE " + json.dumps({"method": method, "path": path, "response": response})[:6000], flush=True)
+
+
 # Lines the OpenMetadata 1.13 server writes for OpenLineage requests: the access log line of each POST and the
 # resolver's and lineage resource's warnings (could not resolve a dataset, failed to create a table or an edge).
 _LINEAGE_LOG_MARKERS = (
