@@ -513,7 +513,6 @@ def test_governance_schema_accepts_a_product_less_domain() -> None:
             "name": "hr",
             "displayName": "Hr",
             "description": "HR domain.",
-            "status": "planned",
         }
     )
 

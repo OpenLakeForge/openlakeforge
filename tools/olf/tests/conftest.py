@@ -193,16 +193,13 @@ domains:
   - name: widgets
     displayName: Widgets
     description: Widgets domain fixture.
-    status: planned
     products:
       - id: widgets_alpha
         displayName: Widgets Alpha
         description: Alpha product.
-        status: planned
       - id: widgets_beta
         displayName: Widgets Beta
         description: Beta product.
-        status: planned
 """,
         encoding="utf-8",
     )

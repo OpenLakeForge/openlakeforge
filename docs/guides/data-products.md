@@ -170,7 +170,18 @@ does not declare, so a leftover entry fails loudly instead of lingering.
 
 Renaming a source, domain, product or table changes the derived namespaces,
 so on a deployed stage treat it as a data migration, not an edit.
-`displayName`, `description` and `status` are metadata only.
+`displayName`, `description` and the business fields (`owner`, `tier`,
+`lifecycle` and the others in
+[the `governance.yml` reference](../reference/descriptors.md#governanceyml))
+are metadata only.
+
+To record who owns a product and how critical it is, set them on the product
+and run the strict check, which fails for a product that resolves no `owner`,
+`tier` or `lifecycle`:
+
+```bash
+olf check contracts --strict
+```
 
 ## Validate and deploy
 

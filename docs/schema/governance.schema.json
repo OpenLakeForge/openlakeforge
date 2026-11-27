@@ -5,36 +5,196 @@
   "description": "Business domains and the data products nested under them. A product belongs to the domain it is declared in. Tables belong to a domain or product by schema (<domain>_silver, <product>_gold) and are not declared here.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["apiVersion", "kind", "domains"],
+  "required": [
+    "apiVersion",
+    "kind",
+    "domains"
+  ],
   "properties": {
-    "apiVersion": {"const": "openlakeforge.io/v1beta2"},
-    "kind": {"const": "Governance"},
+    "apiVersion": {
+      "const": "openlakeforge.io/v1beta2"
+    },
+    "kind": {
+      "const": "Governance"
+    },
     "domains": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "displayName"],
+        "required": [
+          "name",
+          "displayName"
+        ],
         "properties": {
-          "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
-          "displayName": {"type": "string", "minLength": 1},
-          "description": {"type": "string"},
-          "status": {"type": "string", "minLength": 1},
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
           "products": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["id", "displayName"],
+              "required": [
+                "id",
+                "displayName"
+              ],
               "properties": {
-                "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
-                "displayName": {"type": "string", "minLength": 1},
-                "description": {"type": "string"},
-                "status": {"type": "string", "minLength": 1}
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$"
+                },
+                "displayName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "type": "string"
+                },
+                "owner": {
+                  "$ref": "#/$defs/entityRef"
+                },
+                "experts": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/entityRef"
+                  }
+                },
+                "classification": {
+                  "enum": [
+                    "Public",
+                    "Internal",
+                    "Confidential",
+                    "Restricted"
+                  ]
+                },
+                "reviewers": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/entityRef"
+                  }
+                },
+                "type": {
+                  "enum": [
+                    "RAW_DATA",
+                    "DERIVED_DATA",
+                    "DATASET",
+                    "REPORTS",
+                    "ANALYTIC_VIEW",
+                    "VISUALISATION_3D",
+                    "ALGORITHM",
+                    "DECISION_SUPPORT",
+                    "AUTOMATED_DECISION_MAKING",
+                    "DATA_ENHANCED_PRODUCT",
+                    "DATA_DRIVEN_SERVICE",
+                    "DATA_ENABLED_PERFORMANCE",
+                    "BI_DIRECTIONAL"
+                  ]
+                },
+                "tier": {
+                  "enum": [
+                    "Tier1",
+                    "Tier2",
+                    "Tier3",
+                    "Tier4",
+                    "Tier5"
+                  ]
+                },
+                "lifecycle": {
+                  "enum": [
+                    "IDEATION",
+                    "DESIGN",
+                    "DEVELOPMENT",
+                    "TESTING",
+                    "PRODUCTION",
+                    "DEPRECATED",
+                    "RETIRED"
+                  ]
+                },
+                "termsOfUse": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "additionalProperties": false,
+                  "properties": {
+                    "allowed": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "prohibited": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
               }
             }
+          },
+          "owner": {
+            "$ref": "#/$defs/entityRef"
+          },
+          "experts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/entityRef"
+            }
+          },
+          "classification": {
+            "enum": [
+              "Public",
+              "Internal",
+              "Confidential",
+              "Restricted"
+            ]
+          },
+          "domainType": {
+            "enum": [
+              "Source-aligned",
+              "Consumer-aligned",
+              "Aggregate"
+            ]
           }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "entityRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ref"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "user",
+            "team"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }

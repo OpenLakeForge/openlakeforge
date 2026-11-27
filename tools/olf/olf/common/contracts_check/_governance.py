@@ -8,6 +8,7 @@ from pathlib import Path
 import jsonschema
 import yaml
 from openlakeforge_core import LakehouseDescriptorError, governance_products, load_governance_descriptor
+from openlakeforge_core.governance import resolve_product
 
 from olf.common.contracts_check._report import CheckResult
 
@@ -37,10 +38,13 @@ def _out_of_schema_models(project: Path) -> list[str]:
     ]
 
 
-def _check_governance_conformance(repo_root: Path, *, schema_root: Path | None = None) -> CheckResult:
+def _check_governance_conformance(
+    repo_root: Path, *, schema_root: Path | None = None, strict: bool = False
+) -> CheckResult:
     """When `governance.yml` exists, it must match its JSON Schema and the code:
     one governance domain per `silver/<domain>/`, one product per `gold/models/<product>/`,
-    and no dbt model outside `<product>_gold`. Offline; nothing reads a cluster."""
+    and no dbt model outside `<product>_gold`. With `strict`, every product must also resolve an owner (its own or
+    its domain's), a tier and a lifecycle. Offline; nothing reads a cluster."""
     name = "governance_conformance"
     code = repo_root / "lakehouse_code"
     path = code / "governance.yml"
@@ -62,6 +66,13 @@ def _check_governance_conformance(repo_root: Path, *, schema_root: Path | None =
     ):
         errors += [f"{kind} {n!r} has no lakehouse_code directory" for n in sorted(declared - found)]
         errors += [f"{kind} {n!r} has a directory but is not in governance.yml" for n in sorted(found - declared)]
+    if strict:
+        for domain in document["domains"]:
+            for product in domain.get("products", []):
+                resolved = resolve_product(domain, product)
+                missing = [f for f in ("owner", "tier", "lifecycle") if f not in resolved]
+                if missing:
+                    errors.append(f"product {product['id']!r} is missing {', '.join(missing)} (--strict)")
     errors += _out_of_schema_models(code / "gold")
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))

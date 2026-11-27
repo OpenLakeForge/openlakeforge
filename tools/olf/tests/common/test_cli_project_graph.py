@@ -21,12 +21,10 @@ domains:
   - name: sales
     displayName: Sales
     description: Sales domain.
-    status: planned
     products:
       - id: revenue
         displayName: Revenue
         description: Revenue product.
-        status: planned
 """
 
 _SOURCE = """\

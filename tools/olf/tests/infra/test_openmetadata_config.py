@@ -30,12 +30,10 @@ domains:
   - name: {domain}
     displayName: {domain.title()}
     description: {domain} domain.
-    status: planned
     products:
       - id: {product_id}
         displayName: {product_id.replace('_', ' ').title()}
         description: {product_id} product.
-        status: planned
 """,
         encoding="utf-8",
     )

@@ -6,7 +6,6 @@ def _domain(**overrides: object) -> governance.DomainSpec:
         "name": "sales",
         "display_name": "Sales",
         "description": "Sales domain",
-        "status": "active",
         "silver_tables": ("orders",),
         "bronze": (),
         "products": (),
@@ -14,19 +13,19 @@ def _domain(**overrides: object) -> governance.DomainSpec:
     return governance.DomainSpec(**{**fields, **overrides})
 
 
-def test_domain_payload_carries_the_governance_text_and_status() -> None:
+def test_domain_payload_carries_the_governance_description_unchanged() -> None:
     payload = governance.domain_payload(_domain())
 
     assert payload == {
         "name": "sales",
         "displayName": "Sales",
         "domainType": "Source-aligned",
-        "description": "Sales domain\nStatus: active",
+        "description": "Sales domain",
     }
 
 
-def test_a_domain_without_description_or_status_has_an_empty_description() -> None:
-    assert governance.domain_payload(_domain(description="", status=""))["description"] == ""
+def test_a_domain_without_description_has_an_empty_description() -> None:
+    assert governance.domain_payload(_domain(description=""))["description"] == ""
 
 
 def test_product_payload_names_its_domain() -> None:
