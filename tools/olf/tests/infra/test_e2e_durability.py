@@ -85,18 +85,20 @@ def test_every_kind_of_loss_is_reported() -> None:
 
 
 def test_status_objects_rewritten_on_a_schedule_may_change_size_but_not_vanish() -> None:
-    # The quality reconciler rewrote its summary between capture and verify in upgrade drill run 45879771136.
+    # The quality reconciler rewrote its summary (drill run 45879771136) and a run's sync state (run 45887371644)
+    # between capture and verify.
     summary = "ops/activations/dev/quality-sync/summary.json"
+    run_state = "ops/activations/dev/quality-sync/state/sales/order_revenue/run-1.json"
     state = "ops/alerts/state/v1/state.json"
-    baseline = durability.capture(
-        _sources(objects=lambda: {summary: 411, state: 900, "ops/ACTIVE.json": 5}), stage="dev"
-    )
+    before = {summary: 411, run_state: 10011, state: 900, "ops/ACTIVE.json": 5}
+    baseline = durability.capture(_sources(objects=lambda: before), stage="dev")
 
-    assert durability.verify(baseline, _sources(objects=lambda: {summary: 412, state: 950, "ops/ACTIVE.json": 6})) == [
+    after = {summary: 412, run_state: 9340, state: 950, "ops/ACTIVE.json": 6}
+    assert durability.verify(baseline, _sources(objects=lambda: after)) == [
         "object ops/ACTIVE.json changed size: 5 bytes before, 6 now"
     ]
-    assert durability.verify(baseline, _sources(objects=lambda: {state: 950, "ops/ACTIVE.json": 5})) == [
-        f"object {summary} is missing"
+    assert durability.verify(baseline, _sources(objects=lambda: {summary: 411, state: 950, "ops/ACTIVE.json": 5})) == [
+        f"object {run_state} is missing"
     ]
 
 
