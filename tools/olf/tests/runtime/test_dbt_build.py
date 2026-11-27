@@ -594,3 +594,28 @@ def test_another_products_model_read_only_by_a_test_the_run_executes_is_upstream
     assert dbt_build.upstream_models(manifest, {"own"}, "consumer", ["test.gold.fk"]) == {
         "sales_core": ("dim_account",)
     }
+
+
+def test_the_tables_behind_another_products_view_are_upstream_too() -> None:
+    manifest = _cross_product_manifest()
+    manifest["nodes"]["model.gold.shared_view"] = {
+        "name": "shared_view",
+        "resource_type": "model",
+        "package_name": "gold",
+        "fqn": ["gold", "reporting", "shared_view"],
+        "config": {"materialized": "view"},
+        "depends_on": {"nodes": ["model.gold.dim_account"]},
+    }
+    manifest["nodes"]["model.gold.viewer"] = {
+        "name": "viewer",
+        "resource_type": "model",
+        "package_name": "gold",
+        "fqn": ["gold", "consumer", "viewer"],
+        "config": {"materialized": "table"},
+        "depends_on": {"nodes": ["model.gold.shared_view"]},
+    }
+
+    assert dbt_build.upstream_models(manifest, {"viewer"}, "consumer") == {
+        "reporting": ("shared_view",),
+        "sales_core": ("dim_account",),
+    }

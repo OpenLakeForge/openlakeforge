@@ -200,6 +200,9 @@ def _test_strings(node: Any, in_test: bool = False) -> list[str]:
     if isinstance(node, str):
         return [node] if in_test else []
     if isinstance(node, Mapping):
+        config = node.get("config")
+        if node.get("enabled") is False or (isinstance(config, Mapping) and config.get("enabled") is False):
+            return []
         return [text for key, value in node.items() for text in _test_strings(value, in_test or key in _TEST_KEYS)]
     if isinstance(node, list):
         return [text for item in node for text in _test_strings(item, in_test)]
