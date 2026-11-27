@@ -166,3 +166,11 @@ def test_launch_order_survives_a_cycle_in_the_order_given(project: Path) -> None
     found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
 
     assert found.launch_order(["widgets_beta", "widgets_alpha"]) == ["widgets_beta", "widgets_alpha"]
+
+
+def test_whitespace_between_ref_and_its_parenthesis_still_finds_the_dependency(project: Path) -> None:
+    _model(project, "widgets_beta", "mart_widgets", "select * from {{ ref ('dim_widget') }}")
+
+    found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
+
+    assert found.producers_by_consumer == {"widgets_beta": ("widgets_alpha",)}

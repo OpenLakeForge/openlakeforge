@@ -24,7 +24,7 @@ _JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.DOTALL)
 _JINJA_BLOCK = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
 _CONFIG_ACCESS = re.compile(r"""\bconfig\([^)]*?\baccess\s*=\s*['"](\w+)['"]""", re.DOTALL)
 # `ref('model')`, `ref("model")` and `ref('package', 'model')`: the model is the last argument.
-_REF = re.compile(r"""\bref\(\s*(?:['"][^'"]+['"]\s*,\s*)?['"]([^'"]+)['"]\s*(?:,\s*v(?:ersion)?\s*=[^)]*)?\)""")
+_REF = re.compile(r"""\bref\s*\(\s*(?:['"][^'"]+['"]\s*,\s*)?['"]([^'"]+)['"]\s*(?:,\s*v(?:ersion)?\s*=[^)]*)?\)""")
 
 
 @dataclass(frozen=True)

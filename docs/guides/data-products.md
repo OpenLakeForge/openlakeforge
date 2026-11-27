@@ -161,6 +161,9 @@ queued or running, instead of reading a stale or half-replaced set of tables.
 Schedule the owner's cadence before its readers' in `pipelines/products.py`.
 The e2e runner launches the products owners first.
 The guard checks that the model was built at some point, not that it is fresh.
+It runs once, when the reading product's dbt step starts: a producer in another domain
+that starts later is not held back (runs of one domain already queue one at a time),
+so keep the owner's schedule ahead of its readers'.
 `olf check contracts` lists each dependency (`product_dependencies`) and
 refuses a `ref()` to a model that is not `access: public`, or two products that
 read each other.
