@@ -895,6 +895,12 @@ QUESTIONS = {
 
 def run_probe(ctx: Ctx) -> None:
     guarded(ctx, ("S",), probe_schemas)
+    # The suite builds the Gold tables after activation; OpenMetadata learns of them only at the next crawl, and the
+    # hourly CronJob may not have run since.
+    ctx.finding("C", "Gold tables reach OpenMetadata only through a crawl after the pipelines run").note(
+        run_crawl(ctx, "0")
+    )
+    ctx.findings["C"].verdict = "RECORDED"
     setup(ctx)
     guarded(ctx, ("1",), probe_lifecycle)
     guarded(ctx, ("2a", "2b", "2c", "2d", "2e", "2f", "2g"), probe_native_fields)
