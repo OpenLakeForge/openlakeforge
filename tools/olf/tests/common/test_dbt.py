@@ -294,7 +294,7 @@ def _gold_model_entries() -> dict[str, dict]:
 def test_every_reference_mart_tests_its_grain_and_describes_its_columns() -> None:
     entries = _gold_model_entries()
     marts = {path.stem for path in (GOLD / "models").glob("*/mart_*.sql")}
-    assert marts <= set(entries)
+    assert marts == {name for name in entries if name.startswith("mart_")}
     for name in marts:
         entry = entries[name]
         columns = entry.get("columns", [])
@@ -308,6 +308,22 @@ def test_every_reference_mart_tests_its_grain_and_describes_its_columns() -> Non
             assert sorted(combination["combination_of_columns"]) == sorted(keyed), name
         else:
             assert len(keyed) == 1 and "unique" in tests[keyed[0]], name
+
+
+def test_every_fact_and_dimension_is_public_documented_and_keyed() -> None:
+    entries = _gold_model_entries()
+    models = {path.stem for path in (GOLD / "models").glob("*/*.sql") if path.stem.startswith(("fct_", "dim_"))}
+    assert models == {name for name in entries if name.startswith(("fct_", "dim_"))}
+    assert models
+    for name in models:
+        entry = entries[name]
+        assert entry.get("access") == "public", name
+        assert entry.get("description"), name
+        columns = entry.get("columns", [])
+        assert columns and all(column.get("description") for column in columns), name
+        tests = {column["name"]: {t for t in column.get("data_tests", []) if isinstance(t, str)} for column in columns}
+        keys = [column for column, column_tests in tests.items() if {"unique", "not_null"} <= column_tests]
+        assert len(keys) == 1, name
 
 
 def test_a_scaffolded_gold_schema_carries_the_commented_grain_test_block() -> None:
