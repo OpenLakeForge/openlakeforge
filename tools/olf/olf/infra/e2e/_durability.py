@@ -44,9 +44,9 @@ OPENMETADATA_PAGE_SIZE = 1000
 SUPERSET_PAGE_SIZE = 100
 SEARCH_INDEX = "table_search_index"
 # Ops objects a running stack rewrites on a schedule, so their size can move between capture and verify with nothing
-# lost: the quality reconciler's stage summary (every 5 minutes) and the alert evaluator's state. Only their presence
-# is durable.
-REWRITTEN_IN_PLACE = re.compile(r"[^/]+/(activations/[^/]+/quality-sync/summary\.json|alerts/state/v1/[^/]+\.json)")
+# lost: the quality reconciler's stage summary and per-run sync state (every 5 minutes; a result that moves from pending
+# to synced drops its retry fields) and the alert evaluator's state. Only their presence is durable.
+REWRITTEN_IN_PLACE = re.compile(r"[^/]+/(activations/[^/]+/quality-sync/.+\.json|alerts/state/v1/[^/]+\.json)")
 
 State = dict[str, Any]
 
