@@ -96,6 +96,7 @@ DOCUMENTED_GOLD_PREFIXES = ("fct_", "dim_")
 def _check_gold_comments(cfg: E2EConfig, product: Product) -> None:
     catalog = stage_catalog_name(cfg)
     schema = f"{_glue_namespace_prefix(cfg)}{product.gold_namespace}"
+    checked: list[str] = []
     for table in list_tables(cfg, schema):
         if not table.startswith(DOCUMENTED_GOLD_PREFIXES):
             continue
@@ -115,6 +116,9 @@ def _check_gold_comments(cfg: E2EConfig, product: Product) -> None:
         bare = int(trino_scalar(cfg, f"SELECT count(*) {columns} AND (comment IS NULL OR comment = '')"))
         if bare:
             raise E2EError(f"{bare} column(s) of {catalog}.{schema}.{table} have no comment from their dbt description")
+        checked.append(f"{schema}.{table}")
+    if checked:
+        log.info("Gold comments present: " + ", ".join(checked))
 
 
 def check_trino_tables_and_marts(cfg: E2EConfig) -> None:

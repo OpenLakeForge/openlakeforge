@@ -300,6 +300,19 @@ def test_gold_comments_are_required_on_facts_and_dimensions_only(
     assert queries and all("fct_lines" in sql for sql in queries)
 
 
+def test_the_checked_tables_are_logged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _comment_probe(monkeypatch, table_comments="1", bare_columns="0")
+
+    _trino._check_gold_comments(e2e_cfg(tmp_path), E2E_INVENTORY.products[0])
+
+    output = capsys.readouterr()
+    assert "Gold comments present:" in output.out + output.err
+    assert "fct_lines" in output.out + output.err
+    assert "mart_totals" not in output.out + output.err
+
+
 def test_a_fact_without_a_table_comment_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _comment_probe(monkeypatch, table_comments="0", bare_columns="0")
 
