@@ -237,3 +237,54 @@ def test_a_wrong_stage_mapping_is_rejected_before_any_write(
         deployer.deploy()
 
     assert fake.writes == []
+
+
+def _deployed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[MetadataDeployer, FakeOpenMetadata]:
+    deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
+    fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
+    fake.seed("databases", "polaris.lakehouse_dev", {})
+    deployer.deploy()
+    fake.calls.clear()
+    return deployer, fake
+
+
+def test_drift_is_empty_after_a_clean_deploy_and_reads_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+
+    assert deployer.drift() == []
+    assert fake.writes == []
+
+
+def test_drift_reports_missing_changed_and_stale_per_entity_and_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    del fake.entities["tables"]["polaris.lakehouse_dev.sales_silver.orders"]
+    fake.entities["dataProducts"]["order_revenue"]["description"] = "edited in the UI"
+    fake.seed("dataProducts", "renamed_product", {"extension": {"olfManaged": "git:old"}})
+    fake.seed("tables", f"{GOLD}.removed_model", {"extension": {"olfManaged": "git:old"}})
+    fake.seed("tables", f"{GOLD}.crawled_only", {})
+
+    report = {(item.kind, item.entity, item.fqn, item.stage) for item in deployer.drift()}
+
+    assert report == {
+        ("missing", "table", "polaris.lakehouse_dev.sales_silver.orders", "dev"),
+        ("changed", "data product", "order_revenue", "shared"),
+        ("stale", "data product", "renamed_product", "shared"),
+        ("stale", "table", f"{GOLD}.removed_model", "dev"),
+    }
+    assert fake.writes == []
+
+
+def test_drift_reports_a_reference_that_cannot_be_resolved(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    del fake.entities["domains"]["sales"]
+    del fake.entities["databases"]["polaris.lakehouse_dev"]
+
+    unresolved = {(item.entity, item.fqn) for item in deployer.drift() if item.kind == "unresolved"}
+
+    assert unresolved == {
+        ("data product", "order_revenue"),
+        ("database schema", "polaris.lakehouse_dev.sales_silver"),
+        ("database schema", GOLD),
+    }

@@ -78,6 +78,10 @@ class OpenMetadataClient(JsonHttpClient):
             for product in self._list_all("/api/v1/dataProducts", {"fields": "domains"}, page_size)
         ]
 
+    def list_entities(self, path: str, params: Mapping[str, Any], page_size: int = 100) -> list[Mapping[str, Any]]:
+        """Every entity of a collection under `params`, across all pages."""
+        return self._list_all(path, params, page_size)
+
     def _list_all(self, path: str, params: Mapping[str, Any], page_size: int) -> list[Mapping[str, Any]]:
         """Every entity of a collection, following the `paging.after` cursor to the last page."""
         entities: list[Mapping[str, Any]] = []

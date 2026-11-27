@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -407,6 +409,31 @@ def test_openmetadata_check_skips_stage_roots_for_a_v2_contract(
     _assertions.check_openmetadata_assets(replace(e2e_cfg(tmp_path), openmetadata_local_port=18585))
 
     assert checked == ["assets"]
+
+
+def _drift_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, items: list) -> E2EConfig:
+    @contextmanager
+    def client(_cfg: E2EConfig) -> Iterator[tuple[object, None]]:
+        yield object(), None
+
+    monkeypatch.setattr(_assertions, "openmetadata_client", client)
+    monkeypatch.setattr("olf.infra.openmetadata._drift.drift_report", lambda _environ, _client: items)
+    from conftest import e2e_cfg
+
+    return e2e_cfg(tmp_path)
+
+
+def test_drift_check_passes_when_openmetadata_matches_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _assertions.check_openmetadata_drift(_drift_cfg(tmp_path, monkeypatch, []))
+
+
+def test_drift_check_names_each_difference_after_a_deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from openlakeforge_services.drift import DriftItem
+
+    cfg = _drift_cfg(tmp_path, monkeypatch, [DriftItem("stale", "table", "polaris.lakehouse_dev.x.y", "dev")])
+
+    with pytest.raises(E2EError, match="stale +dev +table polaris.lakehouse_dev.x.y"):
+        _assertions.check_openmetadata_drift(cfg)
 
 
 def test_stage_roots_reject_a_leftover_unqualified_service() -> None:

@@ -14,7 +14,7 @@ import urllib.parse
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from openlakeforge_core import (
     LakehouseDescriptorError,
@@ -32,6 +32,9 @@ from .ownership import (
     patch_operations,
 )
 from .progress import SILENT, Progress
+
+if TYPE_CHECKING:
+    from .drift import DriftItem
 
 
 @dataclass
@@ -526,6 +529,17 @@ class MetadataDeployer:
                 )
             )
         return domains
+
+    def drift(self) -> list[DriftItem]:
+        """What differs between Git and OpenMetadata for this stage; reads only (see `drift.detect_drift`)."""
+        from .drift import detect_drift
+
+        domains = self._domain_specs()
+        self.validate_deployment_inputs(domains)
+        containers = [{**c, "parent_fqn": None} for c in self.storage_bucket_specs()] + list(
+            self.bronze_container_specs(domains)
+        )
+        return detect_drift(self._reconciler, self.config, domains, containers)
 
     def deploy(self) -> None:
         self.wait_for_openmetadata()

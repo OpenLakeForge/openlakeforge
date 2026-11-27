@@ -164,6 +164,51 @@ def deploy_openmetadata_metadata(
     typer.echo("Deployed OpenMetadata governance metadata.")
 
 
+@app.command("drift")
+def openmetadata_drift(
+    provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),
+    profile: str = typer.Option("", "--profile", help="Deprecated single-DEV preset shorthand: 'full' or 'slim'."),
+    namespace: str = typer.Option("", "--namespace", help="Kubernetes namespace override."),
+    cluster_name: str = typer.Option("", "--cluster-name", help="Local kind cluster name override."),
+    kubeconfig_path: str = typer.Option("", "--kubeconfig-path", help="Kubeconfig file path override."),
+    project_root: str = typer.Option(
+        "", "--project-root", help="Writable project root; defaults to the current directory."
+    ),
+    stage: str = typer.Option("", "--stage", help="Stage to check; defaults to the project's default stage."),
+) -> None:
+    """List where OpenMetadata differs from Git for a stage: missing, stale, changed, unresolved. Never writes.
+
+    Exits non-zero when anything differs. See docs/guides/operations/metadata-ownership.md to repair an item.
+    """
+    from olf.infra import k8s
+    from olf.infra import openmetadata as om
+    from olf.infra.commands.runtime import provider_contract_environment
+    from olf.infra.openmetadata._auth import automation_token
+    from olf.infra.openmetadata._drift import drift_report
+
+    with provider_contract_environment(
+        provider=provider,
+        profile=profile,
+        namespace=namespace,
+        cluster_name=cluster_name,
+        kubeconfig_path=kubeconfig_path,
+        project_root=project_root,
+        stage=stage,
+    ) as contract:
+        governance = _governance_service(contract)
+        with governance.url(contract) as route:
+            try:
+                token = automation_token(governance.namespace, environ=contract)
+                items = drift_report(contract, route.client(om.OpenMetadataClient, token=token))
+            except (om.OpenMetadataError, k8s.KubectlError) as exc:
+                raise typer.Exit(code=fail(str(exc))) from exc
+    for item in items:
+        typer.echo(item.line())
+    if items:
+        raise typer.Exit(code=fail(f"{len(items)} difference(s) between Git and OpenMetadata; nothing was changed."))
+    typer.echo("OpenMetadata matches Git for this stage.")
+
+
 @app.command("quality-sync")
 def openmetadata_quality_sync(
     provider: str = typer.Option("", "--provider", help=PROVIDER_HELP),

@@ -152,6 +152,20 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
             raise E2EError(f"{exc}\nOpenMetadata's OpenLineage log lines:\n{openmetadata_lineage_log(cfg)}") from exc
 
 
+def check_openmetadata_drift(cfg: E2EConfig) -> None:
+    """A clean deploy leaves nothing to report: every declared entity exists and matches Git, none is stale."""
+    from olf.infra.openmetadata._drift import drift_report
+
+    log.step("Checking OpenMetadata against Git (drift report)...")
+    with openmetadata_client(cfg) as (client, _token):
+        try:
+            items = drift_report(cfg_environ(cfg), client)
+        except OpenMetadataError as exc:
+            raise E2EError(str(exc)) from exc
+    if items:
+        raise E2EError("OpenMetadata differs from Git after a clean deploy:\n" + "\n".join(i.line() for i in items))
+
+
 # Lines the OpenMetadata 1.13 server writes for OpenLineage requests: the access log line of each POST and the
 # resolver's and lineage resource's warnings (could not resolve a dataset, failed to create a table or an edge).
 _LINEAGE_LOG_MARKERS = (

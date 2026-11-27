@@ -59,11 +59,19 @@ class FakeOpenMetadata:
             entity_type = next(t for t in self.types.values() if t["id"] == route.rsplit("/", 1)[1])
             entity_type["customProperties"].append(json_body)
             return entity_type
-        if route == "/api/v1/tables" and method == "GET":
+        if route == "/api/v1/tables" and method == "GET" and "databaseSchema=" in path:
             schema = urllib.parse.parse_qs(path.partition("?")[2])["databaseSchema"][0]
             tables = [t for fqn, t in self.entities.get("tables", {}).items() if fqn.rpartition(".")[0] == schema]
             return {"data": tables, "paging": {}}
         collection = route.removeprefix("/api/v1/")
+        if method == "GET" and "/" not in collection and "limit" in (params or {}):
+            parents = [v for k, v in params.items() if k in ("database", "databaseSchema")]
+            found = [
+                e
+                for e in self.entities.get(collection, {}).values()
+                if all(e["fullyQualifiedName"].rpartition(".")[0] == parent for parent in parents)
+            ]
+            return {"data": found, "paging": {}}
         if "/name/" in collection:
             collection, _, fqn = collection.partition("/name/")
             found = self.entities.get(collection, {}).get(urllib.parse.unquote(fqn))
