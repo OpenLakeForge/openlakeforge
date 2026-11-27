@@ -159,6 +159,8 @@ Run the owning product first. The reading product's dbt step fails, naming the
 owner, when the owner has never built the model on that stage or has a run
 queued or running, instead of reading a stale or half-replaced set of tables.
 Schedule the owner's cadence before its readers' in `pipelines/products.py`.
+The e2e runner launches the products owners first.
+The guard checks that the model was built at some point, not that it is fresh.
 `olf check contracts` lists each dependency (`product_dependencies`) and
 refuses a `ref()` to a model that is not `access: public`, or two products that
 read each other.

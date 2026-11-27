@@ -1489,7 +1489,11 @@ def test_a_consumer_fails_with_a_clear_message_when_its_producer_never_built() -
 
     instance = DagsterInstance.ephemeral()
 
-    with pytest.raises(Failure, match=r"sales_core has never materialised dim_account.*run sales_core_pipeline first"):
+    with pytest.raises(
+        product_dagster.UpstreamProductNotReady,
+        match=r"consumer_pipeline cannot start: sales_core has never materialised dim_account on stage \w+; "
+        r"run sales_core_pipeline first",
+    ):
         product_dagster._require_upstream_products_ready(instance, "consumer", {"sales_core": ("dim_account",)})
 
 
@@ -1510,7 +1514,10 @@ def test_a_consumer_does_not_start_while_its_producer_is_running() -> None:
     run = instance.create_run_for_job(job_def=_noop_job(), tags={product_dagster.PRODUCT_TAG: "sales_core"})
     assert run.status == DagsterRunStatus.NOT_STARTED
 
-    with pytest.raises(Failure, match=rf"sales_core_pipeline is running \(run {run.run_id}\)"):
+    with pytest.raises(
+        product_dagster.UpstreamProductNotReady,
+        match=rf"sales_core_pipeline run {run.run_id} is queued or in progress.*retry consumer_pipeline after it ends",
+    ):
         product_dagster._require_upstream_products_ready(instance, "consumer", {"sales_core": ("dim_account",)})
 
 

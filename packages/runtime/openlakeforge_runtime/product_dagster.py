@@ -646,6 +646,10 @@ _IN_FLIGHT = [
 ]
 
 
+class UpstreamProductNotReady(Failure):
+    """A product's run was refused because a product it reads from has not built, or is building."""
+
+
 def _require_upstream_products_ready(instance, product: str, upstream: dict[str, tuple[str, ...]]) -> None:
     """Fail before dbt starts when a product this one reads from has not built, or is building now.
 
@@ -654,7 +658,10 @@ def _require_upstream_products_ready(instance, product: str, upstream: dict[str,
     dimension from the last one. The Dagster dependency alone orders nothing across separate jobs, so the
     consumer checks the instance it runs on (each stage has its own) and fails with the cause instead of waiting:
     a run that holds a slot for another job's hour is worse than a red one the next schedule tick repairs.
+
+    It checks that each model was materialised at some point, not that it is fresh (#921).
     """
+    stage = os.environ.get(_STAGE_ENV, "unknown")
     problems: list[str] = []
     for producer, models in upstream.items():
         never_built = [
@@ -662,17 +669,17 @@ def _require_upstream_products_ready(instance, product: str, upstream: dict[str,
         ]
         if never_built:
             problems.append(
-                f"{producer} has never materialised {', '.join(never_built)} on this stage; "
+                f"{producer} has never materialised {', '.join(never_built)} on stage {stage}; "
                 f"run {producer}_pipeline first"
             )
         building = instance.get_runs(filters=RunsFilter(tags={PRODUCT_TAG: producer}, statuses=_IN_FLIGHT), limit=1)
         if building:
             problems.append(
-                f"{producer}_pipeline is running (run {building[0].run_id}) and would replace "
-                f"{', '.join(models)} while this run reads them; start {product}_pipeline after it ends"
+                f"{producer}_pipeline run {building[0].run_id} is queued or in progress on stage {stage} and would "
+                f"replace {', '.join(models)} while this run reads them; retry {product}_pipeline after it ends"
             )
     if problems:
-        raise Failure(f"{product} reads other products' models that are not ready: " + "; ".join(problems))
+        raise UpstreamProductNotReady(f"{product}_pipeline cannot start: " + "; ".join(problems))
 
 
 def _bronze_source_binding_tags(inputs: ResolvedProductInputs) -> dict[str, str]:

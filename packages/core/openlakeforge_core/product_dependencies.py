@@ -8,7 +8,7 @@ same rule earlier and names the product edge, which dbt does not.
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
@@ -52,6 +52,27 @@ class ProductDependencies:
         for dependency in self.dependencies:
             found.setdefault(dependency.producer, []).append(dependency.consumer)
         return {producer: tuple(sorted(consumers)) for producer, consumers in sorted(found.items())}
+
+
+    def launch_order(self, products: Sequence[str]) -> list[str]:
+        """`products` with each one after the products it consumes (among `products`), otherwise in the given order.
+
+        A product that reads another's tables fails its run if the other has not built, so anything that launches
+        several products in one go launches them in this order.
+        """
+        wanted = set(products)
+        graph = {
+            product: {producer for producer in self.producers_by_consumer.get(product, ()) if producer in wanted}
+            for product in products
+        }
+        sorter = TopologicalSorter(graph)
+        sorter.prepare()
+        ordered: list[str] = []
+        while sorter.is_active():
+            ready = sorted(sorter.get_ready(), key=products.index)
+            ordered.extend(ready)
+            sorter.done(*ready)
+        return ordered
 
 
 def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> ProductDependencies:

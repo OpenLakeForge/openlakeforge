@@ -113,3 +113,12 @@ def test_contracts_check_passes_when_no_product_reads_another(tmp_path: Path) ->
     result = contracts_check._check_product_dependencies(tmp_path)
 
     assert result.ok
+
+
+def test_launch_order_puts_a_producer_before_its_consumers_and_keeps_the_rest_in_place(project: Path) -> None:
+    _schema(project, "widgets_alpha", dim_widget="public")
+    found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
+
+    assert found.launch_order(["widgets_beta", "widgets_alpha"]) == ["widgets_alpha", "widgets_beta"]
+    assert found.launch_order(["widgets_beta"]) == ["widgets_beta"]
+    assert found.launch_order(["other", "widgets_beta", "widgets_alpha"]) == ["other", "widgets_alpha", "widgets_beta"]
