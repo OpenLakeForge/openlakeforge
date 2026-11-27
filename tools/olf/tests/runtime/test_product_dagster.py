@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -1533,3 +1534,29 @@ def test_a_consumer_ignores_runs_of_other_products() -> None:
 
 def test_a_product_with_no_upstream_products_needs_no_check() -> None:
     product_dagster._require_upstream_products_ready(object(), "order_revenue", {})
+
+
+def test_a_run_refused_by_the_readiness_guard_leaves_the_lineage_job_name_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dagster import DagsterInstance
+
+    defs = _consumer_defs(tmp_path, monkeypatch)
+    (dbt_assets,) = defs.assets
+    (tmp_path / "profiles.yml").write_text("gold: {}\n", encoding="utf-8")
+    # The resource checks its executable exists; the run is refused before dbt is ever started.
+    monkeypatch.setenv("OPENLAKEFORGE_DBT_EXECUTABLE", sys.executable)
+    monkeypatch.delenv("OPENLINEAGE_DBT_JOB_NAME", raising=False)
+
+    result = materialize(
+        [dbt_assets],
+        instance=DagsterInstance.ephemeral(),
+        resources={},
+        raise_on_error=False,
+    )
+
+    assert not result.success
+    assert "sales_core has never materialised dim_account" in str(
+        [event.event_specific_data for event in result.get_step_failure_events()]
+    )
+    assert "OPENLINEAGE_DBT_JOB_NAME" not in os.environ

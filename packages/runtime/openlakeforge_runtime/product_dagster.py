@@ -534,8 +534,6 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             profiles_dir=str(resolve_profiles_dir()),
             dbt_executable=os.environ.get("OPENLAKEFORGE_DBT_EXECUTABLE", "dbt-ol"),
         )
-        previous_job_name = os.environ.get("OPENLINEAGE_DBT_JOB_NAME")
-        os.environ["OPENLINEAGE_DBT_JOB_NAME"] = spec.job_name
         # Both scopes rebuild Gold: after a Bronze reload, an incremental model
         # would otherwise keep rows its rebuilt inputs no longer hold.
         full_refresh = full_refresh_scope(context.run.tags) is not None
@@ -552,6 +550,9 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         _require_upstream_products_ready(
             context.instance, spec.product, upstream_models(manifest, selected, spec.product, explicit_tests)
         )
+        # After the readiness check: a refused run must leave the process environment as it found it.
+        previous_job_name = os.environ.get("OPENLINEAGE_DBT_JOB_NAME")
+        os.environ["OPENLINEAGE_DBT_JOB_NAME"] = spec.job_name
         # Before the build, so a run that dies early still says which tests it meant to run (dbt_quality).
         _upload_selected_tests(context, spec, sorted(t.unique_id for t in all_tests.values() if t.explicit))
 
