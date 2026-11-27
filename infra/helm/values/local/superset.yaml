@@ -39,6 +39,22 @@ redis:
     # Superset pods; the stage NetworkPolicy limits who can reach port 6379.
     command: [redis-server]
     args: [--save, "", --appendonly, "no", --protected-mode, "no"]
+    # The subchart's default probes run Bitnami health scripts under /bin/bash,
+    # which the official Alpine image does not have; ping with its sh instead.
+    customLivenessProbe:
+      exec:
+        command: [sh, -c, "redis-cli -h 127.0.0.1 -p 6379 ping | grep -q PONG"]
+      initialDelaySeconds: 20
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 5
+    customReadinessProbe:
+      exec:
+        command: [sh, -c, "redis-cli -h 127.0.0.1 -p 6379 ping | grep -q PONG"]
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 5
     persistence:
       enabled: false
     resources:
