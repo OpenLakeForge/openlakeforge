@@ -1366,3 +1366,163 @@ def test_the_hooks_publish_a_valid_manifest_when_a_silver_step_yields_checks_and
     outcomes = {r.check_id: r.outcome for r in manifest.results}
     assert outcomes["floe_cast_error"] is QualityOutcome.ERROR
     assert outcomes["floe_not_null"] is QualityOutcome.PASSED
+
+
+def _two_product_manifest(path: Path) -> Path:
+    """A parsed Gold project of two products: `revenue_mart` of `consumer` refs `dim_account` of `sales_core`."""
+
+    def model(name: str, product: str, parents: tuple[str, ...] = (), access: str = "private") -> dict[str, Any]:
+        return {
+            "unique_id": f"model.gold.{name}",
+            "name": name,
+            "resource_type": "model",
+            "package_name": "gold",
+            "path": f"{product}/{name}.sql",
+            "original_file_path": f"models/{product}/{name}.sql",
+            "fqn": ["gold", product, name],
+            "config": {"materialized": "table", "group": product, "enabled": True},
+            "depends_on": {"nodes": list(parents)},
+            "description": "",
+            "tags": [],
+            "meta": {},
+            "checksum": {"name": "sha256", "checksum": "x"},
+            "schema": f"{product}_gold",
+            "database": "catalog",
+            "alias": name,
+            "relation_name": f'"catalog"."{product}_gold"."{name}"',
+            "group": product,
+            "access": access,
+            "columns": {},
+            "unrendered_config": {},
+        }
+
+    nodes = {
+        "model.gold.dim_account": model("dim_account", "sales_core", access="public"),
+        "model.gold.revenue_mart": model("revenue_mart", "consumer", ("model.gold.dim_account",)),
+    }
+    groups = {
+        f"group.gold.{name}": {
+            "name": name,
+            "resource_type": "group",
+            "package_name": "gold",
+            "path": "schema.yml",
+            "original_file_path": "schema.yml",
+            "unique_id": f"group.gold.{name}",
+            "owner": {"name": name},
+        }
+        for name in ("sales_core", "consumer")
+    }
+    manifest = {
+        "metadata": {"project_name": "gold", "dbt_version": "1.9.0"},
+        "nodes": nodes,
+        "sources": {},
+        "exposures": {},
+        "metrics": {},
+        "semantic_models": {},
+        "saved_queries": {},
+        "unit_tests": {},
+        "child_map": {"model.gold.dim_account": ["model.gold.revenue_mart"], "model.gold.revenue_mart": []},
+        "parent_map": {"model.gold.dim_account": [], "model.gold.revenue_mart": ["model.gold.dim_account"]},
+        "group_map": {"sales_core": ["model.gold.dim_account"], "consumer": ["model.gold.revenue_mart"]},
+        "groups": groups,
+        "macros": {},
+        "docs": {},
+        "disabled": {},
+        "selectors": {},
+        "files": {},
+    }
+    path.write_text(json.dumps(manifest))
+    return path
+
+
+def _consumer_defs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Definitions:
+    manifest = _two_product_manifest(tmp_path / "manifest.json")
+    monkeypatch.setenv("OPENLAKEFORGE_DBT_PROFILES_DIR", str(tmp_path))
+    monkeypatch.setattr(product_dagster, "ensure_baked_manifest", lambda _project_dir: manifest)
+    spec = ProductDefinitionSpec(domain="sales", product="consumer")
+    return product_dagster.build_product_definitions(spec)
+
+
+def test_a_ref_to_another_products_public_model_is_an_upstream_asset_the_job_does_not_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    defs = _consumer_defs(tmp_path, monkeypatch)
+
+    (dbt_assets,) = defs.assets
+    (spec,) = dbt_assets.specs
+    job = defs.resolve_job_def("consumer_pipeline")
+
+    assert spec.key == AssetKey(["consumer", "revenue_mart"])
+    assert [dep.asset_key for dep in spec.deps] == [AssetKey(["sales_core", "dim_account"])]
+    assert {tuple(key.path) for key in job.asset_layer.selected_asset_keys} == {("consumer", "revenue_mart")}
+
+
+def test_the_dagster_graph_of_the_merged_location_carries_the_cross_product_dependency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    consumer = _consumer_defs(tmp_path, monkeypatch)
+
+    @asset(key=AssetKey(["sales_core", "dim_account"]))
+    def dim_account() -> None: ...
+
+    graph = Definitions.merge(consumer, Definitions(assets=[dim_account])).resolve_asset_graph()
+
+    assert graph.get(AssetKey(["consumer", "revenue_mart"])).parent_keys == {AssetKey(["sales_core", "dim_account"])}
+
+
+def _noop_job() -> Any:
+    @asset
+    def nothing() -> None: ...
+
+    return Definitions(assets=[nothing], jobs=[define_asset_job("noop")]).resolve_job_def("noop")
+
+
+def _materialise(instance: Any, *path: str) -> None:
+    @asset(key=AssetKey(list(path)))
+    def built() -> None: ...
+
+    materialize([built], instance=instance)
+
+
+def test_a_consumer_fails_with_a_clear_message_when_its_producer_never_built() -> None:
+    from dagster import DagsterInstance
+
+    instance = DagsterInstance.ephemeral()
+
+    with pytest.raises(Failure, match=r"sales_core has never materialised dim_account.*run sales_core_pipeline first"):
+        product_dagster._require_upstream_products_ready(instance, "consumer", {"sales_core": ("dim_account",)})
+
+
+def test_a_consumer_starts_once_its_producer_has_built() -> None:
+    from dagster import DagsterInstance
+
+    instance = DagsterInstance.ephemeral()
+    _materialise(instance, "sales_core", "dim_account")
+
+    product_dagster._require_upstream_products_ready(instance, "consumer", {"sales_core": ("dim_account",)})
+
+
+def test_a_consumer_does_not_start_while_its_producer_is_running() -> None:
+    from dagster import DagsterInstance, DagsterRunStatus
+
+    instance = DagsterInstance.ephemeral()
+    _materialise(instance, "sales_core", "dim_account")
+    run = instance.create_run_for_job(job_def=_noop_job(), tags={product_dagster.PRODUCT_TAG: "sales_core"})
+    assert run.status == DagsterRunStatus.NOT_STARTED
+
+    with pytest.raises(Failure, match=rf"sales_core_pipeline is running \(run {run.run_id}\)"):
+        product_dagster._require_upstream_products_ready(instance, "consumer", {"sales_core": ("dim_account",)})
+
+
+def test_a_consumer_ignores_runs_of_other_products() -> None:
+    from dagster import DagsterInstance
+
+    instance = DagsterInstance.ephemeral()
+    _materialise(instance, "sales_core", "dim_account")
+    instance.create_run_for_job(job_def=_noop_job(), tags={product_dagster.PRODUCT_TAG: "unrelated"})
+
+    product_dagster._require_upstream_products_ready(instance, "consumer", {"sales_core": ("dim_account",)})
+
+
+def test_a_product_with_no_upstream_products_needs_no_check() -> None:
+    product_dagster._require_upstream_products_ready(object(), "order_revenue", {})

@@ -63,6 +63,31 @@ def _selected_upstream(
     return found
 
 
+def upstream_models(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, tuple[str, ...]]:
+    """The models a selected model reads that this run does not build, by the product that owns each.
+
+    A product's own folder is every selected model's `fqn[1]`; a materialised parent outside the selection is
+    another product's public model (dbt refuses a private one), which that product's own job builds.
+    """
+    nodes = manifest.get("nodes", {})
+    project = manifest.get("metadata", {}).get("project_name")
+    found: dict[str, set[str]] = {}
+    for model in _project_models(manifest, selected).values():
+        for parent_id in model.get("depends_on", {}).get("nodes", []):
+            parent = nodes.get(parent_id)
+            if (
+                parent is None
+                or parent.get("resource_type") != "model"
+                or parent.get("package_name") != project
+                or parent["name"] in selected
+                or _is_ephemeral(parent)
+                or len(parent.get("fqn", ())) <= 2
+            ):
+                continue
+            found.setdefault(parent["fqn"][1], set()).add(parent["name"])
+    return {product: tuple(sorted(names)) for product, names in sorted(found.items())}
+
+
 def model_dependencies(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, tuple[str, ...]]:
     """Each selected model of the manifest's project, with the selected models it reads from."""
     models = _project_models(manifest, selected)

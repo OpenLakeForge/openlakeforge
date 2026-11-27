@@ -18,12 +18,14 @@ from dagster import (
     AssetOut,
     AssetSelection,
     DagsterEventType,
+    DagsterRunStatus,
     DefaultScheduleStatus,
     Definitions,
     Failure,
     Field,
     MetadataValue,
     Output,
+    RunsFilter,
     ScheduleDefinition,
     define_asset_job,
     failure_hook,
@@ -53,6 +55,7 @@ from openlakeforge_runtime.dbt_build import (
     merge_run_results,
     model_dependencies,
     model_sources,
+    upstream_models,
     without_deselected_checks,
 )
 from openlakeforge_runtime.dbt_quality import dbt_quality_manifest, read_dbt_evidence
@@ -539,6 +542,7 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         target_paths: list[Path] = []
         selected = {key.path[-1] for key in context.selected_asset_keys}
         manifest = json.loads(manifest_path.read_text())
+        _require_upstream_products_ready(context.instance, spec.product, upstream_models(manifest, selected))
         dependencies = model_dependencies(manifest, selected)
         all_tests = without_deselected_checks(
             dbt_tests(manifest, selected),
@@ -629,6 +633,46 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         jobs=[product_pipeline],
         schedules=build_stage_schedules(spec),
     )
+
+
+# A run of the producing product in any of these states may be replacing the tables this run would read.
+_IN_FLIGHT = [
+    DagsterRunStatus.QUEUED,
+    DagsterRunStatus.NOT_STARTED,
+    DagsterRunStatus.MANAGED,
+    DagsterRunStatus.STARTING,
+    DagsterRunStatus.STARTED,
+    DagsterRunStatus.CANCELING,
+]
+
+
+def _require_upstream_products_ready(instance, product: str, upstream: dict[str, tuple[str, ...]]) -> None:
+    """Fail before dbt starts when a product this one reads from has not built, or is building now.
+
+    A producing product replaces its tables one dbt generation at a time (`create or replace`, so no single table
+    is ever half-written), but a consumer started in the middle would read a fact from the new run beside a
+    dimension from the last one. The Dagster dependency alone orders nothing across separate jobs, so the
+    consumer checks the instance it runs on (each stage has its own) and fails with the cause instead of waiting:
+    a run that holds a slot for another job's hour is worse than a red one the next schedule tick repairs.
+    """
+    problems: list[str] = []
+    for producer, models in upstream.items():
+        never_built = [
+            name for name in models if instance.get_latest_materialization_event(AssetKey([producer, name])) is None
+        ]
+        if never_built:
+            problems.append(
+                f"{producer} has never materialised {', '.join(never_built)} on this stage; "
+                f"run {producer}_pipeline first"
+            )
+        building = instance.get_runs(filters=RunsFilter(tags={PRODUCT_TAG: producer}, statuses=_IN_FLIGHT), limit=1)
+        if building:
+            problems.append(
+                f"{producer}_pipeline is running (run {building[0].run_id}) and would replace "
+                f"{', '.join(models)} while this run reads them; start {product}_pipeline after it ends"
+            )
+    if problems:
+        raise Failure(f"{product} reads other products' models that are not ready: " + "; ".join(problems))
 
 
 def _bronze_source_binding_tags(inputs: ResolvedProductInputs) -> dict[str, str]:

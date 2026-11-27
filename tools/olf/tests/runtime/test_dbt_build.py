@@ -517,3 +517,37 @@ def test_a_test_on_sources_alone_does_not_join_a_model_build() -> None:
     # Eager selection of `a` never ran a test whose only parent is a source.
     assert (test.parents, test.explicit) == ((), False)
     assert "gold.not_null_y" not in dbt_build.generation_args(["a"], [], ["a"], [test])[3]
+
+
+def _cross_product_manifest() -> dict:
+    def model(name: str, product: str, parents: list[str], materialized: str = "table") -> dict:
+        return {
+            "name": name,
+            "resource_type": "model",
+            "package_name": "gold",
+            "fqn": ["gold", product, name],
+            "config": {"materialized": materialized},
+            "depends_on": {"nodes": parents},
+        }
+
+    return {
+        "metadata": {"project_name": "gold"},
+        "nodes": {
+            "model.gold.dim_account": model("dim_account", "sales_core", []),
+            "model.gold.stg": model("stg", "sales_core", [], "ephemeral"),
+            "model.gold.own": model("own", "consumer", []),
+            "model.gold.mart": model(
+                "mart", "consumer", ["model.gold.dim_account", "model.gold.own", "model.gold.stg", "source.gold.s"]
+            ),
+        },
+    }
+
+
+def test_the_models_a_run_reads_but_does_not_build_are_named_by_their_owning_product() -> None:
+    upstream = dbt_build.upstream_models(_cross_product_manifest(), {"mart", "own"})
+
+    assert upstream == {"sales_core": ("dim_account",)}
+
+
+def test_a_product_that_reads_only_its_own_models_has_no_upstream_models() -> None:
+    assert dbt_build.upstream_models(_cross_product_manifest(), {"dim_account", "stg"}) == {}
