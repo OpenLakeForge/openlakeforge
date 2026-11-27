@@ -111,7 +111,7 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
 
     def access_of(model: str, text: str) -> str:
         # dbt's precedence: the model's own config(), then its properties file, then dbt_project.yml.
-        in_sql = _CONFIG_ACCESS.search(text)
+        in_sql = _CONFIG_ACCESS.search(_executable(text))
         if in_sql:
             return in_sql.group(1)
         return declared.get(model) or defaults.get(owner[model]) or defaults.get("") or "protected"
@@ -121,9 +121,9 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
     violations: list[str] = []
     for name, text in sorted(texts.items()):
         consumer = owner[name]
-        if name in disabled or _CONFIG_DISABLED.search(text):
+        executable = _executable(text)
+        if name in disabled or _CONFIG_DISABLED.search(executable):
             continue
-        executable = " ".join(_JINJA_BLOCK.findall(text))
         for package, referenced in sorted(set(_REF.findall(executable))):
             if package and package != project_name:
                 continue
@@ -142,6 +142,11 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
     )
     violations.extend(_cycles(dependencies))
     return ProductDependencies(dependencies, tuple(violations))
+
+
+def _executable(text: str) -> str:
+    """What dbt evaluates of a model file: its `{{ }}` and `{% %}` blocks, not plain SQL comments."""
+    return " ".join(_JINJA_BLOCK.findall(text))
 
 
 def _project_access(gold_root: Path) -> dict[str, str]:

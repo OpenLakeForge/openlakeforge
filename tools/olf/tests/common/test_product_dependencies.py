@@ -208,3 +208,27 @@ def test_a_ref_qualified_with_this_projects_name_is_a_product_dependency(project
     found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
 
     assert found.producers_by_consumer == {"widgets_beta": ("widgets_alpha",)}
+
+
+def test_access_and_enablement_come_from_executable_jinja_not_sql_comments(project: Path) -> None:
+    _model(
+        project,
+        "widgets_alpha",
+        "dim_widget",
+        "-- config(access='private')\n{{ config(access='public') }} select 1 as widget_id",
+    )
+
+    assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).violations == ()
+
+    _model(
+        project,
+        "widgets_alpha",
+        "dim_widget",
+        "-- config(access='public')\n{{ config(access='private') }} select 1 as widget_id",
+    )
+
+    assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).violations
+
+    _model(project, "widgets_beta", "mart_widgets", "-- config(enabled=false)\nselect * from {{ ref('dim_widget') }}")
+
+    assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).dependencies
