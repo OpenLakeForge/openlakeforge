@@ -732,31 +732,68 @@ def run_workflow(ctx: Ctx, name: str, workflow: dict[str, Any], command: str) ->
     return outcome, JWT.sub("***", logs)
 
 
+def summarise(data: Any) -> Any:
+    """A response reduced to what the question needs: its keys, and any profile or sample data it carries."""
+    if not isinstance(data, dict):
+        return str(data)[:300]
+    out: dict[str, Any] = {"keys": sorted(data)}
+    for key in ("profile", "sampleData"):
+        if key in data:
+            out[key] = data[key]
+    if isinstance(data.get("columns"), list):
+        out["columns[].profile"] = {
+            c.get("name"): sorted(k for k, v in (c.get("profile") or {}).items() if v is not None)
+            for c in data["columns"]
+        }
+    if isinstance(data.get("data"), list):
+        out["data"] = data["data"][-2:]
+    return out
+
+
 def stored_profile(ctx: Ctx, table: dict[str, Any]) -> dict[str, Any]:
     """What OpenMetadata returns for the table's profile and sample data, by every route that could hold them."""
     fqn, now = quote(table["fullyQualifiedName"]), int(time.time() * 1000)
     window = {"startTs": now - 6 * 3600 * 1000, "endTs": now + 3600 * 1000}
     routes = {
-        "table fields=profile": ("/api/v1/tables/name/" + fqn, {"fields": "columns,profile,sampleData"}),
-        "tableProfile/latest": (f"/api/v1/tables/{fqn}/tableProfile/latest", None),
+        "table fields=columns,profile,sampleData": (
+            "/api/v1/tables/name/" + fqn,
+            {"fields": "columns,profile,sampleData"},
+        ),
         "tableProfile": (f"/api/v1/tables/{fqn}/tableProfile", window),
-        "columnProfile": (f"/api/v1/tables/{fqn}/columnProfile", window),
         "sampleData": (f"/api/v1/tables/{table['id']}/sampleData", None),
     }
     found: dict[str, Any] = {}
     for label, (path, params) in routes.items():
         r = om(ctx, "GET", path, params=params)
-        found[label] = {"result": r.brief(), "body": json.dumps(r.data, default=str)[:700]}
+        found[label] = {"result": r.brief(), "body": summarise(r.data)}
+    columns: dict[str, Any] = {}
+    for column in table["columns"]:
+        r = om(ctx, "GET", f"/api/v1/tables/{quote(column['fullyQualifiedName'])}/columnProfile", params=window)
+        rows = r.data.get("data") if isinstance(r.data, dict) else None
+        columns[column["name"]] = {
+            "result": r.brief(),
+            "metrics": sorted({k for row in rows or [] for k, v in row.items() if v is not None}),
+            "latest": (rows or [None])[-1],
+        }
+    found["columnProfile per column"] = columns
     return found
 
 
-def profile_has_statistics(found: dict[str, Any]) -> bool:
-    return any(
-        v["result"] == "HTTP 200"
-        and ("rowCount" in v["body"] or "nullCount" in v["body"] or "distinctCount" in v["body"])
-        for label, v in found.items()
-        if label != "sampleData"
+def table_statistics(found: dict[str, Any]) -> list[str]:
+    rows = (
+        (found["tableProfile"]["body"] or {}).get("data") if isinstance(found["tableProfile"]["body"], dict) else None
     )
+    return sorted({k for row in rows or [] for k in row if k != "timestamp"})
+
+
+def column_statistics(found: dict[str, Any]) -> list[str]:
+    seen = {m for c in found["columnProfile per column"].values() for m in c["metrics"] if m != "timestamp"}
+    return sorted(seen)
+
+
+def has_sample_data(found: dict[str, Any]) -> bool:
+    bodies = [found["table fields=columns,profile,sampleData"]["body"], found["sampleData"]["body"]]
+    return any(isinstance(b, dict) and b.get("sampleData") for b in bodies)
 
 
 def probe_profile(ctx: Ctx) -> None:
@@ -787,22 +824,21 @@ def probe_profile(ctx: Ctx) -> None:
         outcome, logs = run_workflow(ctx, f"{P}-profile", workflow, "profile")
         found = stored_profile(ctx, a)
         runs.append({"variant": label, "outcome": outcome, "log tail": logs[-3500:], "stored": found})
-        sample = found["sampleData"]["body"]
-        has_sample = (
-            '"rows": [[' in sample
-            or '"rows": [{' in sample
-            or '"sampleData": {' in found["table fields=profile"]["body"]
-        )
+        sample, table_stats, column_stats = has_sample_data(found), table_statistics(found), column_statistics(found)
         f.detail = (
-            f"{label}: {outcome}; statistics stored: {profile_has_statistics(found)}; sample data present: {has_sample}"
+            f"{label}: {outcome}; table-level metrics {table_stats}; column-level metrics {column_stats}; "
+            f"sample data present: {sample}"
         )
         if outcome != "job completed":
             f.verdict = "REFUSED"
             return
-        if profile_has_statistics(found):
-            f.verdict = "SAMPLE DATA STORED" if has_sample else "ACCEPTED"
+        if sample:
+            f.verdict = "SAMPLE DATA STORED"
             return
-    f.verdict = "NOTHING STORED"
+        if column_stats:
+            f.verdict = "ACCEPTED"
+            return
+        f.verdict = "TABLE LEVEL ONLY" if table_stats else "NOTHING STORED"
 
 
 def probe_override_crawl(ctx: Ctx) -> None:
