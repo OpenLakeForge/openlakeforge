@@ -175,6 +175,22 @@ stages per table a query reads and stops at `max_stage_count` (300 in every
 `QUERY_HAS_TOO_MANY_STAGES`. A union over a whole domain should be split into
 staging models.
 
+## Add semantic metrics
+
+Describe a product's business metrics, keys and relationships as an Apache
+Ossie model in `lakehouse_code/semantic/<product>/<name>.ossie.yaml`. The
+datasets point at the product's Gold facts and dimensions, and every key and
+relationship must be backed by a dbt `unique` or `relationships` test in the
+product's `schema.yml`.
+
+```bash
+uv run --project tools/olf --locked olf check contracts
+```
+
+The `semantic_models` check names each broken rule with its file and line. The
+supported version, the subset and the rules are in
+[Semantic models reference](../reference/semantic-models.md).
+
 ## Remove a product
 
 Delete its entry from `governance.yml`, its `gold/models/<product>/` folder,

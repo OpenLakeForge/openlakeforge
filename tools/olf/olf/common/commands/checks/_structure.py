@@ -35,6 +35,7 @@ REQUIRED_PATHS: tuple[str, ...] = (
     "docs/schema/provider-contracts.schema.json",
     "docs/schema/governance.schema.json",
     "docs/schema/alert-policy.schema.json",
+    "docs/schema/ossie-0.1.1.schema.json",
     "docs/schema/platform-api.openapi.json",
     "docs/technical-debt.md",
     "docs/testing/floe-openlineage-capture-test-plan.md",

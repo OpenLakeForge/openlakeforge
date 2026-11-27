@@ -31,6 +31,8 @@ from .descriptors import (
 )
 from .governance import EntityRef, load_governance_lakehouse_document
 from .product_dependencies import ProductDependencies, scan_product_dependencies
+from .semantic import SemanticInventory
+from .semantic_validate import load_semantic_inventory
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -313,6 +315,13 @@ class LakehouseInventory:
     def product_dependencies(self) -> ProductDependencies:
         """Which products read which others through dbt `ref()`, for consumesFrom and freshness propagation."""
         return scan_product_dependencies(self.lakehouse_root / "gold", [product.id for product in self.products])
+
+    @property
+    def semantic_inventory(self) -> SemanticInventory:
+        """The Ossie models under `semantic/<product>/` that parse and match the Gold dbt properties, and what broke."""
+        return load_semantic_inventory(
+            self.lakehouse_root, [product.id for product in self.products], self.product_dependencies
+        )
 
     def domain_for_product(self, product: Product) -> Domain:
         return next(domain for domain in self.domains if domain.name == product.domain_name)

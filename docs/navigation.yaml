@@ -61,6 +61,7 @@ sections:
       - docs/reference/deployment-profile.md
       - docs/reference/roles-and-permissions.md
       - docs/reference/descriptors.md
+      - docs/reference/semantic-models.md
       - docs/reference/alert-policy.md
       - docs/reference/runtime-api.md
       - docs/reference/platform-api.md

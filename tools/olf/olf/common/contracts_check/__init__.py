@@ -27,6 +27,7 @@ from olf.common.contracts_check._rendered import (
     _check_silver_load_modes,
 )
 from olf.common.contracts_check._report import CheckResult, ContractsCheckReport
+from olf.common.contracts_check._semantic import _check_semantic_models
 
 __all__ = [
     "CheckResult",
@@ -62,6 +63,7 @@ def run_contracts_check(
     report.results.append(_check_descriptor_schema_conformance(root, schema_root=dist_root / "docs" / "schema"))
     report.results.append(_check_governance_conformance(root, schema_root=dist_root / "docs" / "schema", strict=strict))
     report.results.append(_check_product_dependencies(root))
+    report.results.append(_check_semantic_models(root, schema_root=dist_root / "docs" / "schema"))
     report.results.append(_check_alert_policy_conformance(root, schema_root=dist_root / "docs" / "schema"))
     report.results.append(
         _check_deployment_profile_schema_conformance(
