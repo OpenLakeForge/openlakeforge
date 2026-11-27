@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -262,3 +264,13 @@ def test_a_description_that_differs_from_dbt_warns_and_still_passes(tmp_path: Pa
     ok, detail = _check(root)
 
     assert ok and "[description-differs]" in detail
+
+
+def test_the_vendored_schema_matches_its_provenance_record() -> None:
+    schemas = Path(__file__).resolve().parents[4] / "docs" / "schema"
+    record = json.loads((schemas / "ossie-0.1.1.schema.provenance.json").read_text(encoding="utf-8"))
+    vendored = (schemas / record["file"]).read_bytes()
+
+    assert hashlib.sha256(vendored).hexdigest() == record["sha256"]
+    assert json.loads(vendored)["properties"]["version"]["const"] == SUPPORTED_OSSIE_VERSION
+    assert record["tag"].startswith(f"osi-{SUPPORTED_OSSIE_VERSION}")

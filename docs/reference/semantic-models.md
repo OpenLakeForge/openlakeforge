@@ -26,12 +26,18 @@ check. A product may hold several files. Each file holds one model.
 
 ## Supported version and subset
 
-The adapter reads Ossie **0.1.1**. The packaged schema is
-[`ossie-0.1.1.schema.json`](../schema/ossie-0.1.1.schema.json), vendored
-unchanged from upstream's `core-spec/osi-schema.json` (Apache License 2.0,
-`apache/ossie` tag `osi-0.1.1-rc1`, SHA-256
-`c1e9adec39562786aa78809665fba568797b15f4c53a0847d9cbcf2dead1bc94`). A document
-declaring any other version, `*.dev0` included, is rejected.
+The adapter reads the Ossie **0.1.1** content published at the upstream tag
+`osi-0.1.1-rc1`. Apache has published no final Ossie release yet, so this is a
+release candidate; moving to a final 0.1.1 or to 0.3.0 is a follow-up. Documents
+declare `version: "0.1.1"`, the schema's constant, and any other version,
+`*.dev0` included, is rejected.
+
+The packaged schema is [`ossie-0.1.1.schema.json`](../schema/ossie-0.1.1.schema.json),
+vendored unchanged from upstream `core-spec/osi-schema.json` (Apache License
+2.0). Its source is recorded in
+[`ossie-0.1.1.schema.provenance.json`](../schema/ossie-0.1.1.schema.provenance.json):
+tag, commit `faf581054dcf7964d5fe0ceae7d6f415c8ce32a5`, raw URL and SHA-256. A
+test fails if the schema file changes without that record.
 
 Inside 0.1.1 the adapter accepts only the subset that Ossie 0.3 reads the same
 way. Each rule below is named in the diagnostic (`file:line: [rule] message`).
