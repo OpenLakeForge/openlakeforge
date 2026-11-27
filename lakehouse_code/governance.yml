@@ -13,6 +13,11 @@ domains:
         displayName: Sales Customer Health
         description: Curated customer health, churn risk, support SLA, and NPS marts for Sales.
         lifecycle: DEVELOPMENT
+      - id: sales_core
+        displayName: Sales Core
+        description: Conformed sales facts and dimensions - order lines, accounts, products, channels and promotions.
+        type: DATASET
+        lifecycle: DEVELOPMENT
   - name: supply_chain
     displayName: Supply Chain
     description: Supply Chain proof-of-concept domain for inventory and supplier reliability analytics.
