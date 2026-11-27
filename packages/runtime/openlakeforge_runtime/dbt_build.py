@@ -63,29 +63,38 @@ def _selected_upstream(
     return found
 
 
-def upstream_models(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, tuple[str, ...]]:
-    """The models a selected model reads that this run does not build, by the product that owns each.
+def upstream_models(
+    manifest: Mapping[str, Any], selected: Collection[str], product: str
+) -> dict[str, tuple[str, ...]]:
+    """The models of other products that `selected` models read, by the product that owns each.
 
-    A product's own folder is every selected model's `fqn[1]`; a materialised parent outside the selection is
-    another product's public model (dbt refuses a private one), which that product's own job builds.
+    A materialised parent outside the selection and outside `product`'s own folder is another product's public
+    model (dbt refuses a private one), which that product's own job builds. An ephemeral parent has no table, so
+    its own parents are looked through. A parent in `product`'s folder that a subset run did not select is this
+    product's own table, not an upstream product.
     """
     nodes = manifest.get("nodes", {})
     project = manifest.get("metadata", {}).get("project_name")
     found: dict[str, set[str]] = {}
-    for model in _project_models(manifest, selected).values():
-        for parent_id in model.get("depends_on", {}).get("nodes", []):
-            parent = nodes.get(parent_id)
-            if (
-                parent is None
-                or parent.get("resource_type") != "model"
-                or parent.get("package_name") != project
-                or parent["name"] in selected
-                or _is_ephemeral(parent)
-                or len(parent.get("fqn", ())) <= 2
-            ):
-                continue
-            found.setdefault(parent["fqn"][1], set()).add(parent["name"])
-    return {product: tuple(sorted(names)) for product, names in sorted(found.items())}
+    seen: set[str] = set()
+    pending = [
+        parent for model in _project_models(manifest, selected).values() for parent in model["depends_on"]["nodes"]
+    ]
+    while pending:
+        parent_id = pending.pop()
+        parent = nodes.get(parent_id)
+        if parent_id in seen or parent is None:
+            continue
+        seen.add(parent_id)
+        if parent.get("resource_type") != "model" or parent.get("package_name") != project:
+            continue
+        if _is_ephemeral(parent):
+            pending.extend(parent.get("depends_on", {}).get("nodes", []))
+            continue
+        owner = parent["fqn"][1] if len(parent.get("fqn", ())) > 2 else product
+        if parent["name"] not in selected and owner != product:
+            found.setdefault(owner, set()).add(parent["name"])
+    return {owner: tuple(sorted(names)) for owner, names in sorted(found.items())}
 
 
 def model_dependencies(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, tuple[str, ...]]:

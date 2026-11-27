@@ -542,7 +542,8 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         target_paths: list[Path] = []
         selected = {key.path[-1] for key in context.selected_asset_keys}
         manifest = json.loads(manifest_path.read_text())
-        _require_upstream_products_ready(context.instance, spec.product, upstream_models(manifest, selected))
+        upstream = upstream_models(manifest, selected, spec.product)
+        _require_upstream_products_ready(context.instance, spec.product, upstream)
         dependencies = model_dependencies(manifest, selected)
         all_tests = without_deselected_checks(
             dbt_tests(manifest, selected),

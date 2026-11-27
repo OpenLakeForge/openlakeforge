@@ -19,6 +19,10 @@ import yaml
 __all__ = ["ProductDependencies", "ProductDependency", "scan_product_dependencies"]
 
 _JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.DOTALL)
+# dbt evaluates only what sits in `{{ }}` or `{% %}`: a `ref('x')` in a plain SQL comment is text, while one in
+# `-- depends_on: {{ ref('x') }}` is a real dependency.
+_JINJA_BLOCK = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
+_CONFIG_ACCESS = re.compile(r"""\bconfig\([^)]*?\baccess\s*=\s*['"](\w+)['"]""", re.DOTALL)
 # `ref('model')`, `ref("model")` and `ref('package', 'model')`: the model is the last argument.
 _REF = re.compile(r"""\bref\(\s*(?:['"][^'"]+['"]\s*,\s*)?['"]([^'"]+)['"]\s*(?:,\s*v(?:ersion)?\s*=[^)]*)?\)""")
 
@@ -66,7 +70,11 @@ class ProductDependencies:
             for product in products
         }
         sorter = TopologicalSorter(graph)
-        sorter.prepare()
+        try:
+            sorter.prepare()
+        except CycleError:
+            # `olf check contracts` refuses the cycle; a launcher keeps going in the order it was given.
+            return list(products)
         ordered: list[str] = []
         while sorter.is_active():
             ready = sorted(sorter.get_ready(), key=products.index)
@@ -82,28 +90,37 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
     names it. A `ref()` to a name no product folder holds is left to dbt.
     """
     models_root = gold_root / "models"
+    defaults = _project_access(gold_root)
     owner: dict[str, str] = {}
     sql: dict[str, Path] = {}
-    access: dict[str, str] = {}
+    declared: dict[str, str] = {}
     for product in sorted(products):
         folder = models_root / product
         for path in sorted(folder.rglob("*.sql")) if folder.is_dir() else ():
             owner.setdefault(path.stem, product)
             sql[path.stem] = path
         for path in sorted(folder.rglob("*.yml")) if folder.is_dir() else ():
-            access.update(_declared_access(path))
+            declared.update(_declared_access(path))
 
+    def access_of(model: str, text: str) -> str:
+        # dbt's precedence: the model's own config(), then its properties file, then dbt_project.yml.
+        in_sql = _CONFIG_ACCESS.search(text)
+        if in_sql:
+            return in_sql.group(1)
+        return declared.get(model) or defaults.get(owner[model]) or defaults.get("") or "protected"
+
+    texts = {name: _JINJA_COMMENT.sub("", path.read_text(encoding="utf-8")) for name, path in sql.items()}
     edges: dict[tuple[str, str], set[str]] = {}
     violations: list[str] = []
-    for name, path in sorted(sql.items()):
+    for name, text in sorted(texts.items()):
         consumer = owner[name]
-        text = _JINJA_COMMENT.sub("", path.read_text(encoding="utf-8"))
-        for referenced in sorted(set(_REF.findall(text))):
+        executable = " ".join(_JINJA_BLOCK.findall(text))
+        for referenced in sorted(set(_REF.findall(executable))):
             producer = owner.get(referenced)
             if producer is None or producer == consumer:
                 continue
             edges.setdefault((consumer, producer), set()).add(referenced)
-            if access.get(referenced) != "public":
+            if access_of(referenced, texts[referenced]) != "public":
                 violations.append(
                     f"{consumer}.{name} refs {producer}.{referenced}, which is not `access: public` "
                     f"(set it on that model in {producer}'s schema.yml)"
@@ -114,6 +131,26 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
     )
     violations.extend(_cycles(dependencies))
     return ProductDependencies(dependencies, tuple(violations))
+
+
+def _project_access(gold_root: Path) -> dict[str, str]:
+    """`+access` from dbt_project.yml: "" is the project-wide default, a product name its folder's."""
+    path = gold_root / "dbt_project.yml"
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    if not isinstance(document, Mapping):
+        return {}
+    models = document.get("models")
+    project = models.get(document.get("name")) if isinstance(models, Mapping) else None
+    if not isinstance(project, Mapping):
+        return {}
+    found = {"": project["+access"]} if isinstance(project.get("+access"), str) else {}
+    for folder, block in project.items():
+        if isinstance(block, Mapping) and isinstance(block.get("+access"), str):
+            found[str(folder)] = block["+access"]
+    return found
 
 
 def _declared_access(path: Path) -> dict[str, str]:

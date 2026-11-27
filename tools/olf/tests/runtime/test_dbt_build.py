@@ -544,10 +544,38 @@ def _cross_product_manifest() -> dict:
 
 
 def test_the_models_a_run_reads_but_does_not_build_are_named_by_their_owning_product() -> None:
-    upstream = dbt_build.upstream_models(_cross_product_manifest(), {"mart", "own"})
+    upstream = dbt_build.upstream_models(_cross_product_manifest(), {"mart", "own"}, "consumer")
 
     assert upstream == {"sales_core": ("dim_account",)}
 
 
 def test_a_product_that_reads_only_its_own_models_has_no_upstream_models() -> None:
-    assert dbt_build.upstream_models(_cross_product_manifest(), {"dim_account", "stg"}) == {}
+    assert dbt_build.upstream_models(_cross_product_manifest(), {"dim_account", "stg"}, "sales_core") == {}
+
+
+def test_a_subset_run_does_not_treat_its_own_products_unselected_parent_as_upstream() -> None:
+    upstream = dbt_build.upstream_models(_cross_product_manifest(), {"mart"}, "consumer")
+
+    assert upstream == {"sales_core": ("dim_account",)}
+
+
+def test_another_products_model_read_through_an_ephemeral_model_is_upstream() -> None:
+    manifest = _cross_product_manifest()
+    manifest["nodes"]["model.gold.local_stg"] = {
+        "name": "local_stg",
+        "resource_type": "model",
+        "package_name": "gold",
+        "fqn": ["gold", "consumer", "local_stg"],
+        "config": {"materialized": "ephemeral"},
+        "depends_on": {"nodes": ["model.gold.dim_account"]},
+    }
+    manifest["nodes"]["model.gold.reader"] = {
+        "name": "reader",
+        "resource_type": "model",
+        "package_name": "gold",
+        "fqn": ["gold", "consumer", "reader"],
+        "config": {"materialized": "table"},
+        "depends_on": {"nodes": ["model.gold.local_stg"]},
+    }
+
+    assert dbt_build.upstream_models(manifest, {"reader"}, "consumer") == {"sales_core": ("dim_account",)}

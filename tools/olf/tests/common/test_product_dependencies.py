@@ -122,3 +122,47 @@ def test_launch_order_puts_a_producer_before_its_consumers_and_keeps_the_rest_in
     assert found.launch_order(["widgets_beta", "widgets_alpha"]) == ["widgets_alpha", "widgets_beta"]
     assert found.launch_order(["widgets_beta"]) == ["widgets_beta"]
     assert found.launch_order(["other", "widgets_beta", "widgets_alpha"]) == ["other", "widgets_alpha", "widgets_beta"]
+
+
+def test_a_ref_in_a_plain_sql_comment_is_no_dependency_but_one_in_jinja_is(project: Path) -> None:
+    _model(project, "widgets_beta", "mart_widgets", "-- was ref('dim_widget')\nselect 1 as x")
+
+    assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).dependencies == ()
+
+    _model(project, "widgets_beta", "mart_widgets", "-- depends_on: {{ ref('dim_widget') }}\nselect 1 as x")
+
+    found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
+    assert found.producers_by_consumer == {"widgets_beta": ("widgets_alpha",)}
+
+
+def test_access_set_in_the_models_own_config_makes_it_public(project: Path) -> None:
+    _model(project, "widgets_alpha", "dim_widget", "{{ config(access='public') }} select 1 as widget_id")
+
+    assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).violations == ()
+
+
+def test_access_set_in_dbt_project_yml_for_a_product_folder_makes_its_models_public(project: Path) -> None:
+    (_gold(project) / "dbt_project.yml").write_text(
+        "name: gold\nmodels:\n  gold:\n    +access: private\n    widgets_alpha:\n      +access: public\n",
+        encoding="utf-8",
+    )
+
+    assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).violations == ()
+
+
+def test_the_properties_file_overrides_dbt_project_yml(project: Path) -> None:
+    (_gold(project) / "dbt_project.yml").write_text(
+        "name: gold\nmodels:\n  gold:\n    widgets_alpha:\n      +access: public\n", encoding="utf-8"
+    )
+    _schema(project, "widgets_alpha", dim_widget="private")
+
+    assert scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"]).violations
+
+
+def test_launch_order_survives_a_cycle_in_the_order_given(project: Path) -> None:
+    _schema(project, "widgets_alpha", dim_widget="public")
+    _schema(project, "widgets_beta", mart_widgets="public")
+    _model(project, "widgets_alpha", "dim_widget", "select * from {{ ref('mart_widgets') }}")
+    found = scan_product_dependencies(_gold(project), ["widgets_alpha", "widgets_beta"])
+
+    assert found.launch_order(["widgets_beta", "widgets_alpha"]) == ["widgets_beta", "widgets_alpha"]
