@@ -8,6 +8,7 @@ from typing import Any
 
 from openlakeforge_services.drift import DriftItem
 from openlakeforge_services.openmetadata import OpenMetadataClient
+from openlakeforge_services.ownership import marker_of
 
 from olf.common import config
 from olf.common.project import ProjectSpec
@@ -65,6 +66,15 @@ def _deployer(
     return OpenMetadataDeployer(cfg, client, revision=revision)
 
 
+def _stamped_revision(client: OpenMetadataClient) -> str | None:
+    """The revision the stage's domains were last stamped with, or None when none carries a marker yet."""
+    for domain in client.list_entities("/api/v1/domains", {"fields": "extension"}, 100):
+        marker = marker_of(domain)
+        if marker:
+            return marker.removeprefix("git:").removeprefix("unknown")
+    return None
+
+
 def drift_report(
     environ: Mapping[str, str],
     client: OpenMetadataClient,
@@ -74,9 +84,7 @@ def drift_report(
     project: ProjectSpec | None = None,
 ) -> list[DriftItem]:
     """What differs between the project in `environ` and the stage its contract environment names. Never writes."""
-    return _deployer(
-        environ, client, admin_email=admin_email, admin_password=admin_password, project=project
-    ).drift()
+    return _deployer(environ, client, admin_email=admin_email, admin_password=admin_password, project=project).drift()
 
 
 def redeploy_writes(
@@ -89,11 +97,19 @@ def redeploy_writes(
 ) -> list[str]:
     """Deploy the project again and return the write requests it made: none when the stage already matches Git.
 
-    The marker revision is the one the previous deploy of this checkout stamped, so a clean stage needs no write.
+    The marker revision is the one the stage already carries, not one derived again from this checkout: a deploy
+    that activated its descriptors outside Git stamped `git:unknown`, and a repeat of that deploy must write nothing.
     """
     spy = _SpyClient(client.base_url, token=client.token, session=client.session)
+    if not spy.token:
+        spy.login(admin_email, admin_password)
     _deployer(
-        environ, spy, admin_email=admin_email, admin_password=admin_password, project=project
+        environ,
+        spy,
+        revision=_stamped_revision(spy),
+        admin_email=admin_email,
+        admin_password=admin_password,
+        project=project,
     ).deploy()
     # The login POST creates a session, not metadata.
     return [f"{method} {path}" for method, path, _ in spy.exchanges if method != "GET" and path != _LOGIN_PATH]

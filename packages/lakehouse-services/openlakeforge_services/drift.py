@@ -92,9 +92,7 @@ def detect_drift(
                 # A deploy sets a product's domain only when it creates it, so a product moved to another domain is
                 # reported here for a person to repair rather than overwritten.
                 owned["domains"] = [{"id": entity["id"], "type": "domain"}]
-            declared.append(
-                _Declared("data product", "dataProducts", product.id, SHARED, owned, "domains,extension")
-            )
+            declared.append(_Declared("data product", "dataProducts", product.id, SHARED, owned, "domains,extension"))
             if not entity:
                 items.append(
                     DriftItem(UNRESOLVED, "data product", product.id, SHARED, f"domain {domain.name!r} not found")
@@ -147,6 +145,9 @@ def detect_drift(
             # The tables a deploy would attach: those under the product's Gold schema that it does not hold yet.
             held_assets = reconciler.held_asset_ids(product.id)
             if held_assets is None:
+                # Never read as clean what could not be read: a repair needs to know the check did not run.
+                detail = "assets: the product's asset listing could not be read"
+                items.append(DriftItem(UNRESOLVED, "data product", product.id, SHARED, detail))
                 continue
             unattached = [
                 ref

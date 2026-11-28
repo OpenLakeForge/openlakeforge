@@ -80,9 +80,7 @@ def _deployer(
     )
 
 
-def _serve(
-    deployer: MetadataDeployer, monkeypatch: pytest.MonkeyPatch, *, gold_tables: list[str]
-) -> FakeOpenMetadata:
+def _serve(deployer: MetadataDeployer, monkeypatch: pytest.MonkeyPatch, *, gold_tables: list[str]) -> FakeOpenMetadata:
     fake = FakeOpenMetadata()
     for name in gold_tables:  # tables the Trino crawler found, with the columns it read
         fake.seed("tables", f"{GOLD}.{name}", {"columns": [{"name": "revenue", "description": "from dbt"}]})
@@ -222,9 +220,7 @@ def test_a_deploy_corrects_an_owned_field_and_leaves_crawled_and_human_metadata(
     assert table["tags"] == [{"tagFQN": "Tier.Tier1"}]
 
 
-def test_a_wrong_stage_mapping_is_rejected_before_any_write(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_wrong_stage_mapping_is_rejected_before_any_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     deployer = _deployer(
         tmp_path,
         allow_missing_assets=False,
@@ -478,3 +474,38 @@ def test_marked_tables_of_a_schema_removed_from_git_are_reported_stale_too(
         ("database schema", "polaris.lakehouse_dev.removed_gold"),
         ("table", "polaris.lakehouse_dev.removed_gold.mart"),
     }
+
+
+def test_drift_reports_an_unreadable_asset_listing_instead_of_reading_it_as_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    served = deployer.client.request
+
+    def request(method: str, path: str, **kwargs):
+        if path.endswith("/assets"):
+            raise OpenMetadataError("403 forbidden")
+        return served(method, path, **kwargs)
+
+    monkeypatch.setattr(deployer.client, "request", request)
+
+    unresolved = [item for item in deployer.drift() if item.kind == "unresolved"]
+
+    assert [(item.entity, item.fqn) for item in unresolved] == [("data product", "order_revenue")]
+    assert "could not be read" in unresolved[0].detail
+    assert fake.writes == []
+
+
+def test_the_stamped_revision_is_read_from_the_stage_not_derived_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.infra.openmetadata._drift import _stamped_revision
+
+    deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
+    fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
+    assert _stamped_revision(deployer.client) is None
+
+    fake.seed("domains", "sales", {"extension": {"olfManaged": "git:unknown"}})
+    assert _stamped_revision(deployer.client) == ""
+    fake.entities["domains"]["sales"]["extension"]["olfManaged"] = "git:abc123"
+    assert _stamped_revision(deployer.client) == "abc123"
