@@ -9,9 +9,10 @@ client carries no token.
 
 from __future__ import annotations
 
+import json
 import time
 import urllib.parse
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -30,11 +31,25 @@ from .ownership import (
     MARKER_PROPERTY,
     marker_value,
     patch_operations,
+    tag_operations,
 )
 from .progress import SILENT, Progress
 
 if TYPE_CHECKING:
     from .drift import DriftItem
+
+# `lifecycleStage` is ignored on write by OpenMetadata 1.13.6 (200, value unchanged), so the lifecycle and the
+# terms of use live in custom properties on the data product. See docs/testing/openmetadata-governance-findings.md.
+LIFECYCLE_PROPERTY = "olfLifecycle"
+TERMS_PROPERTY = "olfTermsOfUse"
+PRODUCT_PROPERTIES = (
+    (LIFECYCLE_PROPERTY, "Lifecycle stage declared in governance.yml; the native lifecycleStage is not writable."),
+    (TERMS_PROPERTY, "Terms of use declared in governance.yml, as JSON with `allowed` and `prohibited` lists."),
+)
+SENSITIVITY_CLASSIFICATION = "DataSensitivity"
+SENSITIVITY_DESCRIPTION = (
+    "Data sensitivity declared in governance.yml. Metadata only: it does not grant or revoke access."
+)
 
 
 @dataclass
@@ -77,6 +92,14 @@ class ProductSpec:
     description: str
     domain: str
     gold_tables: tuple[str, ...]
+    owner: Mapping[str, str] | None = None
+    experts: tuple[Mapping[str, str], ...] = ()
+    reviewers: tuple[Mapping[str, str], ...] = ()
+    product_type: str | None = None
+    tier: str | None = None
+    lifecycle: str | None = None
+    terms_of_use: Mapping[str, Any] | None = None
+    classification: str | None = None
 
 
 @dataclass(frozen=True)
@@ -89,15 +112,51 @@ class DomainSpec:
     silver_tables: tuple[str, ...]
     bronze: tuple[BronzeContainer, ...]
     products: tuple[ProductSpec, ...]
+    owner: Mapping[str, str] | None = None
+    experts: tuple[Mapping[str, str], ...] = ()
+    domain_type: str | None = None
+    classification: str | None = None
 
 
 def domain_payload(domain: DomainSpec) -> dict:
     return {
         "name": domain.name,
         "displayName": domain.display_name,
-        "domainType": "Source-aligned",
+        "domainType": domain.domain_type or "Source-aligned",
         "description": domain.description,
     }
+
+
+def tag_fqns(tier: str | None, classification: str | None) -> tuple[str, ...]:
+    return tuple(
+        fqn
+        for fqn in (
+            f"Tier.{tier}" if tier else "",
+            f"{SENSITIVITY_CLASSIFICATION}.{classification}" if classification else "",
+        )
+        if fqn
+    )
+
+
+def _people(
+    resolved: Mapping[tuple[str, str], dict],
+    owner: Mapping[str, str] | None,
+    experts: Sequence[Mapping[str, str]],
+    reviewers: Sequence[Mapping[str, str]] = (),
+) -> dict[str, list[dict]]:
+    """The owner, experts and reviewers a descriptor names, as the references OpenMetadata stores; none declared
+    means none written, so a person's own assignment survives."""
+    named = {"owners": [owner] if owner else [], "experts": experts, "reviewers": reviewers}
+    return {field: [resolved[(ref["type"], ref["ref"])] for ref in refs] for field, refs in named.items() if refs}
+
+
+def _product_extension(product: ProductSpec) -> dict[str, str]:
+    extension = {}
+    if product.lifecycle:
+        extension[LIFECYCLE_PROPERTY] = product.lifecycle
+    if product.terms_of_use:
+        extension[TERMS_PROPERTY] = json.dumps(product.terms_of_use, sort_keys=True)
+    return extension
 
 
 def product_payload(product: ProductSpec) -> dict:
@@ -126,6 +185,7 @@ class MetadataReconciler:
         self.progress = progress
         self._marker = {MARKER_PROPERTY: marker_value(revision)}
         self._ensured_schema_fqns: set[str] = set()
+        self._string_type_id = ""
 
     def login(self) -> None:
         if self.client.token:  # the automation bot's, set by the caller (SSO: basic login is off)
@@ -187,27 +247,86 @@ class MetadataReconciler:
         entity = self.client.request("GET", path, params={"fields": fields}, ok_statuses=(200, 404))
         return entity if entity.get("id") else None
 
+    def _ensure_property(self, entity_type: str, name: str, description: str) -> None:
+        definition = self.client.request(
+            "GET", f"/api/v1/metadata/types/name/{entity_type}", params={"fields": "customProperties"}
+        )
+        if any(prop.get("name") == name for prop in definition.get("customProperties") or []):
+            return
+        if not self._string_type_id:
+            self._string_type_id = self.client.request("GET", "/api/v1/metadata/types/name/string")["id"]
+        self.client.request(
+            "PUT",
+            f"/api/v1/metadata/types/{definition['id']}",
+            json_body={
+                "name": name,
+                "description": description,
+                "propertyType": {"id": self._string_type_id, "type": "type"},
+            },
+            ok_statuses=(200, 201),
+        )
+        self.progress.info(f"Defined the {name} custom property on {entity_type}")
+
     def ensure_marker_properties(self) -> None:
         """Define the `olfManaged` custom property on each entity type OLF stamps; writes only what is missing."""
-        string_type_id = ""
         for entity_type in MARKED_ENTITY_TYPES:
-            definition = self.client.request(
-                "GET", f"/api/v1/metadata/types/name/{entity_type}", params={"fields": "customProperties"}
-            )
-            if any(prop.get("name") == MARKER_PROPERTY for prop in definition.get("customProperties") or []):
+            self._ensure_property(entity_type, MARKER_PROPERTY, MARKER_DESCRIPTION)
+
+    def ensure_product_properties(self) -> None:
+        """Define the lifecycle and terms-of-use custom properties on data products."""
+        for name, description in PRODUCT_PROPERTIES:
+            self._ensure_property("dataProduct", name, description)
+
+    def ensure_tags(self, tag_fqns: Collection[str]) -> None:
+        """Check the tags a deploy will write exist. `Tier` ships with OpenMetadata; the DataSensitivity
+        classification is OLF's own and is provisioned here, so any other missing tag is an error."""
+        for fqn in sorted(tag_fqns):
+            if self.lookup("tags", fqn, "") is not None:
                 continue
-            string_type_id = string_type_id or self.client.request("GET", "/api/v1/metadata/types/name/string")["id"]
+            classification, _, name = fqn.partition(".")
+            if classification != SENSITIVITY_CLASSIFICATION:
+                raise OpenMetadataError(
+                    f"OpenMetadata has no tag {fqn!r}. The Tier classification ships with OpenMetadata "
+                    "(Tier1 to Tier5); check that it was not deleted."
+                )
+            if self.lookup("classifications", classification, "") is None:
+                self.client.request(
+                    "POST",
+                    "/api/v1/classifications",
+                    json_body={
+                        "name": classification,
+                        "description": SENSITIVITY_DESCRIPTION,
+                        "mutuallyExclusive": True,
+                    },
+                    ok_statuses=(200, 201, 409),
+                )
             self.client.request(
-                "PUT",
-                f"/api/v1/metadata/types/{definition['id']}",
+                "POST",
+                "/api/v1/tags",
                 json_body={
-                    "name": MARKER_PROPERTY,
-                    "description": MARKER_DESCRIPTION,
-                    "propertyType": {"id": string_type_id, "type": "type"},
+                    "name": name,
+                    "description": f"{name}: {SENSITIVITY_DESCRIPTION}",
+                    "classification": classification,
                 },
-                ok_statuses=(200, 201),
+                ok_statuses=(200, 201, 409),
             )
-            self.progress.info(f"Defined the {MARKER_PROPERTY} custom property on {entity_type}")
+            self.progress.info(f"Provisioned OpenMetadata tag {fqn}")
+
+    def resolve_reference(self, ref: Mapping[str, str], *, where: str, owner: bool = False) -> dict[str, str]:
+        """The OpenMetadata user or team a descriptor reference names. Never creates one."""
+        kind, name = ref["type"], ref["ref"]
+        entity = self.lookup("teams" if kind == "team" else "users", name, "")
+        if entity is None:
+            raise OpenMetadataError(
+                f"{where}: {kind} {name!r} does not exist in OpenMetadata, and OpenLakeForge never creates users or "
+                "teams. Create it in OpenMetadata (Settings, Teams & Users) or correct the reference in governance.yml."
+            )
+        if owner and kind == "team" and entity.get("teamType") != "Group":
+            raise OpenMetadataError(
+                f"{where}: team {name!r} has teamType {entity.get('teamType')!r}, and OpenMetadata only lets a team "
+                "of type Group own entities (the Organization team is refused). Reference a Group team."
+            )
+        return {"id": entity["id"], "type": kind}
 
     def reconcile(
         self,
@@ -217,32 +336,44 @@ class MetadataReconciler:
         owned: Mapping[str, Any],
         *,
         fields: str = "extension",
+        extension: Mapping[str, Any] | None = None,
+        tags: Sequence[str] = (),
     ) -> Mapping[str, Any]:
-        """Create the entity with its marker, or PATCH the fields in `owned` that differ; nothing when equal.
+        """Create the entity with its marker, then PATCH what differs; nothing when equal.
 
         `create` is the full creation body; `owned` is what OLF keeps in step afterwards, in the shape a read
-        returns. A 409 on create means the crawler or a concurrent deploy got there first, so it is patched.
+        returns, `extension` the custom properties beside the marker, and `tags` the tag FQNs the entity must
+        hold (tags of other classifications stay). A 409 on create means the crawler or a concurrent deploy got
+        there first, so it is patched. After a write the entity is read back: OpenMetadata answers 200 to a
+        field it ignores (`lifecycleStage`), so a 200 alone is not taken as success.
         """
         current = self.lookup(collection, fqn, fields)
         if current is None:
-            created = self.client.request(
+            self.client.request(
                 "POST",
                 f"/api/v1/{collection}",
                 json_body={**create, "extension": self._marker},
                 ok_statuses=(200, 201, 409),
             )
-            if created.get("id"):
-                return created
             current = self.lookup(collection, fqn, fields)
             if current is None:
                 raise OpenMetadataError(f"OpenMetadata refused to create {collection} {fqn!r} and does not hold it.")
-        operations = patch_operations(current, {**owned, "extension": self._marker})
-        if operations:
-            self.client.request(
-                "PATCH",
-                f"/api/v1/{collection}/{current['id']}",
-                json_body=operations,
-                content_type="application/json-patch+json",
+        desired = {**owned, "extension": {**self._marker, **(extension or {})}}
+        operations = patch_operations(current, desired) + tag_operations(current, tags)
+        if not operations:
+            return current
+        self.client.request(
+            "PATCH",
+            f"/api/v1/{collection}/{current['id']}",
+            json_body=operations,
+            content_type="application/json-patch+json",
+        )
+        stored = self.lookup(collection, fqn, fields) or {}
+        ignored = sorted({op["path"] for op in patch_operations(stored, desired) + tag_operations(stored, tags)})
+        if ignored:
+            raise OpenMetadataError(
+                f"OpenMetadata accepted the update of {collection} {fqn!r} but reads back without {ignored}; "
+                "the server ignored it."
             )
         return current
 
@@ -342,7 +473,7 @@ class MetadataReconciler:
         self.reconcile("databaseSchemas", schema_fqn, payload, owned, fields="domains,extension")
         self._ensured_schema_fqns.add(schema_fqn)
 
-    def ensure_table(self, schema_fqn: str, name: str) -> None:
+    def ensure_table(self, schema_fqn: str, name: str, tags: Sequence[str] = ()) -> None:
         """Register a table the stage's pipelines write, before their lineage arrives.
 
         OpenMetadata 1.13.6 attaches an OpenLineage edge only to tables it
@@ -351,12 +482,19 @@ class MetadataReconciler:
         ingestion adopts the entity by FQN and fills in its columns. POST, not
         PUT: an upsert with no columns would delete the ones the ingestion
         found, so an existing table (409) is left alone, and is only read first
-        so a deploy that changes nothing writes nothing. The marker is the one
-        field patched onto a table this deploy did not create.
+        so a deploy that changes nothing writes nothing. The marker and the
+        product's `tags` are the only fields patched onto a table this deploy
+        did not create. The schema is scoped to the current stage, so the tags
+        never reach another stage's tables.
         """
         self.require_stage_scoped(schema_fqn, "table")
         self.reconcile(
-            "tables", f"{schema_fqn}.{name}", {"name": name, "databaseSchema": schema_fqn, "columns": []}, {}
+            "tables",
+            f"{schema_fqn}.{name}",
+            {"name": name, "databaseSchema": schema_fqn, "columns": []},
+            {},
+            fields="extension,tags" if tags else "extension",
+            tags=tags,
         )
 
     def held_asset_ids(self, product_name: str) -> set[str] | None:
@@ -453,8 +591,8 @@ class MetadataDeployer:
     def ensure_database_schema(self, schema_fqn: str, domain: Mapping[str, Any] | None = None) -> None:
         self._reconciler.ensure_database_schema(schema_fqn, domain)
 
-    def ensure_table(self, schema_fqn: str, name: str) -> None:
-        self._reconciler.ensure_table(schema_fqn, name)
+    def ensure_table(self, schema_fqn: str, name: str, tags: Sequence[str] = ()) -> None:
+        self._reconciler.ensure_table(schema_fqn, name, tags)
 
     def list_schema_tables(self, schema_fqn: str) -> list[dict]:
         return self._reconciler.list_schema_tables(schema_fqn)
@@ -569,6 +707,14 @@ class MetadataDeployer:
                     description=product.get("description", ""),
                     domain=domain["name"],
                     gold_tables=tuple(_gold_models(root, product["id"])),
+                    owner=product.get("owner"),
+                    experts=tuple(product.get("experts", ())),
+                    reviewers=tuple(product.get("reviewers", ())),
+                    product_type=product.get("type"),
+                    tier=product.get("tier"),
+                    lifecycle=product.get("lifecycle"),
+                    terms_of_use=product.get("termsOfUse"),
+                    classification=product.get("classification"),
                 )
                 for product in domain["products"]
             )
@@ -580,9 +726,38 @@ class MetadataDeployer:
                     silver_tables=tuple(entity.name for entity in domain_entities),
                     bronze=tuple(bronze.values()),
                     products=products,
+                    owner=domain.get("owner"),
+                    experts=tuple(domain.get("experts", ())),
+                    domain_type=domain.get("domainType"),
+                    classification=domain.get("classification"),
                 )
             )
         return domains
+
+    def _resolve_people(self, domains: Sequence[DomainSpec]) -> dict[tuple[str, str], dict]:
+        resolved: dict[tuple[str, str], dict] = {}
+        for domain in domains:
+            entities = [(f"domains[{domain.name}]", domain.owner, domain.experts, ())] + [
+                (f"domains[{domain.name}].products[{p.id}]", p.owner, p.experts, p.reviewers) for p in domain.products
+            ]
+            for where, owner, experts, reviewers in entities:
+                for field, refs in (
+                    ("owner", [owner] if owner else []),
+                    ("experts", experts),
+                    ("reviewers", reviewers),
+                ):
+                    for ref in refs:
+                        path = f"governance.yml {where}.{field}"
+                        # OpenMetadata types `experts` as users, so a team would fail the PATCH after earlier writes.
+                        if field == "experts" and ref["type"] != "user":
+                            raise OpenMetadataError(
+                                f"{path}: {ref['type']} {ref['ref']!r} is not allowed; OpenMetadata experts must be "
+                                "users. Reference a user, or list the team under owner or reviewers."
+                            )
+                        resolved[(ref["type"], ref["ref"])] = self._reconciler.resolve_reference(
+                            ref, where=path, owner=field == "owner"
+                        )
+        return resolved
 
     def drift(self) -> list[DriftItem]:
         """What differs between Git and OpenMetadata for this stage; reads only (see `drift.detect_drift`)."""
@@ -602,10 +777,23 @@ class MetadataDeployer:
 
         domains = self._domain_specs()
         self.validate_deployment_inputs(domains)
+        # Resolved before the first write: an owner that does not exist must fail the deploy with nothing changed.
+        people = self._resolve_people(domains)
 
         # Every write below reads first and changes only what differs, so a
         # second deploy of the same revision writes nothing. Nothing is deleted.
         self._reconciler.ensure_marker_properties()
+        self._reconciler.ensure_product_properties()
+        self._reconciler.ensure_tags(
+            {
+                fqn
+                for domain in domains
+                for fqn in (
+                    *tag_fqns(None, domain.classification),
+                    *(f for product in domain.products for f in tag_fqns(product.tier, product.classification)),
+                )
+            }
+        )
 
         # Phase A+B: Object Store service and medallion bucket containers.
         self.ensure_storage_service()
@@ -631,7 +819,13 @@ class MetadataDeployer:
                 "domains",
                 domain_body["name"],
                 domain_body,
-                {key: domain_body[key] for key in ("displayName", "description", "domainType")},
+                {
+                    **{key: domain_body[key] for key in ("displayName", "description")},
+                    **({"domainType": domain.domain_type} if domain.domain_type else {}),
+                    **_people(people, domain.owner, domain.experts),
+                },
+                fields="owners,experts,tags,extension",
+                tags=tag_fqns(None, domain.classification),
             )
             self.progress.info(f"Reconciled OpenMetadata domain: {domain_body['name']}")
             silver_fqn = self.config.catalog_silver_schema_fqns[domain.name]
@@ -644,6 +838,7 @@ class MetadataDeployer:
 
             for product in domain.products:
                 product_body = product_payload(product)
+                product_tags = tag_fqns(product.tier, product.classification)
                 # A product's domain is set when it is created and not moved
                 # afterwards: reassigning it is a human decision the drift
                 # report surfaces, not a write a deploy makes.
@@ -651,13 +846,20 @@ class MetadataDeployer:
                     "dataProducts",
                     product_body["name"],
                     product_body,
-                    {key: product_body[key] for key in ("displayName", "description")},
+                    {
+                        **{key: product_body[key] for key in ("displayName", "description")},
+                        **({"dataProductType": product.product_type} if product.product_type else {}),
+                        **_people(people, product.owner, product.experts, product.reviewers),
+                    },
+                    fields="owners,experts,reviewers,tags,extension",
+                    extension=_product_extension(product),
+                    tags=product_tags,
                 )
                 self.progress.info(f"Reconciled OpenMetadata data product: {product_body['name']}")
                 schema_fqn = self.config.catalog_gold_schema_fqns[product.id]
                 self.ensure_database_schema(schema_fqn, domain_entity)
                 for table in product.gold_tables:
-                    self.ensure_table(schema_fqn, table)
+                    self.ensure_table(schema_fqn, table, product_tags)
 
                 # A schema is a valid data-product asset, but a table does not
                 # inherit `dataProducts` from its schema (no inheritDataProducts
