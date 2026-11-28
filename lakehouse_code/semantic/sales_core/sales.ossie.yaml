@@ -1,0 +1,125 @@
+version: "0.1.1"
+semantic_model:
+  - name: sales
+    description: Order lines with their account, channel, product and promotion dimensions.
+    datasets:
+      - name: fct_order_lines
+        source: sales_core_gold.fct_order_lines
+        description: One row per order line.
+        primary_key: [line_id]
+        fields:
+          - name: line_id
+            expression: {dialects: [{dialect: ANSI_SQL, expression: line_id}]}
+          - name: order_id
+            expression: {dialects: [{dialect: ANSI_SQL, expression: order_id}]}
+          - name: order_date
+            expression: {dialects: [{dialect: ANSI_SQL, expression: order_date}]}
+            dimension: {is_time: true}
+          - name: order_status
+            expression: {dialects: [{dialect: ANSI_SQL, expression: order_status}]}
+          - name: order_region
+            expression: {dialects: [{dialect: ANSI_SQL, expression: order_region}]}
+          - name: account_id
+            expression: {dialects: [{dialect: ANSI_SQL, expression: account_id}]}
+          - name: channel_id
+            expression: {dialects: [{dialect: ANSI_SQL, expression: channel_id}]}
+          - name: promotion_id
+            expression: {dialects: [{dialect: ANSI_SQL, expression: promotion_id}]}
+          - name: product_id
+            expression: {dialects: [{dialect: ANSI_SQL, expression: product_id}]}
+          - name: quantity
+            expression: {dialects: [{dialect: ANSI_SQL, expression: quantity}]}
+          - name: gross_amount
+            expression: {dialects: [{dialect: ANSI_SQL, expression: gross_amount}]}
+          - name: discount_amount
+            expression: {dialects: [{dialect: ANSI_SQL, expression: discount_amount}]}
+          - name: net_amount
+            expression: {dialects: [{dialect: ANSI_SQL, expression: net_amount}]}
+          - name: cost_amount
+            expression: {dialects: [{dialect: ANSI_SQL, expression: cost_amount}]}
+      - name: dim_account
+        source: sales_core_gold.dim_account
+        description: Customer accounts.
+        primary_key: [account_id]
+        fields:
+          - name: account_id
+            expression: {dialects: [{dialect: ANSI_SQL, expression: account_id}]}
+          - name: account_name
+            expression: {dialects: [{dialect: ANSI_SQL, expression: account_name}]}
+          - name: segment
+            expression: {dialects: [{dialect: ANSI_SQL, expression: segment}]}
+          - name: account_region
+            expression: {dialects: [{dialect: ANSI_SQL, expression: account_region}]}
+      - name: dim_channel
+        source: sales_core_gold.dim_channel
+        description: Sales channels.
+        primary_key: [channel_id]
+        fields:
+          - name: channel_id
+            expression: {dialects: [{dialect: ANSI_SQL, expression: channel_id}]}
+          - name: channel_name
+            expression: {dialects: [{dialect: ANSI_SQL, expression: channel_name}]}
+          - name: channel_type
+            expression: {dialects: [{dialect: ANSI_SQL, expression: channel_type}]}
+      - name: dim_product
+        source: sales_core_gold.dim_product
+        description: Products sold.
+        primary_key: [product_id]
+        fields:
+          - name: product_id
+            expression: {dialects: [{dialect: ANSI_SQL, expression: product_id}]}
+          - name: product_name
+            expression: {dialects: [{dialect: ANSI_SQL, expression: product_name}]}
+          - name: category
+            expression: {dialects: [{dialect: ANSI_SQL, expression: category}]}
+      - name: dim_promotion
+        source: sales_core_gold.dim_promotion
+        description: Promotions applied to order lines.
+        primary_key: [promotion_id]
+        fields:
+          - name: promotion_id
+            expression: {dialects: [{dialect: ANSI_SQL, expression: promotion_id}]}
+          - name: promotion_name
+            expression: {dialects: [{dialect: ANSI_SQL, expression: promotion_name}]}
+          - name: discount_type
+            expression: {dialects: [{dialect: ANSI_SQL, expression: discount_type}]}
+    relationships:
+      - name: order_lines_to_account
+        from: fct_order_lines
+        to: dim_account
+        from_columns: [account_id]
+        to_columns: [account_id]
+      - name: order_lines_to_channel
+        from: fct_order_lines
+        to: dim_channel
+        from_columns: [channel_id]
+        to_columns: [channel_id]
+      - name: order_lines_to_product
+        from: fct_order_lines
+        to: dim_product
+        from_columns: [product_id]
+        to_columns: [product_id]
+      - name: order_lines_to_promotion
+        from: fct_order_lines
+        to: dim_promotion
+        from_columns: [promotion_id]
+        to_columns: [promotion_id]
+    metrics:
+      - name: net_revenue
+        description: Net amount of fulfilled order lines.
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: SUM(CASE WHEN fct_order_lines.order_status = 'fulfilled' THEN fct_order_lines.net_amount END)
+        ai_context:
+          synonyms: [net sales, net revenue]
+          instructions: Fulfilled orders only; use for revenue questions.
+      - name: gross_revenue
+        description: Gross amount of all order lines, before discounts and whatever their status.
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: SUM(fct_order_lines.gross_amount)
+        ai_context:
+          synonyms: [gross sales]
+          instructions: Includes every order status; use net_revenue for revenue questions.

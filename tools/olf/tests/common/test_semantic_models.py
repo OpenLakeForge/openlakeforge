@@ -355,3 +355,22 @@ def test_a_private_model_of_another_product_cannot_be_a_source(tmp_path: Path) -
     ok, detail = _check(_cross_product(tmp_path, "protected"))
 
     assert not ok and "[source-exists]" in detail
+
+
+def test_the_sales_core_model_in_the_repository_is_valid() -> None:
+    repo = Path(__file__).resolve().parents[4]
+
+    found = load_lakehouse_inventory(repo / "lakehouse_code").semantic_inventory
+
+    assert found.diagnostics == ()
+    (model,) = (m for m in found.models if m.product == "sales_core")
+    assert [d.name for d in model.datasets] == [
+        "fct_order_lines",
+        "dim_account",
+        "dim_channel",
+        "dim_product",
+        "dim_promotion",
+    ]
+    assert len(model.relationships) == 4
+    assert {m.name for m in model.metrics} == {"net_revenue", "gross_revenue"}
+    assert next(f for f in model.datasets[0].fields if f.name == "order_date").is_time
