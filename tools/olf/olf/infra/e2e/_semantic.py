@@ -9,7 +9,7 @@ from typing import Any
 
 from openlakeforge_core import SemanticMetric, SemanticModel
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
-from openlakeforge_services.semantic_publish import metric_type
+from openlakeforge_services.semantic_publish import metric_terms, metric_type
 
 from olf.common import config, log
 from olf.infra.e2e._assertions import _admin_login, _project, openmetadata_client
@@ -32,14 +32,20 @@ def _get(client: OpenMetadataClient, collection: str, fqn: str, fields: str) -> 
 
 
 def semantic_problems(
-    client: OpenMetadataClient, models: Sequence[SemanticModel], *, stage: str, gold_schema_fqns: Mapping[str, str]
+    client: OpenMetadataClient,
+    models: Sequence[SemanticModel],
+    *,
+    stage: str,
+    gold_schema_fqns: Mapping[str, str],
+    column_terms: Mapping[str, Mapping[tuple[str, str], Sequence[str]]],
 ) -> list[str]:
     """What the published metrics, lineage and constraints of `stage` lack against `models`."""
     problems: list[str] = []
+    # A dataset may read a public model of a product this one depends on, so each resolves by its own schema.
+    schemas = {fqn.rpartition(".")[2]: fqn for fqn in gold_schema_fqns.values()}
     for model in models:
-        schema_fqn = gold_schema_fqns[model.product]
         tables = {
-            dataset.name: _get(client, "tables", f"{schema_fqn}.{dataset.table}", "tableConstraints")
+            dataset.name: _get(client, "tables", f"{schemas[dataset.schema]}.{dataset.table}", "tableConstraints")
             for dataset in model.datasets
         }
         for dataset in model.datasets:
@@ -58,12 +64,17 @@ def semantic_problems(
             ):
                 problems.append(f"{relationship.name}: no FOREIGN_KEY on {relationship.from_dataset} (has {held})")
         for declared in model.metrics:
-            problems += _metric_problems(client, declared, stage, tables)
+            terms, _why = metric_terms(model, declared, column_terms.get(model.product, {}))
+            problems += _metric_problems(client, declared, stage, tables, bool(terms))
     return problems
 
 
 def _metric_problems(
-    client: OpenMetadataClient, declared: SemanticMetric, stage: str, tables: Mapping[str, Mapping[str, Any]]
+    client: OpenMetadataClient,
+    declared: SemanticMetric,
+    stage: str,
+    tables: Mapping[str, Mapping[str, Any]],
+    tagged: bool,
 ) -> list[str]:
     fqn = f"{declared.name}_{stage}"
     metric = _get(client, "metrics", fqn, _METRIC_FIELDS)
@@ -76,7 +87,7 @@ def _metric_problems(
     for field in ("domains", "dataProducts", "owners"):
         if not metric.get(field):
             problems.append(f"{fqn}: no {field}")
-    if not any(tag.get("source") == "Glossary" for tag in metric.get("tags") or []):
+    if tagged and not any(tag.get("source") == "Glossary" for tag in metric.get("tags") or []):
         problems.append(f"{fqn}: no glossary tag")
     extension = metric.get("extension") or {}
     for key in ("olfManaged", "olfStage", "olfOssieVersion", "olfSourceFile", "olfContentHash"):
@@ -101,6 +112,13 @@ def check_openmetadata_semantic_publication(cfg: E2EConfig) -> None:
     environ = cfg_environ(cfg)
     stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
     gold_schemas = json.loads(config.env("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", "{}", environ=environ))
+    column_terms = {
+        product.id: {
+            column: tuple(term.fqn for term in terms)
+            for column, terms in cfg.inventory.column_terms(product.id).items()
+        }
+        for product in cfg.inventory.products
+    }
     with openmetadata_client(cfg) as (client, token):
         login = _admin_login(cfg, token)
         try:
@@ -108,7 +126,11 @@ def check_openmetadata_semantic_publication(cfg: E2EConfig) -> None:
             first = redeploy_writes(environ, client, project=_project(cfg), **login)
             log.info(f"Semantic publication wrote {len(first)} request(s)")
             problems = semantic_problems(
-                client, cfg.inventory.semantic_inventory.models, stage=stage, gold_schema_fqns=gold_schemas
+                client,
+                cfg.inventory.semantic_inventory.models,
+                stage=stage,
+                gold_schema_fqns=gold_schemas,
+                column_terms=column_terms,
             )
             repeat = redeploy_writes(environ, client, project=_project(cfg), **login)
             drift = drift_report(environ, client, project=_project(cfg), **login)

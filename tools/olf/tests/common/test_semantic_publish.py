@@ -315,7 +315,7 @@ def test_the_e2e_check_finds_the_published_state_complete_and_names_what_is_miss
     client.request = om.request  # type: ignore[method-assign]
     gold = {"sales_core": SCHEMA}
 
-    assert semantic_problems(client, [_model()], stage="dev", gold_schema_fqns=gold) == []
+    assert semantic_problems(client, [_model()], stage="dev", gold_schema_fqns=gold, column_terms=COLUMN_TERMS) == []
 
     metric = om.entities["metrics"]["gross_revenue_dev"]
     metric["tags"] = []
@@ -323,9 +323,92 @@ def test_the_e2e_check_finds_the_published_state_complete_and_names_what_is_miss
     om.edges.clear()
     om.entities["tables"][f"{SCHEMA}.fct_order_lines"]["tableConstraints"] = []
 
-    problems = semantic_problems(client, [_model()], stage="dev", gold_schema_fqns=gold)
+    problems = semantic_problems(client, [_model()], stage="dev", gold_schema_fqns=gold, column_terms=COLUMN_TERMS)
 
     assert any("gross_revenue_dev: no glossary tag" in p for p in problems)
     assert any("gross_revenue_dev: no extension olfContentHash" in p for p in problems)
     assert any("net_revenue_dev: no lineage edge from fct_order_lines" in p for p in problems)
     assert any("fct_order_lines: no PRIMARY_KEY" in p for p in problems)
+
+
+def test_two_models_defining_the_same_metric_are_refused_before_any_write(om: FakeWithMetrics) -> None:
+    twin = dataclasses.replace(_model(), file="lakehouse_code/semantic/sales_core/other.ossie.yaml", name="other")
+
+    with pytest.raises(OpenMetadataError, match="net_revenue_dev.*defined by both"):
+        _publisher(om, [_model(), twin]).publish()
+
+    assert om.writes == []
+
+
+def test_a_key_removed_from_git_is_removed_from_the_table_but_a_sort_key_stays(om: FakeWithMetrics) -> None:
+    _publisher(om).publish()
+    dim = om.entities["tables"][f"{SCHEMA}.dim_account"]
+    dim["tableConstraints"].append({"constraintType": "SORT_KEY", "columns": ["account_id"]})
+    model = _model()
+    keyless = dataclasses.replace(
+        model,
+        datasets=tuple(
+            dataclasses.replace(d, primary_key=()) if d.name == "dim_account" else d for d in model.datasets
+        ),
+        relationships=tuple(r for r in model.relationships if r.to_dataset != "dim_account"),
+    )
+
+    assert sorted(d.fqn for d in _publisher(om, [keyless]).drift()) == [
+        f"{SCHEMA}.dim_account",
+        f"{SCHEMA}.fct_order_lines",
+    ]
+    _publisher(om, [keyless]).publish()
+
+    assert dim["tableConstraints"] == [{"constraintType": "SORT_KEY", "columns": ["account_id"]}]
+    assert _publisher(om, [keyless]).drift() == []
+
+
+def test_models_describing_one_table_are_reconciled_together(om: FakeWithMetrics) -> None:
+    model = _model()
+    keys_only = dataclasses.replace(model, name="keys", metrics=(), relationships=())
+    links_only = dataclasses.replace(
+        model,
+        name="links",
+        metrics=(),
+        datasets=tuple(dataclasses.replace(d, primary_key=()) for d in model.datasets),
+    )
+    both = [keys_only, links_only]
+
+    _publisher(om, both).publish()
+    om.calls.clear()
+    _publisher(om, both).publish()
+
+    kinds = {c["constraintType"] for c in om.entities["tables"][f"{SCHEMA}.fct_order_lines"]["tableConstraints"]}
+    assert kinds == {"PRIMARY_KEY", "FOREIGN_KEY"}
+    assert om.writes == []
+    assert _publisher(om, both).drift() == []
+
+
+def test_ai_context_removed_from_git_is_removed_from_the_metric(om: FakeWithMetrics) -> None:
+    _publisher(om).publish()
+    model = _model()
+    bare = dataclasses.replace(model, metrics=tuple(dataclasses.replace(m, ai_context=None) for m in model.metrics))
+    om.entities["metrics"]["net_revenue_dev"]["extension"]["somebodyElses"] = "kept"
+
+    assert any(d.fqn == "net_revenue_dev" for d in _publisher(om, [bare]).drift())
+    _publisher(om, [bare]).publish()
+
+    extension = om.entities["metrics"]["net_revenue_dev"]["extension"]
+    assert "olfAiInstructions" not in extension and "olfAiSynonyms" not in extension
+    assert extension["somebodyElses"] == "kept"
+
+
+def test_the_e2e_check_does_not_demand_a_glossary_tag_of_a_metric_with_no_term(om: FakeWithMetrics) -> None:
+    from olf.infra.e2e._semantic import semantic_problems
+
+    _publisher(om).publish()
+    om.entities["metrics"]["gross_revenue_dev"]["tags"] = []
+    client = OpenMetadataClient("http://x")
+    client.request = om.request  # type: ignore[method-assign]
+    untagged = {"sales_core": {key: () for key in COLUMN_TERMS["sales_core"]}}
+
+    problems = semantic_problems(
+        client, [_model()], stage="dev", gold_schema_fqns={"sales_core": SCHEMA}, column_terms=untagged
+    )
+
+    assert not any("glossary tag" in p for p in problems)

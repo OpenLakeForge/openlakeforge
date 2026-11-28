@@ -57,6 +57,7 @@ _AGGREGATES = {
     "VAR_POP": "VARIANCE",
 }
 _CALL = re.compile(r"\s*([A-Za-z_]+)\s*\(")
+_AI_PROPERTIES = ("olfAiInstructions", "olfAiSynonyms")
 _OLF_CONSTRAINTS = ("PRIMARY_KEY", "UNIQUE", "FOREIGN_KEY")
 
 
@@ -183,7 +184,14 @@ class SemanticPublisher:
                 continue
             datasets = {dataset.name: dataset for dataset in model.datasets}
             for metric in model.metrics:
-                plans.append(self._plan(model, metric, datasets, domain, product))
+                plan = self._plan(model, metric, datasets, domain, product)
+                twin = next((other for other in plans if other.fqn == plan.fqn), None)
+                if twin:
+                    # One OpenMetadata entity per stage and name: two definitions would overwrite each other.
+                    detail = f"defined by both {twin.model.file} and {model.file}"
+                    unresolved.append(DriftItem(UNRESOLVED, "metric", plan.fqn, self._stage, detail))
+                else:
+                    plans.append(plan)
         return plans, unresolved
 
     def _plan(
@@ -257,6 +265,10 @@ class SemanticPublisher:
             operations.append(
                 {"op": "replace" if have else "add", "path": "/metricExpression", "value": dict(plan.expression)}
             )
+        held_extension = current.get("extension") or {}
+        for key in _AI_PROPERTIES:
+            if key in held_extension and key not in plan.extension:
+                operations.append({"op": "remove", "path": f"/extension/{key}"})
         held = current.get("tags") or []
         present = {tag.get("tagFQN") for tag in held}
         missing = [tag for tag in tags if tag not in present]
@@ -301,8 +313,7 @@ class SemanticPublisher:
         self.ensure_properties()
         for plan in plans:
             self._publish_metric(plan)
-        for model in self._models:
-            self._publish_constraints(model)
+        self._publish_constraints()
 
     def _publish_metric(self, plan: _Plan) -> None:
         tags = self._present_terms(plan)
@@ -345,31 +356,40 @@ class SemanticPublisher:
 
     # --- constraints -------------------------------------------------------------------------------------------
 
-    def _wanted_constraints(self, model: SemanticModel) -> dict[str, list[dict[str, Any]]]:
-        """Table FQN -> the key constraints Ossie declares on it. Ossie relationships become FOREIGN_KEY here and are
-        never published as lineage."""
-        tables = {dataset.name: self._table_fqn(dataset) for dataset in model.datasets}
+    def _wanted_constraints(self) -> dict[str, list[dict[str, Any]]]:
+        """Table FQN -> the key constraints the models declare on it, together: two models may describe one table.
+        A declared table with no key maps to an empty list, so a key removed from Git is removed there too.
+        Ossie relationships become FOREIGN_KEY here and are never published as lineage."""
         wanted: dict[str, list[dict[str, Any]]] = {}
-        for dataset in model.datasets:
-            fqn = tables[dataset.name]
-            if fqn is None:
-                continue
-            found = wanted.setdefault(fqn, [])
-            if dataset.primary_key:
-                found.append({"constraintType": "PRIMARY_KEY", "columns": list(dataset.primary_key)})
-            found += [{"constraintType": "UNIQUE", "columns": list(key)} for key in dataset.unique_keys]
-        for relationship in model.relationships:
-            source, target = tables.get(relationship.from_dataset), tables.get(relationship.to_dataset)
-            if source and target:
-                wanted.setdefault(source, []).append(
-                    {
-                        "constraintType": "FOREIGN_KEY",
-                        "columns": list(relationship.from_columns),
-                        "referredColumns": [f"{target}.{fqn_part(column)}" for column in relationship.to_columns],
-                        "relationshipType": "MANY_TO_ONE",
-                    }
-                )
-        return {fqn: constraints for fqn, constraints in wanted.items() if constraints}
+
+        def add(fqn: str, constraint: dict[str, Any]) -> None:
+            if _constraint_key(constraint) not in {_constraint_key(held) for held in wanted[fqn]}:
+                wanted[fqn].append(constraint)
+
+        for model in self._models:
+            tables = {dataset.name: self._table_fqn(dataset) for dataset in model.datasets}
+            for dataset in model.datasets:
+                fqn = tables[dataset.name]
+                if fqn is None:
+                    continue
+                wanted.setdefault(fqn, [])
+                if dataset.primary_key:
+                    add(fqn, {"constraintType": "PRIMARY_KEY", "columns": list(dataset.primary_key)})
+                for key in dataset.unique_keys:
+                    add(fqn, {"constraintType": "UNIQUE", "columns": list(key)})
+            for relationship in model.relationships:
+                source, target = tables.get(relationship.from_dataset), tables.get(relationship.to_dataset)
+                if source and target:
+                    add(
+                        source,
+                        {
+                            "constraintType": "FOREIGN_KEY",
+                            "columns": list(relationship.from_columns),
+                            "referredColumns": [f"{target}.{fqn_part(column)}" for column in relationship.to_columns],
+                            "relationshipType": "MANY_TO_ONE",
+                        },
+                    )
+        return wanted
 
     def _constraint_operations(self, table: Mapping[str, Any], wanted: Sequence[Mapping[str, Any]]) -> list[dict]:
         held = table.get("tableConstraints") or []
@@ -380,10 +400,10 @@ class SemanticPublisher:
         kept = [c for c in held if c.get("constraintType") not in _OLF_CONSTRAINTS]
         return [{"op": "replace" if held else "add", "path": "/tableConstraints", "value": [*kept, *wanted]}]
 
-    def _constrained_tables(self, model: SemanticModel) -> list[tuple[str, Mapping[str, Any], list[dict]]]:
+    def _constrained_tables(self) -> list[tuple[str, Mapping[str, Any], list[dict]]]:
         """Each declared table OpenMetadata holds with its crawled columns, and the constraints to write on it."""
         found = []
-        for fqn, wanted in self._wanted_constraints(model).items():
+        for fqn, wanted in self._wanted_constraints().items():
             table = self._reconciler.lookup("tables", fqn, "tableConstraints,columns")
             columns = {str(column["name"]).lower() for column in (table or {}).get("columns") or []}
             used = {c.lower() for constraint in wanted for c in constraint["columns"]}
@@ -394,8 +414,8 @@ class SemanticPublisher:
             found.append((fqn, table, wanted))
         return found
 
-    def _publish_constraints(self, model: SemanticModel) -> None:
-        for fqn, table, wanted in self._constrained_tables(model):
+    def _publish_constraints(self) -> None:
+        for fqn, table, wanted in self._constrained_tables():
             operations = self._constraint_operations(table, wanted)
             if operations:
                 self._client.request(
@@ -452,10 +472,9 @@ class SemanticPublisher:
                     fields.append(f"lineage from {table_fqn}")
             if fields:
                 items.append(DriftItem(CHANGED, "metric", plan.fqn, stage, ", ".join(dict.fromkeys(fields))))
-        for model in self._models:
-            for fqn, table, wanted in self._constrained_tables(model):
-                if self._constraint_operations(table, wanted):
-                    items.append(DriftItem(CHANGED, "table", fqn, stage, "tableConstraints"))
+        for fqn, table, wanted in self._constrained_tables():
+            if self._constraint_operations(table, wanted):
+                items.append(DriftItem(CHANGED, "table", fqn, stage, "tableConstraints"))
         for found in self._client.list_entities("/api/v1/metrics", {"fields": "extension"}):
             fqn = found.get("fullyQualifiedName") or found["name"]
             held_extension = found.get("extension") or {}
