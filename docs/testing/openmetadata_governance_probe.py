@@ -90,7 +90,7 @@ class Ctx:
     service: str
     findings: dict[str, Finding] = field(default_factory=dict)
     fix: dict[str, Any] = field(default_factory=dict)
-    cleanups: list[tuple[str, Callable[[], None]]] = field(default_factory=list)
+    cleanups: list[tuple[str, Callable[[], Any]]] = field(default_factory=list)
     restore_errors: list[str] = field(default_factory=list)
 
     def finding(self, id: str, question: str) -> Finding:
@@ -284,14 +284,11 @@ def setup(ctx: Ctx) -> None:
         ctx.cleanups.append(
             (
                 f"{kind}/{name}",
-                lambda: (
-                    om(
-                        ctx,
-                        "DELETE",
-                        f"/api/v1/{kind}/{response.data['id']}",
-                        params={"hardDelete": "true", "recursive": "true"},
-                    )
-                    and None
+                lambda: om(
+                    ctx,
+                    "DELETE",
+                    f"/api/v1/{kind}/{response.data['id']}",
+                    params={"hardDelete": "true", "recursive": "true"},
                 ),
             )
         )
@@ -395,10 +392,7 @@ def probe_lifecycle(ctx: Ctx) -> None:
         ctx.cleanups.append(
             (
                 "dataProducts/create",
-                lambda: (
-                    om(ctx, "DELETE", f"/api/v1/dataProducts/{created.data['id']}", params={"hardDelete": "true"})
-                    and None
-                ),
+                lambda: om(ctx, "DELETE", f"/api/v1/dataProducts/{created.data['id']}", params={"hardDelete": "true"}),
             )
         )
     try:
@@ -552,8 +546,8 @@ def probe_metric(ctx: Ctx) -> None:
                 ctx.cleanups.append(
                     (
                         f"metrics/{key}",
-                        lambda i=part.data["id"]: (
-                            om(ctx, "DELETE", f"/api/v1/metrics/{i}", params={"hardDelete": "true"}) and None
+                        lambda i=part.data["id"]: om(
+                            ctx, "DELETE", f"/api/v1/metrics/{i}", params={"hardDelete": "true"}
                         ),
                     )
                 )
@@ -567,7 +561,7 @@ def probe_metric(ctx: Ctx) -> None:
     ctx.cleanups.append(
         (
             "metrics",
-            lambda: om(ctx, "DELETE", f"/api/v1/metrics/{metric['id']}", params={"hardDelete": "true"}) and None,
+            lambda: om(ctx, "DELETE", f"/api/v1/metrics/{metric['id']}", params={"hardDelete": "true"}),
         )
     )
     got = read(ctx, "metrics", metric["id"], READ_FIELDS["metrics"]).data or {}
@@ -607,7 +601,7 @@ def probe_metric(ctx: Ctx) -> None:
         ctx.cleanups.append(
             (
                 "lineage",
-                lambda: om(ctx, "DELETE", f"/api/v1/lineage/table/{table['id']}/metric/{metric['id']}") and None,
+                lambda: om(ctx, "DELETE", f"/api/v1/lineage/table/{table['id']}/metric/{metric['id']}"),
             )
         )
 
@@ -624,18 +618,15 @@ def probe_trino_comments(ctx: Ctx) -> None:
     schema = next(iter(ctx.fix["table_a"]["fullyQualifiedName"].split(".")[-2:-1]))
     ctx.fix["probe_schema"] = schema
     t = f"{ctx.catalog}.{schema}.{TRINO_TABLE}"
-    ctx.cleanups.append(("trino table", lambda: trino_try(ctx, f"DROP TABLE IF EXISTS {t}") and None))
+    ctx.cleanups.append(("trino table", lambda: trino_try(ctx, f"DROP TABLE IF EXISTS {t}")))
     ctx.cleanups.append(
         (
             "om probe table",
-            lambda: (
-                om(
-                    ctx,
-                    "DELETE",
-                    f"/api/v1/tables/name/{quote(table_fqn(ctx, schema, TRINO_TABLE))}",
-                    params={"hardDelete": "true"},
-                )
-                and None
+            lambda: om(
+                ctx,
+                "DELETE",
+                f"/api/v1/tables/name/{quote(table_fqn(ctx, schema, TRINO_TABLE))}",
+                params={"hardDelete": "true"},
             ),
         )
     )
@@ -856,12 +847,12 @@ def profile_target(ctx: Ctx) -> dict[str, Any]:
     """A throwaway table with a decimal, a date, a varchar and a bigint column, known values and one NULL each."""
     schema = ctx.fix["probe_schema"]
     t = f"{ctx.catalog}.{schema}.{PROFILE_TABLE}"
-    ctx.cleanups.append(("trino profile table", lambda: trino_try(ctx, f"DROP TABLE IF EXISTS {t}") and None))
+    ctx.cleanups.append(("trino profile table", lambda: trino_try(ctx, f"DROP TABLE IF EXISTS {t}")))
     fqn = table_fqn(ctx, schema, PROFILE_TABLE)
     ctx.cleanups.append(
         (
             "om profile table",
-            lambda: om(ctx, "DELETE", f"/api/v1/tables/name/{quote(fqn)}", params={"hardDelete": "true"}) and None,
+            lambda: om(ctx, "DELETE", f"/api/v1/tables/name/{quote(fqn)}", params={"hardDelete": "true"}),
         )
     )
     created = (
@@ -1120,9 +1111,16 @@ def undo_everything(ctx: Ctx, harness_error: str | None) -> str | None:
     restore(ctx)
     for name, undo in reversed(ctx.cleanups):
         try:
-            undo()
+            result = undo()
         except Exception as exc:  # noqa: BLE001 - cleanup is best effort
             print(f"cleanup {name}: {JWT.sub('***', str(exc))[:200]}", file=sys.stderr)
+            ctx.restore_errors.append(f"{name}: cleanup raised {type(exc).__name__}")
+            continue
+        # A DELETE that was refused (anything but success or already gone) or a DROP that failed left an entity behind.
+        if isinstance(result, Resp) and not result.ok and result.status != 404:
+            ctx.restore_errors.append(f"{name}: not deleted, {result.brief()}")
+        elif isinstance(result, dict) and result.get("ok") is False:
+            ctx.restore_errors.append(f"{name}: not dropped, {result.get('output')}")
     if ctx.restore_errors:
         harness_error = harness_error or "the probe's changes were not all undone"
         ctx.finding("R", "The patched Gold tables were restored").verdict = "ERROR"
