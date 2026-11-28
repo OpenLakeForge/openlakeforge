@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -80,9 +81,7 @@ def _deployer(
     )
 
 
-def _serve(
-    deployer: MetadataDeployer, monkeypatch: pytest.MonkeyPatch, *, gold_tables: list[str]
-) -> FakeOpenMetadata:
+def _serve(deployer: MetadataDeployer, monkeypatch: pytest.MonkeyPatch, *, gold_tables: list[str]) -> FakeOpenMetadata:
     fake = FakeOpenMetadata()
     for name in gold_tables:  # tables the Trino crawler found, with the columns it read
         fake.seed("tables", f"{GOLD}.{name}", {"columns": [{"name": "revenue", "description": "from dbt"}]})
@@ -222,9 +221,7 @@ def test_a_deploy_corrects_an_owned_field_and_leaves_crawled_and_human_metadata(
     assert table["tags"] == [{"tagFQN": "Tier.Tier1"}]
 
 
-def test_a_wrong_stage_mapping_is_rejected_before_any_write(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_wrong_stage_mapping_is_rejected_before_any_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     deployer = _deployer(
         tmp_path,
         allow_missing_assets=False,
@@ -237,6 +234,57 @@ def test_a_wrong_stage_mapping_is_rejected_before_any_write(
         deployer.deploy()
 
     assert fake.writes == []
+
+
+def _deployed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[MetadataDeployer, FakeOpenMetadata]:
+    deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
+    fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
+    fake.seed("databases", "polaris.lakehouse_dev", {})
+    deployer.deploy()
+    fake.calls.clear()
+    return deployer, fake
+
+
+def test_drift_is_empty_after_a_clean_deploy_and_reads_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+
+    assert deployer.drift() == []
+    assert fake.writes == []
+
+
+def test_drift_reports_missing_changed_and_stale_per_entity_and_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    del fake.entities["tables"]["polaris.lakehouse_dev.sales_silver.orders"]
+    fake.entities["dataProducts"]["order_revenue"]["description"] = "edited in the UI"
+    fake.seed("dataProducts", "renamed_product", {"extension": {"olfManaged": "git:old"}})
+    fake.seed("tables", f"{GOLD}.removed_model", {"extension": {"olfManaged": "git:old"}})
+    fake.seed("tables", f"{GOLD}.crawled_only", {})
+
+    report = {(item.kind, item.entity, item.fqn, item.stage) for item in deployer.drift()}
+
+    assert report == {
+        ("missing", "table", "polaris.lakehouse_dev.sales_silver.orders", "dev"),
+        ("changed", "data product", "order_revenue", "shared"),
+        ("stale", "data product", "renamed_product", "shared"),
+        ("stale", "table", f"{GOLD}.removed_model", "dev"),
+    }
+    assert fake.writes == []
+
+
+def test_drift_reports_a_reference_that_cannot_be_resolved(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    del fake.entities["domains"]["sales"]
+    del fake.entities["databases"]["polaris.lakehouse_dev"]
+
+    unresolved = {(item.entity, item.fqn) for item in deployer.drift() if item.kind == "unresolved"}
+
+    assert unresolved == {
+        ("data product", "order_revenue"),
+        ("database schema", "polaris.lakehouse_dev.sales_silver"),
+        ("database schema", GOLD),
+    }
 
 
 def test_an_unreadable_asset_listing_costs_one_idempotent_attach_and_loses_nothing(
@@ -374,3 +422,120 @@ def test_a_failing_asset_listing_still_attaches_the_tables(
     deployer.deploy()
 
     assert len(fake.entities["dataProducts"]["order_revenue"]["assets"]) == 1
+
+
+def test_another_stages_managed_containers_are_not_stale_here(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    marked = {"extension": {"olfManaged": "git:old"}}
+    fake.seed("containers", "seaweedfs.lakehouse-prod-bronze", marked)
+    fake.seed("containers", "seaweedfs.lakehouse-bronze.removed_source", marked)
+
+    stale = {item.fqn for item in deployer.drift() if item.kind == "stale"}
+
+    assert stale == {"seaweedfs.lakehouse-bronze.removed_source"}
+
+
+def test_a_product_moved_to_another_domain_is_reported_as_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    other = fake.seed("domains", "finance", {})
+    fake.entities["dataProducts"]["order_revenue"]["domains"] = [{"id": other["id"], "type": "domain"}]
+
+    changed = [(item.entity, item.fqn, item.detail) for item in deployer.drift() if item.kind == "changed"]
+
+    assert changed == [("data product", "order_revenue", "domains")]
+    assert fake.writes == []
+
+
+def test_a_gold_table_a_product_no_longer_holds_is_reported_as_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    fake.entities["dataProducts"]["order_revenue"]["assets"] = []
+
+    changed = [(item.entity, item.fqn, item.detail) for item in deployer.drift() if item.kind == "changed"]
+
+    assert changed == [("data product", "order_revenue", "assets: 1 table(s) of its Gold schema are not attached")]
+    assert fake.writes == []
+
+
+def test_marked_tables_of_a_schema_removed_from_git_are_reported_stale_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    marked = {"extension": {"olfManaged": "git:old"}}
+    fake.seed("databaseSchemas", "polaris.lakehouse_dev.removed_gold", marked)
+    fake.seed("tables", "polaris.lakehouse_dev.removed_gold.mart", marked)
+    fake.seed("tables", "polaris.lakehouse_dev.removed_gold.crawled_only", {})
+
+    stale = {(item.entity, item.fqn) for item in deployer.drift() if item.kind == "stale"}
+
+    assert stale == {
+        ("database schema", "polaris.lakehouse_dev.removed_gold"),
+        ("table", "polaris.lakehouse_dev.removed_gold.mart"),
+    }
+
+
+def test_drift_reports_an_unreadable_asset_listing_instead_of_reading_it_as_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    served = deployer.client.request
+
+    def request(method: str, path: str, **kwargs):
+        if path.endswith("/assets"):
+            raise OpenMetadataError("403 forbidden")
+        return served(method, path, **kwargs)
+
+    monkeypatch.setattr(deployer.client, "request", request)
+
+    unresolved = [item for item in deployer.drift() if item.kind == "unresolved"]
+
+    assert [(item.entity, item.fqn) for item in unresolved] == [("data product", "order_revenue")]
+    assert "could not be read" in unresolved[0].detail
+    assert fake.writes == []
+
+
+def test_the_stamped_revision_is_read_from_the_stage_not_derived_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from olf.infra.openmetadata._drift import _stamped_revision
+
+    deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
+    fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
+    database = "polaris.lakehouse_dev"
+    assert _stamped_revision(deployer.client, database) is None
+
+    # A shared domain stamped by another stage's deploy does not decide this stage's revision.
+    fake.seed("domains", "sales", {"extension": {"olfManaged": "git:other"}})
+    fake.seed("databaseSchemas", "polaris.lakehouse_dev.sales_silver", {"extension": {"olfManaged": "git:unknown"}})
+    assert _stamped_revision(deployer.client, database) == ""
+    fake.entities["databaseSchemas"]["polaris.lakehouse_dev.sales_silver"]["extension"]["olfManaged"] = "git:abc123"
+    assert _stamped_revision(deployer.client, database) == "abc123"
+
+
+def test_a_dotted_bucket_name_matches_its_quoted_container_fqn(tmp_path: Path) -> None:
+    from openlakeforge_services.drift import _in_stage_buckets
+
+    config = _deployer(tmp_path, allow_missing_assets=True, progress=_Recorder()).config
+    config = replace(config, storage_bronze_bucket="lakehouse.dev.bronze")
+
+    assert _in_stage_buckets(config, 'seaweedfs."lakehouse.dev.bronze".removed_source')
+    assert _in_stage_buckets(config, 'seaweedfs."lakehouse.dev.bronze"')
+    assert not _in_stage_buckets(config, 'seaweedfs."lakehouse.dev.bronze2".other')
+
+
+def test_a_dotted_bucket_is_deployed_and_compared_under_its_quoted_fqn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _deployer(tmp_path, allow_missing_assets=True, progress=_Recorder())
+    deployer.config = replace(deployer.config, storage_bronze_bucket="lakehouse.dev.bronze")
+    deployer._reconciler.config = deployer.config
+    fake = _serve(deployer, monkeypatch, gold_tables=[])
+    fake.seed("databases", "polaris.lakehouse_dev", {})
+    deployer.deploy()
+    fake.calls.clear()
+
+    assert 'seaweedfs."lakehouse.dev.bronze"' in fake.entities["containers"]
+    assert deployer.drift() == []

@@ -14,7 +14,7 @@ import urllib.parse
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from openlakeforge_core import (
     LakehouseDescriptorError,
@@ -23,7 +23,7 @@ from openlakeforge_core import (
     load_source_descriptor,
 )
 
-from .openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
+from .openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError, fqn_part
 from .ownership import (
     MARKED_ENTITY_TYPES,
     MARKER_DESCRIPTION,
@@ -32,6 +32,9 @@ from .ownership import (
     patch_operations,
 )
 from .progress import SILENT, Progress
+
+if TYPE_CHECKING:
+    from .drift import DriftItem
 
 
 @dataclass
@@ -302,7 +305,7 @@ class MetadataReconciler:
         return operations
 
     def ensure_container(self, name, parent_fqn, full_path, description) -> None:
-        fqn = f"{parent_fqn or self.config.storage_service}.{name}"
+        fqn = f"{parent_fqn or fqn_part(self.config.storage_service)}.{fqn_part(name)}"
         payload: dict = {
             "name": name,
             "service": self.config.storage_service,
@@ -495,7 +498,7 @@ class MetadataDeployer:
     def bronze_container_specs(self, domains: Sequence[DomainSpec]):
         """The Bronze container hierarchy: one container per source prefix, then one per resource under it."""
         bucket = self.config.storage_bronze_bucket
-        root_fqn = f"{self.config.storage_service}.{bucket}"
+        root_fqn = f"{fqn_part(self.config.storage_service)}.{fqn_part(bucket)}"
         seen = set()
 
         for domain in domains:
@@ -514,7 +517,7 @@ class MetadataDeployer:
                     seen.add(resource_path)
                     yield {
                         "name": container.resource,
-                        "parent_fqn": f"{root_fqn}.{container.source}",
+                        "parent_fqn": f"{root_fqn}.{fqn_part(container.source)}",
                         "path": resource_path,
                         "description": container.description,
                     }
@@ -580,6 +583,18 @@ class MetadataDeployer:
                 )
             )
         return domains
+
+    def drift(self) -> list[DriftItem]:
+        """What differs between Git and OpenMetadata for this stage; reads only (see `drift.detect_drift`)."""
+        from .drift import detect_drift
+
+        self.login()
+        domains = self._domain_specs()
+        self.validate_deployment_inputs(domains)
+        containers = [{**c, "parent_fqn": None} for c in self.storage_bucket_specs()] + list(
+            self.bronze_container_specs(domains)
+        )
+        return detect_drift(self._reconciler, self.config, domains, containers)
 
     def deploy(self) -> None:
         self.wait_for_openmetadata()
