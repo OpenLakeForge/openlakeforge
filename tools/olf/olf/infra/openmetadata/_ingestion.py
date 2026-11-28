@@ -73,6 +73,11 @@ def ingestion_config(environ: Mapping[str, str], *, service: str, om_api: str) -
                     "markDeletedDatabases": False,
                     "markDeletedSchemas": False,
                     "markDeletedTables": False,
+                    # Without it a crawl copies a table's and column's description from Trino only the first time
+                    # it sees the table, so a dbt `persist_docs` change never arrives. dbt owns these descriptions
+                    # (ADR 0007 D15); the probe showed this flag leaves glossary tags, constraints and other
+                    # columns alone but overwrites a description edited in OpenMetadata.
+                    "overrideMetadata": True,
                 }
             },
         },
