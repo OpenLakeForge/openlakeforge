@@ -910,6 +910,9 @@ def probe_override_crawl(ctx: Ctx) -> None:
     config_ = workflow["source"]["sourceConfig"]["config"]
     config_["overrideMetadata"] = True
     config_["useFqnForFiltering"] = True
+    # With FQN filtering the database pattern is matched against `<service>.<catalog>`, not the bare catalog name the
+    # crawl's own pattern holds.
+    config_["databaseFilterPattern"] = {"includes": [f"^{re.escape(ctx.database_fqn)}$"]}
     config_["tableFilterPattern"] = {"includes": [f"^{re.escape(fqn)}$" for fqn in targets]}
     outcome, logs = run_workflow(ctx, f"{P}-override-crawl", workflow, "ingest")
     row = get_table(ctx, table_fqn(ctx, ctx.fix["probe_schema"], TRINO_TABLE), "columns").data or {}
@@ -952,10 +955,13 @@ def restore(ctx: Ctx) -> None:
             continue
         try:
             original = ctx.fix["originals"][table["id"]]
-            current = (
-                om(ctx, "GET", f"/api/v1/tables/{table['id']}", params={"fields": "columns,tableConstraints,tags"}).data
-                or {}
+            fetched = om(
+                ctx, "GET", f"/api/v1/tables/{table['id']}", params={"fields": "columns,tableConstraints,tags"}
             )
+            if not fetched.ok:
+                ctx.restore_errors.append(f"{table['fullyQualifiedName']}: cannot read it back, {fetched.brief()}")
+                continue
+            current = fetched.data or {}
             ops: list[dict[str, Any]] = []
             if original["constraints"]:
                 ops.append(add("/tableConstraints", original["constraints"]))
