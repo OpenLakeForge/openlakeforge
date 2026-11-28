@@ -194,7 +194,6 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
     monkeypatch.setattr(_runner, "check_openmetadata_drift", lambda _cfg: None)
     monkeypatch.setattr(_runner, "check_openmetadata_redeploy_is_idempotent", lambda _cfg: None)
-    monkeypatch.setattr(_runner, "check_openmetadata_capture", lambda _cfg: None)
     monkeypatch.setattr(_runner, "check_quality_publication", lambda _cfg: calls.append("quality"))
     monkeypatch.setattr(_runner, "check_quality_writer_permissions", lambda _cfg: calls.append("writer"))
     monkeypatch.setattr(_runner, "check_real_quality_evidence", lambda _cfg: calls.append("evidence"))
@@ -303,7 +302,6 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
     monkeypatch.setattr(_runner, "check_openmetadata_drift", lambda _cfg: None)
     monkeypatch.setattr(_runner, "check_openmetadata_redeploy_is_idempotent", lambda _cfg: None)
-    monkeypatch.setattr(_runner, "check_openmetadata_capture", lambda _cfg: None)
     monkeypatch.setattr(_runner, "check_quality_publication", lambda _cfg: calls.append("quality"))
     monkeypatch.setattr(_runner, "check_quality_writer_permissions", lambda _cfg: calls.append("writer"))
     monkeypatch.setattr(_runner, "check_real_quality_evidence", lambda _cfg: calls.append("evidence"))
@@ -338,7 +336,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     ]
     skipped = (
         "perimeter dashboard latency, Superset dashboards, OpenMetadata governance assets, "
-        "OpenMetadata redeploy writes nothing, OpenMetadata drift report, OpenMetadata capture (temporary), "
+        "OpenMetadata redeploy writes nothing, OpenMetadata drift report, "
         "OpenMetadata quality publication, OpenMetadata quality writer permissions"
     )
     assert f"Skipped e2e assertions: {skipped}" in messages
