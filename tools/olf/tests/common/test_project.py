@@ -58,7 +58,7 @@ def test_project_validation_reports_a_valid_external_project(external_project: P
             {"name": "canonical_layout", "ok": True, "detail": "canonical project paths are present"},
             {"name": "profile", "ok": True, "detail": "deployment profile validated"},
             {"name": "descriptors", "ok": True, "detail": "descriptors validated"},
-            {"name": "inventory", "ok": True, "detail": "3 product(s) discovered"},
+            {"name": "inventory", "ok": True, "detail": "4 product(s) discovered"},
             {"name": "project_assets", "ok": True, "detail": "declared project assets are present"},
         ],
     }
