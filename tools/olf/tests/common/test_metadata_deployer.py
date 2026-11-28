@@ -242,7 +242,10 @@ def test_a_wrong_stage_mapping_is_rejected_before_any_write(
 def test_an_unreadable_asset_listing_costs_one_idempotent_attach_and_loses_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    deployer, fake = _deployed(tmp_path, monkeypatch)
+    deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
+    fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
+    deployer.deploy()
+    fake.calls.clear()
 
     def request(method: str, path: str, **kwargs):
         if method == "GET" and path.endswith("/assets"):
