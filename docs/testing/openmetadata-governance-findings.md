@@ -10,7 +10,7 @@ JSON artifact, not from the schema.
 
 - Stack: the conformance profile, DEV only, deployed by
   `local-full-e2e.yml` with `governance_probe=true` after the core e2e suite
-  (runs 46069630392, 46074376100 and 46078646784).
+  (runs 46069630392, 46074376100, 46078646784 and 46083198183).
 - OpenMetadata identity: the automation bot (`olf-automation`), the token
   `olf infra e2e run` uses. Trino identity: the stage processing principal.
   The crawl and the profiler ran as the OLF-owned Job of ADR 0007 D15 (the
@@ -41,7 +41,7 @@ JSON artifact, not from the schema.
 | 4 | `Table.tableConstraints` survive the crawl | Survive two crawls |
 | 5 | Iceberg comments reach OpenMetadata | First crawl only; `overrideMetadata` refreshes them |
 | 6 | Glossary tag on a column survives the crawl | Survives |
-| 7 | `metadata profile` | Table-level statistics stored, no sample data; column-level not yet verified |
+| 7 | `metadata profile` | Accepted: table and column statistics stored, no sample data |
 
 ## 1. `lifecycleStage` is not writable
 
@@ -242,18 +242,40 @@ sourceConfig:
 processor: {type: orm-profiler, config: {}}
 ```
 
-What it stored, read with `GET /api/v1/tables/<fqn>/tableProfile?startTs=<ms>&endTs=<ms>`:
-`{"timestamp": ..., "columnCount": 4.0, "rowCount": 6.0, "profileSampleType": "PERCENTAGE"}`.
-No sample data was present: the table response carried no `sampleData`.
-The log has one warning, `No implementation found for trino`, which
-appears at the start of the profiler run, before the metrics; its cause was
-not investigated.
+What it stored, on a probe table with a `decimal(18,2)`, a `date`, a
+`varchar` and a `bigint` column and four rows (run 46083198183):
 
-Column-level metrics (null count, distinct count, min, max, mean) are not
-verified: the first read used the table's name where the column profile
-endpoint wants a column name and answered 400, and the table body was
-truncated. #1465's acceptance (min and max on `order_date` and
-`net_amount`) depends on this and is still open.
+- Table level, `GET /api/v1/tables/<table fqn>/tableProfile?startTs=<ms>&endTs=<ms>`:
+  `{"timestamp": ..., "columnCount": 4.0, "rowCount": 4.0, "profileSampleType": "PERCENTAGE"}`.
+- Column level, `GET /api/v1/tables/<column fqn>/columnProfile?startTs=<ms>&endTs=<ms>`
+  (the path takes the column's fully qualified name, not the table's):
+  `valuesCount`, `nullCount`, `nullProportion`, `distinctCount`, `min`,
+  `max`, `mean` and nothing else, so the `metrics` list limits what is
+  stored. Values returned:
+
+| Column | Type | `nullCount` | `distinctCount` | `min` | `max` | `mean` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `amount` | `decimal(18,2)` | 1 | 3 | 10.5 | 40.0 | 23.58 |
+| `order_date` | `date` | 0 | 4 | `"2026-01-01"` | `"2026-04-01"` | not stored |
+| `name` | `varchar` | 1 | 2 | 1 | 1 | 1.0 |
+| `id` | `bigint` | 0 | 4 | 1 | 4 | 2.5 |
+
+`min` and `max` are the real values for numeric and date columns, which is
+why #1465 must leave them out of the `metrics` list for Confidential
+products. For a `varchar` column they are string lengths (the four-row
+sample had one-character strings), not values; `mean` is the mean length.
+
+Where it does not show: `GET /api/v1/tables/name/<fqn>?fields=columns,profile`
+returns no profile at all, and `columns[].profile` is empty on every column,
+so a client reading statistics must use the two endpoints above.
+
+No sample data was stored: neither the table response nor `GET
+/api/v1/tables/<id>/sampleData` carried any (the 1.13.6 profiler model has no
+sample-data option to turn off). The log has one warning, `No implementation
+found for trino`, which appears at the start of the profiler run, before
+the metrics; its cause was not investigated, and the statistics above were
+stored regardless. Only the explicit metric list was run; the default list
+was not needed.
 
 ## Out of scope and untested
 
