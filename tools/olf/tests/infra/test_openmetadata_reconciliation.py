@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from fake_openmetadata import FakeOpenMetadata
 from openlakeforge_services.governance import MetadataReconciler
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
@@ -64,22 +65,17 @@ def test_ensure_database_schema_creates_the_schema_with_its_domain(
     """Phase 1 stopped pre-creating databaseSchemas when Polaris namespace
     lifecycle moved to Phase 2, so seeding has to create them itself."""
     reconciler = _single_product_reconciler(tmp_path)
-    calls: list[tuple[str, dict]] = []
+    fake = FakeOpenMetadata()
+    domain = fake.seed("domains", "sales", {})
+    monkeypatch.setattr(reconciler.client, "request", fake.request)
+    fqn = "polaris.lakehouse_dev.sales_order_revenue_silver"
 
-    def request(method: str, path: str, *, json_body=None, **_kwargs):
-        calls.append((path, json_body or {}))
-        return {}
+    reconciler.ensure_database_schema(fqn, domain)
 
-    monkeypatch.setattr(reconciler.client, "request", request)
-
-    reconciler.ensure_database_schema("polaris.lakehouse_dev.sales_order_revenue_silver", "sales")
-
-    assert calls == [
-        (
-            "/api/v1/databaseSchemas",
-            {"name": "sales_order_revenue_silver", "database": "polaris.lakehouse_dev", "domains": ["sales"]},
-        )
-    ]
+    schema = fake.entities["databaseSchemas"][fqn]
+    assert [ref["id"] for ref in schema["domains"]] == [domain["id"]]
+    assert schema["database"] == "polaris.lakehouse_dev"
+    assert schema["extension"] == {"olfManaged": "git:unknown"}
 
 
 def test_list_schema_tables_follows_paging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -100,20 +96,18 @@ def test_list_schema_tables_follows_paging(tmp_path: Path, monkeypatch: pytest.M
     ]
 
 
-def test_ensure_database_schema_is_created_once_per_schema(
+def test_ensure_database_schema_is_reconciled_once_per_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     reconciler = _single_product_reconciler(tmp_path)
-    calls: list[str] = []
-
-    monkeypatch.setattr(
-        reconciler.client, "request", lambda method, path, **_kwargs: calls.append(path) or {}
-    )
+    fake = FakeOpenMetadata()
+    monkeypatch.setattr(reconciler.client, "request", fake.request)
 
     reconciler.ensure_database_schema("polaris.lakehouse_dev.sales_order_revenue_silver")
+    fake.calls.clear()
     reconciler.ensure_database_schema("polaris.lakehouse_dev.sales_order_revenue_silver")
 
-    assert calls == ["/api/v1/databaseSchemas"]
+    assert fake.calls == []
 
 
 def test_ensure_database_schema_rejects_a_malformed_fqn(tmp_path: Path) -> None:
