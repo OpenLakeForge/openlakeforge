@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import urllib.parse
 from collections.abc import Iterable, Iterator, Mapping
@@ -18,11 +19,12 @@ from openlakeforge_services.superset import SupersetClient
 
 from olf.common import config, log
 from olf.common.project import ProjectSpec
-from olf.infra import access, k8s, superset
+from olf.infra import access, k8s, superset, trino
 from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import product_gold_tables, stage_catalog_name
 from olf.infra.openmetadata._auth import admin_password, automation_token
+from olf.infra.openmetadata._ingestion import JOB_NAME
 
 
 @contextmanager
@@ -194,6 +196,57 @@ def check_openmetadata_redeploy_is_idempotent(cfg: E2EConfig) -> None:
             raise E2EError(str(exc)) from exc
     if writes:
         raise E2EError("A repeat deploy of the same revision wrote to OpenMetadata:\n" + "\n".join(writes))
+
+
+def crawl_workflows_without_override(cronjobs: Mapping[str, Any]) -> list[str]:
+    """The names of crawl CronJobs in a `kubectl get cronjob -o json` list whose workflow lacks `overrideMetadata`."""
+    names = []
+    for item in cronjobs.get("items") or ():
+        containers = item["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
+        workflow = next((e["value"] for e in containers[0]["env"] if e["name"] == "OM_WORKFLOW"), "")
+        config_ = (yaml.safe_load(workflow) or {}).get("source", {}).get("sourceConfig", {}).get("config", {})
+        if config_.get("overrideMetadata") is not True:
+            names.append(item["metadata"]["name"])
+    return names
+
+
+def check_openmetadata_crawled_descriptions(cfg: E2EConfig) -> None:
+    """dbt owns table and column descriptions: the crawl carries `overrideMetadata`, and each Gold table the crawl
+    found has the description (and a column description) `persist_docs` wrote as Trino comments.
+
+    A table OpenMetadata already held before its first crawl (`deploy-metadata` registers them) gets its
+    descriptions from the crawl only with `overrideMetadata`.
+    """
+    log.step("Checking the OpenMetadata crawl refreshes descriptions...")
+    namespace = trino.service_namespace(cfg_environ(cfg), cfg.namespace)
+    listing = json.loads(
+        kubectl(
+            cfg,
+            ["get", "cronjob", "-n", namespace, "-l", f"openlakeforge.io/job={JOB_NAME}", "-o", "json"],
+            capture=True,
+        )
+    )
+    if not listing.get("items"):
+        raise E2EError(f"no OpenMetadata crawl CronJob in namespace {namespace}")
+    without = crawl_workflows_without_override(listing)
+    if without:
+        raise E2EError(f"the crawl workflow of {without} does not set overrideMetadata")
+    database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", "", environ=cfg_environ(cfg))
+    gold_tables = [table for product in cfg.inventory.products for table in product_gold_tables(cfg, product)]
+    with openmetadata_client(cfg) as (client, token):
+        password = (
+            "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ)
+        )
+        _openmetadata_e2e_login(client, password)
+        missing = []
+        for table in gold_tables:
+            fqn = f"{database_fqn}.{table}"
+            path = f"/api/v1/tables/name/{urllib.parse.quote(fqn, safe='')}"
+            entity = client.request("GET", path, params={"fields": "columns"})
+            if not entity.get("description") or not any(c.get("description") for c in entity.get("columns") or ()):
+                missing.append(fqn)
+    if missing:
+        raise E2EError(f"Gold tables without a crawled table or column description in OpenMetadata: {missing}")
 
 
 # Lines the OpenMetadata 1.13 server writes for OpenLineage requests: the access log line of each POST and the
