@@ -10,6 +10,11 @@ from typing import Any
 from .base import JsonHttpClient, ServiceClientError, TransientServiceError
 
 
+def fqn_part(name: str) -> str:
+    """A name as OpenMetadata writes it inside a fully qualified name: quoted when it contains a dot."""
+    return f'"{name}"' if "." in name else name
+
+
 class OpenMetadataError(ServiceClientError):
     """OpenMetadata-specific client error."""
 

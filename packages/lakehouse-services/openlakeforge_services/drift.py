@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .governance import DomainSpec, MetadataConfig, MetadataReconciler, domain_payload, product_payload
+from .openmetadata import fqn_part
 from .ownership import marker_of, patch_operations
 
 MISSING = "missing"
@@ -52,18 +53,13 @@ def stage_of(config: MetadataConfig) -> str:
     return config.catalog_database.removeprefix("lakehouse_")
 
 
-def _fqn_part(name: str) -> str:
-    """A name as OpenMetadata writes it inside a fully qualified name: quoted when it contains a dot."""
-    return f'"{name}"' if "." in name else name
-
-
 def _in_stage_buckets(config: MetadataConfig, fqn: str) -> bool:
     """Whether a container FQN sits under one of this stage's buckets. Every stage shares one storage service, so
     another stage's marked containers are not stale here."""
     buckets = {config.storage_bronze_bucket, config.storage_silver_bucket, config.storage_gold_bucket} - {""}
     return any(
         fqn == root or fqn.startswith(f"{root}.")
-        for root in (f"{_fqn_part(config.storage_service)}.{_fqn_part(b)}" for b in buckets)
+        for root in (f"{fqn_part(config.storage_service)}.{fqn_part(b)}" for b in buckets)
     )
 
 
@@ -130,7 +126,7 @@ def detect_drift(
         _Declared(
             "container",
             "containers",
-            f"{c['parent_fqn'] or config.storage_service}.{c['name']}",
+            f"{c['parent_fqn'] or fqn_part(config.storage_service)}.{fqn_part(c['name'])}",
             stage,
             {"description": c["description"]},
         )

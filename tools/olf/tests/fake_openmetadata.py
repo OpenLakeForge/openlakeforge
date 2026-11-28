@@ -7,6 +7,8 @@ import urllib.parse
 from collections.abc import Mapping
 from typing import Any
 
+from openlakeforge_services.openmetadata import fqn_part
+
 
 class FakeOpenMetadata:
     """An in-memory OpenMetadata 1.13.6 holding what its REST API returns for the endpoints the reconciler uses.
@@ -53,9 +55,10 @@ class FakeOpenMetadata:
             parent_fqn = (
                 next(c["fullyQualifiedName"] for c in self.entities["containers"].values() if c["id"] == parent["id"])
                 if parent
-                else body["service"]
+                else fqn_part(body["service"])
             )
-            return f"{parent_fqn}.{body['name']}"
+            # 1.13.6 quotes a name that contains a dot.
+            return f"{parent_fqn}.{fqn_part(body['name'])}"
         return body["name"]
 
     def request(

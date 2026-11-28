@@ -66,10 +66,15 @@ def _deployer(
     return OpenMetadataDeployer(cfg, client, revision=revision)
 
 
-def _stamped_revision(client: OpenMetadataClient) -> str | None:
-    """The revision the stage's domains were last stamped with, or None when none carries a marker yet."""
-    for domain in client.list_entities("/api/v1/domains", {"fields": "extension"}, 100):
-        marker = marker_of(domain)
+def _stamped_revision(client: OpenMetadataClient, database_fqn: str) -> str | None:
+    """The revision the stage's own schemas were last stamped with, or None when none carries a marker yet.
+
+    A schema belongs to one stage; a domain is shared, so it carries whichever stage deployed last.
+    """
+    for schema in client.list_entities(
+        "/api/v1/databaseSchemas", {"fields": "extension", "database": database_fqn}, 100
+    ):
+        marker = marker_of(schema)
         if marker:
             return marker.removeprefix("git:").removeprefix("unknown")
     return None
@@ -97,16 +102,17 @@ def redeploy_writes(
 ) -> list[str]:
     """Deploy the project again and return the write requests it made: none when the stage already matches Git.
 
-    The marker revision is the one the stage already carries, not one derived again from this checkout: a deploy
+    The marker revision is the one the stage's schemas already carry, not one derived again from this checkout: a deploy
     that activated its descriptors outside Git stamped `git:unknown`, and a repeat of that deploy must write nothing.
     """
     spy = _SpyClient(client.base_url, token=client.token, session=client.session)
     if not spy.token:
         spy.login(admin_email, admin_password)
+    database_fqn = _deployer(environ, spy, project=project).config.catalog_database_fqn
     _deployer(
         environ,
         spy,
-        revision=_stamped_revision(spy),
+        revision=_stamped_revision(spy, database_fqn),
         admin_email=admin_email,
         admin_password=admin_password,
         project=project,

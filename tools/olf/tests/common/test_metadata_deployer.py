@@ -504,12 +504,15 @@ def test_the_stamped_revision_is_read_from_the_stage_not_derived_again(
 
     deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
     fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
-    assert _stamped_revision(deployer.client) is None
+    database = "polaris.lakehouse_dev"
+    assert _stamped_revision(deployer.client, database) is None
 
-    fake.seed("domains", "sales", {"extension": {"olfManaged": "git:unknown"}})
-    assert _stamped_revision(deployer.client) == ""
-    fake.entities["domains"]["sales"]["extension"]["olfManaged"] = "git:abc123"
-    assert _stamped_revision(deployer.client) == "abc123"
+    # A shared domain stamped by another stage's deploy does not decide this stage's revision.
+    fake.seed("domains", "sales", {"extension": {"olfManaged": "git:other"}})
+    fake.seed("databaseSchemas", "polaris.lakehouse_dev.sales_silver", {"extension": {"olfManaged": "git:unknown"}})
+    assert _stamped_revision(deployer.client, database) == ""
+    fake.entities["databaseSchemas"]["polaris.lakehouse_dev.sales_silver"]["extension"]["olfManaged"] = "git:abc123"
+    assert _stamped_revision(deployer.client, database) == "abc123"
 
 
 def test_a_dotted_bucket_name_matches_its_quoted_container_fqn(tmp_path: Path) -> None:
@@ -521,3 +524,18 @@ def test_a_dotted_bucket_name_matches_its_quoted_container_fqn(tmp_path: Path) -
     assert _in_stage_buckets(config, 'seaweedfs."lakehouse.dev.bronze".removed_source')
     assert _in_stage_buckets(config, 'seaweedfs."lakehouse.dev.bronze"')
     assert not _in_stage_buckets(config, 'seaweedfs."lakehouse.dev.bronze2".other')
+
+
+def test_a_dotted_bucket_is_deployed_and_compared_under_its_quoted_fqn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _deployer(tmp_path, allow_missing_assets=True, progress=_Recorder())
+    deployer.config = replace(deployer.config, storage_bronze_bucket="lakehouse.dev.bronze")
+    deployer._reconciler.config = deployer.config
+    fake = _serve(deployer, monkeypatch, gold_tables=[])
+    fake.seed("databases", "polaris.lakehouse_dev", {})
+    deployer.deploy()
+    fake.calls.clear()
+
+    assert 'seaweedfs."lakehouse.dev.bronze"' in fake.entities["containers"]
+    assert deployer.drift() == []
