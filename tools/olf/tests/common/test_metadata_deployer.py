@@ -242,7 +242,8 @@ def test_a_wrong_stage_mapping_is_rejected_before_any_write(
 def test_an_unreadable_asset_listing_costs_one_idempotent_attach_and_loses_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
+    progress = _Recorder()
+    deployer = _deployer(tmp_path, allow_missing_assets=False, progress=progress)
     fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
     deployer.deploy()
     fake.calls.clear()
@@ -257,3 +258,27 @@ def test_an_unreadable_asset_listing_costs_one_idempotent_attach_and_loses_nothi
     deployer.deploy()
 
     assert fake.writes == [("PUT", "/api/v1/dataProducts/order_revenue/assets/add")]
+    assert any(level == "warn" and "order_revenue" in message for level, message in progress.messages)
+
+
+def test_held_assets_are_read_across_pages_of_the_assets_listing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
+    fake = _serve(deployer, monkeypatch, gold_tables=[])
+    assets = [{"id": f"t{i}", "type": "table"} for i in range(5)]
+    product = fake.seed("dataProducts", "order_revenue", {"assets": assets})
+    pages: list[dict] = []
+
+    def request(method: str, path: str, **kwargs):
+        if path.endswith("/assets") and kwargs["params"]["offset"] < 5:
+            offset = kwargs["params"]["offset"]
+            page = {"data": product["assets"][offset : offset + 2], "paging": {"total": 5}}
+            pages.append(page)
+            return page
+        return fake.request(method, path, **kwargs)
+
+    monkeypatch.setattr(deployer.client, "request", request)
+
+    assert deployer._reconciler.held_asset_ids("order_revenue") == {f"t{i}" for i in range(5)}
+    assert len(pages) == 3

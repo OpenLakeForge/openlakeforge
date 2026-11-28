@@ -340,15 +340,16 @@ class MetadataReconciler:
     def held_asset_ids(self, product_name: str) -> set[str] | None:
         """The ids of the assets a data product holds, or None when OpenMetadata does not answer with a list.
 
-        `GET /dataProducts/name/{name}?fields=assets` returns no assets on 1.13.6 (the first live run re-sent
-        every attach), so the product's own assets listing is read, a page at a time.
+        `GET /dataProducts/name/{name}?fields=assets` returns no assets on 1.13.6 (a live run re-sent every
+        attach), so the by-name assets listing (`getDataProductAssetsByName`, a ResultList paged by limit and
+        offset, at most 1000 a page) is read instead.
         """
         held: set[str] = set()
         offset = 0
         while True:
             page = self.client.request(
                 "GET",
-                f"/api/v1/dataProducts/{urllib.parse.quote(product_name, safe='')}/assets",
+                f"/api/v1/dataProducts/name/{urllib.parse.quote(product_name, safe='')}/assets",
                 params={"limit": 1000, "offset": offset},
                 ok_statuses=(200, 404),
             )
@@ -365,7 +366,10 @@ class MetadataReconciler:
         When the held assets cannot be read, every table is sent: the attach is an idempotent upsert, so this
         costs one write and never loses an asset.
         """
-        held = self.held_asset_ids(product_name) or set()
+        held = self.held_asset_ids(product_name)
+        if held is None:
+            self.progress.warn(f"Could not read the assets of data product {product_name}; attaching every table.")
+            held = set()
         missing = [ref for ref in refs if ref["id"] not in held]
         if missing:
             self.client.request(
