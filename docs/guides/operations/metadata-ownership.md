@@ -43,7 +43,7 @@ change in `lakehouse_code/governance.yml` instead.
 
 `olf infra openmetadata drift` compares Git with a stage's OpenMetadata and lists each difference. It sends only
 read requests, so it is safe against any stage, and it exits non-zero when it finds something. It needs a deployed
-platform and the stage's contract environment, like `deploy-metadata`; pass `--stage` to pick the stage. The Full
+platform and the stage's contract environment, like `deploy-metadata`; both take `--stage` to pick the stage. The Full
 e2e (`olf infra e2e run --env local`) runs it after a deploy and fails if the report is not empty.
 
 | Kind | Meaning |
@@ -61,7 +61,7 @@ domains, data products, schemas, tables and containers.
 1. `stale`: an entity renamed or removed in Git stays in OpenMetadata, because a deploy never deletes. Open it in the
    UI and delete it once nothing else depends on it.
 2. `changed`: to keep the edit, change `lakehouse_code/governance.yml` to match it. To discard it, run
-   `olf infra openmetadata deploy-metadata`, which restores Git's value. A data product's domain is set only when the
+   `olf infra openmetadata deploy-metadata` (with `--stage` for a finding in another stage), which restores Git's value. A data product's domain is set only when the
    deploy creates the product; to move one, edit its domain in the UI.
 3. `missing`: run the product's pipeline, wait for the Trino crawl, then rerun `deploy-metadata`.
 4. A table registered under the wrong schema: delete it in the UI, then rerun `deploy-metadata`.

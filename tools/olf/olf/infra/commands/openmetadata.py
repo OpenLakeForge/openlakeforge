@@ -70,6 +70,7 @@ def openmetadata_deploy_metadata(
     project_root: str = typer.Option(
         "", "--project-root", help="Writable project root; defaults to the current directory."
     ),
+    stage: str = typer.Option("", "--stage", help="Stage to deploy; defaults to the project's default stage."),
 ) -> None:
     """Seed metadata using the selected provider's Terraform contracts."""
     from olf.infra.commands.runtime import provider_contract_environment
@@ -81,6 +82,7 @@ def openmetadata_deploy_metadata(
         cluster_name=cluster_name,
         kubeconfig_path=kubeconfig_path,
         project_root=project_root,
+        stage=stage,
     ) as contract:
         deploy_openmetadata_metadata(environ=contract)
 
