@@ -240,6 +240,26 @@ Link a term by its `<glossary>.<Term>` reference.
    A reference to a term that no glossary declares fails the check and names
    the file and path to fix.
 
+### Where the terms appear in OpenMetadata
+
+`olf infra openmetadata deploy-metadata` (part of `olf infra deploy`)
+publishes each glossary and its terms first, then attaches them:
+
+| Git | OpenMetadata |
+| --- | --- |
+| `glossaries/<name>.yml` | Glossary `<name>`, with its terms (description, synonyms, related terms, references, status, owner) |
+| `glossaryTerms` on a product or domain | The glossary tag on that data product or domain |
+| `meta.openlakeforge.glossaryTerms` on a column | The glossary tag on that column of the stage's own table, for example `<service>.lakehouse_dev.sales_core_gold.fct_order_lines.net_amount` |
+
+Glossaries and terms OLF publishes carry the `olfManaged` property. A repeat
+deploy of the same revision writes nothing. OLF never deletes: a term removed
+from Git stays in OpenMetadata and the deploy warns about it. A glossary, term
+or tag a person created under another name is left alone; one created by hand
+under the same name as a Git glossary or term is adopted, marked `olfManaged`
+and kept in step with Git on the fields Git declares. A column the Trino crawl has not
+produced yet is reported as pending and tagged on the first deploy after the
+crawl; OLF never creates a column for it.
+
 ## Remove a product
 
 Delete its entry from `governance.yml`, its `gold/models/<product>/` folder,
