@@ -1,0 +1,176 @@
+{
+ "_source": "Responses of OpenMetadata 1.13.6 recorded from a live Full e2e run (local-full-e2e.yml, run 46087518766) with the temporary capture hook; secrets masked, lists trimmed.",
+ "custom_property_on_domain_type": {
+  "description": "Set by OpenLakeForge: the Git revision that last reconciled this entity from the project.",
+  "name": "olfManaged",
+  "propertyType": {
+   "displayName": "string",
+   "fullyQualifiedName": "string",
+   "id": "ac4af715-7494-4961-8b2b-c9f5ea578298",
+   "name": "string",
+   "type": "type"
+  }
+ },
+ "data_product_assets": {
+  "data": [
+   {
+    "deleted": false,
+    "displayName": "mart_order_revenue_by_account_segment",
+    "fullyQualifiedName": "polaris.lakehouse_dev.order_revenue_gold.mart_order_revenue_by_account_segment",
+    "id": "f8500482-1691-4821-8262-0194f075a167",
+    "name": "mart_order_revenue_by_account_segment",
+    "type": "table"
+   },
+   {
+    "deleted": false,
+    "displayName": "mart_order_revenue_by_channel",
+    "fullyQualifiedName": "polaris.lakehouse_dev.order_revenue_gold.mart_order_revenue_by_channel",
+    "id": "f432e127-9eff-4e29-b71b-aa4c35bb6ea9",
+    "name": "mart_order_revenue_by_channel",
+    "type": "table"
+   },
+   {
+    "deleted": false,
+    "description": "dbt check openlakeforge_dbt_unique_combination_of_columns_mart_order_revenue_by_account_segment_segment__region, published from the run&#39;s quality manifest.",
+    "displayName": "olf.dbt.openlakeforge_dbt_unique_combination_of_columns_mart_order_revenue_by_account_segment_segment__region",
+    "fullyQualifiedName": "polaris.lakehouse_dev.order_revenue_gold.mart_order_revenue_by_account_segment.\"olf.dbt.openlakeforge_dbt_unique_combination_of_columns_mart_order_revenue_by_account_segment_segment__region\"",
+    "id": "2fef844e-8194-480a-9606-5ed738bf3e21",
+    "name": "olf.dbt.openlakeforge_dbt_unique_combination_of_columns_mart_order_revenue_by_account_segment_segment__region",
+    "type": "testCase"
+   }
+  ],
+  "paging": {
+   "total": 8
+  }
+ },
+ "data_product_get": {
+  "description": "Curated revenue, channel, discount, and product margin marts for Sales.",
+  "displayName": "Sales Order Revenue",
+  "entityStatus": "Unprocessed",
+  "extension": {
+   "olfManaged": "git:unknown"
+  },
+  "fullyQualifiedName": "order_revenue",
+  "href": "http://localhost:8585/api/v1/dataProducts/515108e6-2ac4-4ed7-bf98-a2f1c214a582",
+  "id": "515108e6-2ac4-4ed7-bf98-a2f1c214a582",
+  "lifecycleStage": "DEVELOPMENT",
+  "name": "order_revenue",
+  "updatedAt": 1795826639983,
+  "updatedBy": "admin",
+  "version": 0.1,
+  "visibility": "PRIVATE"
+ },
+ "domain_get": {
+  "description": "Sales proof-of-concept domain for the OpenLakeForge v1 lakehouse path.",
+  "displayName": "Sales",
+  "domainType": "Source-aligned",
+  "entityStatus": "Unprocessed",
+  "extension": {
+   "olfManaged": "git:unknown"
+  },
+  "fullyQualifiedName": "sales",
+  "href": "http://localhost:8585/api/v1/domains/75485b0b-3cf8-4dce-b7d9-dfd95764a18d",
+  "id": "75485b0b-3cf8-4dce-b7d9-dfd95764a18d",
+  "name": "sales",
+  "updatedAt": 1795826638527,
+  "updatedBy": "admin",
+  "version": 0.1
+ },
+ "domain_patch": {
+  "changeDescription": {
+   "changeSummary": {},
+   "fieldsAdded": [],
+   "fieldsDeleted": [],
+   "fieldsUpdated": [
+    {
+     "name": "extension.olfManaged",
+     "newValue": "\"git:capture\"",
+     "oldValue": "\"git:unknown\""
+    }
+   ],
+   "previousVersion": 0.1
+  },
+  "children": [],
+  "description": "Sales proof-of-concept domain for the OpenLakeForge v1 lakehouse path.",
+  "displayName": "Sales",
+  "domainType": "Source-aligned",
+  "entityStatus": "Unprocessed",
+  "experts": [],
+  "extension": {
+   "olfManaged": "git:capture"
+  },
+  "followers": [],
+  "fullyQualifiedName": "sales",
+  "href": "http://localhost:8585/api/v1/domains/75485b0b-3cf8-4dce-b7d9-dfd95764a18d",
+  "id": "75485b0b-3cf8-4dce-b7d9-dfd95764a18d",
+  "incrementalChangeDescription": {
+   "changeSummary": {},
+   "fieldsAdded": [],
+   "fieldsDeleted": [],
+   "fieldsUpdated": [
+    {
+     "name": "extension.olfManaged",
+     "newValue": "\"git:capture\"",
+     "oldValue": "\"git:unknown\""
+    }
+   ],
+   "previousVersion": 0.1
+  },
+  "name": "sales",
+  "owners": [],
+  "tags": [],
+  "updatedAt": 1795827335065,
+  "updatedBy": "admin",
+  "version": 0.2,
+  "votes": {
+   "downVoters": [],
+   "downVotes": 0,
+   "upVoters": [],
+   "upVotes": 0
+  }
+ },
+ "table_get": {
+  "columns": [],
+  "database": {
+   "deleted": false,
+   "displayName": "lakehouse_dev",
+   "fullyQualifiedName": "polaris.lakehouse_dev",
+   "href": "http://localhost:8585/api/v1/databases/149ed17c-b36e-4e4c-9773-b2ae478af3a6",
+   "id": "149ed17c-b36e-4e4c-9773-b2ae478af3a6",
+   "name": "lakehouse_dev",
+   "type": "database"
+  },
+  "databaseSchema": {
+   "deleted": false,
+   "displayName": "sales_silver",
+   "fullyQualifiedName": "polaris.lakehouse_dev.sales_silver",
+   "href": "http://localhost:8585/api/v1/databaseSchemas/c6eb1d30-280c-4442-8fc8-33464d0c80ad",
+   "id": "c6eb1d30-280c-4442-8fc8-33464d0c80ad",
+   "name": "sales_silver",
+   "type": "databaseSchema"
+  },
+  "deleted": false,
+  "entityStatus": "Unprocessed",
+  "extension": {
+   "olfManaged": "git:unknown"
+  },
+  "fullyQualifiedName": "polaris.lakehouse_dev.sales_silver.accounts",
+  "href": "http://localhost:8585/api/v1/tables/c5033a5d-2f4a-4b9e-b260-499aa8d58453",
+  "id": "c5033a5d-2f4a-4b9e-b260-499aa8d58453",
+  "name": "accounts",
+  "processedLineage": false,
+  "service": {
+   "deleted": false,
+   "displayName": "Lakehouse catalogs (Trino)",
+   "fullyQualifiedName": "polaris",
+   "href": "http://localhost:8585/api/v1/services/databaseServices/3d2e29cc-9555-4c34-a7ad-880973b0a6fd",
+   "id": "3d2e29cc-9555-4c34-a7ad-880973b0a6fd",
+   "name": "polaris",
+   "type": "databaseService"
+  },
+  "serviceType": "Trino",
+  "updatedAt": 1795826639054,
+  "updatedBy": "admin",
+  "version": 0.1
+ }
+}

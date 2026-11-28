@@ -78,12 +78,21 @@ models:
       - name: gross_amount
         data_type: decimal(18,2)
         description: Quantity times unit price, before discount.
+        meta:
+          openlakeforge:
+            glossaryTerms: [sales.GrossRevenue]
       - name: discount_amount
         data_type: decimal(18,2)
         description: Discount applied to the line.
+        meta:
+          openlakeforge:
+            glossaryTerms: [sales.Discount]
       - name: net_amount
         data_type: decimal(18,2)
         description: Gross amount minus discount amount.
+        meta:
+          openlakeforge:
+            glossaryTerms: [sales.NetRevenue]
       - name: cost_amount
         data_type: decimal(18,2)
         description: Quantity times the product's current unit cost. Not historical cost.

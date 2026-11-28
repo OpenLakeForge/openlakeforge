@@ -11,9 +11,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from openlakeforge_services.governance import MetadataDeployer
-from openlakeforge_services.openmetadata import OpenMetadataClient
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 
 from olf.common import log
+from olf.common.deployment.errors import CommandExecutionError, ExecutableNotFoundError
+from olf.common.tooling.process import ProcessRunner
 from olf.infra.openmetadata._config import OpenMetadataConfig, resolve_metadata_descriptor_paths
 
 # Stage-neutral: the rerun must repeat the deployment and provider options the
@@ -24,11 +26,27 @@ _RERUN_HINT = (
 )
 
 
+def _git_revision(config: OpenMetadataConfig) -> str:
+    """The commit of the checkout the descriptors are read from, or "" outside Git (the marker then reads
+    `git:unknown`). `OPENMETADATA_METADATA_SOURCE_DIR` can point at another checkout, so the revision follows the
+    descriptors actually deployed, not `metadata_root`."""
+    try:
+        descriptor_paths, _label, _match = resolve_metadata_descriptor_paths(
+            config.metadata_root, config.metadata_source_dir
+        )
+        root = descriptor_paths[0].parent
+        return ProcessRunner().run(["git", "-C", str(root), "rev-parse", "HEAD"]).stdout.strip()
+    except (OpenMetadataError, CommandExecutionError, ExecutableNotFoundError):
+        return ""
+
+
 class OpenMetadataDeployer(MetadataDeployer):
     config: OpenMetadataConfig
 
     def __init__(self, config: OpenMetadataConfig, client: OpenMetadataClient):
-        super().__init__(config, client, rerun_hint=_RERUN_HINT, progress=log)
+        super().__init__(
+            config, client, rerun_hint=_RERUN_HINT, revision=_git_revision(config), progress=log
+        )
 
     def domain_files(self) -> list[Path]:
         descriptor_paths, _source_label, _require_directory_match = resolve_metadata_descriptor_paths(
