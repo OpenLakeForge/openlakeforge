@@ -149,6 +149,7 @@ class SemanticPublisher:
         models: Sequence[SemanticModel],
         column_terms: Mapping[tuple[str, str], Sequence[str]],
         domain_of: Mapping[str, str],
+        gold_namespaces: Mapping[str, str],
         *,
         progress: Progress = SILENT,
     ):
@@ -160,7 +161,13 @@ class SemanticPublisher:
         self._domain_of = domain_of
         self._stage = stage_of(config)
         self._progress = progress
-        self._gold_schemas = {fqn.rpartition(".")[2]: fqn for fqn in config.catalog_gold_schema_fqns.values()}
+        # The logical namespace a dataset names (`sales_core_gold`) -> the schema the provider contract gives it, which
+        # carries a stage prefix on some catalogs.
+        self._gold_schemas = {
+            namespace: config.catalog_gold_schema_fqns[product]
+            for product, namespace in gold_namespaces.items()
+            if product in config.catalog_gold_schema_fqns
+        }
 
     # --- resolving ---------------------------------------------------------------------------------------------
 

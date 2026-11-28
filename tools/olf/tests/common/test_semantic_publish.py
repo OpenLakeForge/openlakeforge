@@ -22,6 +22,7 @@ COLUMN_TERMS = {
     key: tuple(term.fqn for term in terms)
     for key, terms in inventory_for(CODE_ROOT.parent).column_terms("sales_core").items()
 }
+NAMESPACES = {"sales_core": "sales_core_gold"}
 SCHEMA = "polaris.lakehouse_dev.sales_core_gold"
 TABLES = {
     "fct_order_lines": ["line_id", "account_id", "channel_id", "product_id", "promotion_id", "net_amount"],
@@ -118,6 +119,7 @@ def _publisher(fake: FakeOpenMetadata, models: list[SemanticModel] | None = None
         models if models is not None else [_model()],
         COLUMN_TERMS,
         {"sales_core": "sales"},
+        {"sales_core": "sales_core_gold"},
         progress=SILENT,
     )
 
@@ -313,7 +315,17 @@ def test_the_e2e_check_finds_the_published_state_complete_and_names_what_is_miss
     client.request = om.request  # type: ignore[method-assign]
     gold = {"sales_core": SCHEMA}
 
-    assert semantic_problems(client, [_model()], stage="dev", gold_schema_fqns=gold, column_terms=COLUMN_TERMS) == []
+    assert (
+        semantic_problems(
+            client,
+            [_model()],
+            stage="dev",
+            gold_schema_fqns=gold,
+            gold_namespaces=NAMESPACES,
+            column_terms=COLUMN_TERMS,
+        )
+        == []
+    )
 
     metric = om.entities["metrics"]["gross_revenue_dev"]
     metric["tags"] = []
@@ -321,7 +333,9 @@ def test_the_e2e_check_finds_the_published_state_complete_and_names_what_is_miss
     om.edges.clear()
     om.entities["tables"][f"{SCHEMA}.fct_order_lines"]["tableConstraints"] = []
 
-    problems = semantic_problems(client, [_model()], stage="dev", gold_schema_fqns=gold, column_terms=COLUMN_TERMS)
+    problems = semantic_problems(
+        client, [_model()], stage="dev", gold_schema_fqns=gold, gold_namespaces=NAMESPACES, column_terms=COLUMN_TERMS
+    )
 
     assert any("gross_revenue_dev: no glossary tag" in p for p in problems)
     assert any("gross_revenue_dev: no extension olfContentHash" in p for p in problems)
@@ -406,7 +420,12 @@ def test_the_e2e_check_does_not_demand_a_glossary_tag_of_a_metric_with_no_term(o
     untagged = {key: () for key in COLUMN_TERMS}
 
     problems = semantic_problems(
-        client, [_model()], stage="dev", gold_schema_fqns={"sales_core": SCHEMA}, column_terms=untagged
+        client,
+        [_model()],
+        stage="dev",
+        gold_schema_fqns={"sales_core": SCHEMA},
+        gold_namespaces=NAMESPACES,
+        column_terms=untagged,
     )
 
     assert not any("glossary tag" in p for p in problems)
@@ -430,10 +449,22 @@ def test_the_e2e_check_compares_metric_owners_with_the_products_and_allows_none(
     client.request = om.request  # type: ignore[method-assign]
     gold = {"sales_core": SCHEMA}
 
-    assert semantic_problems(client, [_model()], stage="dev", gold_schema_fqns=gold, column_terms=COLUMN_TERMS) == []
+    assert (
+        semantic_problems(
+            client,
+            [_model()],
+            stage="dev",
+            gold_schema_fqns=gold,
+            gold_namespaces=NAMESPACES,
+            column_terms=COLUMN_TERMS,
+        )
+        == []
+    )
 
     om.entities["dataProducts"]["sales_core"]["owners"] = [{"id": "team-1", "type": "team"}]
-    problems = semantic_problems(client, [_model()], stage="dev", gold_schema_fqns=gold, column_terms=COLUMN_TERMS)
+    problems = semantic_problems(
+        client, [_model()], stage="dev", gold_schema_fqns=gold, gold_namespaces=NAMESPACES, column_terms=COLUMN_TERMS
+    )
     assert any("net_revenue_dev: owners differ" in p for p in problems)
 
 
@@ -445,3 +476,23 @@ def test_constraints_that_cannot_be_published_yet_are_unresolved_in_the_drift_re
 
     assert [(d.entity, d.fqn) for d in unresolved] == [("table", f"{SCHEMA}.fct_order_lines")]
     assert "lacks column(s)" in unresolved[0].detail
+
+
+def test_logical_dataset_schemas_resolve_through_the_contracts_stage_prefixed_physical_schema() -> None:
+    physical = "aws_glue.lakehouse_dev.lakehouse_dev_sales_core_gold"
+    fake = FakeWithMetrics()
+    fake.seed("domains", "sales", {})
+    fake.seed("dataProducts", "sales_core", {})
+    for name, columns in TABLES.items():
+        fake.seed("tables", f"{physical}.{name}", {"columns": [{"name": c} for c in columns]})
+    config = dataclasses.replace(_config(), catalog_gold_schema_fqns={"sales_core": physical})
+    reconciler = MetadataReconciler(config, OpenMetadataClient("http://x"), revision="abc")
+    reconciler.client.request = fake.request  # type: ignore[method-assign]
+    publisher = SemanticPublisher(
+        reconciler, config, [_model()], {}, {"sales_core": "sales"}, NAMESPACES, progress=SILENT
+    )
+
+    publisher.publish()
+
+    assert len(fake.edges) == 2
+    assert fake.entities["tables"][f"{physical}.fct_order_lines"]["tableConstraints"]

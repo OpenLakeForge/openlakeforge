@@ -762,6 +762,7 @@ class MetadataDeployer:
                 for column, terms in inventory.column_terms(product.id).items()
             },
             domain_of,
+            {product.id: product.gold_namespace for product in inventory.products},
             progress=self.progress,
         )
 

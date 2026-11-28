@@ -37,12 +37,13 @@ def semantic_problems(
     *,
     stage: str,
     gold_schema_fqns: Mapping[str, str],
+    gold_namespaces: Mapping[str, str],
     column_terms: Mapping[tuple[str, str], Sequence[str]],
 ) -> list[str]:
     """What the published metrics, lineage and constraints of `stage` lack against `models`."""
     problems: list[str] = []
     # A dataset may read a public model of a product this one depends on, so each resolves by its own schema.
-    schemas = {fqn.rpartition(".")[2]: fqn for fqn in gold_schema_fqns.values()}
+    schemas = {namespace: gold_schema_fqns[product] for product, namespace in gold_namespaces.items()}
     for model in models:
         tables = {
             dataset.name: _get(client, "tables", f"{schemas[dataset.schema]}.{dataset.table}", "tableConstraints")
@@ -143,6 +144,7 @@ def check_openmetadata_semantic_publication(cfg: E2EConfig) -> None:
                 cfg.inventory.semantic_inventory.models,
                 stage=stage,
                 gold_schema_fqns=gold_schemas,
+                gold_namespaces={product.id: product.gold_namespace for product in cfg.inventory.products},
                 column_terms=column_terms,
             )
             repeat = redeploy_writes(environ, client, project=_project(cfg), **login)
