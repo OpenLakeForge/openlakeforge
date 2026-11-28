@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import urllib.parse
 from collections.abc import Mapping
 from typing import Any
@@ -37,7 +38,7 @@ class FakeOpenMetadata:
             "version": 0.1,
             "updatedBy": "admin",
             "href": f"http://localhost:8585/api/v1/{collection}/{entity_id}",
-            **entity,
+            **copy.deepcopy(entity),
         }
         self.entities.setdefault(collection, {})[fqn] = stored
         return stored
@@ -118,10 +119,11 @@ class FakeOpenMetadata:
                 *parents, leaf = op["path"].strip("/").split("/")
                 node = entity
                 for key in parents:
-                    node = node.setdefault(key, {})
+                    # RFC 6902: only the last member of an `add` is created; a missing parent is an error.
+                    node = node[key]
                 if op["op"] == "remove":
                     node.pop(leaf)
                 else:
-                    node[leaf] = op["value"]
+                    node[leaf] = copy.deepcopy(op["value"])
             return entity
         raise AssertionError(f"unhandled request {method} {path}")
