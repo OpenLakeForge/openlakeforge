@@ -2,8 +2,10 @@
 
 Statistics are not fields of the table entity in 1.13.6: `GET /tables/name/<fqn>?fields=profile` returns none. They are
 time series read from `/tables/<table fqn>/tableProfile` and `/tables/<column fqn>/columnProfile`. A reader gets back
-only what the stored metric list allowed (a Confidential product has no min, max or mean), and `stale` is set for an
-absent or overdue profile, table or column, so a caller never presents old numbers as current.
+only what the stored metric list allowed (a Confidential product has no min, max or mean). `stale` is set for an
+absent or overdue table profile, or when any returned column row is overdue, so a caller never presents old numbers as
+current. A column with no row at all carries no numbers (`profiled_at` None) and does not by itself make the table
+stale.
 """
 
 from __future__ import annotations
