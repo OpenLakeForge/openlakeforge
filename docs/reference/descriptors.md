@@ -313,10 +313,11 @@ person set in OpenMetadata stays.
 | `termsOfUse` | Custom property `olfTermsOfUse`, a JSON string | Data product |
 
 - A reference resolves to an existing OpenMetadata user or team by name. An
-  `owner` must be a team of type `Group`: OpenMetadata refuses the
-  Organization team. A reference that does not resolve, or an owner that is
-  not a Group team, fails the deploy before it writes anything, and the error
-  names the `governance.yml` path.
+  `owner` must be an existing user or a team of type `Group`: OpenMetadata
+  refuses the Organization team. `experts` must be users. A reference that
+  does not resolve, an owner team that is not a Group, or a team under
+  `experts` fails the deploy before it writes anything, and the error names
+  the `governance.yml` path.
 - `Tier` and `DataSensitivity` allow one value each, so a different value on
   a table is replaced; tags from any other classification stay. OpenLakeForge
   creates the `DataSensitivity` classification with `Public`, `Internal`,

@@ -734,15 +734,25 @@ class MetadataDeployer:
     def _resolve_people(self, domains: Sequence[DomainSpec]) -> dict[tuple[str, str], dict]:
         resolved: dict[tuple[str, str], dict] = {}
         for domain in domains:
-            entities = [(f"domains[{domain.name}]", domain.owner, domain.experts)] + [
-                (f"domains[{domain.name}].products[{p.id}]", p.owner, (*p.experts, *p.reviewers))
-                for p in domain.products
+            entities = [(f"domains[{domain.name}]", domain.owner, domain.experts, ())] + [
+                (f"domains[{domain.name}].products[{p.id}]", p.owner, p.experts, p.reviewers) for p in domain.products
             ]
-            for where, owner, others in entities:
-                for field, refs in (("owner", [owner] if owner else []), ("experts/reviewers", others)):
+            for where, owner, experts, reviewers in entities:
+                for field, refs in (
+                    ("owner", [owner] if owner else []),
+                    ("experts", experts),
+                    ("reviewers", reviewers),
+                ):
                     for ref in refs:
+                        path = f"governance.yml {where}.{field}"
+                        # OpenMetadata types `experts` as users, so a team would fail the PATCH after earlier writes.
+                        if field == "experts" and ref["type"] != "user":
+                            raise OpenMetadataError(
+                                f"{path}: {ref['type']} {ref['ref']!r} is not allowed; OpenMetadata experts must be "
+                                "users. Reference a user, or list the team under owner or reviewers."
+                            )
                         resolved[(ref["type"], ref["ref"])] = self._reconciler.resolve_reference(
-                            ref, where=f"governance.yml {where}.{field}", owner=field == "owner"
+                            ref, where=path, owner=field == "owner"
                         )
         return resolved
 

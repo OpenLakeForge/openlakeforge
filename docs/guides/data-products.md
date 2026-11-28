@@ -259,7 +259,8 @@ are metadata only.
 experts on the domain and data product pages, a Tier and a DataSensitivity tag
 on the product and on its Gold tables, and the lifecycle and terms of use as
 the custom properties `olfLifecycle` and `olfTermsOfUse`. An owner is an
-existing OpenMetadata team of type Group; create it in OpenMetadata first.
+existing OpenMetadata user or team of type Group, and experts are users;
+create them in OpenMetadata first.
 `classification` only labels data: it does not change who can read a table.
 [The descriptors reference](../reference/descriptors.md#what-appears-in-openmetadata)
 lists every field.

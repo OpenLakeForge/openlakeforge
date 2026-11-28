@@ -88,7 +88,12 @@ def tag_operations(current: Mapping[str, Any], wanted: Sequence[str]) -> list[di
     if not wanted:
         return []
     have = current.get("tags")
-    held = [tag for tag in have or [] if isinstance(tag, Mapping)]
+    # A glossary term has the same `<name>.<term>` shape; only classification labels are ours to compare or remove.
+    held = [
+        tag
+        for tag in have or []
+        if isinstance(tag, Mapping) and tag.get("source", "Classification") == "Classification"
+    ]
     classifications = {fqn.partition(".")[0] for fqn in wanted}
     operations: list[dict[str, Any]] = [
         {"op": "remove", "path": f"/tags/{index}"}

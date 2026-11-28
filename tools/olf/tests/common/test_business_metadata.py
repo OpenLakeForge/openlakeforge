@@ -158,3 +158,25 @@ def test_tag_operations_leave_other_classifications_and_derived_tags_alone() -> 
 
     assert [(op["op"], op["path"]) for op in operations] == [("remove", "/tags/1"), ("add", "/tags/-")]
     assert tag_operations(current, []) == []
+
+
+def test_a_glossary_term_that_shares_a_classification_name_is_not_ours_to_touch() -> None:
+    term = {"tagFQN": "Tier.Business", "source": "Glossary", "labelType": "Manual"}
+    lookalike = {"tagFQN": "Tier.Tier1", "source": "Glossary", "labelType": "Manual"}
+
+    operations = tag_operations({"tags": [term, lookalike]}, ["Tier.Tier1"])
+
+    assert [(op["op"], op["path"]) for op in operations] == [("add", "/tags/-")]
+
+
+def test_a_team_listed_as_expert_fails_before_any_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _fake()
+    monkeypatch.setattr(
+        "test_business_metadata.GOVERNANCE",
+        GOVERNANCE.replace("{type: user, ref: finance_analyst}", "{type: team, ref: sales_data}"),
+    )
+
+    with pytest.raises(OpenMetadataError, match=r"domains\[sales\]\.experts: team 'sales_data' is not allowed"):
+        _deploy(tmp_path, fake, monkeypatch)
+
+    assert fake.writes == []
