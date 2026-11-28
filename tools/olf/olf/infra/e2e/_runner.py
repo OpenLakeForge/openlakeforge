@@ -53,6 +53,7 @@ from olf.infra.e2e._quality_writer import check_quality_writer_permissions
 from olf.infra.e2e._rotation import check_secret_rotation
 from olf.infra.e2e._run_drilldown import check_failed_run_drilldown
 from olf.infra.e2e._secret_exposure import check_secret_exposure
+from olf.infra.e2e._semantic import check_openmetadata_semantic_publication
 from olf.infra.e2e._shell import (
     Checks,
     E2EConfig,
@@ -423,6 +424,9 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
             FullAssertion("OpenMetadata drift report", check_openmetadata_drift, layer="governance"),
             FullAssertion(
                 "OpenMetadata crawled descriptions", check_openmetadata_crawled_descriptions, layer="governance"
+            ),
+            FullAssertion(
+                "OpenMetadata semantic publication", check_openmetadata_semantic_publication, layer="governance"
             ),
             FullAssertion("OpenMetadata quality publication", check_quality_publication, layer="governance"),
             FullAssertion(

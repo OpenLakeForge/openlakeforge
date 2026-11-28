@@ -1,0 +1,445 @@
+"""Publishes a stage's Ossie semantic models to OpenMetadata 1.13.6 as Metrics, lineage and table constraints.
+
+What lands where is the table in `docs/reference/semantic-models.md`. Every write goes through the reconciler (create
+with the ownership marker, then PATCH only what differs), so a repeat deploy of the same revision writes nothing, and
+nothing is ever deleted: a metric removed from Git is reported as `stale` by `SemanticPublisher.drift`.
+
+OpenMetadata keeps one Metric namespace for every stage, so the stage is part of the metric's name and is recorded in
+its `olfStage` property.
+"""
+
+from __future__ import annotations
+
+import html
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from openlakeforge_core import Glossary, SemanticDataset, SemanticMetric, SemanticModel
+
+from .drift import CHANGED, MISSING, STALE, UNRESOLVED, DriftItem, stage_of
+from .openmetadata import OpenMetadataError, fqn_part
+from .ownership import MARKER_DESCRIPTION, MARKER_PROPERTY, marker_of, patch_operations
+from .progress import SILENT, Progress
+
+if TYPE_CHECKING:
+    from .governance import MetadataConfig, MetadataReconciler
+
+__all__ = ["SemanticPublisher", "metric_type", "metric_name", "glossary_term_for"]
+
+METRIC_FIELDS = "owners,tags,domains,dataProducts,extension"
+STAGE_PROPERTY = "olfStage"
+# The custom properties a Metric carries besides the ownership marker: where the definition came from, and the
+# `ai_context` OpenMetadata has no native field for (the agent read API serves it whole).
+METRIC_PROPERTIES = {
+    MARKER_PROPERTY: MARKER_DESCRIPTION,
+    STAGE_PROPERTY: "The stage whose deploy published this metric.",
+    "olfOssieVersion": "Apache Ossie version of the semantic model the metric is defined in.",
+    "olfSourceFile": "The semantic model file in the project, relative to lakehouse_code/'s parent.",
+    "olfContentHash": "`sha256:` and the hash of that file's bytes.",
+    "olfAiInstructions": "The metric's Ossie ai_context instructions.",
+    "olfAiSynonyms": "The metric's Ossie ai_context synonyms, comma separated.",
+}
+# Outer aggregates a Metric type exists for; any other expression (a ratio, a CASE, two aggregates) is OTHER.
+_AGGREGATES = {
+    "SUM": "SUM",
+    "COUNT": "COUNT",
+    "AVG": "AVERAGE",
+    "MIN": "MIN",
+    "MAX": "MAX",
+    "MEDIAN": "MEDIAN",
+    "STDDEV": "STANDARD_DEVIATION",
+    "STDDEV_SAMP": "STANDARD_DEVIATION",
+    "STDDEV_POP": "STANDARD_DEVIATION",
+    "VARIANCE": "VARIANCE",
+    "VAR_SAMP": "VARIANCE",
+    "VAR_POP": "VARIANCE",
+}
+_CALL = re.compile(r"\s*([A-Za-z_]+)\s*\(")
+_OLF_CONSTRAINTS = ("PRIMARY_KEY", "UNIQUE", "FOREIGN_KEY")
+
+
+def metric_type(expression: str) -> str:
+    """The OpenMetadata `metricType` of an expression: its outer aggregate, or OTHER when it is not one call."""
+    call = _CALL.match(expression)
+    if not call or call.group(1).upper() not in _AGGREGATES:
+        return "OTHER"
+    depth = 0
+    quoted = False
+    for index in range(call.end() - 1, len(expression)):
+        char = expression[index]
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+            if depth == 0:
+                return _AGGREGATES[call.group(1).upper()] if not expression[index + 1 :].strip() else "OTHER"
+    return "OTHER"
+
+
+def metric_name(metric: SemanticMetric, stage: str) -> str:
+    return f"{metric.name}_{stage}"
+
+
+def glossary_term_for(metric: SemanticMetric, glossaries: Sequence[Glossary]) -> str | None:
+    """The `<glossary>.<Term>` a metric is tagged with. Ossie 0.1.1 has no term field, so OLF's convention is that
+    a metric named `net_revenue` is the glossary term `NetRevenue`."""
+    wanted = "".join(part.capitalize() for part in metric.name.split("_"))
+    return next((term.fqn for glossary in glossaries for term in glossary.terms if term.name == wanted), None)
+
+
+def _ref(entity: Mapping[str, Any], kind: str) -> dict[str, str]:
+    return {"id": entity["id"], "type": kind}
+
+
+def _tag(term_fqn: str) -> dict[str, str]:
+    return {"tagFQN": term_fqn, "source": "Glossary", "labelType": "Manual", "state": "Confirmed"}
+
+
+def _constraint_key(constraint: Mapping[str, Any]) -> tuple[Any, ...]:
+    return (
+        constraint.get("constraintType"),
+        tuple(constraint.get("columns") or ()),
+        tuple(constraint.get("referredColumns") or ()),
+        constraint.get("relationshipType"),
+    )
+
+
+@dataclass(frozen=True)
+class _Plan:
+    """Everything one metric needs, resolved against what OpenMetadata holds."""
+
+    model: SemanticModel
+    metric: SemanticMetric
+    fqn: str
+    create: Mapping[str, Any]
+    owned: Mapping[str, Any]
+    extension: Mapping[str, str]
+    expression: Mapping[str, str]
+    tag: str | None
+    sources: tuple[tuple[str, str], ...]
+
+
+class SemanticPublisher:
+    def __init__(
+        self,
+        reconciler: MetadataReconciler,
+        config: MetadataConfig,
+        models: Sequence[SemanticModel],
+        glossaries: Sequence[Glossary],
+        domain_of: Mapping[str, str],
+        *,
+        progress: Progress = SILENT,
+    ):
+        self._reconciler = reconciler
+        self._client = reconciler.client
+        self._config = config
+        self._models = tuple(models)
+        self._glossaries = tuple(glossaries)
+        self._domain_of = domain_of
+        self._stage = stage_of(config)
+        self._progress = progress
+        self._gold_schemas = {fqn.rpartition(".")[2]: fqn for fqn in config.catalog_gold_schema_fqns.values()}
+
+    # --- resolving ---------------------------------------------------------------------------------------------
+
+    def _table_fqn(self, dataset: SemanticDataset) -> str | None:
+        schema = self._gold_schemas.get(dataset.schema)
+        return f"{schema}.{dataset.table}" if schema else None
+
+    def _plans(self) -> tuple[list[_Plan], list[DriftItem]]:
+        plans: list[_Plan] = []
+        unresolved: list[DriftItem] = []
+        for model in self._models:
+            domain = self._reconciler.lookup("domains", self._domain_of.get(model.product, ""))
+            product = self._reconciler.lookup("dataProducts", model.product, "owners,domains,extension")
+            if domain is None or product is None:
+                what = "domain" if domain is None else "data product"
+                for metric in model.metrics:
+                    detail = f"{what} of product {model.product!r} not found in OpenMetadata"
+                    unresolved.append(
+                        DriftItem(UNRESOLVED, "metric", metric_name(metric, self._stage), self._stage, detail)
+                    )
+                continue
+            datasets = {dataset.name: dataset for dataset in model.datasets}
+            for metric in model.metrics:
+                plans.append(self._plan(model, metric, datasets, domain, product))
+        return plans, unresolved
+
+    def _plan(
+        self,
+        model: SemanticModel,
+        metric: SemanticMetric,
+        datasets: Mapping[str, SemanticDataset],
+        domain: Mapping[str, Any],
+        product: Mapping[str, Any],
+    ) -> _Plan:
+        name = metric_name(metric, self._stage)
+        kind = metric_type(metric.expression)
+        owners = [_ref(owner, owner.get("type", "team")) for owner in product.get("owners") or []]
+        term = glossary_term_for(metric, self._glossaries)
+        expression = {"language": "SQL", "code": metric.expression}
+        ai = metric.ai_context
+        extension = {
+            STAGE_PROPERTY: self._stage,
+            "olfOssieVersion": model.version,
+            "olfSourceFile": model.file,
+            "olfContentHash": model.content_hash,
+            **({"olfAiInstructions": ai.instructions} if ai and ai.instructions else {}),
+            **({"olfAiSynonyms": ", ".join(ai.synonyms)} if ai and ai.synonyms else {}),
+        }
+        display = f"{metric.name.replace('_', ' ').capitalize()} ({self._stage})"
+        owned = {
+            "displayName": display,
+            "description": metric.description,
+            "metricType": kind,
+            "owners": owners,
+            "domains": [_ref(domain, "domain")],
+            "dataProducts": [_ref(product, "dataProduct")],
+        }
+        create = {
+            "name": name,
+            "displayName": display,
+            "description": metric.description,
+            "metricExpression": expression,
+            "metricType": kind,
+            "owners": owners,
+            "domains": [domain["fullyQualifiedName"]],
+            "dataProducts": [product["fullyQualifiedName"]],
+        }
+        sources = []
+        for dataset_name, _field in metric.references:
+            table = datasets[dataset_name] if dataset_name in datasets else None
+            fqn = self._table_fqn(table) if table else None
+            if fqn and (dataset_name, fqn) not in sources:
+                sources.append((dataset_name, fqn))
+        return _Plan(model, metric, name, create, owned, extension, expression, term, tuple(sources))
+
+    def _term_tag(self, plan: _Plan) -> str | None:
+        """The plan's glossary term when OpenMetadata holds it; a tag naming a missing term would be refused."""
+        if plan.tag is None:
+            return None
+        if self._reconciler.lookup("glossaryTerms", plan.tag, "") is None:
+            self._progress.warn(
+                f"Metric {plan.fqn}: glossary term {plan.tag} is not in OpenMetadata yet; the metric is published "
+                "without its glossary tag and is tagged by the next deploy once the glossary is published."
+            )
+            return None
+        return plan.tag
+
+    @staticmethod
+    def _extra_operations(current: Mapping[str, Any], plan: _Plan, tag: str | None) -> list[dict[str, Any]]:
+        """The expression and glossary tag, which the generic patch cannot compare: the server escapes the code's
+        quotes and adds display fields to each tag."""
+        operations: list[dict[str, Any]] = []
+        have = current.get("metricExpression") or {}
+        if have.get("language") != "SQL" or html.unescape(have.get("code") or "") != plan.expression["code"]:
+            operations.append(
+                {"op": "replace" if have else "add", "path": "/metricExpression", "value": dict(plan.expression)}
+            )
+        tags = current.get("tags") or []
+        if tag and tag not in {held.get("tagFQN") for held in tags}:
+            operations.append(
+                {"op": "add", "path": "/tags/-" if tags else "/tags", "value": _tag(tag) if tags else [_tag(tag)]}
+            )
+        return operations
+
+    # --- publishing --------------------------------------------------------------------------------------------
+
+    def ensure_properties(self) -> None:
+        """Define the custom properties a Metric carries; writes only the ones missing."""
+        client = self._client
+        definition = client.request("GET", "/api/v1/metadata/types/name/metric", params={"fields": "customProperties"})
+        held = {prop.get("name") for prop in definition.get("customProperties") or []}
+        string_type_id = ""
+        for name, description in METRIC_PROPERTIES.items():
+            if name in held:
+                continue
+            string_type_id = string_type_id or client.request("GET", "/api/v1/metadata/types/name/string")["id"]
+            client.request(
+                "PUT",
+                f"/api/v1/metadata/types/{definition['id']}",
+                json_body={
+                    "name": name,
+                    "description": description,
+                    "propertyType": {"id": string_type_id, "type": "type"},
+                },
+                ok_statuses=(200, 201),
+            )
+            self._progress.info(f"Defined the {name} custom property on metric")
+
+    def publish(self) -> None:
+        for model in self._models:
+            self._report_unsupported(model)
+        plans, unresolved = self._plans()
+        if unresolved:
+            raise OpenMetadataError("\n".join(item.line() for item in unresolved))
+        if not self._models:
+            return
+        self.ensure_properties()
+        for plan in plans:
+            self._publish_metric(plan)
+        for model in self._models:
+            self._publish_constraints(model)
+
+    def _publish_metric(self, plan: _Plan) -> None:
+        tag = self._term_tag(plan)
+        create = {**plan.create, **({"tags": [_tag(tag)]} if tag else {})}
+        entity = self._reconciler.reconcile(
+            "metrics", plan.fqn, create, plan.owned, fields=METRIC_FIELDS, extension=plan.extension
+        )
+        operations = self._extra_operations(entity, plan, tag)
+        if operations:
+            self._client.request(
+                "PATCH",
+                f"/api/v1/metrics/{entity['id']}",
+                json_body=operations,
+                content_type="application/json-patch+json",
+            )
+        self._progress.info(f"Reconciled OpenMetadata metric: {plan.fqn}")
+        for _dataset, table_fqn in plan.sources:
+            table = self._reconciler.lookup("tables", table_fqn, "")
+            if table is None:
+                self._progress.warn(f"Metric {plan.fqn}: table {table_fqn} is not in OpenMetadata yet; no lineage.")
+            elif self._lineage_missing(entity["id"], table["id"]):
+                self._client.request(
+                    "PUT",
+                    "/api/v1/lineage",
+                    json_body={
+                        "edge": {
+                            "fromEntity": {"id": table["id"], "type": "table"},
+                            "toEntity": {"id": entity["id"], "type": "metric"},
+                            "lineageDetails": {"source": "Manual", "description": "computed from"},
+                        }
+                    },
+                )
+
+    def _lineage_missing(self, metric_id: str, table_id: str) -> bool:
+        graph = self._client.request(
+            "GET", f"/api/v1/lineage/metric/{metric_id}", params={"upstreamDepth": 1, "downstreamDepth": 0}
+        )
+        held = {edge.get("fromEntity") for edge in graph.get("upstreamEdges") or []}
+        return table_id not in held
+
+    # --- constraints -------------------------------------------------------------------------------------------
+
+    def _wanted_constraints(self, model: SemanticModel) -> dict[str, list[dict[str, Any]]]:
+        """Table FQN -> the key constraints Ossie declares on it. Ossie relationships become FOREIGN_KEY here and are
+        never published as lineage."""
+        tables = {dataset.name: self._table_fqn(dataset) for dataset in model.datasets}
+        wanted: dict[str, list[dict[str, Any]]] = {}
+        for dataset in model.datasets:
+            fqn = tables[dataset.name]
+            if fqn is None:
+                continue
+            found = wanted.setdefault(fqn, [])
+            if dataset.primary_key:
+                found.append({"constraintType": "PRIMARY_KEY", "columns": list(dataset.primary_key)})
+            found += [{"constraintType": "UNIQUE", "columns": list(key)} for key in dataset.unique_keys]
+        for relationship in model.relationships:
+            source, target = tables.get(relationship.from_dataset), tables.get(relationship.to_dataset)
+            if source and target:
+                wanted.setdefault(source, []).append(
+                    {
+                        "constraintType": "FOREIGN_KEY",
+                        "columns": list(relationship.from_columns),
+                        "referredColumns": [f"{target}.{fqn_part(column)}" for column in relationship.to_columns],
+                        "relationshipType": "MANY_TO_ONE",
+                    }
+                )
+        return {fqn: constraints for fqn, constraints in wanted.items() if constraints}
+
+    def _constraint_operations(self, table: Mapping[str, Any], wanted: Sequence[Mapping[str, Any]]) -> list[dict]:
+        held = table.get("tableConstraints") or []
+        ours = [c for c in held if c.get("constraintType") in _OLF_CONSTRAINTS]
+        if {_constraint_key(c) for c in ours} == {_constraint_key(c) for c in wanted} and len(ours) == len(wanted):
+            return []
+        # Keys are OLF's on a Gold table; sort and cluster keys a person set stay.
+        kept = [c for c in held if c.get("constraintType") not in _OLF_CONSTRAINTS]
+        return [{"op": "replace" if held else "add", "path": "/tableConstraints", "value": [*kept, *wanted]}]
+
+    def _constrained_tables(self, model: SemanticModel) -> list[tuple[str, Mapping[str, Any], list[dict]]]:
+        """Each declared table OpenMetadata holds with its crawled columns, and the constraints to write on it."""
+        found = []
+        for fqn, wanted in self._wanted_constraints(model).items():
+            table = self._reconciler.lookup("tables", fqn, "tableConstraints,columns")
+            columns = {str(column["name"]).lower() for column in (table or {}).get("columns") or []}
+            used = {c.lower() for constraint in wanted for c in constraint["columns"]}
+            if table is None or not used <= columns:
+                reason = "is not in OpenMetadata yet" if table is None else f"lacks column(s) {sorted(used - columns)}"
+                self._progress.warn(f"Table {fqn} {reason}; its Ossie key constraints are not published yet.")
+                continue
+            found.append((fqn, table, wanted))
+        return found
+
+    def _publish_constraints(self, model: SemanticModel) -> None:
+        for fqn, table, wanted in self._constrained_tables(model):
+            operations = self._constraint_operations(table, wanted)
+            if operations:
+                self._client.request(
+                    "PATCH",
+                    f"/api/v1/tables/{table['id']}",
+                    json_body=operations,
+                    content_type="application/json-patch+json",
+                )
+                self._progress.info(f"Reconciled OpenMetadata table constraints: {fqn}")
+
+    # --- reporting ---------------------------------------------------------------------------------------------
+
+    def _report_unsupported(self, model: SemanticModel) -> None:
+        """What the model declares that OpenMetadata has no field for, so it is not silently dropped."""
+        with_context: list[Any] = [model, *model.datasets, *model.relationships]
+        with_context += [f for d in model.datasets for f in d.fields]
+        counts = {
+            "ai_context on the model, datasets, fields and relationships": sum(
+                bool(i.ai_context) for i in with_context
+            ),
+            "time dimensions (is_time)": sum(f.is_time for d in model.datasets for f in d.fields),
+            "field labels": sum(bool(f.label) for d in model.datasets for f in d.fields),
+        }
+        left_out = [f"{count} {what}" for what, count in counts.items() if count]
+        if left_out:
+            self._progress.info(
+                f"Semantic model {model.name} ({model.file}): not published to OpenMetadata, served by the agent API: "
+                + "; ".join(left_out)
+            )
+
+    # --- drift -------------------------------------------------------------------------------------------------
+
+    def drift(self) -> list[DriftItem]:
+        """What differs between the semantic models in Git and this stage's metrics, lineage and constraints."""
+        stage = self._stage
+        plans, items = self._plans()
+        declared = {plan.fqn for plan in plans}
+        for plan in plans:
+            current = self._reconciler.lookup("metrics", plan.fqn, METRIC_FIELDS)
+            if current is None:
+                items.append(DriftItem(MISSING, "metric", plan.fqn, stage))
+                continue
+            fields = [
+                op["path"].lstrip("/")
+                for op in patch_operations(current, {**plan.owned, "extension": {**plan.extension}})
+            ]
+            if marker_of(current) is None:
+                fields.append(MARKER_PROPERTY)
+            tag = plan.tag if plan.tag and self._reconciler.lookup("glossaryTerms", plan.tag, "") else None
+            fields += [op["path"].split("/")[1] for op in self._extra_operations(current, plan, tag)]
+            for _dataset, table_fqn in plan.sources:
+                table = self._reconciler.lookup("tables", table_fqn, "")
+                if table and self._lineage_missing(current["id"], table["id"]):
+                    fields.append(f"lineage from {table_fqn}")
+            if fields:
+                items.append(DriftItem(CHANGED, "metric", plan.fqn, stage, ", ".join(dict.fromkeys(fields))))
+        for model in self._models:
+            for fqn, table, wanted in self._constrained_tables(model):
+                if self._constraint_operations(table, wanted):
+                    items.append(DriftItem(CHANGED, "table", fqn, stage, "tableConstraints"))
+        for found in self._client.list_entities("/api/v1/metrics", {"fields": "extension"}):
+            fqn = found.get("fullyQualifiedName") or found["name"]
+            held_extension = found.get("extension") or {}
+            if marker_of(found) and held_extension.get(STAGE_PROPERTY) == stage and fqn not in declared:
+                items.append(DriftItem(STALE, "metric", fqn, stage, "marked as OpenLakeForge-managed, absent from Git"))
+        return items

@@ -35,6 +35,7 @@ from .progress import SILENT, Progress
 
 if TYPE_CHECKING:
     from .drift import DriftItem
+    from .semantic_publish import SemanticPublisher
 
 
 @dataclass
@@ -217,18 +218,21 @@ class MetadataReconciler:
         owned: Mapping[str, Any],
         *,
         fields: str = "extension",
+        extension: Mapping[str, str] | None = None,
     ) -> Mapping[str, Any]:
         """Create the entity with its marker, or PATCH the fields in `owned` that differ; nothing when equal.
 
         `create` is the full creation body; `owned` is what OLF keeps in step afterwards, in the shape a read
-        returns. A 409 on create means the crawler or a concurrent deploy got there first, so it is patched.
+        returns. `extension` is the custom properties OLF sets besides the marker. A 409 on create means the
+        crawler or a concurrent deploy got there first, so it is patched.
         """
+        marked = {**self._marker, **(extension or {})}
         current = self.lookup(collection, fqn, fields)
         if current is None:
             created = self.client.request(
                 "POST",
                 f"/api/v1/{collection}",
-                json_body={**create, "extension": self._marker},
+                json_body={**create, "extension": marked},
                 ok_statuses=(200, 201, 409),
             )
             if created.get("id"):
@@ -236,7 +240,7 @@ class MetadataReconciler:
             current = self.lookup(collection, fqn, fields)
             if current is None:
                 raise OpenMetadataError(f"OpenMetadata refused to create {collection} {fqn!r} and does not hold it.")
-        operations = patch_operations(current, {**owned, "extension": self._marker})
+        operations = patch_operations(current, {**owned, "extension": marked})
         if operations:
             self.client.request(
                 "PATCH",
@@ -584,6 +588,31 @@ class MetadataDeployer:
             )
         return domains
 
+    def _semantic_publisher(self, domains: Sequence[DomainSpec]) -> SemanticPublisher:
+        """The publisher for the Ossie models under `semantic/`; a model that breaks a rule stops the deploy."""
+        from .semantic_publish import SemanticPublisher
+
+        lakehouse_path, *source_paths = self.domain_files()
+        try:
+            inventory = load_lakehouse_inventory_from_descriptors(lakehouse_path, source_paths)
+            semantic = inventory.semantic_inventory
+        except LakehouseDescriptorError as exc:
+            raise OpenMetadataError(str(exc)) from exc
+        errors = [d for d in semantic.diagnostics if d.severity == "error"]
+        if errors:
+            raise OpenMetadataError("Semantic models are invalid:\n" + "\n".join(f"  {d}" for d in errors))
+        for diagnostic in semantic.diagnostics:
+            self.progress.warn(str(diagnostic))
+        domain_of = {product.id: domain.name for domain in domains for product in domain.products}
+        return SemanticPublisher(
+            self._reconciler,
+            self.config,
+            semantic.models,
+            inventory.glossaries,
+            domain_of,
+            progress=self.progress,
+        )
+
     def drift(self) -> list[DriftItem]:
         """What differs between Git and OpenMetadata for this stage; reads only (see `drift.detect_drift`)."""
         from .drift import detect_drift
@@ -594,7 +623,9 @@ class MetadataDeployer:
         containers = [{**c, "parent_fqn": None} for c in self.storage_bucket_specs()] + list(
             self.bronze_container_specs(domains)
         )
-        return detect_drift(self._reconciler, self.config, domains, containers)
+        items = detect_drift(self._reconciler, self.config, domains, containers)
+        items += self._semantic_publisher(domains).drift()
+        return sorted(items, key=lambda item: (item.stage, item.entity, item.fqn, item.kind))
 
     def deploy(self) -> None:
         self.wait_for_openmetadata()
@@ -672,6 +703,9 @@ class MetadataDeployer:
                 self.progress.info(
                     f"OpenMetadata data product {product_body['name']} holds {len(refs)} asset(s); attached {added}"
                 )
+
+        # Metrics, their lineage and the key constraints need the products and Gold tables reconciled above.
+        self._semantic_publisher(domains).publish()
 
         if missing_assets:
             message = "\n".join(f"  - {fqn}" for fqn in sorted(set(missing_assets)))
