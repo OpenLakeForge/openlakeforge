@@ -167,6 +167,10 @@ def detect_drift(
     for domain in domains:
         for product in domain.products:
             items += [
+                DriftItem(UNRESOLVED, "gold model", problem, stage, "no resolvable role")
+                for problem in product.role_problems
+            ]
+            items += [
                 DriftItem(CHANGED, "data product", product.id, SHARED, detail)
                 for detail in consumes_from_drift(reconciler, product.id, product.consumes_from)
             ]

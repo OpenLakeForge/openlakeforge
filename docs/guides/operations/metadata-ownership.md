@@ -11,9 +11,9 @@ only the fields in the middle column and leaves the rest alone.
 | Entity | Written by `olf infra openmetadata deploy-metadata` (Git) | Never touched by a deploy |
 | --- | --- | --- |
 | Domain | `displayName`, `description`, `domainType` | owners, tags, conversations, followers |
-| Data product | `displayName`, `description`, its assets (the tables under its Gold schema), the domain it is created in | tags, owners, manually attached assets |
+| Data product | `displayName`, `description`, its assets (the tables under its Gold schema), its `consumesFrom` edges, the domain it is created in | tags, owners, manually attached assets |
 | Database schema (Silver, Gold) | the domain it belongs to | tags, owners, description |
-| Table | created empty if absent | columns (Trino crawl), lineage (OpenLineage), quality results, tags |
+| Table | created empty if absent; on Gold tables, the `GoldRole` tag and the product's tags | columns (Trino crawl), lineage (OpenLineage), quality results, other tags |
 | Storage service and containers | display name, S3 region and endpoint; container `description` | everything else |
 
 Columns come from the Trino crawl, lineage from the pipelines' OpenLineage events, and quality results from the

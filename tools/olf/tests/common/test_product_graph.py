@@ -248,3 +248,26 @@ def test_the_live_check_passes_on_a_deployed_graph_and_names_what_is_missing(
         assert_openmetadata_product_graph(client, inventory, **kwargs)
     assert "order_revenue does not consume from sales_core" in str(raised.value)
     assert f"{CORE}.dim_account lacks GoldRole.Dimension" in str(raised.value)
+
+
+def test_a_model_without_a_role_is_deployed_untagged_with_a_warning_and_drift_names_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _crawled()
+    deployer = _deployer(tmp_path, fake, monkeypatch)
+    (tmp_path / "gold" / "models" / "sales_core" / "orders.sql").write_text("select 1")
+    fake.seed("tables", f"{CORE}.orders", {"columns": []})
+
+    deployer.deploy()
+    unresolved = [item for item in deployer.drift() if item.kind == "unresolved"]
+
+    assert not _tags(fake, f"{CORE}.orders")
+    warnings = [message for level, message in deployer.progress.messages if level == "warn"]
+    assert any("deployed untagged: sales_core.orders: no role" in message for message in warnings)
+    assert [(item.entity, item.fqn) for item in unresolved] == [
+        (
+            "gold model",
+            "sales_core.orders: no role; name it fct_, dim_ or mart_, "
+            "or set meta.openlakeforge.role in its schema.yml entry",
+        )
+    ]

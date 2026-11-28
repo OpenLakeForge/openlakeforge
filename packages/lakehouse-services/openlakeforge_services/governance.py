@@ -115,6 +115,8 @@ class ProductSpec:
     classification: str | None = None
     consumes_from: tuple[str, ...] = ()
     gold_roles: Mapping[str, str] = dataclass_field(default_factory=dict)
+    # Gold models whose role cannot be resolved; `olf check contracts` refuses them, a deploy only reports them.
+    role_problems: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -707,7 +709,7 @@ class MetadataDeployer:
                 resource_descriptions[(source_document["name"], resource["name"])] = resource.get("description", "")
         root = inventory.lakehouse_root
         producers = inventory.product_dependencies.producers_by_consumer
-        roles, _ = scan_gold_roles(root / "gold", [p.id for p in inventory.products])
+        roles, role_problems = scan_gold_roles(root / "gold", [p.id for p in inventory.products])
         domains: list[DomainSpec] = []
         for domain in load_governance_lakehouse_document(lakehouse_path)["domains"]:
             domain_entities = entities[domain["name"]]
@@ -734,6 +736,7 @@ class MetadataDeployer:
                     classification=product.get("classification"),
                     consumes_from=producers.get(product["id"], ()),
                     gold_roles=roles.get(product["id"], {}),
+                    role_problems=tuple(p for p in role_problems if p.startswith(f"{product['id']}.")),
                 )
                 for product in domain["products"]
             )
@@ -796,6 +799,9 @@ class MetadataDeployer:
 
         domains = self._domain_specs()
         self.validate_deployment_inputs(domains)
+        for product in (p for domain in domains for p in domain.products):
+            for problem in product.role_problems:
+                self.progress.warn(f"Gold model without a role, deployed untagged: {problem}")
         # Resolved before the first write: an owner that does not exist must fail the deploy with nothing changed.
         people = self._resolve_people(domains)
 

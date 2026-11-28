@@ -314,6 +314,19 @@ def assert_openmetadata_stage_lineage(
         raise E2EError(f"stage {stage}'s Gold tables have no upstream lineage in OpenMetadata: {missing}")
 
 
+def _attached_asset_ids(client: OpenMetadataClient, product: str) -> set[str]:
+    """Every asset id a data product holds, paged by offset until the listing's `total` (at most 1000 a page)."""
+    held: set[str] = set()
+    while True:
+        page = client.request(
+            "GET", f"/api/v1/dataProducts/name/{product}/assets", params={"limit": 1000, "offset": len(held)}
+        )
+        data = page.get("data") or []
+        held |= {asset["id"] for asset in data}
+        if not data or len(held) >= (page.get("paging") or {}).get("total", len(held)):
+            return held
+
+
 def assert_openmetadata_product_graph(
     client: OpenMetadataClient, inventory: LakehouseInventory, *, database_fqn: str, tables: Mapping[str, list[str]]
 ) -> None:
@@ -330,10 +343,7 @@ def assert_openmetadata_product_graph(
             if producer_id not in held:
                 problems.append(f"{consumer} does not consume from {producer}")
     for product, names in tables.items():
-        listing = client.request(
-            "GET", f"/api/v1/dataProducts/name/{product}/assets", params={"limit": 1000, "offset": 0}
-        )
-        attached = {asset["id"] for asset in listing.get("data") or ()}
+        attached = _attached_asset_ids(client, product)
         for name in names:
             fqn = f"{database_fqn}.{name}"
             table = client.request(
