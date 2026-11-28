@@ -28,7 +28,7 @@ from openlakeforge_core import (
     scan_gold_roles,
 )
 
-from .glossary_publish import GlossaryPublisher
+from .glossary_publish import GlossaryPublisher, om_fqns
 from .openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError, fqn_part
 from .ownership import (
     MARKED_ENTITY_TYPES,
@@ -43,6 +43,7 @@ from .progress import SILENT, Progress
 
 if TYPE_CHECKING:
     from .drift import DriftItem
+    from .semantic_publish import SemanticPublisher
 
 # `lifecycleStage` is ignored on write by OpenMetadata 1.13.6 (200, value unchanged), so the lifecycle and the
 # terms of use live in custom properties on the data product. See docs/testing/openmetadata-governance-findings.md.
@@ -757,6 +758,39 @@ class MetadataDeployer:
             )
         return domains
 
+    def _semantic_publisher(self, domains: Sequence[DomainSpec]) -> SemanticPublisher:
+        """The publisher for the Ossie models under `semantic/`; a model that breaks a rule stops the deploy."""
+        from .semantic_publish import SemanticPublisher
+
+        lakehouse_path, *source_paths = self.domain_files()
+        try:
+            inventory = load_lakehouse_inventory_from_descriptors(lakehouse_path, source_paths)
+            semantic = inventory.semantic_inventory
+        except LakehouseDescriptorError as exc:
+            raise OpenMetadataError(str(exc)) from exc
+        errors = [d for d in semantic.diagnostics if d.severity == "error"]
+        if errors:
+            raise OpenMetadataError("Semantic models are invalid:\n" + "\n".join(f"  {d}" for d in errors))
+        for diagnostic in semantic.diagnostics:
+            self.progress.warn(str(diagnostic))
+        domain_of = {product.id: domain.name for domain in domains for product in domain.products}
+        # The FQN OpenMetadata gives a term (parent terms included), not the `<glossary>.<Term>` Git references.
+        term_fqns = om_fqns(inventory.glossaries)
+        return SemanticPublisher(
+            self._reconciler,
+            self.config,
+            semantic.models,
+            # Every product's tagged columns: a model may read a public table of a product it depends on.
+            {
+                column: tuple(term_fqns[term.fqn] for term in terms)
+                for product in inventory.products
+                for column, terms in inventory.column_terms(product.id).items()
+            },
+            domain_of,
+            {product.id: product.gold_namespace for product in inventory.products},
+            progress=self.progress,
+        )
+
     def _resolve_people(self, domains: Sequence[DomainSpec]) -> dict[tuple[str, str], dict]:
         resolved: dict[tuple[str, str], dict] = {}
         for domain in domains:
@@ -795,6 +829,7 @@ class MetadataDeployer:
         items = detect_drift(self._reconciler, self.config, domains, containers)
         glossary = GlossaryPublisher.from_descriptors(self._reconciler, self.domain_files())
         items += detect_glossary_drift(self._reconciler, glossary.inventory, self.config)
+        items += self._semantic_publisher(domains).drift()
         return sorted(items, key=lambda item: (item.stage, item.entity, item.fqn, item.kind))
 
     def deploy(self) -> None:
@@ -810,6 +845,9 @@ class MetadataDeployer:
         people = self._resolve_people(domains)
         glossary = GlossaryPublisher.from_descriptors(self._reconciler, self.domain_files())
         glossary.resolve_owners()
+        # Likewise the semantic models: an invalid or colliding one must fail the deploy with nothing changed.
+        semantic = self._semantic_publisher(domains)
+        semantic.validate()
 
         # Every write below reads first and changes only what differs, so a
         # second deploy of the same revision writes nothing. Nothing is deleted.
@@ -925,6 +963,8 @@ class MetadataDeployer:
                     )
 
         glossary.log_report()
+        # Metrics, their lineage and the key constraints need the products and Gold tables reconciled above.
+        semantic.publish()
 
         if missing_assets:
             message = "\n".join(f"  - {fqn}" for fqn in sorted(set(missing_assets)))

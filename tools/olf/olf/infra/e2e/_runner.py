@@ -54,6 +54,7 @@ from olf.infra.e2e._quality_writer import check_quality_writer_permissions
 from olf.infra.e2e._rotation import check_secret_rotation
 from olf.infra.e2e._run_drilldown import check_failed_run_drilldown
 from olf.infra.e2e._secret_exposure import check_secret_exposure
+from olf.infra.e2e._semantic import check_openmetadata_semantic_publication
 from olf.infra.e2e._shell import (
     Checks,
     E2EConfig,
@@ -419,6 +420,9 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
             FullAssertion("OpenMetadata governance assets", check_openmetadata_assets, layer="governance"),
             FullAssertion("OpenMetadata glossary publication", check_glossary_publication, layer="governance"),
+            FullAssertion(
+                "OpenMetadata semantic publication", check_openmetadata_semantic_publication, layer="governance"
+            ),
             FullAssertion(
                 "OpenMetadata redeploy writes nothing", check_openmetadata_redeploy_is_idempotent, layer="governance"
             ),
