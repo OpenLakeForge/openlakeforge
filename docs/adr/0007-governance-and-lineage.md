@@ -175,7 +175,12 @@ the hourly refresh as a CronJob per governed stage
 run the pinned `ingestion-base` image's `metadata ingest`, with the
 ingestion-bot JWT from a `secretKeyRef` and the `openmetadata` principal's
 Polaris token minted in the pod just before the crawl, so no token is in the
-Job spec or the service OpenMetadata stores. OpenMetadata registers no
+Job spec or the service OpenMetadata stores. The crawl sets
+`overrideMetadata: true`, so dbt owns table and column descriptions: each crawl
+refreshes them from the Trino comments `persist_docs` writes, and replaces a
+description edited in OpenMetadata. Glossary tags, table constraints and the
+columns a comment does not describe are left alone (probe,
+`docs/testing/openmetadata-governance-findings.md` section 5). OpenMetadata registers no
 ingestion pipeline for the lakehouse service, and the Job and its credential
 are revoked from a stage that drops governance. Enforced by:
 `run_trino_ingestion` in `tools/olf/olf/infra/openmetadata/_ingestion.py` and
@@ -252,3 +257,6 @@ are revoked from a stage that drops governance. Enforced by:
   OLF-owned Trino crawl Job, decided under ADR 0016 (#26, #471) and recorded
   only in its former History until now.
 - 2026-11-27 (#55): D4 records the ownership marker and patch-only writes.
+- 2026-11-28: D15 sets `overrideMetadata` on the crawl, so dbt owns table and
+  column descriptions; before, a description changed only on a table's first
+  crawl.

@@ -21,7 +21,13 @@ from olf.common.project import ProjectSpec
 from olf.infra.deployment.cloud.cluster_name import aws_cluster_name
 from olf.infra.e2e._alerts import check_alert_delivery
 from olf.infra.e2e._artifacts import check_ops_artifacts
-from olf.infra.e2e._assertions import check_openmetadata_assets, check_superset_dashboards
+from olf.infra.e2e._assertions import (
+    check_openmetadata_assets,
+    check_openmetadata_crawled_descriptions,
+    check_openmetadata_drift,
+    check_openmetadata_redeploy_is_idempotent,
+    check_superset_dashboards,
+)
 from olf.infra.e2e._break_glass import check_break_glass
 from olf.infra.e2e._credential_preservation import check_credential_preservation
 from olf.infra.e2e._dagster import launch_and_poll_dagster_jobs
@@ -337,7 +343,17 @@ def run_smoke(cfg: E2EConfig) -> None:
     if cfg.env == "local":
         product = cfg.inventory.default_product
         log.step(f"Running smoke path for descriptor-selected product {product.id}...")
-        launch_and_poll_dagster_jobs(cfg, products=(product,))
+        # The product reads other products' public models, which only their own jobs build.
+        needed = {product.id}
+        pending = [product.id]
+        while pending:
+            for producer in cfg.inventory.product_dependencies.producers_by_consumer.get(pending.pop(), ()):
+                if producer not in needed:
+                    needed.add(producer)
+                    pending.append(producer)
+        launch_and_poll_dagster_jobs(
+            cfg, products=tuple(candidate for candidate in cfg.inventory.products if candidate.id in needed)
+        )
         check_trino_product_tables_and_marts(cfg, product)
         check_real_quality_evidence(cfg, product)
         # Slim is the profile that turns metrics off (ADR 0024); it does nothing on a deployment that has them.
@@ -401,6 +417,13 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         [
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
             FullAssertion("OpenMetadata governance assets", check_openmetadata_assets, layer="governance"),
+            FullAssertion(
+                "OpenMetadata redeploy writes nothing", check_openmetadata_redeploy_is_idempotent, layer="governance"
+            ),
+            FullAssertion("OpenMetadata drift report", check_openmetadata_drift, layer="governance"),
+            FullAssertion(
+                "OpenMetadata crawled descriptions", check_openmetadata_crawled_descriptions, layer="governance"
+            ),
             FullAssertion("OpenMetadata quality publication", check_quality_publication, layer="governance"),
             FullAssertion(
                 "OpenMetadata quality writer permissions", check_quality_writer_permissions, layer="governance"

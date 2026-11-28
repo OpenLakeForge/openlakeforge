@@ -43,9 +43,13 @@ def _git_revision(config: OpenMetadataConfig) -> str:
 class OpenMetadataDeployer(MetadataDeployer):
     config: OpenMetadataConfig
 
-    def __init__(self, config: OpenMetadataConfig, client: OpenMetadataClient):
+    def __init__(self, config: OpenMetadataConfig, client: OpenMetadataClient, *, revision: str | None = None):
         super().__init__(
-            config, client, rerun_hint=_RERUN_HINT, revision=_git_revision(config), progress=log
+            config,
+            client,
+            rerun_hint=_RERUN_HINT,
+            revision=_git_revision(config) if revision is None else revision,
+            progress=log,
         )
 
     def domain_files(self) -> list[Path]:

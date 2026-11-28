@@ -1,42 +1,13 @@
-with orders as (
-    select
-        order_id,
-        channel_id,
-        promotion_id,
-        region
-    from {{ source('sales', 'orders') }}
-    where status = 'fulfilled'
-),
-
-order_lines as (
-    select
-        order_id,
-        cast(quantity as integer) as quantity,
-        cast(unit_price as double) as unit_price,
-        cast(discount_amount as double) as discount_amount
-    from {{ source('sales', 'order_lines') }}
-),
-
-channels as (
-    select channel_id, channel_name, channel_type
-    from {{ source('sales', 'channels') }}
-),
-
-promotions as (
-    select promotion_id, promotion_name, discount_type
-    from {{ source('sales', 'promotions') }}
-)
-
 select
-    channels.channel_name,
-    channels.channel_type,
-    promotions.discount_type,
-    orders.region,
-    cast(count(distinct orders.order_id) as bigint) as order_count,
-    cast(sum(order_lines.quantity * order_lines.unit_price - order_lines.discount_amount) as double) as net_revenue,
-    cast(sum(order_lines.discount_amount) as double) as discount_amount
-from orders
-join order_lines on orders.order_id = order_lines.order_id
-join channels on orders.channel_id = channels.channel_id
-join promotions on orders.promotion_id = promotions.promotion_id
-group by channels.channel_name, channels.channel_type, promotions.discount_type, orders.region
+    dim_channel.channel_name,
+    dim_channel.channel_type,
+    dim_promotion.discount_type,
+    fct_order_lines.order_region as region,
+    cast(count(distinct fct_order_lines.order_id) as bigint) as order_count,
+    cast(sum(fct_order_lines.net_amount) as double) as net_revenue,
+    cast(sum(fct_order_lines.discount_amount) as double) as discount_amount
+from {{ ref('fct_order_lines') }} as fct_order_lines
+join {{ ref('dim_channel') }} as dim_channel on fct_order_lines.channel_id = dim_channel.channel_id
+join {{ ref('dim_promotion') }} as dim_promotion on fct_order_lines.promotion_id = dim_promotion.promotion_id
+where fct_order_lines.order_status = 'fulfilled'
+group by dim_channel.channel_name, dim_channel.channel_type, dim_promotion.discount_type, fct_order_lines.order_region

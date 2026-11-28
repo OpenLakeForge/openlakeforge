@@ -22,6 +22,25 @@ for how a release is cut and verified.
   model without rebuilding it and fails before dbt starts if the owner has never built it or is running.
   `olf check contracts` reports the product dependencies and the inventory exports them.
 
+### Changed
+
+- `customer_health` gets `fct_support_tickets`, `fct_nps_responses` and `fct_subscriptions` (one row per Silver
+  record, keyed, `account_id` tested against `sales_core.dim_account`), and its marts read them and
+  `dim_account` with the same names, columns and types (#1464). Account attributes now come from `sales_core`, so
+  `customer_health` needs `sales_core` built first. `monthly_recurring_revenue` is summed from `decimal(18,2)`.
+- The `order_revenue` marts read the `sales_core` fact and dimensions instead of Silver, with the same
+  names, columns and types (#1464). `order_revenue` now loads no Silver of its own and needs `sales_core` built first.
+  Money is summed from `decimal(18,2)` amounts and cast to `double`, so totals can differ from before in the last cent.
+- A generic dbt test runs only in the job of the product that owns the model it is declared on, so a consumer's
+  relationships or reconciliation test no longer makes the upstream product's job wait on the consumer.
+
+### Fixed
+
+- `mart_order_revenue_margin_by_product` counted order lines of every order status, while the other three
+  `order_revenue` marts count fulfilled orders only. It now filters fulfilled orders too, so its `net_revenue`,
+  `total_cost` and `gross_margin` fall for stacks that have unfulfilled orders (#1464). A new
+  `net_revenue_matches_fact` test checks each mart's `net_revenue` total against `fct_order_lines`.
+
 ## [0.7.0-beta.2] - 2026-11-26
 
 This beta makes alerting easy to set up and try: `olf` binds a receiver's

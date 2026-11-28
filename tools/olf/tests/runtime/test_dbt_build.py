@@ -641,3 +641,24 @@ def test_another_products_table_read_through_this_products_unselected_view_is_up
     }
 
     assert dbt_build.upstream_models(manifest, {"reader"}, "consumer") == {"sales_core": ("dim_account",)}
+
+
+def test_a_generic_test_runs_with_the_product_that_owns_the_model_it_is_declared_on() -> None:
+    reconciliation = _node(
+        "test", "test.gold.matches_fact.1", ["gold", "matches_fact"], ["model.gold.mart", "model.gold.fact"]
+    )
+    reconciliation["attached_node"] = "model.gold.mart"
+    manifest = {
+        "metadata": {"project_name": "gold"},
+        "nodes": {
+            "model.gold.fact": _node("model", "model.gold.fact", ["gold", "core", "fact"], []),
+            "model.gold.mart": _node("model", "model.gold.mart", ["gold", "revenue", "mart"], ["model.gold.fact"]),
+            "test.gold.matches_fact.1": reconciliation,
+        },
+    }
+
+    upstream = dbt_build.dbt_tests(manifest, {"fact"})["test.gold.matches_fact.1"]
+    downstream = dbt_build.dbt_tests(manifest, {"mart"})["test.gold.matches_fact.1"]
+    together = dbt_build.dbt_tests(manifest, {"fact", "mart"})["test.gold.matches_fact.1"]
+
+    assert (upstream.explicit, downstream.explicit, together.explicit) == (False, True, True)

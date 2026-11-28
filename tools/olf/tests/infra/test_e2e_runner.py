@@ -102,7 +102,9 @@ def test_aws_explicit_smoke_suite_skips_full_checks(monkeypatch: pytest.MonkeyPa
     assert calls == ["smoke"]
 
 
-def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_local_smoke_runs_the_default_product_and_the_products_it_reads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     calls: list[object] = []
     local_cfg = e2e_cfg(tmp_path, suite="smoke")
 
@@ -111,7 +113,7 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
     monkeypatch.setattr(
         _runner,
         "launch_and_poll_dagster_jobs",
-        lambda _cfg, *, products=None: calls.append(tuple(product.id for product in products or ())),
+        lambda _cfg, *, products=None: calls.append(frozenset(product.id for product in products or ())),
     )
     monkeypatch.setattr(
         _runner,
@@ -125,12 +127,13 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
 
     _runner.run_smoke(local_cfg)
 
+    default = E2E_INVENTORY.default_product
     assert calls == [
         "catalog",
         "namespaces",
-        (E2E_INVENTORY.default_product.id,),
-        ("tables", E2E_INVENTORY.default_product.id),
-        ("evidence", E2E_INVENTORY.default_product.id),
+        frozenset({default.id, *E2E_INVENTORY.product_dependencies.producers_by_consumer.get(default.id, ())}),
+        ("tables", default.id),
+        ("evidence", default.id),
         "metrics-off",
     ]
 
@@ -144,7 +147,8 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
                 "namespaces", "jobs", "tables", "serial", "maintenance",
                 "token-lifetime", "recovery", "traefik", "renewal", "network", "portal",
                 "perimeter", "break-glass", "latency", "outage",
-                "superset", "openmetadata", "quality", "writer", "evidence", "artifacts", "metrics-reads",
+                "superset", "openmetadata", "redeploy", "drift", "descriptions",
+                "quality", "writer", "evidence", "artifacts", "metrics-reads",
                 "metrics-labels", "metrics-footprint", "metrics-outage", "short-lived", "collector-restart",
                 "retention", "footprint",
                 "alerts", "drilldown", "journey", "delivery", "spool-limit", "isolation",
@@ -156,7 +160,8 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
                 env,
                 [
                     "namespaces", "jobs", "tables", "serial", "maintenance", "token-lifetime",
-                    "superset", "openmetadata", "quality", "writer", "evidence", "artifacts", "isolation",
+                    "superset", "openmetadata", "redeploy", "drift", "descriptions",
+                    "quality", "writer", "evidence", "artifacts", "isolation",
                 ],
             )
             for env in ("azure", "aws")
@@ -192,6 +197,9 @@ def test_run_full_only_restarts_polaris_for_local(
     monkeypatch.setattr(_runner, "check_portal_lists_routes", lambda _cfg: calls.append("portal"))
     monkeypatch.setattr(_runner, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
     monkeypatch.setattr(_runner, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
+    monkeypatch.setattr(_runner, "check_openmetadata_redeploy_is_idempotent", lambda _cfg: calls.append("redeploy"))
+    monkeypatch.setattr(_runner, "check_openmetadata_drift", lambda _cfg: calls.append("drift"))
+    monkeypatch.setattr(_runner, "check_openmetadata_crawled_descriptions", lambda _cfg: calls.append("descriptions"))
     monkeypatch.setattr(_runner, "check_quality_publication", lambda _cfg: calls.append("quality"))
     monkeypatch.setattr(_runner, "check_quality_writer_permissions", lambda _cfg: calls.append("writer"))
     monkeypatch.setattr(_runner, "check_real_quality_evidence", lambda _cfg: calls.append("evidence"))
@@ -298,6 +306,9 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     monkeypatch.setattr(_runner, "check_portal_lists_routes", lambda _cfg: calls.append("portal"))
     monkeypatch.setattr(_runner, "check_superset_dashboards", lambda _cfg: calls.append("superset"))
     monkeypatch.setattr(_runner, "check_openmetadata_assets", lambda _cfg: calls.append("openmetadata"))
+    monkeypatch.setattr(_runner, "check_openmetadata_redeploy_is_idempotent", lambda _cfg: calls.append("redeploy"))
+    monkeypatch.setattr(_runner, "check_openmetadata_drift", lambda _cfg: calls.append("drift"))
+    monkeypatch.setattr(_runner, "check_openmetadata_crawled_descriptions", lambda _cfg: calls.append("descriptions"))
     monkeypatch.setattr(_runner, "check_quality_publication", lambda _cfg: calls.append("quality"))
     monkeypatch.setattr(_runner, "check_quality_writer_permissions", lambda _cfg: calls.append("writer"))
     monkeypatch.setattr(_runner, "check_real_quality_evidence", lambda _cfg: calls.append("evidence"))
@@ -332,6 +343,7 @@ def test_run_full_skips_disabled_layer_assertions_and_reports_them(
     ]
     skipped = (
         "perimeter dashboard latency, Superset dashboards, OpenMetadata governance assets, "
+        "OpenMetadata redeploy writes nothing, OpenMetadata drift report, OpenMetadata crawled descriptions, "
         "OpenMetadata quality publication, OpenMetadata quality writer permissions"
     )
     assert f"Skipped e2e assertions: {skipped}" in messages

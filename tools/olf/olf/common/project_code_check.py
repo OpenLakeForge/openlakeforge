@@ -166,7 +166,8 @@ def validate(root: Path) -> None:
     for product in products:
         inputs = _product_inputs(specs[product.id])
         domain = product.domain_name
-        if not inputs or any((domain, name) not in entities for name in inputs):
+        # No inputs is valid: a product whose marts only ref() another product's public models loads no Silver.
+        if any((domain, name) not in entities for name in inputs):
             _fail(f"{product.id} Silver inputs are not all Floe entities of domain {domain}")
 
         definition_keys = set(_asset_keys(product_defs[product.id]))

@@ -61,6 +61,16 @@ def test_hourly_refresh_runs_the_same_pod_as_the_job():
     assert job["spec"]["template"]["metadata"]["labels"] == {"openlakeforge.io/job": "openmetadata-trino-ingestion"}
 
 
+def test_the_job_and_the_hourly_refresh_both_let_trino_comments_refresh_descriptions():
+    job, _, workflow, _ = _build(BASE)
+    cron = ingestion_cronjob(job, catalog="lakehouse_dev")
+    cron_env = {e["name"]: e for e in cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["env"]}
+
+    assert workflow["source"]["sourceConfig"]["config"]["overrideMetadata"] is True
+    cron_workflow = yaml.safe_load(cron_env["OM_WORKFLOW"]["value"])
+    assert cron_workflow["source"]["sourceConfig"]["config"]["overrideMetadata"] is True
+
+
 def test_nothing_triggers_the_pipeline_client_pipeline_any_more():
     module = REPO_ROOT / "infra/terraform/modules/governance/openmetadata"
     assert not (module / "refresh.tf").exists()
@@ -182,3 +192,19 @@ def test_the_image_pin_is_read_from_the_repository_whatever_the_working_director
     catalog = yaml.safe_load((REPO_ROOT / "release/component-catalog.yaml").read_text())
     image = jobs[0]["spec"]["template"]["spec"]["containers"][0]["image"]
     assert image == catalog["components"]["images"]["openmetadata_ingestion"]
+
+
+def test_the_live_check_names_a_crawl_cronjob_whose_workflow_lacks_the_flag():
+    from olf.infra.e2e._assertions import crawl_workflows_without_override
+
+    job, _, _, _ = _build(BASE)
+    good = ingestion_cronjob(job, catalog="lakehouse_dev")
+    stale = json.loads(json.dumps(good))
+    stale["metadata"]["name"] = "stale"
+    env = stale["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["env"]
+    workflow = next(e for e in env if e["name"] == "OM_WORKFLOW")
+    parsed = yaml.safe_load(workflow["value"])
+    del parsed["source"]["sourceConfig"]["config"]["overrideMetadata"]
+    workflow["value"] = yaml.safe_dump(parsed)
+
+    assert crawl_workflows_without_override({"items": [good, stale]}) == ["stale"]
