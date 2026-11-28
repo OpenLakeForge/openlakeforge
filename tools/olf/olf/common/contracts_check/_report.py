@@ -12,6 +12,7 @@ class CheckResult:
     name: str
     ok: bool
     detail: str = ""
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -30,4 +31,5 @@ class ContractsCheckReport:
             status = "PASS" if result.ok else "FAIL"
             detail = f": {result.detail}" if result.detail else ""
             lines.append(f"[{status}] {result.name}{detail}")
+            lines.extend(f"[WARN] {result.name}: {warning}" for warning in result.warnings)
         return "\n".join(lines)

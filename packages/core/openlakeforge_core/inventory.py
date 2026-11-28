@@ -29,6 +29,17 @@ from .descriptors import (
     LakehouseDescriptorError,
     load_source_descriptor,
 )
+from .glossary import (
+    ColumnTermLink,
+    Glossary,
+    GlossaryTerm,
+    column_link_locations,
+    discover_glossaries,
+    glossary_errors,
+    read_column_term_links,
+    term_index,
+    unresolved_term_refs,
+)
 from .governance import EntityRef, load_governance_lakehouse_document
 from .product_dependencies import ProductDependencies, scan_product_dependencies
 
@@ -138,6 +149,7 @@ class Product:
     tier: str | None = None
     lifecycle: str | None = None
     terms_of_use: Mapping[str, tuple[str, ...]] | None = None
+    glossary_terms: tuple[str, ...] = ()
 
     @property
     def name(self) -> str:
@@ -181,6 +193,7 @@ class Domain:
     owner: EntityRef | None = None
     experts: tuple[EntityRef, ...] = ()
     classification: str | None = None
+    glossary_terms: tuple[str, ...] = ()
 
     @property
     def artifact_prefixes(self) -> ArtifactPrefixes:
@@ -270,6 +283,26 @@ class LakehouseInventory:
     sources: tuple[Source, ...]
     domains: tuple[Domain, ...]
     dashboards: tuple[Dashboard, ...]
+    glossaries: tuple[Glossary, ...] = ()
+    column_term_links: tuple[ColumnTermLink, ...] = ()
+
+    @property
+    def terms(self) -> dict[str, GlossaryTerm]:
+        """Every glossary term by its `<glossary>.<Term>` reference."""
+        return term_index(self.glossaries)
+
+    def terms_of(self, references: Sequence[str]) -> tuple[GlossaryTerm, ...]:
+        """The terms behind `glossary_terms` references, which loading has already checked resolve."""
+        index = self.terms
+        return tuple(index[ref] for ref in references)
+
+    def column_terms(self, product: str) -> dict[tuple[str, str], tuple[GlossaryTerm, ...]]:
+        """`(model, column)` -> terms for the dbt columns of `product` that declare any."""
+        return {
+            (link.model, link.column): self.terms_of(link.terms)
+            for link in self.column_term_links
+            if link.product == product
+        }
 
     @property
     def products(self) -> tuple[Product, ...]:
@@ -414,6 +447,7 @@ def _product(path: Path, domain_name: str, product: Mapping[str, Any], index: in
         tier=product.get("tier"),
         lifecycle=product.get("lifecycle"),
         terms_of_use={key: tuple(items) for key, items in terms.items()} if terms else None,
+        glossary_terms=tuple(product.get("glossaryTerms", ())),
     )
 
 
@@ -503,6 +537,20 @@ def load_source(source_path: str | Path) -> Source:
     )
 
 
+def _validate_glossary_links(inventory: LakehouseInventory) -> None:
+    root = inventory.lakehouse_root.parent
+    refs = {f"governance.yml: domains[{d.name}].glossaryTerms": d.glossary_terms for d in inventory.domains}
+    for domain in inventory.domains:
+        for product in domain.products:
+            where = f"governance.yml: domains[{domain.name}].products[{product.id}]"
+            refs[f"{where}.glossaryTerms"] = product.glossary_terms
+    refs |= column_link_locations(inventory.column_term_links, root=root)
+    errors = glossary_errors(inventory.glossaries, root=root)
+    errors += unresolved_term_refs({location: terms for location, terms in refs.items() if terms}, inventory.glossaries)
+    if errors:
+        raise LakehouseDescriptorError("; ".join(errors))
+
+
 def load_lakehouse_inventory_from_descriptors(
     lakehouse_path: str | Path,
     source_paths: Sequence[str | Path],
@@ -541,6 +589,7 @@ def load_lakehouse_inventory_from_descriptors(
                 owner=_ref(domain.get("owner")),
                 experts=_refs(domain.get("experts")),
                 classification=domain.get("classification"),
+                glossary_terms=tuple(domain.get("glossaryTerms", ())),
             )
         )
     dashboards = tuple(
@@ -557,7 +606,10 @@ def load_lakehouse_inventory_from_descriptors(
         sources=tuple(sources),
         domains=tuple(domains),
         dashboards=dashboards,
+        glossaries=discover_glossaries(Path(lakehouse_path).parent),
+        column_term_links=read_column_term_links(Path(lakehouse_path).parent / "gold" / "models"),
     )
+    _validate_glossary_links(inventory)
     _validate_inventory_identities(inventory.lakehouse_root, inventory.sources, inventory.domains, inventory.dashboards)
     return inventory
 

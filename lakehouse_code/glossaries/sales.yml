@@ -1,0 +1,27 @@
+apiVersion: openlakeforge.io/v1alpha1
+kind: Glossary
+name: sales
+displayName: Sales Vocabulary
+description: Shared commercial definitions for the Sales domain.
+terms:
+  - name: NetRevenue
+    displayName: Net Revenue
+    description: Revenue of fulfilled orders after line discounts and before cost. Excludes pending and cancelled orders.
+    synonyms: [Net Sales]
+    status: Approved
+    relatedTerms: [sales.GrossRevenue, sales.Discount]
+  - name: GrossRevenue
+    displayName: Gross Revenue
+    description: Revenue of fulfilled orders at list price (quantity times unit price), before line discounts. Excludes pending and cancelled orders.
+    synonyms: [Gross Sales]
+    status: Approved
+    relatedTerms: [sales.NetRevenue, sales.Discount]
+  - name: Discount
+    displayName: Discount
+    description: Reduction applied to an order line price, in currency. Gross revenue minus discount is net revenue.
+    status: Approved
+    relatedTerms: [sales.GrossRevenue]
+  - name: ActiveCustomer
+    displayName: Active Customer
+    description: Customer account with at least one fulfilled order in the trailing 90 days.
+    status: Draft

@@ -80,7 +80,8 @@ labels expressing intended sequence within a milestone.
 | `images/project-code/` | The Dagster runtime image |
 | `images/platform-api/` | The platform API image, built from `packages/platform-api` |
 | `release/component-catalog.yaml` | Immutable version, digest pins, and the distribution version contract every `pyproject.toml` must match |
-| `docs/schema/source.schema.json`, `docs/schema/governance.schema.json` | Schemas `source.yaml` and `governance.yml` validate against |
+| `docs/schema/source.schema.json`, `docs/schema/governance.schema.json`, `docs/schema/glossary.schema.json` | Schemas `source.yaml`, `governance.yml` and `glossaries/*.yml` validate against |
+| `lakehouse_code/glossaries/<name>.yml` | Business glossary descriptors (`Glossary`), discovered automatically |
 | `docs/schema/deployment-profile.schema.json` | Schema for Deployment Profiles |
 
 ## Architectural rules
