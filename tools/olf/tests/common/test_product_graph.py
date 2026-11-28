@@ -271,3 +271,18 @@ def test_a_model_without_a_role_is_deployed_untagged_with_a_warning_and_drift_na
             "or set meta.openlakeforge.role in its schema.yml entry",
         )
     ]
+
+
+def test_the_asset_listing_is_paged_by_rows_even_when_a_page_repeats_a_row() -> None:
+    from olf.infra.e2e._assertions import _attached_asset_ids
+
+    rows = [{"id": "a"}, {"id": "b"}, {"id": "a"}]  # the listing shifted: "a" came back twice
+    offsets: list[int] = []
+
+    class Client:
+        def request(self, _method: str, _path: str, *, params: dict) -> dict:
+            offsets.append(params["offset"])
+            return {"data": rows[params["offset"] : params["offset"] + 2], "paging": {"total": len(rows)}}
+
+    assert _attached_asset_ids(Client(), "p") == {"a", "b"}  # type: ignore[arg-type]
+    assert offsets == [0, 2]

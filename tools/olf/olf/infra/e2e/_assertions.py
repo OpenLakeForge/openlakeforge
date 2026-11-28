@@ -315,15 +315,20 @@ def assert_openmetadata_stage_lineage(
 
 
 def _attached_asset_ids(client: OpenMetadataClient, product: str) -> set[str]:
-    """Every asset id a data product holds, paged by offset until the listing's `total` (at most 1000 a page)."""
+    """Every asset id a data product holds, paged by row offset until the listing's `total` (at most 1000 a page).
+
+    The offset counts rows, not distinct ids: a page can repeat a row when the listing shifts between requests.
+    """
     held: set[str] = set()
+    rows_read = 0
     while True:
         page = client.request(
-            "GET", f"/api/v1/dataProducts/name/{product}/assets", params={"limit": 1000, "offset": len(held)}
+            "GET", f"/api/v1/dataProducts/name/{product}/assets", params={"limit": 1000, "offset": rows_read}
         )
         data = page.get("data") or []
+        rows_read += len(data)
         held |= {asset["id"] for asset in data}
-        if not data or len(held) >= (page.get("paging") or {}).get("total", len(held)):
+        if not data or rows_read >= (page.get("paging") or {}).get("total", rows_read):
             return held
 
 
