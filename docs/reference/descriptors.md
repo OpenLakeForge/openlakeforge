@@ -269,7 +269,7 @@ read, so it is a deliberate edit of the directory layout as well as the file.
 | `tier` | enum | no | `Tier1` (most critical) to `Tier5`. |
 | `lifecycle` | enum | no | `IDEATION`, `DESIGN`, `DEVELOPMENT`, `TESTING`, `PRODUCTION`, `DEPRECATED` or `RETIRED`. |
 | `termsOfUse` | object | no | `allowed` and/or `prohibited`: non-empty arrays of strings. |
-| `profiling` | object | no | `{enabled: true|false}`, default `false`. Opts the product's Gold facts and dimensions in to OpenMetadata profiling; see [Profiling policy](#profiling-policy). Not inherited. |
+| `profiling` | object | no | `{enabled: true\|false}`, default `false`. Opts the product's Gold facts and dimensions in to OpenMetadata profiling; see [Profiling policy](#profiling-policy). Not inherited. |
 | `glossaryTerms` | array of term references, non-empty | no | Terms from a [glossary](#glossary) that define the product, as `<glossary>.<Term>`. Not inherited. |
 
 A reference is `{type: user, ref: <name>}` or `{type: team, ref: <name>}`. It

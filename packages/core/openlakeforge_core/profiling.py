@@ -63,7 +63,7 @@ def profiling_conflicts(document: Mapping[str, Any]) -> list[str]:
                 conflicts.append(
                     f"product {resolved['id']!r} enables profiling but its classification is "
                     f"{resolved.get('classification') or 'unset'}; set it to Public, Internal or Confidential, "
-                    "or remove profiling.enabled"
+                    "or set profiling.enabled to false, or remove profiling"
                 )
     return conflicts
 
