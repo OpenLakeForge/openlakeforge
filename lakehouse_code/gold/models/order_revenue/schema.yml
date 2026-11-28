@@ -40,6 +40,8 @@ models:
       - name: net_revenue
         data_type: double
         description: Gross revenue minus discounts.
+        data_tests:
+          - net_revenue_matches_fact
   - name: mart_order_revenue_by_channel
     description: Net revenue and discount amount by sales channel and promotion type. One row per channel, channel type, discount type and region, fulfilled orders only.
     data_tests:
@@ -77,11 +79,13 @@ models:
       - name: net_revenue
         data_type: double
         description: Quantity times unit price minus discounts.
+        data_tests:
+          - net_revenue_matches_fact
       - name: discount_amount
         data_type: double
         description: Discounts on the order lines.
   - name: mart_order_revenue_margin_by_product
-    description: Product revenue, cost, and gross margin for order lines. One row per product.
+    description: Product revenue, cost, and gross margin for order lines of fulfilled orders. One row per product.
     data_tests:
       - openlakeforge_dbt.unique_combination_of_columns:
           arguments:
@@ -114,6 +118,8 @@ models:
       - name: net_revenue
         data_type: double
         description: Quantity times unit price minus discounts.
+        data_tests:
+          - net_revenue_matches_fact
       - name: total_cost
         data_type: double
         description: Quantity times unit cost.
@@ -145,3 +151,5 @@ models:
       - name: net_revenue
         data_type: double
         description: Quantity times unit price minus discounts.
+        data_tests:
+          - net_revenue_matches_fact

@@ -585,10 +585,9 @@ _EXAMPLES = {
     ("sales", "order_revenue"): ProductDefinitionSpec(
         domain="sales",
         product="order_revenue",
-        silver_inputs=("orders", "order_lines", "products", "channels", "promotions", "accounts"),
-        bronze_inputs=tuple(
-            ("crm", name) for name in ("orders", "order_lines", "products", "channels", "promotions", "accounts")
-        ),
+        # Its marts read sales_core through ref(), so the product loads no Silver of its own.
+        silver_inputs=(),
+        bronze_inputs=(),
         gold_assets=(
             "mart_order_revenue_by_day",
             "mart_order_revenue_by_channel",

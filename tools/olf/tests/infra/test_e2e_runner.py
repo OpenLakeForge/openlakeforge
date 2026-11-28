@@ -102,7 +102,9 @@ def test_aws_explicit_smoke_suite_skips_full_checks(monkeypatch: pytest.MonkeyPa
     assert calls == ["smoke"]
 
 
-def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_local_smoke_runs_the_default_product_and_the_products_it_reads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     calls: list[object] = []
     local_cfg = e2e_cfg(tmp_path, suite="smoke")
 
@@ -111,7 +113,7 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
     monkeypatch.setattr(
         _runner,
         "launch_and_poll_dagster_jobs",
-        lambda _cfg, *, products=None: calls.append(tuple(product.id for product in products or ())),
+        lambda _cfg, *, products=None: calls.append(frozenset(product.id for product in products or ())),
     )
     monkeypatch.setattr(
         _runner,
@@ -125,12 +127,13 @@ def test_local_smoke_runs_only_the_descriptor_default_product(monkeypatch: pytes
 
     _runner.run_smoke(local_cfg)
 
+    default = E2E_INVENTORY.default_product
     assert calls == [
         "catalog",
         "namespaces",
-        (E2E_INVENTORY.default_product.id,),
-        ("tables", E2E_INVENTORY.default_product.id),
-        ("evidence", E2E_INVENTORY.default_product.id),
+        frozenset({default.id, *E2E_INVENTORY.product_dependencies.producers_by_consumer.get(default.id, ())}),
+        ("tables", default.id),
+        ("evidence", default.id),
         "metrics-off",
     ]
 
