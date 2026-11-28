@@ -70,7 +70,8 @@ def check_openmetadata_profiles(cfg: E2EConfig) -> None:
     if not targets:
         # A supported policy state: nothing opts in, so no profiler schedule may exist for the stage.
         namespace = trino.service_namespace(environ, cfg.platform_namespace)
-        run_trino_profiling(environ, namespace=cfg.platform_namespace, service="", targets=())
+        if not run_trino_profiling(environ, namespace=cfg.platform_namespace, service="", targets=()):
+            raise E2EError("removing the profiler for a stage with nothing to profile did not complete")
         listing = json.loads(
             kubectl(
                 cfg,
@@ -115,7 +116,7 @@ def check_openmetadata_profiles(cfg: E2EConfig) -> None:
         for fqn, target in sorted(expected.items()):
             types = _columns(client, fqn)
             stats = read_table_statistics(client, fqn, list(types))
-            if stats.row_count is None or stats.stale:
+            if stats.row_count is None or stats.stale or stats.profiled_at is None or stats.profiled_at < started:
                 problems.append(f"{fqn}: no current table profile (rowCount={stats.row_count}, stale={stats.stale})")
                 continue
             for column in stats.columns:
