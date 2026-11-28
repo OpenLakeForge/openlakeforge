@@ -783,6 +783,8 @@ class MetadataDeployer:
         self.validate_deployment_inputs(domains)
         # Resolved before the first write: an owner that does not exist must fail the deploy with nothing changed.
         people = self._resolve_people(domains)
+        glossary = GlossaryPublisher.from_descriptors(self._reconciler, self.domain_files())
+        glossary.resolve_owners()
 
         # Every write below reads first and changes only what differs, so a
         # second deploy of the same revision writes nothing. Nothing is deleted.
@@ -812,7 +814,6 @@ class MetadataDeployer:
             )
 
         # Glossaries and terms exist before anything is tagged with them.
-        glossary = GlossaryPublisher.from_descriptors(self._reconciler, self.domain_files())
         glossary.publish()
 
         # Phase C: Reconcile domains and data products from governance YAML. A

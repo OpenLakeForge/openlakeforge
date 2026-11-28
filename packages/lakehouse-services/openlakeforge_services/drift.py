@@ -276,9 +276,12 @@ def detect_glossary_drift(
         schema_fqn = config.catalog_gold_schema_fqns.get(product.id)
         if not schema_fqn:
             continue
+        tables: dict[str, Mapping[str, Any] | None] = {}
         for (model, column), column_terms in inventory.column_terms(product.id).items():
             table_fqn = f"{schema_fqn}.{model}"
-            table = reconciler.lookup("tables", table_fqn, "columns,tags")
+            if table_fqn not in tables:
+                tables[table_fqn] = reconciler.lookup("tables", table_fqn, "columns,tags")
+            table = tables[table_fqn]
             held = {col["name"].lower(): col for col in (table or {}).get("columns") or []}
             if column.lower() not in held:
                 # Gold tables reach OpenMetadata only through a crawl, so a link on a column not crawled yet is

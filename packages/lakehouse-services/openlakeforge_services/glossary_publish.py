@@ -97,6 +97,12 @@ class GlossaryPublisher:
             self._owner_ids[key] = entity["id"]
         return {"id": self._owner_ids[key], "type": ref.type}
 
+    def resolve_owners(self) -> None:
+        """Look up every declared glossary owner (reads only), so a missing one fails the deploy before any write."""
+        for glossary in self.inventory.glossaries:
+            if glossary.owner:
+                self._owner(glossary.owner)
+
     def publish(self) -> None:
         glossaries = self.inventory.glossaries
         for glossary in glossaries:

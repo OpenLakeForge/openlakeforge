@@ -176,7 +176,7 @@ def test_a_missing_owner_team_fails_before_any_glossary_write(tmp_path: Path, mo
 
     with pytest.raises(Exception, match="sales_data"):
         deployer.deploy()
-    assert "glossaries" not in fake.entities
+    assert fake.writes == []  # resolved in the preflight, before any custom property or container is written
 
 
 def _drift_lines(deployer: MetadataDeployer) -> list[str]:
