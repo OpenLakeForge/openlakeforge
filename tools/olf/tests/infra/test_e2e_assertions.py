@@ -418,7 +418,7 @@ def _drift_cfg(
     def client(_cfg: E2EConfig) -> Iterator[tuple[object, str | None]]:
         yield object(), token
 
-    def drift_report(_environ: object, _client: object, **login: str) -> list:
+    def drift_report(_environ: object, _client: object, **login: object) -> list:
         seen.append(login)
         return items
 
@@ -439,8 +439,12 @@ def test_drift_check_logs_in_as_the_admin_when_the_client_has_no_token(
 ) -> None:
     seen: list = []
 
-    _assertions.check_openmetadata_drift(_drift_cfg(tmp_path, monkeypatch, [], seen, token=None))
+    cfg = _drift_cfg(tmp_path, monkeypatch, [], seen, token=None)
 
+    _assertions.check_openmetadata_drift(cfg)
+
+    project = seen[0].pop("project")
+    assert project.root == cfg.repo_root  # the project this run deploys, not whatever the environment names
     assert seen == [{"admin_email": "admin@open-metadata.org", "admin_password": "admin-secret"}]
 
 

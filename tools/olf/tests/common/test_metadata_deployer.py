@@ -449,3 +449,32 @@ def test_a_product_moved_to_another_domain_is_reported_as_changed(
 
     assert changed == [("data product", "order_revenue", "domains")]
     assert fake.writes == []
+
+
+def test_a_gold_table_a_product_no_longer_holds_is_reported_as_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    fake.entities["dataProducts"]["order_revenue"]["assets"] = []
+
+    changed = [(item.entity, item.fqn, item.detail) for item in deployer.drift() if item.kind == "changed"]
+
+    assert changed == [("data product", "order_revenue", "assets: 1 table(s) of its Gold schema are not attached")]
+    assert fake.writes == []
+
+
+def test_marked_tables_of_a_schema_removed_from_git_are_reported_stale_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    marked = {"extension": {"olfManaged": "git:old"}}
+    fake.seed("databaseSchemas", "polaris.lakehouse_dev.removed_gold", marked)
+    fake.seed("tables", "polaris.lakehouse_dev.removed_gold.mart", marked)
+    fake.seed("tables", "polaris.lakehouse_dev.removed_gold.crawled_only", {})
+
+    stale = {(item.entity, item.fqn) for item in deployer.drift() if item.kind == "stale"}
+
+    assert stale == {
+        ("database schema", "polaris.lakehouse_dev.removed_gold"),
+        ("table", "polaris.lakehouse_dev.removed_gold.mart"),
+    }

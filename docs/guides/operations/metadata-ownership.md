@@ -48,7 +48,7 @@ e2e (`olf infra e2e run --env local`) runs it after a deploy and fails if the re
 | --- | --- |
 | `missing` | Declared in Git, absent in OpenMetadata, for example a table the crawl has not found yet |
 | `stale` | Carries `olfManaged`, no longer declared in Git (renamed or removed) |
-| `changed` | An owned field differs from Git, including a human edit; the next deploy overwrites it |
+| `changed` | An owned field differs from Git, including a human edit (the next deploy overwrites it), a data product that does not hold every table of its Gold schema (the next deploy attaches them), and a data product moved to another domain (a deploy never moves it; see the repair steps) |
 | `unresolved` | A reference cannot be resolved, for example a data product whose domain does not exist |
 
 Domains and data products are shared by every stage, so they report under stage `shared`. Today's report covers

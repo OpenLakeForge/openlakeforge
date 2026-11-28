@@ -17,6 +17,7 @@ from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadata
 from openlakeforge_services.superset import SupersetClient
 
 from olf.common import config, log
+from olf.common.project import ProjectSpec
 from olf.infra import access, k8s, superset
 from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
@@ -152,6 +153,11 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
             raise E2EError(f"{exc}\nOpenMetadata's OpenLineage log lines:\n{openmetadata_lineage_log(cfg)}") from exc
 
 
+def _project(cfg: E2EConfig) -> ProjectSpec:
+    """The project this run deploys, as every other project-scoped check resolves it."""
+    return ProjectSpec(root=cfg.repo_root, distribution_root=cfg.distribution_root)
+
+
 def _admin_login(cfg: E2EConfig, token: str | None) -> dict[str, str]:
     """The admin credentials a token-less client logs in with, as `check_openmetadata_assets` reads them."""
     if token:
@@ -169,7 +175,7 @@ def check_openmetadata_drift(cfg: E2EConfig) -> None:
     log.step("Checking OpenMetadata against Git (drift report)...")
     with openmetadata_client(cfg) as (client, token):
         try:
-            items = drift_report(cfg_environ(cfg), client, **_admin_login(cfg, token))
+            items = drift_report(cfg_environ(cfg), client, project=_project(cfg), **_admin_login(cfg, token))
         except OpenMetadataError as exc:
             raise E2EError(str(exc)) from exc
     if items:
@@ -183,7 +189,7 @@ def check_openmetadata_redeploy_is_idempotent(cfg: E2EConfig) -> None:
     log.step("Redeploying OpenMetadata governance metadata, expecting no write...")
     with openmetadata_client(cfg) as (client, token):
         try:
-            writes = redeploy_writes(cfg_environ(cfg), client, **_admin_login(cfg, token))
+            writes = redeploy_writes(cfg_environ(cfg), client, project=_project(cfg), **_admin_login(cfg, token))
         except OpenMetadataError as exc:
             raise E2EError(str(exc)) from exc
     if writes:

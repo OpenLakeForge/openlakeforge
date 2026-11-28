@@ -142,22 +142,44 @@ def detect_drift(
         if fields:
             items.append(DriftItem(CHANGED, want.entity, want.fqn, want.stage, ", ".join(fields)))
 
+    for domain in domains:
+        for product in domain.products:
+            # The tables a deploy would attach: those under the product's Gold schema that it does not hold yet.
+            held_assets = reconciler.held_asset_ids(product.id)
+            if held_assets is None:
+                continue
+            unattached = [
+                ref
+                for ref in reconciler.list_schema_tables(config.catalog_gold_schema_fqns[product.id])
+                if ref["id"] not in held_assets
+            ]
+            if unattached:
+                detail = f"assets: {len(unattached)} table(s) of its Gold schema are not attached"
+                items.append(DriftItem(CHANGED, "data product", product.id, SHARED, detail))
+
     held = {(want.collection, want.fqn) for want in declared}
-    schemas_declared = [w.fqn for w in declared if w.collection == "databaseSchemas"]
-    searches: list[tuple[str, str, dict[str, str], str]] = [
-        ("domains", "domain", {}, SHARED),
-        ("dataProducts", "data product", {}, SHARED),
-        ("databaseSchemas", "database schema", {"database": config.catalog_database_fqn}, stage),
-        ("containers", "container", {"service": config.storage_service}, stage),
-        *(("tables", "table", {"databaseSchema": fqn}, stage) for fqn in schemas_declared),
-    ]
-    for collection, label, params, item_stage in searches:
+
+    def stale_entities(collection: str, label: str, params: dict[str, str], item_stage: str) -> list[str]:
+        found_fqns: list[str] = []
         for found in reconciler.client.list_entities(f"/api/v1/{collection}", {"fields": "extension", **params}, _PAGE):
             fqn = found.get("fullyQualifiedName") or found["name"]
             if collection == "containers" and not _in_stage_buckets(config, fqn):
                 continue
             if marker_of(found) and (collection, fqn) not in held:
+                found_fqns.append(fqn)
                 items.append(
                     DriftItem(STALE, label, fqn, item_stage, "marked as OpenLakeForge-managed, absent from Git")
                 )
+        return found_fqns
+
+    stale_entities("domains", "domain", {}, SHARED)
+    stale_entities("dataProducts", "data product", {}, SHARED)
+    stale_schemas = stale_entities(
+        "databaseSchemas", "database schema", {"database": config.catalog_database_fqn}, stage
+    )
+    stale_entities("containers", "container", {"service": config.storage_service}, stage)
+    # A schema removed from Git still holds the tables a deploy registered in it, so those are searched too.
+    declared_schemas = [w.fqn for w in declared if w.collection == "databaseSchemas"]
+    for schema_fqn in [*declared_schemas, *stale_schemas]:
+        stale_entities("tables", "table", {"databaseSchema": schema_fqn}, stage)
     return sorted(items, key=lambda item: (item.stage, item.entity, item.fqn, item.kind))
