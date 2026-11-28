@@ -10,14 +10,20 @@ from typing import Any
 
 import pytest
 from fake_openmetadata import FakeOpenMetadata
-from openlakeforge_core import SemanticModel, discover_glossaries
+from openlakeforge_core import SemanticModel, inventory_for
 from openlakeforge_core.semantic import parse_ossie_model
 from openlakeforge_services.governance import MetadataConfig, MetadataReconciler
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
 from openlakeforge_services.progress import SILENT
-from openlakeforge_services.semantic_publish import SemanticPublisher, glossary_term_for, metric_type
+from openlakeforge_services.semantic_publish import SemanticPublisher, metric_terms, metric_type
 
 CODE_ROOT = Path(__file__).resolve().parents[4] / "lakehouse_code"
+COLUMN_TERMS = {
+    "sales_core": {
+        key: tuple(term.fqn for term in terms)
+        for key, terms in inventory_for(CODE_ROOT.parent).column_terms("sales_core").items()
+    }
+}
 SCHEMA = "polaris.lakehouse_dev.sales_core_gold"
 TABLES = {
     "fct_order_lines": ["line_id", "account_id", "channel_id", "product_id", "promotion_id", "net_amount"],
@@ -112,7 +118,7 @@ def _publisher(fake: FakeOpenMetadata, models: list[SemanticModel] | None = None
         reconciler,
         config,
         models if models is not None else [_model()],
-        discover_glossaries(CODE_ROOT),
+        COLUMN_TERMS,
         {"sales_core": "sales"},
         progress=SILENT,
     )
@@ -133,11 +139,28 @@ def test_metric_type_comes_from_the_outer_aggregate(expression: str, expected: s
     assert metric_type(expression) == expected
 
 
-def test_a_metric_is_tagged_with_the_glossary_term_named_after_it() -> None:
-    glossaries = discover_glossaries(CODE_ROOT)
-    metrics = {m.name: m for m in _model().metrics}
-    assert glossary_term_for(metrics["net_revenue"], glossaries) == "sales.NetRevenue"
-    assert glossary_term_for(metrics["gross_revenue"], glossaries) == "sales.GrossRevenue"
+def test_a_metric_takes_the_term_of_the_one_tagged_column_it_reads() -> None:
+    model = _model()
+    metrics = {m.name: m for m in model.metrics}
+    terms = COLUMN_TERMS["sales_core"]
+
+    assert metric_terms(model, metrics["net_revenue"], terms) == (("sales.NetRevenue",), "")
+    assert metric_terms(model, metrics["gross_revenue"], terms) == (("sales.GrossRevenue",), "")
+
+
+def test_a_metric_reading_columns_with_different_terms_or_none_gets_no_term_and_a_reason() -> None:
+    model = _model()
+    net = next(m for m in model.metrics if m.name == "net_revenue")
+    terms = dict(COLUMN_TERMS["sales_core"])
+
+    both = dataclasses.replace(net, references=(("fct_order_lines", "net_amount"), ("fct_order_lines", "gross_amount")))
+    none = dataclasses.replace(net, references=(("fct_order_lines", "order_status"),))
+    same = {**terms, ("fct_order_lines", "gross_amount"): ("sales.NetRevenue",)}
+
+    found, why = metric_terms(model, both, terms)
+    assert found == () and "different glossary terms" in why and "gross_amount" in why
+    assert metric_terms(model, none, terms) == ((), "no column it reads carries a glossary term")
+    assert metric_terms(model, both, same) == (("sales.NetRevenue",), "")
 
 
 def test_publish_writes_both_metrics_with_their_governance_lineage_and_constraints(om: FakeWithMetrics) -> None:
@@ -151,6 +174,7 @@ def test_publish_writes_both_metrics_with_their_governance_lineage_and_constrain
     assert net["domains"][0]["id"] == om.entities["domains"]["sales"]["id"]
     assert net["dataProducts"][0]["id"] == om.entities["dataProducts"]["sales_core"]["id"]
     assert [t["tagFQN"] for t in net["tags"]] == ["sales.NetRevenue"]
+    assert net["displayName"] == "net_revenue"
     assert net["extension"]["olfManaged"] == "git:abc"
     assert net["extension"]["olfStage"] == "dev"
     assert net["extension"]["olfOssieVersion"] == "0.1.1"

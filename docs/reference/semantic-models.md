@@ -108,11 +108,11 @@ as a warning and published by the next deploy.
 
 | Ossie | OpenMetadata 1.13.6 | Notes |
 | --- | --- | --- |
-| Metric | One `Metric` named `<metric>_<stage>` (for example `net_revenue_dev`) | OpenMetadata has one metric namespace for every stage, so the stage is in the name and in `olfStage` |
+| Metric | One `Metric` named `<metric>_<stage>` (for example `net_revenue_dev`) with the plain metric name as its display name | OpenMetadata has one metric namespace for every stage, so the stage is in the name and in `olfStage` |
 | Metric expression | `metricExpression` with language `SQL` and the `ANSI_SQL` expression | |
 | Metric type | `metricType` | `SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX`, `MEDIAN`, `STANDARD_DEVIATION` or `VARIANCE` when the whole expression is one such call; otherwise `OTHER` |
 | Product | `domains`, `dataProducts` and `owners` of the product that owns `semantic/<product>/` | Owners are the ones the data product holds |
-| Glossary term | A glossary tag | Ossie 0.1.1 has no term field, so a metric named `net_revenue` is tagged with the term `NetRevenue` of any glossary. A term that is not published yet is skipped with a warning |
+| Glossary term | Glossary tags | Ossie 0.1.1 has no term field, so the terms come from the dbt columns the expression reads (`meta.openlakeforge.glossaryTerms` in `schema.yml`). Reading one tagged column gives the metric that column's terms. Reading none, or several with different terms, gives no tag and the deploy logs why. A term not published yet is skipped with a warning |
 | Datasets the metric reads | Lineage edge table to metric, source `Manual` | Ossie relationships are never published as lineage |
 | `primary_key`, `unique_keys`, relationships | `tableConstraints` on the table: `PRIMARY_KEY`, `UNIQUE`, `FOREIGN_KEY` (`MANY_TO_ONE`, `referredColumns` as column FQNs) | Only the constraints are patched, and only the types above: a sort or cluster key a person set stays |
 | `ai_context`, Ossie version, file, content hash | Custom properties on the metric | |

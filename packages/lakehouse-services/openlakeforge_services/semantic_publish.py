@@ -16,7 +16,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from openlakeforge_core import Glossary, SemanticDataset, SemanticMetric, SemanticModel
+from openlakeforge_core import SemanticDataset, SemanticMetric, SemanticModel
 
 from .drift import CHANGED, MISSING, STALE, UNRESOLVED, DriftItem, stage_of
 from .openmetadata import OpenMetadataError, fqn_part
@@ -26,7 +26,7 @@ from .progress import SILENT, Progress
 if TYPE_CHECKING:
     from .governance import MetadataConfig, MetadataReconciler
 
-__all__ = ["SemanticPublisher", "metric_type", "metric_name", "glossary_term_for"]
+__all__ = ["SemanticPublisher", "metric_type", "metric_name", "metric_terms"]
 
 METRIC_FIELDS = "owners,tags,domains,dataProducts,extension"
 STAGE_PROPERTY = "olfStage"
@@ -84,11 +84,28 @@ def metric_name(metric: SemanticMetric, stage: str) -> str:
     return f"{metric.name}_{stage}"
 
 
-def glossary_term_for(metric: SemanticMetric, glossaries: Sequence[Glossary]) -> str | None:
-    """The `<glossary>.<Term>` a metric is tagged with. Ossie 0.1.1 has no term field, so OLF's convention is that
-    a metric named `net_revenue` is the glossary term `NetRevenue`."""
-    wanted = "".join(part.capitalize() for part in metric.name.split("_"))
-    return next((term.fqn for glossary in glossaries for term in glossary.terms if term.name == wanted), None)
+def metric_terms(
+    model: SemanticModel, metric: SemanticMetric, column_terms: Mapping[tuple[str, str], Sequence[str]]
+) -> tuple[tuple[str, ...], str]:
+    """The `<glossary>.<Term>` references a metric is tagged with, and why none when it has none.
+
+    Ossie 0.1.1 has no term field, so the terms come from the dbt columns the expression reads: exactly one tagged
+    column gives its terms, and several tagged columns with different terms are ambiguous.
+    """
+    tables = {dataset.name: dataset.table for dataset in model.datasets}
+    tagged = {
+        (dataset, column): tuple(column_terms[(tables[dataset], column)])
+        for dataset, column in metric.references
+        if dataset in tables and column_terms.get((tables[dataset], column))
+    }
+    if not tagged:
+        return (), "no column it reads carries a glossary term"
+    distinct = set(tagged.values())
+    if len(distinct) > 1:
+        return (), "the columns it reads carry different glossary terms: " + ", ".join(
+            f"{d}.{c} -> {', '.join(t)}" for (d, c), t in tagged.items()
+        )
+    return next(iter(distinct)), ""
 
 
 def _ref(entity: Mapping[str, Any], kind: str) -> dict[str, str]:
@@ -119,7 +136,7 @@ class _Plan:
     owned: Mapping[str, Any]
     extension: Mapping[str, str]
     expression: Mapping[str, str]
-    tag: str | None
+    tags: tuple[str, ...]
     sources: tuple[tuple[str, str], ...]
 
 
@@ -129,7 +146,7 @@ class SemanticPublisher:
         reconciler: MetadataReconciler,
         config: MetadataConfig,
         models: Sequence[SemanticModel],
-        glossaries: Sequence[Glossary],
+        column_terms: Mapping[str, Mapping[tuple[str, str], Sequence[str]]],
         domain_of: Mapping[str, str],
         *,
         progress: Progress = SILENT,
@@ -138,7 +155,7 @@ class SemanticPublisher:
         self._client = reconciler.client
         self._config = config
         self._models = tuple(models)
-        self._glossaries = tuple(glossaries)
+        self._column_terms = column_terms
         self._domain_of = domain_of
         self._stage = stage_of(config)
         self._progress = progress
@@ -180,7 +197,9 @@ class SemanticPublisher:
         name = metric_name(metric, self._stage)
         kind = metric_type(metric.expression)
         owners = [_ref(owner, owner.get("type", "team")) for owner in product.get("owners") or []]
-        term = glossary_term_for(metric, self._glossaries)
+        terms, why_not = metric_terms(model, metric, self._column_terms.get(model.product, {}))
+        if why_not:
+            self._progress.info(f"Metric {name}: no glossary tag, because {why_not}.")
         expression = {"language": "SQL", "code": metric.expression}
         ai = metric.ai_context
         extension = {
@@ -191,7 +210,7 @@ class SemanticPublisher:
             **({"olfAiInstructions": ai.instructions} if ai and ai.instructions else {}),
             **({"olfAiSynonyms": ", ".join(ai.synonyms)} if ai and ai.synonyms else {}),
         }
-        display = f"{metric.name.replace('_', ' ').capitalize()} ({self._stage})"
+        display = metric.name
         owned = {
             "displayName": display,
             "description": metric.description,
@@ -216,23 +235,21 @@ class SemanticPublisher:
             fqn = self._table_fqn(table) if table else None
             if fqn and (dataset_name, fqn) not in sources:
                 sources.append((dataset_name, fqn))
-        return _Plan(model, metric, name, create, owned, extension, expression, term, tuple(sources))
+        return _Plan(model, metric, name, create, owned, extension, expression, terms, tuple(sources))
 
-    def _term_tag(self, plan: _Plan) -> str | None:
-        """The plan's glossary term when OpenMetadata holds it; a tag naming a missing term would be refused."""
-        if plan.tag is None:
-            return None
-        if self._reconciler.lookup("glossaryTerms", plan.tag, "") is None:
+    def _present_terms(self, plan: _Plan) -> tuple[str, ...]:
+        """The plan's glossary terms OpenMetadata holds; a tag naming a missing term would be refused."""
+        present = tuple(t for t in plan.tags if self._reconciler.lookup("glossaryTerms", t, "") is not None)
+        if len(present) < len(plan.tags):
             self._progress.warn(
-                f"Metric {plan.fqn}: glossary term {plan.tag} is not in OpenMetadata yet; the metric is published "
-                "without its glossary tag and is tagged by the next deploy once the glossary is published."
+                f"Metric {plan.fqn}: glossary term(s) {sorted(set(plan.tags) - set(present))} are not in "
+                "OpenMetadata yet; the metric is tagged by the next deploy once the glossary is published."
             )
-            return None
-        return plan.tag
+        return present
 
     @staticmethod
-    def _extra_operations(current: Mapping[str, Any], plan: _Plan, tag: str | None) -> list[dict[str, Any]]:
-        """The expression and glossary tag, which the generic patch cannot compare: the server escapes the code's
+    def _extra_operations(current: Mapping[str, Any], plan: _Plan, tags: Sequence[str]) -> list[dict[str, Any]]:
+        """The expression and glossary tags, which the generic patch cannot compare: the server escapes the code's
         quotes and adds display fields to each tag."""
         operations: list[dict[str, Any]] = []
         have = current.get("metricExpression") or {}
@@ -240,11 +257,13 @@ class SemanticPublisher:
             operations.append(
                 {"op": "replace" if have else "add", "path": "/metricExpression", "value": dict(plan.expression)}
             )
-        tags = current.get("tags") or []
-        if tag and tag not in {held.get("tagFQN") for held in tags}:
-            operations.append(
-                {"op": "add", "path": "/tags/-" if tags else "/tags", "value": _tag(tag) if tags else [_tag(tag)]}
-            )
+        held = current.get("tags") or []
+        present = {tag.get("tagFQN") for tag in held}
+        missing = [tag for tag in tags if tag not in present]
+        if missing and held:
+            operations += [{"op": "add", "path": "/tags/-", "value": _tag(tag)} for tag in missing]
+        elif missing:
+            operations.append({"op": "add", "path": "/tags", "value": [_tag(tag) for tag in missing]})
         return operations
 
     # --- publishing --------------------------------------------------------------------------------------------
@@ -286,12 +305,12 @@ class SemanticPublisher:
             self._publish_constraints(model)
 
     def _publish_metric(self, plan: _Plan) -> None:
-        tag = self._term_tag(plan)
-        create = {**plan.create, **({"tags": [_tag(tag)]} if tag else {})}
+        tags = self._present_terms(plan)
+        create = {**plan.create, **({"tags": [_tag(tag) for tag in tags]} if tags else {})}
         entity = self._reconciler.reconcile(
             "metrics", plan.fqn, create, plan.owned, fields=METRIC_FIELDS, extension=plan.extension
         )
-        operations = self._extra_operations(entity, plan, tag)
+        operations = self._extra_operations(entity, plan, tags)
         if operations:
             self._client.request(
                 "PATCH",
@@ -425,8 +444,8 @@ class SemanticPublisher:
             ]
             if marker_of(current) is None:
                 fields.append(MARKER_PROPERTY)
-            tag = plan.tag if plan.tag and self._reconciler.lookup("glossaryTerms", plan.tag, "") else None
-            fields += [op["path"].split("/")[1] for op in self._extra_operations(current, plan, tag)]
+            tags = tuple(t for t in plan.tags if self._reconciler.lookup("glossaryTerms", t, "") is not None)
+            fields += [op["path"].split("/")[1] for op in self._extra_operations(current, plan, tags)]
             for _dataset, table_fqn in plan.sources:
                 table = self._reconciler.lookup("tables", table_fqn, "")
                 if table and self._lineage_missing(current["id"], table["id"]):
