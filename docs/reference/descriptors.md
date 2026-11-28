@@ -269,6 +269,7 @@ read, so it is a deliberate edit of the directory layout as well as the file.
 | `tier` | enum | no | `Tier1` (most critical) to `Tier5`. |
 | `lifecycle` | enum | no | `IDEATION`, `DESIGN`, `DEVELOPMENT`, `TESTING`, `PRODUCTION`, `DEPRECATED` or `RETIRED`. |
 | `termsOfUse` | object | no | `allowed` and/or `prohibited`: non-empty arrays of strings. |
+| `profiling` | object | no | `{enabled: true|false}`, default `false`. Opts the product's Gold facts and dimensions in to OpenMetadata profiling; see [Profiling policy](#profiling-policy). Not inherited. |
 | `glossaryTerms` | array of term references, non-empty | no | Terms from a [glossary](#glossary) that define the product, as `<glossary>.<Term>`. Not inherited. |
 
 A reference is `{type: user, ref: <name>}` or `{type: team, ref: <name>}`. It
@@ -287,6 +288,26 @@ resolved values, so every consumer reads the same answer.
 `classification` is metadata. It does not grant or revoke access in Trino or
 Polaris, in OpenMetadata or anywhere else; enforcement is tracked in
 [#924](https://github.com/OpenLakeForge/openlakeforge/issues/924).
+
+#### Profiling policy
+
+`profiling.enabled: true` allows OpenMetadata to compute statistics for the
+product's Gold tables. The product's resolved `classification` decides what
+may be stored:
+
+| Classification | Stored per table and column |
+| --- | --- |
+| `Public`, `Internal` | `rowCount`; `valuesCount`, `nullCount`, `nullProportion`, `distinctCount`, `min`, `max`, `mean` |
+| `Confidential` | the same without `min`, `max` and `mean`, which are real values |
+| `Restricted` or none | nothing; `olf check contracts` fails if `enabled: true` |
+
+Only tables with the `GoldRole.Fact` or `GoldRole.Dimension` role in
+`<product>_gold` are eligible; marts, Silver and Bronze never are. `min`, `max`
+and `mean` of a text column are string lengths, not values. Profiling reads
+rows through Trino and writes no sample rows. Remove the block, or set
+`enabled: false`, to turn it off. The policy resolver is
+`openlakeforge_core.resolve_profiling`; the profiler Job that applies it is a
+separate change.
 
 `status` was removed from domains and products. A `v1beta2` document that
 sets it fails with a hint to use `lifecycle`; domains have no lifecycle, so

@@ -11,6 +11,7 @@ from openlakeforge_core import (
     LakehouseDescriptorError,
     governance_products,
     load_governance_descriptor,
+    profiling_conflicts,
     scan_gold_roles,
     scan_product_dependencies,
 )
@@ -80,6 +81,7 @@ def _check_governance_conformance(
                 if missing:
                     errors.append(f"product {product['id']!r} is missing {', '.join(missing)} (--strict)")
     errors += _out_of_schema_models(code / "gold")
+    errors += profiling_conflicts(document)
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))
     return CheckResult(name, ok=True, detail="governance.yml matches project code")

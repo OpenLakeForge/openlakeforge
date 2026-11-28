@@ -140,6 +140,15 @@ from .inventory import (
     load_transitional_lakehouse_inventory,
 )
 from .product_dependencies import ProductDependencies, ProductDependency, scan_product_dependencies
+from .profiling import (
+    PROFILING_METRICS_COUNTS,
+    PROFILING_METRICS_VALUES,
+    PROFILING_ROLES,
+    ProfilingTarget,
+    profiling_conflicts,
+    profiling_metrics,
+    resolve_profiling,
+)
 from .quality import (
     HealthQualityFields,
     PipelineOutcome,
@@ -297,6 +306,13 @@ __all__ = [
     "load_lakehouse_inventory_from_descriptors",
     "load_transitional_lakehouse_inventory",
     "scan_gold_roles",
+    "PROFILING_METRICS_COUNTS",
+    "PROFILING_METRICS_VALUES",
+    "PROFILING_ROLES",
+    "ProfilingTarget",
+    "profiling_conflicts",
+    "profiling_metrics",
+    "resolve_profiling",
     "scan_product_dependencies",
     "SUPPORTED_OSSIE_VERSION",
     "SemanticDataset",
