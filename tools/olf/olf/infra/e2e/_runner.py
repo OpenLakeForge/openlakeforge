@@ -25,6 +25,7 @@ from olf.infra.e2e._assertions import check_openmetadata_assets, check_superset_
 from olf.infra.e2e._break_glass import check_break_glass
 from olf.infra.e2e._credential_preservation import check_credential_preservation
 from olf.infra.e2e._dagster import launch_and_poll_dagster_jobs
+from olf.infra.e2e._glossary import check_glossary_publication
 from olf.infra.e2e._health import check_pods_ready
 from olf.infra.e2e._ingress import check_certificate_renewal, check_portal_lists_routes, check_traefik_restart_recovery
 from olf.infra.e2e._isolation import check_stage_isolation
@@ -411,6 +412,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         [
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
             FullAssertion("OpenMetadata governance assets", check_openmetadata_assets, layer="governance"),
+            FullAssertion("OpenMetadata glossary publication", check_glossary_publication, layer="governance"),
             FullAssertion("OpenMetadata quality publication", check_quality_publication, layer="governance"),
             FullAssertion(
                 "OpenMetadata quality writer permissions", check_quality_writer_permissions, layer="governance"
