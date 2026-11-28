@@ -15,7 +15,16 @@ from typing import Any
 from openlakeforge_core.inventory import LakehouseInventory
 
 from .glossary_publish import om_fqns
-from .governance import DomainSpec, MetadataConfig, MetadataReconciler, domain_payload, product_payload
+from .governance import (
+    FRESHNESS_POLICY_PROPERTY,
+    DomainSpec,
+    MetadataConfig,
+    MetadataReconciler,
+    domain_payload,
+    freshness_policy,
+    product_payload,
+    sla_payload,
+)
 from .openmetadata import fqn_part
 from .ownership import marker_of, patch_operations
 
@@ -94,7 +103,10 @@ def detect_drift(
         )
         for product in domain.products:
             pbody = product_payload(product)
-            owned = {k: pbody[k] for k in ("displayName", "description")}
+            owned = {k: pbody[k] for k in ("displayName", "description")} | sla_payload(product.sla)
+            policy = freshness_policy(product.sla)
+            if policy:
+                owned["extension"] = {FRESHNESS_POLICY_PROPERTY: policy}
             if entity:
                 # A deploy sets a product's domain only when it creates it, so a product moved to another domain is
                 # reported here for a person to repair rather than overwritten.

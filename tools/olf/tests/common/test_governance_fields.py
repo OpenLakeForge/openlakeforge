@@ -88,7 +88,7 @@ _BAD = [
     ("allowed: [internal_reporting]", "allowed: internal_reporting", "termsOfUse.allowed must be"),
     ("domainType: Consumer-aligned", "domainType: Consumer-aligned\n    status: planned", "domains have no lifecycle"),
     ("tier: Tier1", "tier: Tier1\n        status: planned", "use `lifecycle`"),
-    ("tier: Tier1", "tier: Tier1\n        sla: {}", "must not contain ['sla']"),
+    ("tier: Tier1", "tier: Tier1\n        uptime: 99", "must not contain ['uptime']"),
 ]
 
 

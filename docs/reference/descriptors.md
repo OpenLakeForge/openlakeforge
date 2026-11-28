@@ -269,6 +269,7 @@ read, so it is a deliberate edit of the directory layout as well as the file.
 | `tier` | enum | no | `Tier1` (most critical) to `Tier5`. |
 | `lifecycle` | enum | no | `IDEATION`, `DESIGN`, `DEVELOPMENT`, `TESTING`, `PRODUCTION`, `DEPRECATED` or `RETIRED`. |
 | `termsOfUse` | object | no | `allowed` and/or `prohibited`: non-empty arrays of strings. |
+| `sla` | object | no | The product's freshness and availability promise; see [Product SLA](#product-sla). Not inherited. |
 | `glossaryTerms` | array of term references, non-empty | no | Terms from a [glossary](#glossary) that define the product, as `<glossary>.<Term>`. Not inherited. |
 
 A reference is `{type: user, ref: <name>}` or `{type: team, ref: <name>}`. It
@@ -294,6 +295,48 @@ drop it there. `olf project migrate` refuses a `v1beta1` file that sets
 `status` for the same reason, leaving it unchanged, and the migrated file
 needs `lifecycle` written by hand.
 
+#### Product SLA
+
+`sla` is what the product owner promises. Declaring it does not mean the
+product meets it: nothing in this block observes a run.
+
+```yaml
+products:
+  - id: order_revenue
+    sla:
+      tier: GOLD                     # GOLD | SILVER | BRONZE | CUSTOM
+      freshness:
+        maximumAge: PT27H            # ISO 8601 duration
+        readyBy: "06:00"             # HH:MM in `timezone`
+        timezone: Europe/Paris       # IANA name
+      availability:
+        schedule: "0 2 * * *"        # five-field cron
+        gracePeriod: PT1H
+      minimumQualityScore: 95        # percent, 0 to 100
+```
+
+| Field | Required | Rule |
+| --- | --- | --- |
+| `tier` | yes | `GOLD`, `SILVER`, `BRONZE` or `CUSTOM`, upper case: OpenMetadata answers HTTP 500 to any other casing. |
+| `freshness.maximumAge` | when `freshness` is set | A positive ISO 8601 duration of weeks, days, hours, minutes and seconds. Months and years are refused because they have no fixed length. |
+| `freshness.readyBy` | no | 24-hour `HH:MM`; needs `timezone`. |
+| `freshness.timezone` | with `readyBy` | An IANA timezone name. |
+| `availability.schedule` | when `availability` is set | Five fields: minute, hour, day of month, month, day of week. Month and weekday names are accepted. |
+| `availability.gracePeriod` | no | An ISO 8601 duration. |
+| `minimumQualityScore` | no | A number from 0 to 100. |
+
+Every error names the path of the value, for example
+`domains[sales].products[order_revenue].sla.freshness.timezone`. A key outside
+this table is refused.
+
+`olf check contracts` warns when a product's `maximumAge` is shorter than that
+of a product it reads through `ref()`: a consumer cannot be fresher than its
+producer, so the promise cannot hold when the producer is at its own limit.
+The warning does not add the consumer's own run time.
+
+The demo project's `sla` values on `sales_core` and `order_revenue` are
+illustrations that fit their daily cadences, not commitments.
+
 #### What appears in OpenMetadata
 
 `olf infra deploy` publishes the resolved fields to OpenMetadata 1.13.6 when
@@ -311,6 +354,8 @@ person set in OpenMetadata stays.
 | `classification` | `DataSensitivity.<value>` tag | Domain, data product and the product's Gold tables in the stage being deployed |
 | `lifecycle` | Custom property `olfLifecycle` | Data product |
 | `termsOfUse` | Custom property `olfTermsOfUse`, a JSON string | Data product |
+| `sla.tier`, `sla.freshness.maximumAge`, `sla.minimumQualityScore` | `sla.tier`, `sla.dataFreshness` (minutes), `sla.dataQuality` | Data product |
+| The whole `sla` | Custom property `olfFreshnessPolicy`, a JSON string with the declared fields (the exact `maximumAge`, and the `readyBy`, `timezone` and `availability` fields OpenMetadata has no place for) | Data product |
 
 - A reference resolves to an existing OpenMetadata user or team by name. An
   `owner` must be an existing user or a team of type `Group`: OpenMetadata
@@ -328,8 +373,16 @@ person set in OpenMetadata stays.
 - After a write the deploy reads the entity back and fails if OpenMetadata
   did not keep a field, instead of trusting the 200.
 - A second deploy of the same descriptor writes nothing.
+- OpenMetadata 1.13.6 records no change for a data product's `sla`, so a patch
+  that only changed it could answer 200 and store nothing. `olfFreshnessPolicy`
+  therefore moves with every SLA edit, and the deploy still reads the native
+  fields back and fails if they were not kept.
+- The native `sla` is written field by field, so an `availability` or
+  `responseTime` a person set in OpenMetadata stays. A field removed from
+  `governance.yml` is not removed from OpenMetadata; the deploy never
+  deletes. `olf infra openmetadata drift` reports a changed `sla` field.
 
-`consumesFrom`, `providesTo`, `sla` and glossary terms are published by other
+`consumesFrom`, `providesTo` and glossary terms are published by other
 changes.
 
 A root `products:` list, a `domain` inside a product, or the same `id` under

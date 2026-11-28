@@ -44,6 +44,7 @@ from .governance import EntityRef, load_governance_lakehouse_document
 from .product_dependencies import ProductDependencies, scan_product_dependencies
 from .semantic import SemanticInventory
 from .semantic_validate import load_semantic_inventory
+from .sla import ProductSla, parse_sla
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -151,6 +152,7 @@ class Product:
     tier: str | None = None
     lifecycle: str | None = None
     terms_of_use: Mapping[str, tuple[str, ...]] | None = None
+    sla: ProductSla | None = None
     glossary_terms: tuple[str, ...] = ()
 
     @property
@@ -456,6 +458,7 @@ def _product(path: Path, domain_name: str, product: Mapping[str, Any], index: in
         tier=product.get("tier"),
         lifecycle=product.get("lifecycle"),
         terms_of_use={key: tuple(items) for key, items in terms.items()} if terms else None,
+        sla=parse_sla(product["sla"], where=f"{path}: product {label!r}") if "sla" in product else None,
         glossary_terms=tuple(product.get("glossaryTerms", ())),
     )
 

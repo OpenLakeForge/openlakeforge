@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 
 from .descriptors import LakehouseDescriptorError, _identifier, _non_empty_string, _optional_string
+from .sla import parse_sla
 
 GOVERNANCE_API_VERSION = "openlakeforge.io/v1beta2"
 GOVERNANCE_KIND = "Governance"
@@ -47,7 +48,7 @@ TERM_REF_PATTERN = r"^[a-z][a-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$"
 
 _COMMON_FIELDS = {"displayName", "description", "owner", "experts", "classification", "glossaryTerms"}
 _DOMAIN_FIELDS = _COMMON_FIELDS | {"domainType", "products"}
-_PRODUCT_FIELDS = _COMMON_FIELDS | {"reviewers", "type", "tier", "lifecycle", "termsOfUse"}
+_PRODUCT_FIELDS = _COMMON_FIELDS | {"reviewers", "type", "tier", "lifecycle", "termsOfUse", "sla"}
 _INHERITED = ("owner", "experts", "classification")
 
 
@@ -143,6 +144,8 @@ def _check_entry(entry: object, *, id_field: str, where: str, fields: set[str]) 
             _enum(entry[field], field=field, allowed=allowed, where=where)
     if "termsOfUse" in entry:
         _terms_of_use(entry["termsOfUse"], where=where)
+    if "sla" in entry:
+        parse_sla(entry["sla"], where=where)
     if "glossaryTerms" in entry:
         parse_term_refs(entry["glossaryTerms"], field="glossaryTerms", where=where)
     return entry

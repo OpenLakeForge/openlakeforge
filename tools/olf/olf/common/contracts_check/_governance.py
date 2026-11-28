@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import jsonschema
 import yaml
 from openlakeforge_core import (
     LakehouseDescriptorError,
+    ProductDependencies,
     governance_products,
     load_governance_descriptor,
+    parse_duration,
     scan_product_dependencies,
 )
 from openlakeforge_core.governance import resolve_product
@@ -96,14 +100,41 @@ def _check_product_dependencies(repo_root: Path) -> CheckResult:
     if not path.is_file():
         return CheckResult(name, ok=True, detail="no governance.yml")
     try:
-        products = [p["id"] for p in governance_products(load_governance_descriptor(path))]
+        declared = governance_products(load_governance_descriptor(path))
     except LakehouseDescriptorError:
         # The governance check reports the broken descriptor.
         return CheckResult(name, ok=True, detail="governance.yml unreadable; see governance_conformance")
+    products = [p["id"] for p in declared]
     found = scan_product_dependencies(code / "gold", products)
     if found.violations:
         return CheckResult(name, ok=False, detail="; ".join(found.violations))
     if not found.dependencies:
         return CheckResult(name, ok=True, detail="no product reads another product's models")
+    warnings = _freshness_warnings(declared, found)
     edges = ", ".join(f"{d.consumer} -> {d.producer} ({', '.join(d.models)})" for d in found.dependencies)
-    return CheckResult(name, ok=True, detail=f"product dependencies: {edges}")
+    return CheckResult(name, ok=True, detail=f"product dependencies: {edges}", warnings=warnings)
+
+
+def _freshness_warnings(declared: list[Mapping[str, Any]], found: ProductDependencies) -> list[str]:
+    """A consumer cannot be fresher than what it reads, so a `maximumAge` shorter than a producer's cannot hold.
+
+    Compared as exact durations: the minute rounding belongs to the OpenMetadata publication, not to this check.
+    """
+    ages = {
+        p["id"]: p["sla"]["freshness"]["maximumAge"]
+        for p in declared
+        if "maximumAge" in (p.get("sla") or {}).get("freshness", {})
+    }
+    warnings = []
+    for d in found.dependencies:
+        consumer, producer = ages.get(d.consumer), ages.get(d.producer)
+        if consumer is None or producer is None:
+            continue
+        shorter, longer = parse_duration(consumer), parse_duration(producer)
+        if shorter is not None and longer is not None and shorter < longer:
+            warnings.append(
+                f"product {d.consumer!r} promises maximumAge {consumer} but reads {d.producer!r}, which only "
+                f"promises {producer}; the consumer's data can be older than its own promise when its producer is "
+                "within its own"
+            )
+    return warnings
