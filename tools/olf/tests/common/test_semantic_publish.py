@@ -524,13 +524,30 @@ def test_validate_refuses_a_duplicate_metric_without_reading_openmetadata(om: Fa
     assert om.calls == []
 
 
-def test_a_foreign_key_to_a_dotted_column_name_is_found_once_the_column_is_crawled(om: FakeWithMetrics) -> None:
+def test_a_foreign_key_to_a_dotted_column_is_published_once_that_column_is_crawled(om: FakeWithMetrics) -> None:
     dim = f"{SCHEMA}.dim_account"
-    om.entities["tables"][dim]["columns"] = [{"name": "customer.id"}]
-    publisher = _publisher(om)
+    om.entities["tables"][dim]["columns"] = [{"name": "account_id"}]
+    model = _model()
+    dotted = dataclasses.replace(
+        model,
+        relationships=tuple(
+            dataclasses.replace(r, to_columns=("customer.id",)) if r.name == "order_lines_to_account" else r
+            for r in model.relationships
+        ),
+    )
+    fact = om.entities["tables"][f"{SCHEMA}.fct_order_lines"]
 
-    assert publisher._missing_referred({"referredColumns": [f'{dim}."customer.id"']}) is None
-    assert publisher._missing_referred({"referredColumns": [f'{dim}."other.id"']}) is not None
+    _publisher(om, [dotted]).publish()
+
+    assert not any(c["columns"] == ["account_id"] for c in fact["tableConstraints"])
+    assert any("customer.id" in d.detail and d.kind == "unresolved" for d in _publisher(om, [dotted]).drift())
+
+    om.entities["tables"][dim]["columns"].append({"name": "customer.id"})
+    _publisher(om, [dotted]).publish()
+
+    foreign = [c for c in fact["tableConstraints"] if c["columns"] == ["account_id"]]
+    assert [c["referredColumns"] for c in foreign] == [[f'{dim}."customer.id"']]
+    assert not any(d.kind == "unresolved" for d in _publisher(om, [dotted]).drift())
 
 
 def test_a_metric_whose_name_has_a_dot_is_found_by_its_quoted_identity(om: FakeWithMetrics) -> None:
