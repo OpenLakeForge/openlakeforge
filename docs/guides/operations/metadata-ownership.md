@@ -13,12 +13,22 @@ only the fields in the middle column and leaves the rest alone.
 | Domain | `displayName`, `description`, `domainType` | owners, tags, conversations, followers |
 | Data product | `displayName`, `description`, its assets (the tables under its Gold schema), the domain it is created in | tags, owners, manually attached assets |
 | Database schema (Silver, Gold) | the domain it belongs to | tags, owners, description |
-| Table | created empty if absent | columns and column descriptions (Trino crawl), lineage (OpenLineage), quality results, tags |
+| Table | created empty if absent | columns (Trino crawl), lineage (OpenLineage), quality results, tags |
 | Storage service and containers | display name, S3 region and endpoint; container `description` | everything else |
 
-Columns and their descriptions come from the Trino crawl, lineage from the pipelines' OpenLineage events, and quality
-results from the quality writer (ADR 0007). A deploy never deletes: an entity removed from Git stays in
-OpenMetadata until someone removes it by hand.
+Columns come from the Trino crawl, lineage from the pipelines' OpenLineage events, and quality results from the
+quality writer (ADR 0007). A deploy never deletes: an entity removed from Git stays in OpenMetadata until someone
+removes it by hand.
+
+## Table and column descriptions
+
+dbt owns them. `persist_docs` writes each model's and column's description as a Trino comment, and every crawl (the
+one `deploy-metadata` runs and the hourly refresh) copies those comments into OpenMetadata and overwrites the
+description already there. Edit a description in the model's dbt `schema.yml`, not in OpenMetadata: an edit made in
+OpenMetadata lasts until the next crawl. The crawl leaves glossary tags and table constraints alone. It covers the
+whole stage catalog, not only the dbt-managed Gold tables: any table or column that has a Trino comment, Silver
+included, gets that comment as its description, and only one with no Trino comment keeps a description set in
+OpenMetadata.
 
 ## The ownership marker
 

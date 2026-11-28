@@ -6,6 +6,98 @@ groups:
       name: customer_health
 
 models:
+  - name: fct_support_tickets
+    access: public
+    description: Support tickets. One row per Silver support ticket.
+    columns:
+      - name: ticket_id
+        data_type: varchar
+        description: Ticket identifier; the primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_type: varchar
+        description: Account that opened the ticket; joins sales_core dim_account.account_id.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_account')
+                field: account_id
+      - name: opened_date
+        data_type: date
+        description: Date the ticket was opened.
+      - name: priority
+        data_type: varchar
+        description: Ticket priority.
+      - name: resolution_hours
+        data_type: integer
+        description: Hours the ticket took to resolve.
+      - name: sla_met
+        data_type: boolean
+        description: Whether the ticket met its SLA.
+  - name: fct_nps_responses
+    access: public
+    description: NPS survey responses. One row per Silver NPS response.
+    columns:
+      - name: response_id
+        data_type: varchar
+        description: Response identifier; the primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_type: varchar
+        description: Account that responded; joins sales_core dim_account.account_id.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_account')
+                field: account_id
+      - name: response_date
+        data_type: date
+        description: Date of the response.
+      - name: score
+        data_type: integer
+        description: NPS score given by the account.
+  - name: fct_subscriptions
+    access: public
+    description: >-
+      Subscriptions with their current status. One row per Silver subscription; there is no status history, so
+      status is the latest value.
+    columns:
+      - name: subscription_id
+        data_type: varchar
+        description: Subscription identifier; the primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_type: varchar
+        description: Account that holds the subscription; joins sales_core dim_account.account_id.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_account')
+                field: account_id
+      - name: plan_name
+        data_type: varchar
+        description: Name of the subscribed plan.
+      - name: status
+        data_type: varchar
+        description: Subscription status, for example active or past_due.
+      - name: start_date
+        data_type: date
+        description: Date the subscription started.
+      - name: renewal_date
+        data_type: date
+        description: Date the subscription renews.
+      - name: monthly_recurring_revenue
+        data_type: decimal(18,2)
+        description: Monthly recurring revenue of the subscription.
   - name: mart_customer_health_score
     description: Account-level health score using subscription, support, and NPS signals. One row per account.
     columns:

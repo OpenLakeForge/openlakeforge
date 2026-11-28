@@ -24,6 +24,10 @@ for how a release is cut and verified.
 
 ### Changed
 
+- `customer_health` gets `fct_support_tickets`, `fct_nps_responses` and `fct_subscriptions` (one row per Silver
+  record, keyed, `account_id` tested against `sales_core.dim_account`), and its marts read them and
+  `dim_account` with the same names, columns and types (#1464). Account attributes now come from `sales_core`, so
+  `customer_health` needs `sales_core` built first. `monthly_recurring_revenue` is summed from `decimal(18,2)`.
 - `inventory_reliability` gets `dim_warehouse`, `dim_supplier`, `fct_inventory_snapshots` (a periodic snapshot whose
   `on_hand_units` is semi-additive over time), `fct_purchase_order_receipts` (one row per purchase order, with its
   shipments summed) and `fct_stockout_events`, all keyed (#1464). Their `product_id` is tested against
