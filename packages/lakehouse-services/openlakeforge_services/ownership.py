@@ -14,6 +14,7 @@ columns, human tags, comments, followers) alone.
 
 from __future__ import annotations
 
+import html
 from collections.abc import Mapping
 from typing import Any
 
@@ -39,6 +40,10 @@ def _is_empty(value: Any) -> bool:
 
 
 def _same(current: Any, wanted: Any) -> bool:
+    # OpenMetadata 1.13.6 returns text HTML-escaped (a stored `run's` reads back `run&#39;s`), so an owned
+    # description with a quote would otherwise be patched on every deploy.
+    if isinstance(current, str) and isinstance(wanted, str):
+        return current == wanted or html.unescape(current) == wanted
     # A reference list is the same set of entities whatever display fields the server adds to each reference.
     if isinstance(wanted, list) and wanted and all(isinstance(item, Mapping) and "id" in item for item in wanted):
         return isinstance(current, list) and {item.get("id") for item in current} == {item["id"] for item in wanted}
