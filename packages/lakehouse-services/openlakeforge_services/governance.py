@@ -23,7 +23,7 @@ from openlakeforge_core import (
     load_source_descriptor,
 )
 
-from .openmetadata import OpenMetadataClient, OpenMetadataError
+from .openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 from .ownership import (
     MARKED_ENTITY_TYPES,
     MARKER_DESCRIPTION,
@@ -374,7 +374,9 @@ class MetadataReconciler:
                     params={"limit": 1000, "offset": offset},
                     ok_statuses=(200, 404),
                 )
-            except OpenMetadataError:  # the attach below is the call that must succeed; it raises on its own
+            # The attach below is the call that must succeed; it raises on its own. A 5xx or timeout is the
+            # transient type, which is not an OpenMetadataError.
+            except (OpenMetadataError, OpenMetadataTransientError):
                 return None
             if "data" not in page:
                 return None

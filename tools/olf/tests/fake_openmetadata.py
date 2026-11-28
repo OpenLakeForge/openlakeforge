@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import urllib.parse
+from collections.abc import Mapping
+from typing import Any
 
 
 class FakeOpenMetadata:
@@ -56,8 +58,15 @@ class FakeOpenMetadata:
         return body["name"]
 
     def request(
-        self, method, path, *, json_body=None, params=None, ok_statuses=(200,), content_type="application/json"
-    ):
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: Any = None,
+        params: Mapping[str, Any] | None = None,
+        ok_statuses: tuple[int, ...] = (200,),
+        content_type: str = "application/json",
+    ) -> Mapping[str, Any]:
         self.calls.append((method, path))
         route = path.partition("?")[0]
         if route == "/api/v1/system/config/jwks":

@@ -4,7 +4,7 @@ import pytest
 from conftest import write_floe_entity
 from fake_openmetadata import FakeOpenMetadata
 from openlakeforge_services.governance import MetadataConfig, MetadataDeployer
-from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 
 GOLD = "polaris.lakehouse_dev.order_revenue_gold"
 
@@ -355,13 +355,18 @@ def test_a_storage_service_missing_part_of_its_connection_gets_the_whole_missing
     assert aws == {"awsRegion": "us-east-1", "endPointURL": "http://seaweedfs-s3:8333"}
 
 
-def test_a_failing_asset_listing_still_attaches_the_tables(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "error", [OpenMetadataError("HTTP 404", status=404), OpenMetadataTransientError("HTTP 500", status=500)]
+)
+def test_a_failing_asset_listing_still_attaches_the_tables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
     deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
     fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
 
     def request(method: str, path: str, **kwargs):
         if method == "GET" and path.endswith("/assets"):
-            raise OpenMetadataError("GET failed with HTTP 500", status=500)
+            raise error
         return fake.request(method, path, **kwargs)
 
     monkeypatch.setattr(deployer.client, "request", request)
