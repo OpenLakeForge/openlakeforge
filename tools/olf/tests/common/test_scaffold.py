@@ -423,7 +423,7 @@ def test_product_new_adds_second_product_to_existing_domain_sharing_silver(tmp_p
 
     inventory = load_lakehouse_inventory(repo_root)
     sales = next(d for d in inventory.domains if d.name == "sales")
-    assert {p.id for p in sales.products} == {"order_revenue", "customer_health", "order_summary"}
+    assert {p.id for p in sales.products} == {"order_revenue", "customer_health", "sales_core", "order_summary"}
     order_summary = next(p for p in sales.products if p.id == "order_summary")
     assert order_summary.silver_namespace == "sales_silver"
     # The domain's Silver is declared once: the existing source file is reused, not copied.

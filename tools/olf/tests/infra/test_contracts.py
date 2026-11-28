@@ -76,6 +76,7 @@ def test_defaults_without_contracts_match_local_profile() -> None:
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
         "order_revenue": "polaris.lakehouse_dev.order_revenue_gold",
         "customer_health": "polaris.lakehouse_dev.customer_health_gold",
+        "sales_core": "polaris.lakehouse_dev.sales_core_gold",
         "inventory_reliability": "polaris.lakehouse_dev.inventory_reliability_gold",
     }
     assert exports["OPENMETADATA_CATALOG_SERVICE"] == "polaris"
@@ -196,6 +197,7 @@ def test_aws_contracts_blank_local_only_fields_and_derive_glue_fqns() -> None:
     assert json.loads(exports["OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON"]) == {
         "order_revenue": "aws_glue.lakehouse_dev.lakehouse_dev_order_revenue_gold",
         "customer_health": "aws_glue.lakehouse_dev.lakehouse_dev_customer_health_gold",
+        "sales_core": "aws_glue.lakehouse_dev.lakehouse_dev_sales_core_gold",
         "inventory_reliability": "aws_glue.lakehouse_dev.lakehouse_dev_inventory_reliability_gold",
     }
     assert exports["OPENMETADATA_CATALOG_SERVICE"] == "aws_glue"

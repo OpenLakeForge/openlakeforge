@@ -4,7 +4,7 @@ import pytest
 from conftest import write_floe_entity
 from fake_openmetadata import FakeOpenMetadata
 from openlakeforge_services.governance import MetadataConfig, MetadataDeployer
-from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 
 GOLD = "polaris.lakehouse_dev.order_revenue_gold"
 
@@ -309,6 +309,7 @@ def test_an_unreadable_asset_listing_costs_one_idempotent_attach_and_loses_nothi
     deployer.deploy()
 
     assert fake.writes == [("PUT", "/api/v1/dataProducts/order_revenue/assets/add")]
+    assert len(fake.entities["dataProducts"]["order_revenue"]["assets"]) == 1
     assert any(level == "warn" and "order_revenue" in message for level, message in progress.messages)
 
 
@@ -333,3 +334,94 @@ def test_held_assets_are_read_across_pages_of_the_assets_listing(
 
     assert deployer._reconciler.held_asset_ids("order_revenue") == {f"t{i}" for i in range(5)}
     assert len(pages) == 3
+
+
+def test_a_leftover_custom_storage_endpoint_is_removed_when_the_desired_endpoint_is_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer = _deployer(tmp_path, allow_missing_assets=True, progress=_Recorder())
+    deployer.config.storage_endpoint = ""
+    fake = _serve(deployer, monkeypatch, gold_tables=[])
+    service = fake.seed(
+        "services/storageServices",
+        "seaweedfs",
+        {
+            "displayName": "SeaweedFS S3",
+            "connection": {"config": {"awsConfig": {"awsRegion": "us-east-1", "endPointURL": "http://old:8333"}}},
+        },
+    )
+
+    deployer.ensure_storage_service()
+
+    assert service["connection"]["config"]["awsConfig"] == {"awsRegion": "us-east-1"}
+
+
+def test_the_marker_revision_follows_the_descriptor_source_not_the_metadata_root(tmp_path: Path) -> None:
+    import subprocess
+
+    from olf.infra.openmetadata import OpenMetadataConfig
+    from olf.infra.openmetadata._orchestration import _git_revision
+
+    source = tmp_path / "other-checkout"
+    source.mkdir()
+    _descriptors(source)
+    git = ["git", "-C", str(source), "-c", "user.name=t", "-c", "user.email=t@example.org"]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run([*git, "add", "."], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "x"], check=True)
+    head = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    config = OpenMetadataConfig.from_environment(
+        {"OPENLAKEFORGE_CONTRACT_STAGE": "dev", "OPENLAKEFORGE_CATALOG_NAME": "lakehouse_dev"},
+        base_url="http://x",
+        admin_email="",
+        admin_password="",
+        metadata_root=str(tmp_path / "not-a-checkout"),
+        metadata_source_dir=str(source),
+        allow_missing_assets=True,
+        catalog_service="polaris",
+        catalog_database="lakehouse_dev",
+    )
+
+    assert _git_revision(config) == head
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        {},
+        {"connection": {}},
+        {"connection": {"config": {"type": "S3"}}},
+    ],
+)
+def test_a_storage_service_missing_part_of_its_connection_gets_the_whole_missing_object(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stored: dict
+) -> None:
+    deployer = _deployer(tmp_path, allow_missing_assets=True, progress=_Recorder())
+    fake = _serve(deployer, monkeypatch, gold_tables=[])
+    service = fake.seed("services/storageServices", "seaweedfs", {"displayName": "SeaweedFS S3", **stored})
+
+    deployer.ensure_storage_service()
+
+    aws = service["connection"]["config"]["awsConfig"]
+    assert aws == {"awsRegion": "us-east-1", "endPointURL": "http://seaweedfs-s3:8333"}
+
+
+@pytest.mark.parametrize(
+    "error", [OpenMetadataError("HTTP 404", status=404), OpenMetadataTransientError("HTTP 500", status=500)]
+)
+def test_a_failing_asset_listing_still_attaches_the_tables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    deployer = _deployer(tmp_path, allow_missing_assets=False, progress=_Recorder())
+    fake = _serve(deployer, monkeypatch, gold_tables=["order_revenue"])
+
+    def request(method: str, path: str, **kwargs):
+        if method == "GET" and path.endswith("/assets"):
+            raise error
+        return fake.request(method, path, **kwargs)
+
+    monkeypatch.setattr(deployer.client, "request", request)
+
+    deployer.deploy()
+
+    assert len(fake.entities["dataProducts"]["order_revenue"]["assets"]) == 1

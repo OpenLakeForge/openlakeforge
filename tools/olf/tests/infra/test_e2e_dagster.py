@@ -743,3 +743,31 @@ def test_graphql_transport_never_replays_a_request_the_server_may_have_received(
 
     assert revived == []
     assert session.calls == 1
+
+
+def test_launching_several_products_starts_the_one_another_reads_from_first(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from contextlib import nullcontext
+
+    from conftest import write_two_product_fixture
+    from openlakeforge_core import load_lakehouse_inventory
+
+    write_two_product_fixture(tmp_path)
+    models = tmp_path / "lakehouse_code" / "gold" / "models"
+    (models / "widgets_beta").mkdir(parents=True)
+    (models / "widgets_alpha").mkdir(parents=True)
+    (models / "widgets_beta" / "dim_widget.sql").write_text("select 1 as id", encoding="utf-8")
+    (models / "widgets_beta" / "schema.yml").write_text(
+        "version: 2\nmodels:\n  - name: dim_widget\n    access: public\n", encoding="utf-8"
+    )
+    # widgets_alpha is declared first, yet reads widgets_beta.
+    (models / "widgets_alpha" / "mart.sql").write_text("select * from {{ ref('dim_widget') }}", encoding="utf-8")
+    launched: list[str] = []
+    monkeypatch.setattr(_dagster, "dagster_client", lambda _cfg: nullcontext(object()))
+    monkeypatch.setattr(_dagster, "launch_and_poll", lambda _cfg, _client, job, **_kw: launched.append(job))
+    cfg = SimpleNamespace(inventory=load_lakehouse_inventory(tmp_path / "lakehouse_code"))
+
+    _dagster.launch_and_poll_dagster_jobs(cfg)  # type: ignore[arg-type]
+
+    assert launched == ["widgets_beta_pipeline", "widgets_alpha_pipeline"]

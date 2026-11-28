@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 import urllib.parse
+from collections.abc import Mapping
+from typing import Any
 
 
 class FakeOpenMetadata:
@@ -35,7 +38,7 @@ class FakeOpenMetadata:
             "version": 0.1,
             "updatedBy": "admin",
             "href": f"http://localhost:8585/api/v1/{collection}/{entity_id}",
-            **entity,
+            **copy.deepcopy(entity),
         }
         self.entities.setdefault(collection, {})[fqn] = stored
         return stored
@@ -56,8 +59,15 @@ class FakeOpenMetadata:
         return body["name"]
 
     def request(
-        self, method, path, *, json_body=None, params=None, ok_statuses=(200,), content_type="application/json"
-    ):
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: Any = None,
+        params: Mapping[str, Any] | None = None,
+        ok_statuses: tuple[int, ...] = (200,),
+        content_type: str = "application/json",
+    ) -> Mapping[str, Any]:
         self.calls.append((method, path))
         route = path.partition("?")[0]
         if route == "/api/v1/system/config/jwks":
@@ -97,7 +107,8 @@ class FakeOpenMetadata:
             return dict(found) if found else {"code": 404, "message": "not found"}
         if collection.endswith("/assets/add"):
             product = self.entities["dataProducts"][urllib.parse.unquote(collection.split("/")[1])]
-            product.setdefault("assets", []).extend(json_body["assets"])
+            held = product.setdefault("assets", [])
+            held += [ref for ref in json_body["assets"] if ref["id"] not in {asset["id"] for asset in held}]
             return {}
         if method == "POST":
             fqn = self._fqn_of(collection, json_body)
@@ -116,7 +127,11 @@ class FakeOpenMetadata:
                 *parents, leaf = op["path"].strip("/").split("/")
                 node = entity
                 for key in parents:
-                    node = node.setdefault(key, {})
-                node[leaf] = op["value"]
+                    # RFC 6902: only the last member of an `add` is created; a missing parent is an error.
+                    node = node[key]
+                if op["op"] == "remove":
+                    node.pop(leaf)
+                else:
+                    node[leaf] = copy.deepcopy(op["value"])
             return entity
         raise AssertionError(f"unhandled request {method} {path}")

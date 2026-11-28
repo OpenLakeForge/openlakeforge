@@ -18,12 +18,14 @@ from dagster import (
     AssetOut,
     AssetSelection,
     DagsterEventType,
+    DagsterRunStatus,
     DefaultScheduleStatus,
     Definitions,
     Failure,
     Field,
     MetadataValue,
     Output,
+    RunsFilter,
     ScheduleDefinition,
     define_asset_job,
     failure_hook,
@@ -53,6 +55,7 @@ from openlakeforge_runtime.dbt_build import (
     merge_run_results,
     model_dependencies,
     model_sources,
+    upstream_models,
     without_deselected_checks,
 )
 from openlakeforge_runtime.dbt_quality import dbt_quality_manifest, read_dbt_evidence
@@ -531,8 +534,6 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             profiles_dir=str(resolve_profiles_dir()),
             dbt_executable=os.environ.get("OPENLAKEFORGE_DBT_EXECUTABLE", "dbt-ol"),
         )
-        previous_job_name = os.environ.get("OPENLINEAGE_DBT_JOB_NAME")
-        os.environ["OPENLINEAGE_DBT_JOB_NAME"] = spec.job_name
         # Both scopes rebuild Gold: after a Bronze reload, an incremental model
         # would otherwise keep rows its rebuilt inputs no longer hold.
         full_refresh = full_refresh_scope(context.run.tags) is not None
@@ -545,8 +546,11 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             known={key.name for key in context.assets_def.check_keys},
             selected={key.name for key in context.selected_asset_check_keys},
         )
+        explicit_tests = sorted(test.unique_id for test in all_tests.values() if test.explicit)
+        previous_job_name = os.environ.get("OPENLINEAGE_DBT_JOB_NAME")
+        os.environ["OPENLINEAGE_DBT_JOB_NAME"] = spec.job_name
         # Before the build, so a run that dies early still says which tests it meant to run (dbt_quality).
-        _upload_selected_tests(context, spec, sorted(t.unique_id for t in all_tests.values() if t.explicit))
+        _upload_selected_tests(context, spec, explicit_tests)
 
         def build_generation(models: list[str], tests: list[DbtTest]):
             args = [
@@ -571,21 +575,28 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
             context.log.info(f"Pausing {pause}s before the next generation (e2e, #1061).")
             time.sleep(float(pause or 0))
 
+        def guarded_build():
+            # Inside the retention scope: a refused run still leaves the incomplete-artifacts marker and the manifest.
+            _require_upstream_products_ready(
+                context.instance, spec.product, upstream_models(manifest, selected, spec.product, explicit_tests)
+            )
+            yield from build_by_generation(
+                dependencies,
+                all_tests,
+                build_generation,
+                generation_token,
+                lambda models, tests: failed_nodes_in(target_paths[-1], models, tests),
+                sources=model_sources(manifest, selected),
+                between=None if pause is None else between_generations,
+            )
+
         try:
             # A dbt process holds its token for good and Polaris lets it expire, so each generation gets its own.
             yield from _retaining_artifacts_on_failure(
                 context,
                 spec,
                 target_paths,
-                build_by_generation(
-                    dependencies,
-                    all_tests,
-                    build_generation,
-                    generation_token,
-                    lambda models, tests: failed_nodes_in(target_paths[-1], models, tests),
-                    sources=model_sources(manifest, selected),
-                    between=None if pause is None else between_generations,
-                ),
+                guarded_build(),
                 baked_manifest=manifest_path,
             )
         finally:
@@ -629,6 +640,53 @@ def build_product_definitions(spec: ProductDefinitionSpec) -> Definitions:
         jobs=[product_pipeline],
         schedules=build_stage_schedules(spec),
     )
+
+
+# A run of the producing product in any of these states may be replacing the tables this run would read.
+_IN_FLIGHT = [
+    DagsterRunStatus.QUEUED,
+    DagsterRunStatus.NOT_STARTED,
+    DagsterRunStatus.MANAGED,
+    DagsterRunStatus.STARTING,
+    DagsterRunStatus.STARTED,
+    DagsterRunStatus.CANCELING,
+]
+
+
+class UpstreamProductNotReady(Failure):
+    """A product's run was refused because a product it reads from has not built, or is building."""
+
+
+def _require_upstream_products_ready(instance, product: str, upstream: dict[str, tuple[str, ...]]) -> None:
+    """Fail before dbt starts when a product this one reads from has not built, or is building now.
+
+    A producing product replaces its tables one dbt generation at a time (`create or replace`, so no single table
+    is ever half-written), but a consumer started in the middle would read a fact from the new run beside a
+    dimension from the last one. The Dagster dependency alone orders nothing across separate jobs, so the
+    consumer checks the instance it runs on (each stage has its own) and fails with the cause instead of waiting:
+    a run that holds a slot for another job's hour is worse than a red one the next schedule tick repairs.
+
+    It checks that each model was materialised at some point, not that it is fresh (#921).
+    """
+    stage = os.environ.get(_STAGE_ENV, "unknown")
+    problems: list[str] = []
+    for producer, models in upstream.items():
+        never_built = [
+            name for name in models if instance.get_latest_materialization_event(AssetKey([producer, name])) is None
+        ]
+        if never_built:
+            problems.append(
+                f"{producer} has never materialised {', '.join(never_built)} on stage {stage}; "
+                f"run {producer}_pipeline first"
+            )
+        building = instance.get_runs(filters=RunsFilter(tags={PRODUCT_TAG: producer}, statuses=_IN_FLIGHT), limit=1)
+        if building:
+            problems.append(
+                f"{producer}_pipeline run {building[0].run_id} is queued or in progress on stage {stage} and would "
+                f"replace {', '.join(models)} while this run reads them; retry {product}_pipeline after it ends"
+            )
+    if problems:
+        raise UpstreamProductNotReady(f"{product}_pipeline cannot start: " + "; ".join(problems))
 
 
 def _bronze_source_binding_tags(inputs: ResolvedProductInputs) -> dict[str, str]:
