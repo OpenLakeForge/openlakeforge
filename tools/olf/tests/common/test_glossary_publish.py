@@ -100,6 +100,8 @@ def test_terms_are_published_with_the_marker_before_anything_is_tagged(
     assert term["synonyms"] == ["Net Sales"] and term["entityStatus"] == "Approved"
     gross = fake.entities["glossaryTerms"]["sales.GrossRevenue"]["id"]
     assert term["relatedTerms"] == [{"term": {"id": gross, "type": "glossaryTerm"}, "relationType": "relatedTo"}]
+    held_by_gross = fake.entities["glossaryTerms"]["sales.GrossRevenue"]["relatedTerms"]
+    assert [relation["term"]["id"] for relation in held_by_gross] == [term["id"]]  # the reciprocal relation
     writes = [(method, path) for method, path in fake.writes if "glossaryTerms" in path or "/tags" in path]
     first_tag = next(i for i, (method, path) in enumerate(fake.calls) if method == "PATCH" and "dataProducts" in path)
     assert all(fake.calls.index(call) < first_tag for call in writes if call[0] == "POST")

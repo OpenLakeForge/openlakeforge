@@ -93,8 +93,11 @@ def check_glossary_publication(cfg: E2EConfig) -> None:
                 continue
             if sorted(found.get("synonyms") or []) != sorted(term.synonyms):
                 problems.append(f"term {fqn} synonyms are {found.get('synonyms')}, want {list(term.synonyms)}")
-            if len(found.get("relatedTerms") or []) != len(term.related_terms):
-                problems.append(f"term {fqn} has {len(found.get('relatedTerms') or [])} related terms")
+            # OpenMetadata keeps a relation on both terms, so a term also holds the ones declared on the others.
+            related = {relation["term"].get("fullyQualifiedName") for relation in found.get("relatedTerms") or []}
+            lacking = {om[ref] for ref in term.related_terms} - related
+            if lacking:
+                problems.append(f"term {fqn} lacks related terms {sorted(lacking)}")
             log.info(f"term {fqn}: status {found.get('entityStatus')}, synonyms {found.get('synonyms') or []}")
         for collection, fqn, fields, wanted in _targets(inventory):
             have = _tag_fqns(_get(client, collection, fqn, fields))
