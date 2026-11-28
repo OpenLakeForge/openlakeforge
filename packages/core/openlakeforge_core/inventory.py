@@ -152,6 +152,7 @@ class Product:
     lifecycle: str | None = None
     terms_of_use: Mapping[str, tuple[str, ...]] | None = None
     glossary_terms: tuple[str, ...] = ()
+    profiling_enabled: bool = False
 
     @property
     def name(self) -> str:
@@ -457,6 +458,7 @@ def _product(path: Path, domain_name: str, product: Mapping[str, Any], index: in
         lifecycle=product.get("lifecycle"),
         terms_of_use={key: tuple(items) for key, items in terms.items()} if terms else None,
         glossary_terms=tuple(product.get("glossaryTerms", ())),
+        profiling_enabled=bool((product.get("profiling") or {}).get("enabled", False)),
     )
 
 
