@@ -9,7 +9,6 @@ writes nothing. Nothing is deleted: a term or link removed from Git is reported 
 
 from __future__ import annotations
 
-import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -56,6 +55,7 @@ class GlossaryPublisher:
         self.report = GlossaryReport()
         self._owner_ids: dict[tuple[str, str], str] = {}
         self._term_ids: dict[str, str] = {}
+        self._glossary_ids: dict[str, str] = {}
 
     @classmethod
     def from_descriptors(cls, reconciler: MetadataReconciler, descriptor_paths: list[Path]) -> GlossaryPublisher:
@@ -114,7 +114,8 @@ class GlossaryPublisher:
             owner = self._owner(glossary.owner)
             create["owners"] = [owner]
             owned["owners"] = [owner]
-        self._reconciler.reconcile("glossaries", glossary.name, create, owned, fields="owners,extension")
+        entity = self._reconciler.reconcile("glossaries", glossary.name, create, owned, fields="owners,extension")
+        self._glossary_ids[glossary.name] = entity["id"]
         self._progress.info(f"Reconciled OpenMetadata glossary: {glossary.name}")
 
     def _publish_term(self, term: GlossaryTerm, *, first_pass: bool) -> None:
@@ -136,23 +137,42 @@ class GlossaryPublisher:
             }
             if term.parent:
                 create["parent"] = f"{term.glossary}.{term.parent}"
-            if term.status:
-                create["entityStatus"] = term.status
-                owned["entityStatus"] = term.status
         else:
-            if not term.related_terms:
+            # CreateGlossaryTerm (1.13.6) has no status field and rejects unknown ones with a 400, so the status
+            # is a PATCH; `relatedTerms` waits until every term has an id.
+            owned = {}
+            if term.related_terms:
+                owned["relatedTerms"] = [
+                    {"id": self._term_ids[ref], "type": "glossaryTerm"} for ref in term.related_terms
+                ]
+            create = {}
+            if not owned:
+                self._set_status(term)
                 return
-            related = [{"id": self._term_ids[ref], "type": "glossaryTerm"} for ref in term.related_terms]
-            create, owned = {}, {"relatedTerms": related}
         entity = self._reconciler.reconcile("glossaryTerms", term.fqn, create, owned, fields=_TERM_FIELDS)
         self._term_ids[term.fqn] = entity["id"]
         if first_pass:
             self._progress.info(f"Reconciled OpenMetadata glossary term: {term.fqn}")
+        else:
+            self._set_status(term)
+
+    def _set_status(self, term: GlossaryTerm) -> None:
+        """Patch the approval status. OpenMetadata applies transition rules (reviewers, its approval workflow), so a
+        refusal is reported and the deploy goes on: the status is metadata, not something the links depend on."""
+        if not term.status:
+            return
+        try:
+            self._reconciler.reconcile(
+                "glossaryTerms", term.fqn, {}, {"entityStatus": term.status}, fields=_TERM_FIELDS
+            )
+        except OpenMetadataError as exc:
+            self._progress.warn(f"Glossary term {term.fqn}: status {term.status!r} was not applied: {exc}")
 
     def _collect_removed_terms(self, glossaries: tuple[Glossary, ...]) -> None:
         known = {term.fqn for glossary in glossaries for term in glossary.terms}
         for glossary in glossaries:
-            query = f"glossary={urllib.parse.quote(glossary.name, safe='')}&fields=extension&limit=1000"
+            # The list endpoint filters by glossary id, not name.
+            query = f"glossary={self._glossary_ids[glossary.name]}&fields=extension&limit=1000"
             page = self._client.request("GET", f"/api/v1/glossaryTerms?{query}")
             for entry in page.get("data", []):
                 fqn = entry.get("fullyQualifiedName", "")

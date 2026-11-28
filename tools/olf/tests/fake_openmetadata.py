@@ -7,6 +7,40 @@ import urllib.parse
 from collections.abc import Mapping
 from typing import Any
 
+_CREATE_FIELDS = {
+    "glossaryTerms": {
+        "glossary",
+        "parent",
+        "name",
+        "displayName",
+        "description",
+        "style",
+        "synonyms",
+        "relatedTerms",
+        "references",
+        "conceptMappings",
+        "reviewers",
+        "owners",
+        "tags",
+        "provider",
+        "mutuallyExclusive",
+        "extension",
+        "domains",
+    },  # fmt: skip
+    "glossaries": {
+        "name",
+        "displayName",
+        "description",
+        "reviewers",
+        "owners",
+        "tags",
+        "provider",
+        "mutuallyExclusive",
+        "domains",
+        "extension",
+    },  # fmt: skip
+}
+
 
 class FakeOpenMetadata:
     """An in-memory OpenMetadata 1.13.6 holding what its REST API returns for the endpoints the reconciler uses.
@@ -98,8 +132,9 @@ class FakeOpenMetadata:
             return {"data": tables, "paging": {}}
         collection = route.removeprefix("/api/v1/")
         if route == "/api/v1/glossaryTerms" and method == "GET":
-            glossary = urllib.parse.parse_qs(path.partition("?")[2])["glossary"][0]
-            terms = [t for fqn, t in self.entities.get("glossaryTerms", {}).items() if fqn.startswith(f"{glossary}.")]
+            glossary_id = urllib.parse.parse_qs(path.partition("?")[2])["glossary"][0]  # an id, as on 1.13.6
+            name = next(g["name"] for g in self.entities["glossaries"].values() if g["id"] == glossary_id)
+            terms = [t for fqn, t in self.entities.get("glossaryTerms", {}).items() if fqn.startswith(f"{name}.")]
             return {"data": terms, "paging": {}}
         if method == "GET" and collection.startswith("dataProducts/name/") and collection.endswith("/assets"):
             product = self.entities["dataProducts"][urllib.parse.unquote(collection.split("/")[2])]
@@ -118,6 +153,9 @@ class FakeOpenMetadata:
             held += [ref for ref in json_body["assets"] if ref["id"] not in {asset["id"] for asset in held}]
             return {}
         if method == "POST":
+            unknown = set(json_body) - _CREATE_FIELDS.get(collection, set(json_body))
+            if unknown:  # the 1.13.6 create requests set additionalProperties: false
+                return {"code": 400, "message": "Invalid request format"}
             fqn = self._fqn_of(collection, json_body)
             if fqn in self.entities.get(collection, {}):
                 return {"code": 409, "message": "already exists"}
