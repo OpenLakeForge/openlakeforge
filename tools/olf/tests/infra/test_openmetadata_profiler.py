@@ -253,3 +253,16 @@ def test_on_glue_the_filter_names_the_physical_schema_the_contract_maps_to():
 
     source = profiler_config(glue, service="polaris", om_api="http://om", target=TARGET)["source"]["sourceConfig"]
     assert source["config"]["schemaFilterPattern"] == {"includes": ["^lakehouse_dev_sales_core_gold$"]}
+
+
+def test_the_policy_is_read_from_the_descriptors_the_deploy_reads(capsys: pytest.CaptureFixture[str]):
+    code = REPO_ROOT / "lakehouse_code"
+
+    from_root = profiling_targets(code)
+    # A source directory the deployer would read instead of the root governs the profiler too.
+    from_source = profiling_targets(REPO_ROOT / "nowhere", str(code / "governance.yml"))
+    unreadable = profiling_targets(code, str(REPO_ROOT / "nowhere"))
+
+    assert from_source == from_root and from_root
+    assert unreadable == ()
+    assert "Profiling skipped" in capsys.readouterr().err

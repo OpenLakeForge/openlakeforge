@@ -23,9 +23,11 @@ from openlakeforge_core import (
     resolve_profiling,
     scan_gold_roles,
 )
+from openlakeforge_services.openmetadata import OpenMetadataError
 
 from olf.common import log
 from olf.infra import k8s, trino
+from olf.infra.openmetadata._config import resolve_metadata_descriptor_paths
 from olf.infra.openmetadata._ingestion import (
     copy_polaris_secret,
     ingestion_cronjob,
@@ -124,11 +126,16 @@ def profiler_cronjob(job: dict[str, Any], *, catalog: str) -> dict[str, Any]:
     return ingestion_cronjob(job, catalog=catalog, schedule=PROFILING_CRON)
 
 
-def profiling_targets(code_root: Path) -> tuple[ProfilingTarget, ...]:
-    """What the project's descriptors allow to be profiled; none when they cannot be read."""
+def profiling_targets(metadata_root: Path, metadata_source_dir: str = "") -> tuple[ProfilingTarget, ...]:
+    """What the descriptors the deploy reads allow to be profiled; none when they cannot be read.
+
+    The root and source directory are the deployer's own inputs, resolved the way it resolves them, so a policy
+    changed in an overriding source governs the profiler as it governs the seeding.
+    """
     try:
+        code_root = resolve_metadata_descriptor_paths(metadata_root, metadata_source_dir)[0][0].parent
         inventory = load_lakehouse_inventory(code_root)
-    except LakehouseDescriptorError as exc:
+    except (OpenMetadataError, LakehouseDescriptorError) as exc:
         log.warn(f"Profiling skipped: the lakehouse descriptors could not be read ({exc}).")
         return ()
     roles, _ = scan_gold_roles(code_root / "gold", [product.id for product in inventory.products])

@@ -7,6 +7,7 @@ import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
@@ -167,9 +168,11 @@ def deploy_openmetadata_metadata(
     # After the seeding, so a slow or failing profile never delays or blocks it: the profile only adds statistics
     # for the products that opted in (ADR 0007 D15), and a failure is a warning that leaves them marked stale.
     log.step("Profiling opted-in Gold tables in OpenMetadata...")
-    run_trino_profiling(
-        source, namespace=namespace, service=cfg.catalog_service, targets=profiling_targets(project.code_root)
+    targets = profiling_targets(
+        Path(config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root), environ=source)),
+        source.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
     )
+    run_trino_profiling(source, namespace=namespace, service=cfg.catalog_service, targets=targets)
     typer.echo("Deployed OpenMetadata governance metadata.")
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import urllib.parse
+from datetime import UTC, datetime
 from typing import Any
 
 from openlakeforge_core import PROFILING_CRON
@@ -23,6 +24,7 @@ from olf.infra.e2e._trino import product_gold_tables
 from olf.infra.openmetadata._auth import admin_password
 from olf.infra.openmetadata._ingestion import RESOURCES
 from olf.infra.openmetadata._profiler import PROFILER_JOB_NAME, profiling_targets, run_trino_profiling
+from olf.infra.openmetadata._quality_sync import schema_map
 
 # Trino types whose min and max are real values; text columns store lengths.
 _VALUE_TYPES = {
@@ -63,6 +65,7 @@ def check_openmetadata_profiles(cfg: E2EConfig) -> None:
     """
     environ = cfg_environ(cfg)
     targets = profiling_targets(cfg.inventory.lakehouse_root)
+    started = datetime.now(UTC)
     catalog = environ["OPENLAKEFORGE_CATALOG_NAME"]
     if not targets:
         # A supported policy state: nothing opts in, so no profiler schedule may exist for the stage.
@@ -89,12 +92,19 @@ def check_openmetadata_profiles(cfg: E2EConfig) -> None:
     _assert_profiler_cronjob(cfg, namespace, catalog)
 
     database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", "", environ=environ)
-    expected = {f"{t.schema}.{table}": t for t in targets for table in t.tables}
+    gold_schemas = schema_map("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", environ) or {}
+
+    def table_fqn(product: str, logical: str) -> str:
+        # The contract's schema FQN is the physical one (Glue prefixes it with the catalog name).
+        schema_fqn = gold_schemas.get(product)
+        return f"{schema_fqn}.{logical.split('.', 1)[1]}" if schema_fqn else f"{database_fqn}.{logical}"
+
+    expected = {table_fqn(t.product, f"{t.schema}.{table}"): t for t in targets for table in t.tables}
     others = [
-        table
+        fqn
         for product in cfg.inventory.products
         for table in product_gold_tables(cfg, product)
-        if table not in expected
+        if (fqn := table_fqn(product.id, table)) not in expected
     ]
     with openmetadata_client(cfg) as (client, token):
         password = (
@@ -102,8 +112,7 @@ def check_openmetadata_profiles(cfg: E2EConfig) -> None:
         )
         _openmetadata_e2e_login(client, password)
         problems: list[str] = []
-        for table, target in sorted(expected.items()):
-            fqn = f"{database_fqn}.{table}"
+        for fqn, target in sorted(expected.items()):
             types = _columns(client, fqn)
             stats = read_table_statistics(client, fqn, list(types))
             if stats.row_count is None or stats.stale:
@@ -123,10 +132,12 @@ def check_openmetadata_profiles(cfg: E2EConfig) -> None:
             table_id = client.request("GET", f"/api/v1/tables/name/{urllib.parse.quote(fqn, safe='')}")["id"]
             if _sample_rows(client, table_id):
                 problems.append(f"{fqn}: sample data is stored")
-        for table in others:
-            fqn = f"{database_fqn}.{table}"
-            if read_table_statistics(client, fqn, ()).profiled_at is not None:
-                problems.append(f"{fqn}: profiled, but no policy selects it")
+        for fqn in others:
+            # A product that opted out keeps the statistics it had (turning profiling off deletes only the
+            # schedule), so what must be absent is a profile written by this run.
+            profiled_at = read_table_statistics(client, fqn, ()).profiled_at
+            if profiled_at is not None and profiled_at >= started:
+                problems.append(f"{fqn}: profiled in this run, but no policy selects it")
     if problems:
         raise E2EError("OpenMetadata profiles differ from the policy:\n" + "\n".join(problems))
     # The profile has run: the reconciler still writes nothing and finds no drift.
