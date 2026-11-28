@@ -109,6 +109,9 @@ class FakeOpenMetadata:
                 node = entity
                 for key in parents:
                     node = node.setdefault(key, {})
-                node[leaf] = op["value"]
+                if op["op"] == "remove":
+                    node.pop(leaf)
+                else:
+                    node[leaf] = op["value"]
             return entity
         raise AssertionError(f"unhandled request {method} {path}")

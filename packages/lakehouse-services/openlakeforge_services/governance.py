@@ -274,6 +274,9 @@ class MetadataReconciler:
             for key, value in aws_config.items()
             if have.get(key) != value
         ]
+        # An empty endpoint means native AWS S3, so a leftover custom endpoint is removed, as the old PUT did.
+        if "endPointURL" in have and "endPointURL" not in aws_config:
+            operations.append({"op": "remove", "path": "/connection/config/awsConfig/endPointURL"})
         if operations:
             self.client.request(
                 "PATCH",
