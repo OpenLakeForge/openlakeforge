@@ -718,7 +718,7 @@ def verify_after_crawl(ctx: Ctx, label: str) -> None:
         f6.detail = f"after {label}: glossary tag {tag_state}; human column description {text_state}"
 
 
-def verify_descriptions(ctx: Ctx, label: str, table_comment: str, column_comment: str) -> None:
+def verify_descriptions(ctx: Ctx, label: str, table_comment: str, column_comment: str, gate: bool = False) -> None:
     f = ctx.findings["5"]
     row = get_table(ctx, table_fqn(ctx, ctx.fix["probe_schema"], TRINO_TABLE), "columns")
     data = row.data if row.ok else {}
@@ -731,6 +731,14 @@ def verify_descriptions(ctx: Ctx, label: str, table_comment: str, column_comment
     f.note(f"{label}: table {data.get('description')!r}, column id {columns.get('id')!r}")
     if f.verdict in ("ACCEPTED", "REFUSED"):
         f.note(f"Trino comments were {table_comment!r} / {column_comment!r}")
+    if gate and f.verdict == "ACCEPTED":
+        # The question is whether the comments reach OpenMetadata, not only whether Trino ran the statements.
+        if not row.ok:
+            f.verdict = "INCONCLUSIVE"
+            f.note(f"{label}: the OpenMetadata read failed ({row.brief()}), so the comments are unverified")
+        elif data.get("description") != table_comment or columns.get("id") != column_comment:
+            f.verdict = "NOT INGESTED"
+            f.note(f"{label}: OpenMetadata does not carry the Trino comments")
 
 
 def om_api(ctx: Ctx) -> str:
@@ -1066,7 +1074,11 @@ def run_probe(ctx: Ctx) -> None:
                 ctx.findings[id].verdict = "INCONCLUSIVE"
     if crawled_a:
         guarded(ctx, ("4", "6"), lambda c: verify_after_crawl(c, "crawl A"))
-        guarded(ctx, ("5",), lambda c: verify_descriptions(c, "crawl A", "probe table comment", "probe id comment"))
+        guarded(
+            ctx,
+            ("5",),
+            lambda c: verify_descriptions(c, "crawl A", "probe table comment", "probe id comment", gate=True),
+        )
     if crawled_a and "5" in ctx.findings and ctx.fix.get("probe_schema"):
         t = f"{ctx.catalog}.{ctx.fix['probe_schema']}.{TRINO_TABLE}"
         fqn = table_fqn(ctx, ctx.fix["probe_schema"], TRINO_TABLE)
