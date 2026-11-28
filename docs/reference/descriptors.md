@@ -3,8 +3,9 @@
 The fields and rules of the descriptors that declare a project's data:
 `lakehouse_code/governance.yml`, one per project, and
 `lakehouse_code/bronze/<source>/source.yaml`, one per source. The optional
-`lakehouse_code/alerts.yml` declares its alert policy. It also lists the
-names OpenLakeForge derives from them.
+`lakehouse_code/alerts.yml` declares its alert policy, and
+`lakehouse_code/glossaries/<name>.yml` holds a business glossary. It also lists
+the names OpenLakeForge derives from them.
 
 Both are validated against JSON Schemas,
 [`governance.schema.json`](../schema/governance.schema.json) and
@@ -246,6 +247,7 @@ serves the products whose `<product>_gold` schema its dataset files read.
 | `owner` | reference | no | The accountable team or user. Inherited by the domain's products. |
 | `experts` | array of references, non-empty | no | Subject-matter experts. Inherited by the products. |
 | `classification` | enum | no | `Public`, `Internal`, `Confidential` or `Restricted`. Inherited by the products. |
+| `glossaryTerms` | array of term references, non-empty | no | Terms from a [glossary](#glossary) that define the domain. Not inherited by its products. |
 | `products` | array, may be empty or omitted | no | The data products of this domain. A project needs at least one product across all its domains to be checked or deployed. |
 
 ### `domains[].products[]`
@@ -267,6 +269,7 @@ read, so it is a deliberate edit of the directory layout as well as the file.
 | `tier` | enum | no | `Tier1` (most critical) to `Tier5`. |
 | `lifecycle` | enum | no | `IDEATION`, `DESIGN`, `DEVELOPMENT`, `TESTING`, `PRODUCTION`, `DEPRECATED` or `RETIRED`. |
 | `termsOfUse` | object | no | `allowed` and/or `prohibited`: non-empty arrays of strings. |
+| `glossaryTerms` | array of term references, non-empty | no | Terms from a [glossary](#glossary) that define the product, as `<glossary>.<Term>`. Not inherited. |
 
 A reference is `{type: user, ref: <name>}` or `{type: team, ref: <name>}`. It
 names an existing user or team; OpenLakeForge never creates one.
@@ -316,6 +319,82 @@ a dbt model that dbt resolved into any schema but its folder's
 since its tables would belong to no product. `olf check contracts --strict`
 also reports each product that resolves no `owner`, `tier` or `lifecycle`;
 without `--strict` they may be omitted.
+
+## Glossary
+
+`lakehouse_code/glossaries/<name>.yml` holds business terms in Git, apart from
+dbt code. Every `glossaries/*.yml` is discovered; `governance.yml` does not
+list them.
+
+```yaml
+apiVersion: openlakeforge.io/v1alpha1
+kind: Glossary
+name: sales
+displayName: Sales Vocabulary
+description: Shared commercial definitions
+owner: {type: team, ref: sales_data}
+terms:
+  - name: NetRevenue
+    displayName: Net Revenue
+    description: Revenue of fulfilled orders after line discounts and before cost.
+    synonyms: [Net Sales]
+    status: Approved
+    relatedTerms: [sales.GrossRevenue]
+    references:
+      - {name: Finance policy, endpoint: "https://example.internal/finance/revenue"}
+  - name: GrossRevenue
+    displayName: Gross Revenue
+    description: Revenue of fulfilled orders before line discounts.
+```
+
+The schema is [`glossary.schema.json`](../schema/glossary.schema.json).
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `apiVersion` | string | yes | `openlakeforge.io/v1alpha1` |
+| `kind` | string | yes | `Glossary` |
+| `name` | identifier | yes | The glossary's name, unique across glossaries. |
+| `displayName` | string, non-empty | yes | Human-readable name. |
+| `description` | string, non-empty | yes | |
+| `owner` | reference | no | `{type: user\|team, ref: <name>}`, as in `governance.yml`. |
+| `terms` | array, at least one | yes | The terms. |
+
+Each term:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | yes | Letters, digits and `_`, starting with a letter; no `.`. Unique in the glossary, ignoring case. |
+| `displayName` | string, non-empty | yes | Human-readable name. |
+| `description` | string, non-empty | yes | The definition. |
+| `synonyms` | array of strings | no | Other names for the term. |
+| `status` | enum | no | `Draft`, `In Review`, `Approved`, `Archived`, `Deprecated`, `Rejected` or `Unprocessed`. |
+| `relatedTerms` | array of term references | no | `<glossary>.<Term>`; may point into another glossary. |
+| `references` | array of `{name, endpoint}` | no | External pages for the term; `endpoint` is an `https` URL that does not contain `http://`. |
+| `parent` | string | no | The `name` of another term in the same glossary. |
+
+`status` takes the OpenMetadata 1.13.6 `EntityStatus` values. A term is
+referenced as `<glossary>.<Term>`, for example `sales.NetRevenue`, whether or
+not it has a `parent`.
+
+A term is linked from three places, all by that reference:
+
+| Where | Field |
+| --- | --- |
+| A domain or product in `governance.yml` | `glossaryTerms: [sales.NetRevenue]` |
+| A column in a Gold `schema.yml` | `meta.openlakeforge.glossaryTerms: [sales.NetRevenue]` |
+| Another term | `relatedTerms` |
+
+`olf check contracts` fails on a duplicate glossary or term (names that differ
+only by case collide), a missing description, a `parent` or `relatedTerms`
+entry that names no term, a `parent` cycle, and a `glossaryTerms` reference in
+`governance.yml` or dbt `meta` that names no term. Each message names the file
+and the path inside it. A `glossaryTerms` entry on a `mart_` column is a
+warning, not an error: marts are not linked column by column, so put the term
+on the fact or dimension column that holds it.
+
+Terms are business meaning. They are not classification tags and grant or
+revoke no access. The loaded inventory carries the glossaries, their terms and
+the resolved links; nothing publishes them to OpenMetadata yet.
 
 ## `alerts.yml`
 

@@ -9,6 +9,7 @@ domains:
         displayName: Sales Order Revenue
         description: Curated revenue, channel, discount, and product margin marts for Sales.
         lifecycle: DEVELOPMENT
+        glossaryTerms: [sales.NetRevenue, sales.GrossRevenue]
       - id: customer_health
         displayName: Sales Customer Health
         description: Curated customer health, churn risk, support SLA, and NPS marts for Sales.

@@ -70,6 +70,20 @@ from .descriptors import (
     load_source_descriptor,
     validate_source_descriptor,
 )
+from .glossary import (
+    GLOSSARY_API_VERSION,
+    GLOSSARY_KIND,
+    TERM_STATUSES,
+    ColumnTermLink,
+    Glossary,
+    GlossaryTerm,
+    TermReference,
+    discover_glossaries,
+    glossary_errors,
+    load_glossary_descriptor,
+    parse_glossary,
+    read_column_term_links,
+)
 from .governance import (
     GOVERNANCE_API_VERSION,
     GOVERNANCE_KIND,
@@ -138,6 +152,18 @@ from .quality import (
 from .runs import FLOE_FULL_REFRESH_TAG, FULL_REFRESH_SCOPES, FULL_REFRESH_TAG, full_refresh_scope, full_refresh_tags
 
 __all__ = [
+    "GLOSSARY_API_VERSION",
+    "GLOSSARY_KIND",
+    "TERM_STATUSES",
+    "ColumnTermLink",
+    "Glossary",
+    "GlossaryTerm",
+    "TermReference",
+    "discover_glossaries",
+    "glossary_errors",
+    "load_glossary_descriptor",
+    "parse_glossary",
+    "read_column_term_links",
     "ALERT_POLICY_API_VERSION",
     "ALERT_POLICY_KIND",
     "AlertPolicy",

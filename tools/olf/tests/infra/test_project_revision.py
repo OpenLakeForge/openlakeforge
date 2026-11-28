@@ -908,3 +908,15 @@ def test_an_unknown_schema_version_is_refused(external_project: Path) -> None:
 
     with pytest.raises(project_revision.ProjectRevisionError, match="unsupported .* schema_version"):
         project_revision.ProjectRevisionManifest.from_json(json.dumps(payload))
+
+
+def test_glossaries_are_frozen_with_the_descriptors_and_change_the_revision(external_project: Path) -> None:
+    before = _build(external_project)
+    glossary = external_project / "lakehouse_code" / "glossaries" / "sales.yml"
+    glossary.write_text(glossary.read_text().replace("Shared commercial", "Agreed commercial"), encoding="utf-8")
+    after = _build(external_project)
+
+    descriptors = after.component("descriptors")
+    assert descriptors is not None
+    assert "lakehouse_code/glossaries/sales.yml" in descriptors.entries
+    assert before.revision != after.revision

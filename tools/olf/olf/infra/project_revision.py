@@ -373,6 +373,8 @@ def _descriptors_component(project: ProjectSpec, inventory: Any) -> ComponentEnt
         paths.append(project.alerts_path)
     for source in inventory.sources:
         paths.append(project.bronze_root / source.name / "source.yaml")
+    # The loaded inventory resolves term links against them, so a revision without them cannot be loaded.
+    paths.extend(glossary.path for glossary in inventory.glossaries)
     entries = {
         (key := _relative_key(project, path)): _hash_and_scan(key, path, project_root=project.root) for path in paths
     }

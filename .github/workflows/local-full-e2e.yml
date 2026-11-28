@@ -165,6 +165,16 @@ on:
           - none
           - external
         default: local-ca
+      governance_probe:
+        description: >
+          'full' suite only. After DEV is activated and its suite has built the Gold tables, run
+          docs/testing/openmetadata_governance_probe.py against DEV: which governance fields OpenMetadata
+          1.13.6 accepts from the automation bot, what the Trino crawl keeps, whether Iceberg comments reach
+          OpenMetadata and what `metadata profile` stores. It creates and removes `olfprobe_*` entities and restores
+          the two Gold tables it patches. The verdict table goes to the run summary, the payloads to an artifact.
+          Needs checks core or all (the Gold tables). Never in the nightly.
+        type: boolean
+        default: false
       debug_fail_after_deploy:
         description: >
           Negative test: fail the job right after the platform is deployed to
@@ -504,6 +514,45 @@ jobs:
           revision: ${{ steps.revision.outputs.revision }}
           e2e-env: ${{ inputs.checks != 'none' && 'local' || '' }}
           e2e-checks: ${{ inputs.checks == 'none' && 'core' || inputs.checks || 'all' }}
+
+      - name: OpenMetadata governance probe (DEV)
+        id: governance_probe
+        # A refused or ignored write is a verdict the probe reports, not a failure, so a probe that cannot
+        # finish must not stop the rest of the job: continue-on-error, and the summary says what happened.
+        if: (inputs.suite || 'full') != 'smoke' && inputs.governance_probe && inputs.checks != 'none'
+        continue-on-error: true
+        timeout-minutes: 60
+        env:
+          KUBE_CONTEXT: kind-openlakeforge-local
+          KUBECONFIG: ${{ env.OLF_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          out="${GITHUB_WORKSPACE}/.tmp/governance-probe"
+          mkdir -p "${out}"
+          cd "${PROJECT_DIR}"
+          "$(uv tool dir)/openlakeforge/bin/python" "${GITHUB_WORKSPACE}/docs/testing/openmetadata_governance_probe.py" \
+            -f "${PROJECT_DIR}/openlakeforge.yaml" --stage dev --json "${out}/probe.json" \
+            --summary "${GITHUB_STEP_SUMMARY}" | tee "${out}/probe.log"
+
+      - name: Report a failed governance probe
+        # continue-on-error keeps the job green, so say in the run summary when the probe itself did not finish.
+        if: always() && steps.governance_probe.outcome == 'failure'
+        run: |
+          {
+            echo "### OpenMetadata governance probe"
+            echo ""
+            echo "**The probe did not finish** (step outcome: failure). Its results, if any, are in the"
+            echo "governance-probe-${{ github.run_id }} artifact and the step log; do not read a missing table as a pass."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload the governance probe results
+        if: always() && (inputs.suite || 'full') != 'smoke' && inputs.governance_probe && inputs.checks != 'none'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: governance-probe-${{ github.run_id }}
+          path: .tmp/governance-probe
+          if-no-files-found: ignore
+          retention-days: 30
 
       # v0.3 release gate: promotion copies no lakehouse data. PROD's Bronze,
       # Silver and Gold buckets are listed (key and ETag) before and after
