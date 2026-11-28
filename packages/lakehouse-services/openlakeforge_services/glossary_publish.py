@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from .governance import MetadataReconciler
 
 _TERM_FIELDS = "owners,relatedTerms,extension"
+_RELATION = "relatedTo"
 
 
 def term_tag(term_fqn: str) -> dict[str, str]:
@@ -138,23 +139,35 @@ class GlossaryPublisher:
             if term.parent:
                 create["parent"] = f"{term.glossary}.{term.parent}"
         else:
-            # CreateGlossaryTerm (1.13.6) has no status field and rejects unknown ones with a 400, so the status
-            # is a PATCH; `relatedTerms` waits until every term has an id.
-            owned = {}
-            if term.related_terms:
-                owned["relatedTerms"] = [
-                    {"id": self._term_ids[ref], "type": "glossaryTerm"} for ref in term.related_terms
-                ]
-            create = {}
-            if not owned:
-                self._set_status(term)
-                return
+            self._attach_related_terms(term)
+            self._set_status(term)
+            return
         entity = self._reconciler.reconcile("glossaryTerms", term.fqn, create, owned, fields=_TERM_FIELDS)
         self._term_ids[term.fqn] = entity["id"]
-        if first_pass:
-            self._progress.info(f"Reconciled OpenMetadata glossary term: {term.fqn}")
+        self._progress.info(f"Reconciled OpenMetadata glossary term: {term.fqn}")
+
+    def _attach_related_terms(self, term: GlossaryTerm) -> None:
+        """Add the related terms the term lacks. On 1.13.6 a relation is `{term: <reference>, relationType}`, not a
+        bare reference, and a relation a person added is kept, so this only appends. Done once every term has an id,
+        because a relation can point forward or into another glossary."""
+        if not term.related_terms:
+            return
+        entity = self._reconciler.reconcile("glossaryTerms", term.fqn, {}, {}, fields=_TERM_FIELDS)
+        have = entity.get("relatedTerms")
+        held = {relation["term"]["id"] for relation in have or []}
+        missing = [
+            {"term": {"id": self._term_ids[ref], "type": "glossaryTerm"}, "relationType": _RELATION}
+            for ref in term.related_terms
+            if self._term_ids[ref] not in held
+        ]
+        if not missing:
+            return
+        operations: list[dict[str, Any]]
+        if have:
+            operations = [{"op": "add", "path": "/relatedTerms/-", "value": relation} for relation in missing]
         else:
-            self._set_status(term)
+            operations = [{"op": "add", "path": "/relatedTerms", "value": missing}]
+        self._patch("glossaryTerms", entity["id"], operations)
 
     def _set_status(self, term: GlossaryTerm) -> None:
         """Patch the approval status. OpenMetadata applies transition rules (reviewers, its approval workflow), so a

@@ -181,6 +181,9 @@ class FakeOpenMetadata:
                 if e["id"] == collection.rpartition("/")[2]
             )
             for op in json_body:
+                if op["path"].startswith("/relatedTerms"):  # TermRelation: `id` is an unknown field there (HTTP 500)
+                    relations = op["value"] if isinstance(op["value"], list) else [op["value"]]
+                    assert all(set(r) == {"term", "relationType"} for r in relations), "bad TermRelation"
                 *parents, leaf = op["path"].strip("/").split("/")
                 node = entity
                 for key in parents:

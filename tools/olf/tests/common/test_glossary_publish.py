@@ -94,9 +94,8 @@ def test_terms_are_published_with_the_marker_before_anything_is_tagged(
     assert marker_of(glossary) and marker_of(term)
     assert glossary["owners"] == [{"id": fake.entities["teams"]["sales_data"]["id"], "type": "team"}]
     assert term["synonyms"] == ["Net Sales"] and term["entityStatus"] == "Approved"
-    assert term["relatedTerms"] == [
-        {"id": fake.entities["glossaryTerms"]["sales.GrossRevenue"]["id"], "type": "glossaryTerm"}
-    ]
+    gross = fake.entities["glossaryTerms"]["sales.GrossRevenue"]["id"]
+    assert term["relatedTerms"] == [{"term": {"id": gross, "type": "glossaryTerm"}, "relationType": "relatedTo"}]
     writes = [(method, path) for method, path in fake.writes if "glossaryTerms" in path or "/tags" in path]
     first_tag = next(i for i, (method, path) in enumerate(fake.calls) if method == "PATCH" and "dataProducts" in path)
     assert all(fake.calls.index(call) < first_tag for call in writes if call[0] == "POST")
