@@ -257,7 +257,8 @@ def test_open_browser_uses_explorer_on_wsl_and_webbrowser_elsewhere(
 
     if expected == "explorer":
         deadline = time.monotonic() + 5
-        while not record.exists() and time.monotonic() < deadline:
+        # The shell creates the file before `echo` writes to it, so existence alone can read an empty file.
+        while not (record.exists() and record.read_text().strip()) and time.monotonic() < deadline:
             time.sleep(0.01)
         assert record.read_text().strip() == "http://127.0.0.1:1/"
     else:

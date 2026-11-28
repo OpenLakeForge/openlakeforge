@@ -274,3 +274,54 @@ def test_each_stage_is_probed_against_its_own_coordinator(monkeypatch: pytest.Mo
         ("olf-dev", "deploy/trino-dev-coordinator", "lakehouse_dev"),
         ("olf-prod", "deploy/trino-prod-coordinator", "lakehouse_prod"),
     ]
+
+
+def _comment_probe(monkeypatch: pytest.MonkeyPatch, *, table_comments: str, bare_columns: str) -> list[str]:
+    queries: list[str] = []
+
+    def scalar(_cfg, sql):
+        queries.append(sql)
+        if "table_comments" in sql:
+            return table_comments
+        return bare_columns if "comment IS NULL" in sql else "7"
+
+    monkeypatch.setattr(_trino, "list_tables", lambda _cfg, _schema, catalog=None: ["fct_lines", "mart_totals"])
+    monkeypatch.setattr(_trino, "trino_scalar", scalar)
+    return queries
+
+
+def test_gold_comments_are_required_on_facts_and_dimensions_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    queries = _comment_probe(monkeypatch, table_comments="1", bare_columns="0")
+
+    _trino._check_gold_comments(e2e_cfg(tmp_path), E2E_INVENTORY.products[0])
+
+    assert queries and all("fct_lines" in sql for sql in queries)
+
+
+def test_the_checked_tables_are_logged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _comment_probe(monkeypatch, table_comments="1", bare_columns="0")
+
+    _trino._check_gold_comments(e2e_cfg(tmp_path), E2E_INVENTORY.products[0])
+
+    output = capsys.readouterr()
+    assert "Gold comments present:" in output.out + output.err
+    assert "fct_lines" in output.out + output.err
+    assert "mart_totals" not in output.out + output.err
+
+
+def test_a_fact_without_a_table_comment_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _comment_probe(monkeypatch, table_comments="0", bare_columns="0")
+
+    with pytest.raises(E2EError, match="fct_lines to carry a table comment"):
+        _trino._check_gold_comments(e2e_cfg(tmp_path), E2E_INVENTORY.products[0])
+
+
+def test_a_fact_with_uncommented_columns_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _comment_probe(monkeypatch, table_comments="1", bare_columns="3")
+
+    with pytest.raises(E2EError, match="3 column"):
+        _trino._check_gold_comments(e2e_cfg(tmp_path), E2E_INVENTORY.products[0])

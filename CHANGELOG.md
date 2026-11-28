@@ -16,6 +16,12 @@ for how a release is cut and verified.
 
 ## [Unreleased]
 
+### Added
+
+- A product can `ref()` another product's `access: public` Gold model (#1464). Its job reads the
+  model without rebuilding it and fails before dbt starts if the owner has never built it or is running.
+  `olf check contracts` reports the product dependencies and the inventory exports them.
+
 ## [0.7.0-beta.2] - 2026-11-26
 
 This beta makes alerting easy to set up and try: `olf` binds a receiver's

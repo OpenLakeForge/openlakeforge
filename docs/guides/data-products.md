@@ -152,7 +152,33 @@ models:
 ```
 
 A `ref()` to a model that is not public fails to parse. The reading product's
-job uses the mart as it is and never rebuilds it.
+job uses the model as it is and never rebuilds it, so its Dagster asset is an
+upstream dependency of the reading product's assets.
+
+Run the owning product first. The reading product's dbt step fails, naming the
+owner, when the owner has never built the model on that stage or has a run
+queued or running, instead of reading a stale or half-replaced set of tables.
+Schedule the owner's cadence before its readers' in `pipelines/products.py`.
+The e2e runner launches the products owners first.
+The guard checks that the model was built at some point, not that it is fresh.
+It runs once, when the reading product's dbt step starts: a producer in another domain
+that starts later is not held back (runs of one domain already queue one at a time),
+so keep the owner's schedule ahead of its readers'.
+`olf check contracts` lists each dependency (`product_dependencies`) and
+refuses a `ref()` to a model that is not `access: public`, or two products that
+read each other.
+
+The example `sales_core` product is built for this: it holds the sales domain's
+row-level fact (`fct_order_lines`) and conformed dimensions (`dim_account`,
+`dim_product`, `dim_channel`, `dim_promotion`), all `access: public` with every
+model and column described and its keys tested (`unique` and `not_null`, plus
+`relationships` from each fact key to its dimension). Marts aggregate such
+models; business filters such as "fulfilled orders only" belong to the metric
+that uses them, not to the fact. The existing marts do not read `sales_core`
+yet.
+
+`gold/dbt_project.yml` sets `+persist_docs` for every Gold model, so the
+descriptions in `schema.yml` are written as table and column comments.
 
 Keep one model's reads to about 150 tables or fewer. Trino counts about two
 stages per table a query reads and stops at `max_stage_count` (300 in every
