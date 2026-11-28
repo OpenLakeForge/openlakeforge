@@ -1,15 +1,15 @@
 with accounts as (
-    select account_id, account_name, segment, region
-    from {{ source('sales', 'accounts') }}
+    select account_id, account_name, segment, account_region as region
+    from {{ ref('dim_account') }}
 ),
 
 tickets as (
     select
         account_id,
         priority,
-        cast(resolution_hours as integer) as resolution_hours,
-        cast(sla_met as boolean) as sla_met
-    from {{ source('sales', 'support_tickets') }}
+        resolution_hours,
+        sla_met
+    from {{ ref('fct_support_tickets') }}
 )
 
 select

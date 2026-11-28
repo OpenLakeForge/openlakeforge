@@ -3,9 +3,9 @@ with accounts as (
         account_id,
         account_name,
         segment,
-        region,
+        account_region as region,
         cast(arr as double) as arr
-    from {{ source('sales', 'accounts') }}
+    from {{ ref('dim_account') }}
 ),
 
 subscriptions as (
@@ -13,22 +13,22 @@ subscriptions as (
         account_id,
         status,
         cast(monthly_recurring_revenue as double) as monthly_recurring_revenue
-    from {{ source('sales', 'subscriptions') }}
+    from {{ ref('fct_subscriptions') }}
 ),
 
 tickets as (
     select
         account_id,
-        cast(resolution_hours as integer) as resolution_hours,
-        cast(sla_met as boolean) as sla_met
-    from {{ source('sales', 'support_tickets') }}
+        resolution_hours,
+        sla_met
+    from {{ ref('fct_support_tickets') }}
 ),
 
 nps as (
     select
         account_id,
-        cast(score as integer) as score
-    from {{ source('sales', 'nps_responses') }}
+        score
+    from {{ ref('fct_nps_responses') }}
 ),
 
 ticket_rollup as (
