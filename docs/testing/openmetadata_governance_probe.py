@@ -355,7 +355,12 @@ def try_candidates(
     """PATCH `name` with each candidate in turn until one is accepted and read back."""
     f = ctx.finding(id, question)
     attempts = []
+    before = stored(ctx, kind, entity_id, name)
     for value in candidates:
+        if same(before, value):
+            # A value equal to the pre-PATCH state cannot prove the PATCH changed anything.
+            attempts.append({"payload": value, "result": "skipped: equals the stored value", "ok": False})
+            continue
         r = patch(ctx, kind, entity_id, add(f"/{name}", value))
         got = stored(ctx, kind, entity_id, name) if r.ok else None
         attempts.append({"payload": value, "result": r.brief(), "ok": r.ok, "read_back": got})
