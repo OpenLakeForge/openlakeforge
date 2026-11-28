@@ -25,6 +25,8 @@ OpenMetadata until someone removes it by hand.
 Every domain, data product, database schema, table and container a deploy creates or manages carries the custom
 property `olfManaged`. Its value is `git:<revision>`, the commit of the project checkout that last deployed it, or
 `git:unknown` outside a Git checkout. A deploy defines the property on each entity type when it is missing.
+Domains and data products are shared by every stage, so they carry the revision of whichever stage deployed last;
+schemas, tables and containers carry their own stage's.
 
 An entity without the marker was not created or adopted by OpenLakeForge. A table the crawl created gets the marker
 on the first deploy that registers it.
