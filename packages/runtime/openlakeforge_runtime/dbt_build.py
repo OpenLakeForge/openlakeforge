@@ -116,6 +116,11 @@ def model_dependencies(manifest: Mapping[str, Any], selected: Collection[str]) -
     }
 
 
+def _belongs_to_selection(test: Mapping[str, Any], models: Mapping[str, Any], nodes: Mapping[str, Any]) -> bool:
+    attached = test.get("attached_node")
+    return attached is None or attached in models or _is_ephemeral(nodes.get(attached, {}))
+
+
 def dbt_tests(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[str, DbtTest]:
     """The project's tests by unique id, each with the selected models it reads (unit tests included)."""
     models = _project_models(manifest, selected)
@@ -135,8 +140,11 @@ def dbt_tests(manifest: Mapping[str, Any], selected: Collection[str]) -> dict[st
             selector=".".join(node["fqn"]),
             parents=parents,
             # Only a test that reaches a selected model runs, as under eager selection of the models: a test on
-            # sources alone never did, since the product job selects models.
-            explicit=bool(parents),
+            # sources alone never did, since the product job selects models. A generic test also belongs to the
+            # model it is declared on: a downstream product's relationships or reconciliation test reads this
+            # product's model without being this product's, and running it here would make the upstream job wait
+            # on a table its consumer has not built yet.
+            explicit=bool(parents) and _belongs_to_selection(node, models, manifest.get("nodes", {})),
             sources=tuple(sorted(parent for parent in direct if parent.startswith("source."))),
             name=node.get("name", ""),
         )
