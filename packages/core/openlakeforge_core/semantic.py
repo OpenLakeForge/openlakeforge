@@ -173,14 +173,27 @@ def load_ossie_document(path: Path) -> tuple[Any, dict[tuple[str | int, ...], in
     duplicates: list[tuple[int, str]] = []
     constructor = yaml.SafeLoader("")
 
+    flattened: set[int] = set()
+
     def build(node: yaml.Node, where: tuple[str | int, ...]) -> Any:
         lines[where] = node.start_mark.line + 1
         if isinstance(node, yaml.MappingNode):
+            # `<<: *anchor` is flattened into the node, after which an explicit key that overrides a merged one is
+            # indistinguishable from a repeat. Repeats are therefore counted on the keys as written, once per node.
+            if id(node) not in flattened:
+                flattened.add(id(node))
+                written: set[Any] = set()
+                for key_node, _ in node.value:
+                    if key_node.tag == "tag:yaml.org,2002:merge":
+                        continue
+                    key = constructor.construct_object(key_node, deep=True)
+                    if key in written:
+                        duplicates.append((key_node.start_mark.line + 1, str(key)))
+                    written.add(key)
+                constructor.flatten_mapping(node)
             built: dict[Any, Any] = {}
             for key_node, value_node in node.value:
                 key = constructor.construct_object(key_node, deep=True)
-                if key in built:
-                    duplicates.append((key_node.start_mark.line + 1, str(key)))
                 built[key] = build(value_node, (*where, key if isinstance(key, str) else str(key)))
             return built
         if isinstance(node, yaml.SequenceNode):
@@ -236,6 +249,7 @@ def parse_ossie_model(
         fail(base, "schema", "the model must be a mapping")
         return None, problems
     _forbid_extensions(raw, base, fail)
+    _require(raw, base, ("name", "datasets"), fail)
     for key in ("datasets", "relationships", "metrics"):
         if not isinstance(raw.get(key) or [], list):
             fail((*base, key), "schema", f"`{key}` must be a list")
@@ -248,7 +262,7 @@ def parse_ossie_model(
         if isinstance(item, Mapping)
     )
     relationships = tuple(
-        _relationship(item, (*base, "relationships", index))
+        _relationship(item, (*base, "relationships", index), fail)
         for index, item in enumerate(raw.get("relationships") or ())
         if isinstance(item, Mapping)
     )
@@ -300,6 +314,14 @@ def _forbid_extensions(node: Any, where: tuple[str | int, ...], fail: Any) -> No
             _forbid_extensions(item, (*where, index), fail)
 
 
+def _require(item: Mapping[str, Any], where: tuple[str | int, ...], keys: tuple[str, ...], fail: Any) -> None:
+    """The properties the Ossie schema requires, for callers that reach the model without the JSON Schema pass."""
+    for key in keys:
+        value = item.get(key)
+        if not value or not isinstance(value, str | list):
+            fail((*where, key) if key in item else where, "schema", f"`{key}` is required and must not be empty")
+
+
 def _strings(value: Any) -> tuple[str, ...]:
     return tuple(str(item) for item in value) if isinstance(value, list) else ()
 
@@ -326,6 +348,7 @@ def _ansi_expression(item: Mapping[str, Any]) -> str | None:
 
 
 def _dataset(item: Mapping[str, Any], where: tuple[str | int, ...], fail: Any) -> SemanticDataset:
+    _require(item, where, ("name", "source"), fail)
     name = str(item.get("name", ""))
     source = str(item.get("source", ""))
     parts = source.split(".")
@@ -346,6 +369,7 @@ def _dataset(item: Mapping[str, Any], where: tuple[str | int, ...], fail: Any) -
         if not isinstance(raw, Mapping):
             continue
         at = (*where, "fields", index)
+        _require(raw, at, ("name",), fail)
         written = _ansi_expression(raw)
         if written is None:
             fail((*at, "expression"), "ansi-expression", f"field {raw.get('name')!r} needs an {_ANSI} expression")
@@ -380,7 +404,8 @@ def _dataset(item: Mapping[str, Any], where: tuple[str | int, ...], fail: Any) -
     )
 
 
-def _relationship(item: Mapping[str, Any], where: tuple[str | int, ...]) -> SemanticRelationship:
+def _relationship(item: Mapping[str, Any], where: tuple[str | int, ...], fail: Any) -> SemanticRelationship:
+    _require(item, where, ("name", "from", "to", "from_columns", "to_columns"), fail)
     return SemanticRelationship(
         name=str(item.get("name", "")),
         from_dataset=str(item.get("from", "")),
@@ -392,6 +417,7 @@ def _relationship(item: Mapping[str, Any], where: tuple[str | int, ...]) -> Sema
 
 
 def _metric(item: Mapping[str, Any], where: tuple[str | int, ...], fail: Any) -> SemanticMetric:
+    _require(item, where, ("name",), fail)
     name = str(item.get("name", ""))
     expression = _ansi_expression(item)
     if expression is None:

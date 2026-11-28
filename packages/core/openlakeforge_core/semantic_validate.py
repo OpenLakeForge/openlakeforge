@@ -57,6 +57,13 @@ def scan_dbt_models(gold_root: Path, products: Collection[str]) -> dict[tuple[st
                 continue
             for entry in document.get("models") or () if isinstance(document, Mapping) else ():
                 if isinstance(entry, Mapping) and isinstance(entry.get("name"), str):
+                    settings = entry.get("config")
+                    # A disabled model is not built and its tests do not run, so it cannot back a dataset.
+                    if False in (
+                        entry.get("enabled"),
+                        settings.get("enabled") if isinstance(settings, Mapping) else None,
+                    ):
+                        continue
                     found[(product, entry["name"])] = _dbt_model(product, entry)
     return found
 

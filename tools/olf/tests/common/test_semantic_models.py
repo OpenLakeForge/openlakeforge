@@ -435,3 +435,42 @@ def test_both_sales_core_revenue_metrics_count_fulfilled_order_lines_only() -> N
         assert "fct_order_lines.order_status = 'fulfilled'" in metric.expression
     assert ("fct_order_lines", "gross_amount") in revenue["gross_revenue"].references
     assert ("fct_order_lines", "net_amount") in revenue["net_revenue"].references
+
+
+def test_a_disabled_dbt_model_cannot_back_a_dataset(tmp_path: Path) -> None:
+    detail = _breaks(
+        tmp_path,
+        "  - name: dim_account\n    access: public\n",
+        "  - name: dim_account\n    access: public\n    config: {enabled: false}\n",
+    )
+
+    assert "[source-exists]" in detail
+
+
+def test_yaml_merge_keys_are_resolved_and_overrides_are_not_duplicates(tmp_path: Path) -> None:
+    shared = OSSIE.replace(
+        "        ai_context:\n          synonyms: [net sales]\n          instructions: fulfilled orders only\n",
+        "        ai_context: &ctx\n          synonyms: [net sales]\n          instructions: fulfilled orders only\n"
+        "      - name: gross_revenue\n        expression:\n          dialects:\n"
+        "            - dialect: ANSI_SQL\n              expression: SUM(fct_lines.net_amount)\n"
+        "        ai_context:\n          <<: *ctx\n          synonyms: [gross sales]\n",
+    )
+    root = _project(tmp_path, shared)
+
+    ok, detail = _check(root)
+    found = load_lakehouse_inventory(root / "lakehouse_code").semantic_inventory
+
+    assert ok, detail
+    contexts = {m.name: m.ai_context for m in found.models[0].metrics}
+    assert contexts["gross_revenue"] is not None
+    assert contexts["gross_revenue"].synonyms == ("gross sales",)
+    assert contexts["gross_revenue"].instructions == "fulfilled orders only"
+
+
+def test_the_inventory_refuses_a_model_missing_required_properties(tmp_path: Path) -> None:
+    root = _project(tmp_path, 'version: "0.1.1"\nsemantic_model:\n  - metrics: []\n')
+
+    found = load_lakehouse_inventory(root / "lakehouse_code").semantic_inventory
+
+    assert found.models == ()
+    assert any(d.rule == "schema" and "`name` is required" in d.message for d in found.diagnostics)

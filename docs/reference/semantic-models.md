@@ -75,6 +75,11 @@ SQL keywords, type names and interval units, plus function calls; a legitimate
 construct outside that list is refused until it is added in
 `openlakeforge_core/semantic.py`.
 
+dbt properties are read from `schema.yml` only. A model disabled in its properties
+file is ignored; one disabled by `config(enabled=false)` in its SQL is not, and a
+relationships test that targets `ref('<package>', '<model>')` is read as a test
+against the project's own model of that name.
+
 A composite key matches a model-level `unique_combination_of_columns` test on
 the same columns. A field description that differs from the dbt column
 description is a warning, because dbt owns column text.
