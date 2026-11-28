@@ -7,8 +7,8 @@ stockouts as (
     select
         warehouse_id,
         product_id,
-        cast(lost_units as integer) as lost_units
-    from {{ source('supply_chain', 'stockout_events') }}
+        lost_units
+    from {{ ref('fct_stockout_events') }}
 ),
 
 stockout_rollup as (

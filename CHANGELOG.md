@@ -24,6 +24,12 @@ for how a release is cut and verified.
 
 ### Changed
 
+- `inventory_reliability` gets `dim_warehouse`, `dim_supplier`, `fct_inventory_snapshots` (a periodic snapshot whose
+  `on_hand_units` is semi-additive over time), `fct_purchase_order_receipts` (one row per purchase order, with its
+  shipments summed) and `fct_stockout_events`, all keyed (#1464). Their `product_id` is tested against
+  `sales_core.dim_product`, so `inventory_reliability` needs `sales_core` built first. Its marts read them with the
+  same names, columns and types; an order shipped in parts now counts once in `mart_supplier_delivery_reliability`
+  instead of once per shipment.
 - The `order_revenue` marts read the `sales_core` fact and dimensions instead of Silver, with the same
   names, columns and types (#1464). `order_revenue` now loads no Silver of its own and needs `sales_core` built first.
   Money is summed from `decimal(18,2)` amounts and cast to `double`, so totals can differ from before in the last cent.

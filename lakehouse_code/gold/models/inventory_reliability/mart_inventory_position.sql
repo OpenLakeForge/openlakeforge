@@ -3,19 +3,19 @@ with ranked_snapshots as (
         snapshot_date,
         warehouse_id,
         product_id,
-        cast(on_hand_units as integer) as on_hand_units,
-        cast(allocated_units as integer) as allocated_units,
-        cast(reorder_point as integer) as reorder_point,
+        on_hand_units,
+        allocated_units,
+        reorder_point,
         row_number() over (
             partition by warehouse_id, product_id
-            order by cast(snapshot_date as date) desc
+            order by snapshot_date desc
         ) as snapshot_rank
-    from {{ source('supply_chain', 'inventory_snapshots') }}
+    from {{ ref('fct_inventory_snapshots') }}
 ),
 
 warehouses as (
-    select warehouse_id, warehouse_name, region
-    from {{ source('supply_chain', 'warehouses') }}
+    select warehouse_id, warehouse_name, warehouse_region as region
+    from {{ ref('dim_warehouse') }}
 )
 
 select
