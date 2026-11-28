@@ -509,3 +509,21 @@ def test_a_foreign_key_waits_for_its_referred_table_so_the_other_keys_are_not_bl
     assert any(c["columns"] == ["channel_id"] for c in held)
     drift = _publisher(om).drift()
     assert any("dim_account" in d.detail and d.kind == "unresolved" for d in drift)
+
+
+def test_validate_refuses_a_duplicate_metric_without_reading_openmetadata(om: FakeWithMetrics) -> None:
+    twin = dataclasses.replace(_model(), file="lakehouse_code/semantic/sales_core/other.ossie.yaml", name="other")
+
+    with pytest.raises(OpenMetadataError, match="net_revenue_dev is defined by both"):
+        _publisher(om, [_model(), twin]).validate()
+
+    assert om.calls == []
+
+
+def test_a_foreign_key_to_a_dotted_column_name_is_found_once_the_column_is_crawled(om: FakeWithMetrics) -> None:
+    dim = f"{SCHEMA}.dim_account"
+    om.entities["tables"][dim]["columns"] = [{"name": "customer.id"}]
+    publisher = _publisher(om)
+
+    assert publisher._missing_referred({"referredColumns": [f'{dim}."customer.id"']}) is None
+    assert publisher._missing_referred({"referredColumns": [f'{dim}."other.id"']}) is not None

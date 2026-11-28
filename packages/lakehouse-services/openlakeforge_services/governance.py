@@ -813,6 +813,9 @@ class MetadataDeployer:
         self.validate_deployment_inputs(domains)
         # Resolved before the first write: an owner that does not exist must fail the deploy with nothing changed.
         people = self._resolve_people(domains)
+        # Likewise the semantic models: an invalid or colliding one must fail the deploy with nothing changed.
+        semantic = self._semantic_publisher(domains)
+        semantic.validate()
 
         # Every write below reads first and changes only what differs, so a
         # second deploy of the same revision writes nothing. Nothing is deleted.
@@ -910,7 +913,7 @@ class MetadataDeployer:
                 )
 
         # Metrics, their lineage and the key constraints need the products and Gold tables reconciled above.
-        self._semantic_publisher(domains).publish()
+        semantic.publish()
 
         if missing_assets:
             message = "\n".join(f"  - {fqn}" for fqn in sorted(set(missing_assets)))

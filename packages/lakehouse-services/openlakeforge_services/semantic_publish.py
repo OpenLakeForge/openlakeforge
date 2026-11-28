@@ -309,6 +309,17 @@ class SemanticPublisher:
             )
             self._progress.info(f"Defined the {name} custom property on metric")
 
+    def validate(self) -> None:
+        """Refuse what needs no OpenMetadata read to see is wrong, so a deploy fails before its first write: two
+        models defining one metric publish to the same entity."""
+        seen: dict[str, str] = {}
+        for model in self._models:
+            for metric in model.metrics:
+                name = metric_name(metric, self._stage)
+                if name in seen:
+                    raise OpenMetadataError(f"metric {name} is defined by both {seen[name]} and {model.file}")
+                seen[name] = model.file
+
     def publish(self) -> None:
         for model in self._models:
             self._report_unsupported(model)
@@ -437,7 +448,11 @@ class SemanticPublisher:
     def _missing_referred(self, constraint: Mapping[str, Any]) -> str | None:
         """The first `referredColumns` entry whose table or column OpenMetadata does not hold yet."""
         for referred in constraint.get("referredColumns") or ():
-            table_fqn, _, column = referred.rpartition(".")
+            # `fqn_part` quotes a column name that contains a dot, so a quoted last segment is one column.
+            if referred.endswith('"') and '."' in referred:
+                table_fqn, _, column = referred[:-1].rpartition('."')
+            else:
+                table_fqn, _, column = referred.rpartition(".")
             table = self._reconciler.lookup("tables", table_fqn, "columns")
             columns = {str(c["name"]).lower() for c in (table or {}).get("columns") or []}
             if column.strip('"').lower() not in columns:
