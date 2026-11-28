@@ -9,6 +9,43 @@ from typing import Any
 
 from openlakeforge_services.openmetadata import fqn_part
 
+_CREATE_FIELDS = {
+    "glossaryTerms": {
+        "glossary",
+        "parent",
+        "name",
+        "displayName",
+        "description",
+        "style",
+        "synonyms",
+        "relatedTerms",
+        "references",
+        "conceptMappings",
+        "reviewers",
+        "owners",
+        "tags",
+        "provider",
+        "mutuallyExclusive",
+        "extension",
+        "domains",
+    },  # fmt: skip
+    "glossaries": {
+        "name",
+        "displayName",
+        "description",
+        "reviewers",
+        "owners",
+        "tags",
+        "provider",
+        "mutuallyExclusive",
+        "domains",
+        "extension",
+    },  # fmt: skip
+}
+
+
+_ENTITY_STATUSES = {"Draft", "In Review", "Approved", "Archived", "Deprecated", "Rejected", "Unprocessed"}
+
 
 class FakeOpenMetadata:
     """An in-memory OpenMetadata 1.13.6 holding what its REST API returns for the endpoints the reconciler uses.
@@ -21,7 +58,16 @@ class FakeOpenMetadata:
         self.entities: dict[str, dict[str, dict]] = {}
         self.types = {
             name: {"id": f"type-{name}", "name": name, "customProperties": []}
-            for name in ("domain", "dataProduct", "databaseSchema", "table", "container", "string")
+            for name in (
+                "domain",
+                "dataProduct",
+                "databaseSchema",
+                "table",
+                "container",
+                "glossary",
+                "glossaryTerm",
+                "string",
+            )
         }
         self.calls: list[tuple[str, str]] = []
         # Paths the server answers 200 to and then does not keep, as 1.13.6 does for `lifecycleStage`.
@@ -63,6 +109,8 @@ class FakeOpenMetadata:
             )
             # 1.13.6 quotes a name that contains a dot.
             return f"{parent_fqn}.{fqn_part(body['name'])}"
+        if collection == "glossaryTerms":
+            return f"{body.get('parent') or body['glossary']}.{body['name']}"
         return body["name"]
 
     def request(
@@ -93,6 +141,12 @@ class FakeOpenMetadata:
             tables = [t for fqn, t in self.entities.get("tables", {}).items() if fqn.rpartition(".")[0] == schema]
             return {"data": tables, "paging": {}}
         collection = route.removeprefix("/api/v1/")
+        if route == "/api/v1/glossaryTerms" and method == "GET":
+            query = {**{k: v[0] for k, v in urllib.parse.parse_qs(path.partition("?")[2]).items()}, **(params or {})}
+            glossary_id = query["glossary"]  # an id, as on 1.13.6
+            name = next(g["name"] for g in self.entities["glossaries"].values() if g["id"] == glossary_id)
+            terms = [t for fqn, t in self.entities.get("glossaryTerms", {}).items() if fqn.startswith(f"{name}.")]
+            return {"data": terms, "paging": {}}
         if method == "GET" and "/" not in collection and "limit" in (params or {}):
             parents = [v for k, v in params.items() if k in ("database", "databaseSchema")]
             found = [
@@ -118,6 +172,9 @@ class FakeOpenMetadata:
             held += [ref for ref in json_body["assets"] if ref["id"] not in {asset["id"] for asset in held}]
             return {}
         if method == "POST":
+            unknown = set(json_body) - _CREATE_FIELDS.get(collection, set(json_body))
+            if unknown:  # the 1.13.6 create requests set additionalProperties: false
+                return {"code": 400, "message": "Invalid request format"}
             fqn = self._fqn_of(collection, json_body)
             if fqn in self.entities.get(collection, {}):
                 return {"code": 409, "message": "already exists"}
@@ -133,6 +190,16 @@ class FakeOpenMetadata:
             for op in json_body:
                 if op["path"] in self.ignored_paths:
                     continue
+                if (
+                    op["path"].startswith("/relatedTerms") and "value" in op
+                ):  # TermRelation: `id` is an unknown field there (HTTP 500)
+                    relations = op["value"] if isinstance(op["value"], list) else [op["value"]]
+                    assert all(set(r) == {"term", "relationType"} for r in relations), "bad TermRelation"
+                if op["path"] == "/entityStatus":  # type/status.json, 1.13.6
+                    assert op["value"] in _ENTITY_STATUSES, f"bad entityStatus {op['value']!r}"
+                if "/tags" in op["path"] and "value" in op:
+                    labels = op["value"] if isinstance(op["value"], list) else [op["value"]]
+                    assert all(set(t) == {"tagFQN", "source", "labelType", "state"} for t in labels), "bad tag label"
                 *parents, leaf = op["path"].strip("/").split("/")
                 node: Any = entity
                 for key in parents:
@@ -147,7 +214,24 @@ class FakeOpenMetadata:
                         node[int(leaf)] = copy.deepcopy(op["value"])
                 elif op["op"] == "remove":
                     node.pop(leaf)
+                elif leaf == "-":
+                    node.append(copy.deepcopy(op["value"]))
                 else:
                     node[leaf] = copy.deepcopy(op["value"])
+            by_id = {e["id"]: e for e in self.entities.get("glossaryTerms", {}).values()}
+            for relation in entity.get("relatedTerms") or []:
+                # 1.13.6 keeps a relation on both terms and returns the related term's FQN in the reference.
+                other = by_id[relation["term"]["id"]]
+                relation["term"].setdefault("fullyQualifiedName", other["fullyQualifiedName"])
+                if entity["id"] not in {r["term"]["id"] for r in other.get("relatedTerms") or []}:
+                    reverse = {
+                        "term": {
+                            "id": entity["id"],
+                            "type": "glossaryTerm",
+                            "fullyQualifiedName": entity["fullyQualifiedName"],
+                        },
+                        "relationType": "relatedTo",
+                    }
+                    other.setdefault("relatedTerms", []).append(reverse)
             return entity
         raise AssertionError(f"unhandled request {method} {path}")
