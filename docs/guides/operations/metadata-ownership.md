@@ -60,7 +60,7 @@ e2e (`olf infra e2e run --env local`) runs it after a deploy and fails if the re
 | --- | --- |
 | `missing` | Declared in Git, absent in OpenMetadata, for example a table the crawl has not found yet |
 | `stale` | Carries `olfManaged`, no longer declared in Git (renamed or removed) |
-| `changed` | An owned field differs from Git, including a human edit (the next deploy overwrites it), a data product that does not hold every table of its Gold schema (the next deploy attaches them), and a data product moved to another domain (a deploy never moves it; see the repair steps) |
+| `changed` | An owned field differs from Git, including a human edit (the next deploy overwrites it), a data product that does not hold every table of its Gold schema (the next deploy attaches them), a Gold table without its `GoldRole` tag or a data product missing a `consumesFrom` edge (the next deploy adds them), and a data product moved to another domain (a deploy never moves it; see the repair steps) |
 | `unresolved` | A reference cannot be resolved, for example a data product whose domain does not exist |
 
 Domains and data products are shared by every stage, so they report under stage `shared`. Today's report covers
@@ -74,4 +74,8 @@ domains, data products, schemas, tables and containers.
    `olf infra openmetadata deploy-metadata` (with `--stage` for a finding in another stage), which restores Git's value. A data product's domain is set only when the
    deploy creates the product; to move one, edit its domain in the UI.
 3. `missing`: run the product's pipeline, wait for the Trino crawl, then rerun `deploy-metadata`.
-4. A table registered under the wrong schema: delete it in the UI, then rerun `deploy-metadata`.
+4. `changed`, `consumesFrom: <product> is held but no longer declared`: Git dropped
+   the dependency and a deploy never removes an edge. Remove it from the data
+   product's page in OpenMetadata, or restore the `ref()` if it was dropped by
+   mistake.
+5. A table registered under the wrong schema: delete it in the UI, then rerun `deploy-metadata`.

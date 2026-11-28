@@ -84,6 +84,7 @@ from .glossary import (
     parse_glossary,
     read_column_term_links,
 )
+from .gold_roles import GOLD_ROLE_CLASSIFICATION, GOLD_ROLES, gold_role_tag, scan_gold_roles
 from .governance import (
     GOVERNANCE_API_VERSION,
     GOVERNANCE_KIND,
@@ -163,6 +164,9 @@ from .semantic import (
 from .semantic_validate import load_semantic_inventory
 
 __all__ = [
+    "GOLD_ROLES",
+    "GOLD_ROLE_CLASSIFICATION",
+    "gold_role_tag",
     "GLOSSARY_API_VERSION",
     "GLOSSARY_KIND",
     "TERM_STATUSES",
@@ -292,6 +296,7 @@ __all__ = [
     "load_lakehouse_inventory",
     "load_lakehouse_inventory_from_descriptors",
     "load_transitional_lakehouse_inventory",
+    "scan_gold_roles",
     "scan_product_dependencies",
     "SUPPORTED_OSSIE_VERSION",
     "SemanticDataset",

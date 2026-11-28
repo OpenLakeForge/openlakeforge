@@ -12,9 +12,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from openlakeforge_core import gold_role_tag
+
 from .governance import DomainSpec, MetadataConfig, MetadataReconciler, domain_payload, product_payload
 from .openmetadata import fqn_part
-from .ownership import marker_of, patch_operations
+from .ownership import marker_of, patch_operations, tag_operations
+from .product_graph import consumes_from_drift
 
 MISSING = "missing"
 STALE = "stale"
@@ -47,6 +50,7 @@ class _Declared:
     stage: str
     owned: Mapping[str, Any]
     fields: str = "extension"
+    tags: tuple[str, ...] = ()
 
 
 def stage_of(config: MetadataConfig) -> str:
@@ -102,17 +106,29 @@ def detect_drift(
                     DriftItem(UNRESOLVED, "data product", product.id, SHARED, f"domain {domain.name!r} not found")
                 )
     for domain in domains:
-        schemas = [(config.catalog_silver_schema_fqns[domain.name], domain.silver_tables)] + [
-            (config.catalog_gold_schema_fqns[p.id], p.gold_tables) for p in domain.products
+        schemas: list[tuple[str, Sequence[str], Mapping[str, str]]] = [
+            (config.catalog_silver_schema_fqns[domain.name], domain.silver_tables, {})
         ]
-        for schema_fqn, tables in schemas:
+        schemas += [(config.catalog_gold_schema_fqns[p.id], p.gold_tables, p.gold_roles) for p in domain.products]
+        for schema_fqn, tables, roles in schemas:
             owned = (
                 {"domains": [{"id": domain_ids[domain.name], "type": "domain"}]} if domain.name in domain_ids else {}
             )
             declared.append(
                 _Declared("database schema", "databaseSchemas", schema_fqn, stage, owned, "domains,extension")
             )
-            declared += [_Declared("table", "tables", f"{schema_fqn}.{t}", stage, {}) for t in tables]
+            declared += [
+                _Declared(
+                    "table",
+                    "tables",
+                    f"{schema_fqn}.{t}",
+                    stage,
+                    {},
+                    "extension,tags" if t in roles else "extension",
+                    (gold_role_tag(roles[t]),) if t in roles else (),
+                )
+                for t in tables
+            ]
             database_fqn = schema_fqn.rpartition(".")[0]
             if reconciler.lookup("databases", database_fqn, "") is None:
                 items.append(
@@ -139,6 +155,10 @@ def detect_drift(
             items.append(DriftItem(MISSING, want.entity, want.fqn, want.stage))
             continue
         fields = [op["path"].lstrip("/") for op in patch_operations(current, want.owned)]
+        # Only a missing tag is drift: a person's other tags, and a role OLF no longer derives, are theirs to keep.
+        held_tags = {tag["tagFQN"] for tag in current.get("tags") or []}
+        if any(op["op"] == "add" for op in tag_operations(current, want.tags)):
+            fields.append(f"tags (missing {', '.join(sorted(set(want.tags) - held_tags))})")
         if marker_of(current) is None:
             fields.append("olfManaged")
         if fields:
@@ -146,6 +166,10 @@ def detect_drift(
 
     for domain in domains:
         for product in domain.products:
+            items += [
+                DriftItem(CHANGED, "data product", product.id, SHARED, detail)
+                for detail in consumes_from_drift(reconciler, product.id, product.consumes_from)
+            ]
             # The tables a deploy would attach: those under the product's Gold schema that it does not hold yet.
             held_assets = reconciler.held_asset_ids(product.id)
             if held_assets is None:

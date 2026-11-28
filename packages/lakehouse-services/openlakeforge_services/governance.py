@@ -14,14 +14,18 @@ import time
 import urllib.parse
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from openlakeforge_core import (
+    GOLD_ROLE_CLASSIFICATION,
     LakehouseDescriptorError,
+    gold_role_tag,
     load_governance_lakehouse_document,
     load_lakehouse_inventory_from_descriptors,
     load_source_descriptor,
+    scan_gold_roles,
 )
 
 from .openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError, fqn_part
@@ -33,6 +37,7 @@ from .ownership import (
     patch_operations,
     tag_operations,
 )
+from .product_graph import reconcile_consumes_from
 from .progress import SILENT, Progress
 
 if TYPE_CHECKING:
@@ -50,6 +55,14 @@ SENSITIVITY_CLASSIFICATION = "DataSensitivity"
 SENSITIVITY_DESCRIPTION = (
     "Data sensitivity declared in governance.yml. Metadata only: it does not grant or revoke access."
 )
+GOLD_ROLE_DESCRIPTION = (
+    "Role of a Gold table, derived from its dbt model name prefix or meta.openlakeforge.role. Metadata only."
+)
+# Classifications OLF provisions itself, each mutually exclusive: a table holds one role, a product one sensitivity.
+OLF_CLASSIFICATIONS = {
+    SENSITIVITY_CLASSIFICATION: SENSITIVITY_DESCRIPTION,
+    GOLD_ROLE_CLASSIFICATION: GOLD_ROLE_DESCRIPTION,
+}
 
 
 @dataclass
@@ -100,6 +113,8 @@ class ProductSpec:
     lifecycle: str | None = None
     terms_of_use: Mapping[str, Any] | None = None
     classification: str | None = None
+    consumes_from: tuple[str, ...] = ()
+    gold_roles: Mapping[str, str] = dataclass_field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -278,13 +293,13 @@ class MetadataReconciler:
             self._ensure_property("dataProduct", name, description)
 
     def ensure_tags(self, tag_fqns: Collection[str]) -> None:
-        """Check the tags a deploy will write exist. `Tier` ships with OpenMetadata; the DataSensitivity
-        classification is OLF's own and is provisioned here, so any other missing tag is an error."""
+        """Check the tags a deploy will write exist. `Tier` ships with OpenMetadata; the classifications in
+        `OLF_CLASSIFICATIONS` are OLF's own and are provisioned here, so any other missing tag is an error."""
         for fqn in sorted(tag_fqns):
             if self.lookup("tags", fqn, "") is not None:
                 continue
             classification, _, name = fqn.partition(".")
-            if classification != SENSITIVITY_CLASSIFICATION:
+            if classification not in OLF_CLASSIFICATIONS:
                 raise OpenMetadataError(
                     f"OpenMetadata has no tag {fqn!r}. The Tier classification ships with OpenMetadata "
                     "(Tier1 to Tier5); check that it was not deleted."
@@ -295,7 +310,7 @@ class MetadataReconciler:
                     "/api/v1/classifications",
                     json_body={
                         "name": classification,
-                        "description": SENSITIVITY_DESCRIPTION,
+                        "description": OLF_CLASSIFICATIONS[classification],
                         "mutuallyExclusive": True,
                     },
                     ok_statuses=(200, 201, 409),
@@ -305,7 +320,7 @@ class MetadataReconciler:
                 "/api/v1/tags",
                 json_body={
                     "name": name,
-                    "description": f"{name}: {SENSITIVITY_DESCRIPTION}",
+                    "description": f"{name}: {OLF_CLASSIFICATIONS[classification]}",
                     "classification": classification,
                 },
                 ok_statuses=(200, 201, 409),
@@ -691,6 +706,8 @@ class MetadataDeployer:
             for resource in source_document["resources"]:
                 resource_descriptions[(source_document["name"], resource["name"])] = resource.get("description", "")
         root = inventory.lakehouse_root
+        producers = inventory.product_dependencies.producers_by_consumer
+        roles, _ = scan_gold_roles(root / "gold", [p.id for p in inventory.products])
         domains: list[DomainSpec] = []
         for domain in load_governance_lakehouse_document(lakehouse_path)["domains"]:
             domain_entities = entities[domain["name"]]
@@ -715,6 +732,8 @@ class MetadataDeployer:
                     lifecycle=product.get("lifecycle"),
                     terms_of_use=product.get("termsOfUse"),
                     classification=product.get("classification"),
+                    consumes_from=producers.get(product["id"], ()),
+                    gold_roles=roles.get(product["id"], {}),
                 )
                 for product in domain["products"]
             )
@@ -791,6 +810,7 @@ class MetadataDeployer:
                 for fqn in (
                     *tag_fqns(None, domain.classification),
                     *(f for product in domain.products for f in tag_fqns(product.tier, product.classification)),
+                    *(gold_role_tag(r) for product in domain.products for r in product.gold_roles.values()),
                 )
             }
         )
@@ -859,7 +879,8 @@ class MetadataDeployer:
                 schema_fqn = self.config.catalog_gold_schema_fqns[product.id]
                 self.ensure_database_schema(schema_fqn, domain_entity)
                 for table in product.gold_tables:
-                    self.ensure_table(schema_fqn, table, product_tags)
+                    role = product.gold_roles.get(table)
+                    self.ensure_table(schema_fqn, table, (*product_tags, *([gold_role_tag(role)] if role else [])))
 
                 # A schema is a valid data-product asset, but a table does not
                 # inherit `dataProducts` from its schema (no inheritDataProducts
@@ -874,6 +895,16 @@ class MetadataDeployer:
                 self.progress.info(
                     f"OpenMetadata data product {product_body['name']} holds {len(refs)} asset(s); attached {added}"
                 )
+
+        # After every product exists: an edge needs the producer's id, and a producer may sit in a later domain.
+        for domain in domains:
+            for product in domain.products:
+                if product.consumes_from:
+                    added = reconcile_consumes_from(self._reconciler, product.id, product.consumes_from)
+                    self.progress.info(
+                        f"OpenMetadata data product {product.id} consumes from {', '.join(product.consumes_from)}; "
+                        f"added {added}"
+                    )
 
         if missing_assets:
             message = "\n".join(f"  - {fqn}" for fqn in sorted(set(missing_assets)))

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from openlakeforge_core import LakehouseInventory
+from openlakeforge_core import LakehouseInventory, gold_role_tag, scan_gold_roles
 from openlakeforge_services import reports
 from openlakeforge_services.base import ServiceClientError
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
@@ -147,6 +147,12 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
             database_fqn=database_fqn,
         )
         gold_tables = [table for product in cfg.inventory.products for table in product_gold_tables(cfg, product)]
+        assert_openmetadata_product_graph(
+            client,
+            cfg.inventory,
+            database_fqn=database_fqn,
+            tables={product.id: product_gold_tables(cfg, product) for product in cfg.inventory.products},
+        )
         try:
             assert_openmetadata_stage_lineage(client, stage=stage, database_fqn=database_fqn, tables=gold_tables)
         except E2EError as exc:
@@ -306,6 +312,40 @@ def assert_openmetadata_stage_lineage(
             missing.append(fqn)
     if missing:
         raise E2EError(f"stage {stage}'s Gold tables have no upstream lineage in OpenMetadata: {missing}")
+
+
+def assert_openmetadata_product_graph(
+    client: OpenMetadataClient, inventory: LakehouseInventory, *, database_fqn: str, tables: Mapping[str, list[str]]
+) -> None:
+    """OpenMetadata holds the product graph Git declares: each `consumesFrom` edge, each Gold table with its role tag,
+    and every Gold table attached to its own product. `tables` maps a product to its `<schema>.<table>` names."""
+    log.step("Checking OpenMetadata product dependencies, Gold roles and attached assets...")
+    roles, _ = scan_gold_roles(inventory.lakehouse_root / "gold", list(tables))
+    problems: list[str] = []
+    for consumer, producers in inventory.product_dependencies.producers_by_consumer.items():
+        found = client.request("GET", f"/api/v1/dataProducts/name/{consumer}", params={"fields": "consumesFrom"})
+        held = {ref["id"] for ref in found.get("consumesFrom") or ()}
+        for producer in producers:
+            producer_id = client.request("GET", f"/api/v1/dataProducts/name/{producer}").get("id")
+            if producer_id not in held:
+                problems.append(f"{consumer} does not consume from {producer}")
+    for product, names in tables.items():
+        listing = client.request(
+            "GET", f"/api/v1/dataProducts/name/{product}/assets", params={"limit": 1000, "offset": 0}
+        )
+        attached = {asset["id"] for asset in listing.get("data") or ()}
+        for name in names:
+            fqn = f"{database_fqn}.{name}"
+            table = client.request(
+                "GET", f"/api/v1/tables/name/{urllib.parse.quote(fqn, safe='')}", params={"fields": "tags"}
+            )
+            role = roles.get(product, {}).get(name.rpartition(".")[2])
+            if role and gold_role_tag(role) not in {tag["tagFQN"] for tag in table.get("tags") or ()}:
+                problems.append(f"{fqn} lacks {gold_role_tag(role)}")
+            if table.get("id") not in attached:
+                problems.append(f"{fqn} is not attached to data product {product}")
+    if problems:
+        raise E2EError("OpenMetadata is missing parts of the product graph:\n" + "\n".join(problems))
 
 
 def assert_openmetadata_stage_roots(
