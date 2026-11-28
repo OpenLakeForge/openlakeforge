@@ -28,8 +28,9 @@ GLOSSARY_KIND = "Glossary"
 TERM_STATUSES = ("Draft", "In Review", "Approved", "Archived", "Deprecated", "Rejected", "Unprocessed")
 # No `.` (the FQN separator) and no whitespace or quotes, so a term never needs FQN escaping.
 TERM_NAME_PATTERN = r"^[A-Za-z][A-Za-z0-9_]*$"
-# https only: the revision build rejects any `http://` as a stage-bound endpoint (project_revision.py).
-REFERENCE_ENDPOINT_PATTERN = r"^https://\S+$"
+# https only, and no `http://` anywhere in it: the revision build rejects that text as a stage-bound endpoint
+# (project_revision.py), even inside a query string.
+REFERENCE_ENDPOINT_PATTERN = r"^https://(?!\S*http://)\S+$"
 
 _GLOSSARY_FIELDS = {"apiVersion", "kind", "name", "displayName", "description", "owner", "terms"}
 _TERM_FIELDS = {

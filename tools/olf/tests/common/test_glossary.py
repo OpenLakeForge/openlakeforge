@@ -125,6 +125,10 @@ def test_warning_does_not_fail_the_report(tmp_path: Path) -> None:
             _edit_term(GLOSSARY, references=[{"name": "Policy", "endpoint": "http://example.internal/p"}]),
             "endpoint must be an https URL",
         ),
+        (
+            _edit_term(GLOSSARY, references=[{"name": "Policy", "endpoint": "https://example.com/?next=http://x"}]),
+            "endpoint must be an https URL",
+        ),
     ],
 )
 def test_invalid_terms_fail_with_the_term_path(tmp_path: Path, glossary: str, expected: str) -> None:
