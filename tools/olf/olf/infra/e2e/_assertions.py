@@ -17,6 +17,7 @@ from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadata
 from openlakeforge_services.superset import SupersetClient
 
 from olf.common import config, log
+from olf.common.project import ProjectSpec
 from olf.infra import access, k8s, superset
 from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
@@ -150,6 +151,49 @@ def check_openmetadata_assets(cfg: E2EConfig) -> None:
             # OpenMetadata answers an OpenLineage POST with 200 whatever it made of the events, and dbt-ol's
             # own report is lost with the run pod; the server log names each dataset it could not resolve.
             raise E2EError(f"{exc}\nOpenMetadata's OpenLineage log lines:\n{openmetadata_lineage_log(cfg)}") from exc
+
+
+def _project(cfg: E2EConfig) -> ProjectSpec:
+    """The project this run deploys, as every other project-scoped check resolves it."""
+    return ProjectSpec(root=cfg.repo_root, distribution_root=cfg.distribution_root)
+
+
+def _admin_login(cfg: E2EConfig, token: str | None) -> dict[str, str]:
+    """The admin credentials a token-less client logs in with, as `check_openmetadata_assets` reads them."""
+    if token:
+        return {}
+    return {
+        "admin_email": config.env("OPENMETADATA_ADMIN_EMAIL", "admin@open-metadata.org", environ=cfg_environ(cfg)),
+        "admin_password": admin_password(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ),
+    }
+
+
+def check_openmetadata_drift(cfg: E2EConfig) -> None:
+    """A clean deploy leaves nothing to report: every declared entity exists and matches Git, none is stale."""
+    from olf.infra.openmetadata._drift import drift_report
+
+    log.step("Checking OpenMetadata against Git (drift report)...")
+    with openmetadata_client(cfg) as (client, token):
+        try:
+            items = drift_report(cfg_environ(cfg), client, project=_project(cfg), **_admin_login(cfg, token))
+        except OpenMetadataError as exc:
+            raise E2EError(str(exc)) from exc
+    if items:
+        raise E2EError("OpenMetadata differs from Git after a clean deploy:\n" + "\n".join(i.line() for i in items))
+
+
+def check_openmetadata_redeploy_is_idempotent(cfg: E2EConfig) -> None:
+    """Deploying the same revision again changes nothing: the deploy's reads find every owned field already in place."""
+    from olf.infra.openmetadata._drift import redeploy_writes
+
+    log.step("Redeploying OpenMetadata governance metadata, expecting no write...")
+    with openmetadata_client(cfg) as (client, token):
+        try:
+            writes = redeploy_writes(cfg_environ(cfg), client, project=_project(cfg), **_admin_login(cfg, token))
+        except OpenMetadataError as exc:
+            raise E2EError(str(exc)) from exc
+    if writes:
+        raise E2EError("A repeat deploy of the same revision wrote to OpenMetadata:\n" + "\n".join(writes))
 
 
 # Lines the OpenMetadata 1.13 server writes for OpenLineage requests: the access log line of each POST and the

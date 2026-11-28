@@ -51,7 +51,7 @@ class GlossaryPublisher:
         self._reconciler = reconciler
         self._client = reconciler.client
         self._progress = reconciler.progress
-        self._inventory = inventory
+        self.inventory = inventory
         self.report = GlossaryReport()
         self._owner_ids: dict[tuple[str, str], str] = {}
         self._term_ids: dict[str, str] = {}
@@ -81,7 +81,7 @@ class GlossaryPublisher:
         return {"id": self._owner_ids[key], "type": ref.type}
 
     def publish(self) -> None:
-        glossaries = self._inventory.glossaries
+        glossaries = self.inventory.glossaries
         for glossary in glossaries:
             self._publish_glossary(glossary)
         terms = [term for glossary in glossaries for term in glossary.terms]
@@ -222,7 +222,7 @@ class GlossaryPublisher:
         reported as pending, never created.
         """
         by_table: dict[str, dict[str, tuple[GlossaryTerm, ...]]] = {}
-        for (model, column), terms in self._inventory.column_terms(product).items():
+        for (model, column), terms in self.inventory.column_terms(product).items():
             by_table.setdefault(model, {})[column] = terms
         for model, columns in by_table.items():
             table_fqn = f"{schema_fqn}.{model}"
@@ -241,10 +241,10 @@ class GlossaryPublisher:
                 self._patch("tables", table["id"], operations)
 
     def domain_terms(self, domain: str) -> tuple[str, ...]:
-        return next((d.glossary_terms for d in self._inventory.domains if d.name == domain), ())
+        return next((d.glossary_terms for d in self.inventory.domains if d.name == domain), ())
 
     def product_terms(self, product: str) -> tuple[str, ...]:
-        return next((p.glossary_terms for p in self._inventory.products if p.id == product), ())
+        return next((p.glossary_terms for p in self.inventory.products if p.id == product), ())
 
     def log_report(self) -> None:
         for fqn in self.report.pending_columns:

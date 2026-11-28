@@ -159,10 +159,11 @@ def test_openmetadata_deploy_hydrates_selected_provider_contracts(monkeypatch: p
         lambda **_kwargs: calls.append("metadata"),
     )
 
-    result = runner.invoke(app, ["infra", "openmetadata", "deploy-metadata", "--provider", "azure"])
+    result = runner.invoke(app, ["infra", "openmetadata", "deploy-metadata", "--provider", "azure", "--stage", "prod"])
 
     assert result.exit_code == 0
     assert options["provider"] == "azure"
+    assert options["stage"] == "prod"
     assert calls == ["metadata"]
 
 
@@ -648,9 +649,7 @@ def test_catalog_sync_namespaces_dispatches_to_glue_for_aws_glue_provider(
             {"backend": "glue", "dry_run": dry_run, "prune": prune, "namespace_prefix": namespace_prefix}
         ),
     )
-    monkeypatch.setattr(
-        catalog, "_sync_polaris_namespaces", lambda **kwargs: calls.append({"backend": "polaris"})
-    )
+    monkeypatch.setattr(catalog, "_sync_polaris_namespaces", lambda **kwargs: calls.append({"backend": "polaris"}))
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["infra", "catalog", "sync-namespaces", "--dry-run"])
@@ -671,9 +670,7 @@ def test_catalog_sync_namespaces_dispatches_to_polaris_by_default(monkeypatch: p
             {"backend": "polaris", "dry_run": dry_run, "prune": prune}
         ),
     )
-    monkeypatch.setattr(
-        catalog, "_sync_glue_namespaces", lambda **kwargs: calls.append({"backend": "glue"})
-    )
+    monkeypatch.setattr(catalog, "_sync_glue_namespaces", lambda **kwargs: calls.append({"backend": "glue"}))
     monkeypatch.setattr("olf.infra.commands.runtime.provider_contract_environment", lambda **kwargs: nullcontext())
 
     result = runner.invoke(app, ["infra", "catalog", "sync-namespaces", "--prune"])
@@ -919,7 +916,8 @@ def test_platform_contract_prints_the_applied_contract(platform_cli, monkeypatch
         paths=SimpleNamespace(platform_terraform_dir=Path("/platform")), command_env=lambda base: dict(base)
     )
     monkeypatch.setattr(platform_module, "deployment_context_for_profile", lambda _file, **_kwargs: context)
-    monkeypatch.setattr("olf.common.contract_state.load_provider_contracts",
+    monkeypatch.setattr(
+        "olf.common.contract_state.load_provider_contracts",
         lambda terraform_dir, environ, honor_contract_file, **_k: None if honor_contract_file else applied,
     )
 

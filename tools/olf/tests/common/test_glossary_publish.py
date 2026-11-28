@@ -164,3 +164,29 @@ def test_a_missing_owner_team_fails_before_any_glossary_write(tmp_path: Path, mo
     with pytest.raises(Exception, match="sales_data"):
         deployer.deploy()
     assert "glossaries" not in fake.entities
+
+
+def _drift_lines(deployer: MetadataDeployer) -> list[str]:
+    return [item.line() for item in deployer.drift()]
+
+
+def test_drift_is_empty_after_a_deploy_and_reports_what_git_dropped_or_the_crawl_lacks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deploy(tmp_path, monkeypatch)
+    fake.entities["tables"][f"{GOLD}.order_revenue"]["columns"].append({"name": "not_crawled", "tags": []})
+    deployer.deploy()
+    assert not [line for line in _drift_lines(deployer) if "glossary" in line or "sales." in line]
+
+    marker = fake.entities["glossaryTerms"]["sales.NetRevenue"]["extension"]
+    fake.seed("glossaryTerms", "sales.Retired", {"extension": marker})
+    fake.entities["glossaryTerms"]["sales.NetRevenue"]["synonyms"] = ["edited by hand"]
+    del fake.entities["dataProducts"]["order_revenue"]["tags"]
+    fake.entities["tables"][f"{GOLD}.order_revenue"]["columns"].pop()
+
+    lines = _drift_lines(deployer)
+
+    assert any(line.startswith("stale") and "sales.Retired" in line for line in lines)
+    assert any(line.startswith("changed") and "sales.NetRevenue" in line and "synonyms" in line for line in lines)
+    assert any("order_revenue" in line and "glossary tags not attached" in line for line in lines)
+    assert any(line.startswith("unresolved") and "not_crawled" in line for line in lines)

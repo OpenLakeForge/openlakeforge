@@ -7,6 +7,8 @@ import urllib.parse
 from collections.abc import Mapping
 from typing import Any
 
+from openlakeforge_services.openmetadata import fqn_part
+
 _CREATE_FIELDS = {
     "glossaryTerms": {
         "glossary",
@@ -96,9 +98,10 @@ class FakeOpenMetadata:
             parent_fqn = (
                 next(c["fullyQualifiedName"] for c in self.entities["containers"].values() if c["id"] == parent["id"])
                 if parent
-                else body["service"]
+                else fqn_part(body["service"])
             )
-            return f"{parent_fqn}.{body['name']}"
+            # 1.13.6 quotes a name that contains a dot.
+            return f"{parent_fqn}.{fqn_part(body['name'])}"
         if collection == "glossaryTerms":
             return f"{body.get('parent') or body['glossary']}.{body['name']}"
         return body["name"]
@@ -126,16 +129,25 @@ class FakeOpenMetadata:
                 {**json_body, "propertyType": {**json_body["propertyType"], "name": string["name"]}}
             )
             return entity_type
-        if route == "/api/v1/tables" and method == "GET":
+        if route == "/api/v1/tables" and method == "GET" and "databaseSchema=" in path:
             schema = urllib.parse.parse_qs(path.partition("?")[2])["databaseSchema"][0]
             tables = [t for fqn, t in self.entities.get("tables", {}).items() if fqn.rpartition(".")[0] == schema]
             return {"data": tables, "paging": {}}
         collection = route.removeprefix("/api/v1/")
         if route == "/api/v1/glossaryTerms" and method == "GET":
-            glossary_id = urllib.parse.parse_qs(path.partition("?")[2])["glossary"][0]  # an id, as on 1.13.6
+            query = {**{k: v[0] for k, v in urllib.parse.parse_qs(path.partition("?")[2]).items()}, **(params or {})}
+            glossary_id = query["glossary"]  # an id, as on 1.13.6
             name = next(g["name"] for g in self.entities["glossaries"].values() if g["id"] == glossary_id)
             terms = [t for fqn, t in self.entities.get("glossaryTerms", {}).items() if fqn.startswith(f"{name}.")]
             return {"data": terms, "paging": {}}
+        if method == "GET" and "/" not in collection and "limit" in (params or {}):
+            parents = [v for k, v in params.items() if k in ("database", "databaseSchema")]
+            found = [
+                e
+                for e in self.entities.get(collection, {}).values()
+                if all(e["fullyQualifiedName"].rpartition(".")[0] == parent for parent in parents)
+            ]
+            return {"data": found, "paging": {}}
         if method == "GET" and collection.startswith("dataProducts/name/") and collection.endswith("/assets"):
             product = self.entities["dataProducts"][urllib.parse.unquote(collection.split("/")[2])]
             held = product.get("assets", [])
