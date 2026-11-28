@@ -103,7 +103,7 @@ catalog boundary, never part of an asset's identity.
 
 | Component | Source | Notes |
 | --- | --- | --- |
-| `descriptors` | `lakehouse_code/governance.yml`, `bronze/<source>/source.yaml`, and `lakehouse_code/alerts.yml` when the project has one | Provider-neutral project truth |
+| `descriptors` | `lakehouse_code/governance.yml`, `bronze/<source>/source.yaml`, `lakehouse_code/glossaries/*.yml`, `lakehouse_code/alerts.yml` when the project has one, and `lakehouse_code/semantic/<product>/*.ossie.yaml` when it has any | Provider-neutral project truth. Glossaries and Ossie models are frozen so a stage's declared context is readable from its activated revision |
 | `floe` | `silver/floe.yml`, `silver/sources.yml`, `silver/<domain>/domain.yml`, `silver/<domain>/contracts/*.yml` | The Floe project and its contracts, never the rendered profile. The Floe runtime version is in the `image` digest |
 | `dbt` | `gold/**` | Excludes `profiles.yml`, `target/`, `dbt_packages/` and `logs/` |
 | `dagster` | `pipelines/definitions.py`, `pipelines/products.py`, `bronze/<source>/dlt/<source>.py` | Orchestration and extract code |

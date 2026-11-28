@@ -21,8 +21,8 @@ rebuild" was unreachable.
 
 **D1. A `ProjectRevision` freezes the complete promotable project's inputs,
 never rendered stage output.** It is one content-addressed revision with the
-components `descriptors` (including `alerts.yml` when present), `floe`, `dbt`
-(`gold/**` without `profiles.yml` or build output), `dagster`, `reports` (when
+components `descriptors` (including `alerts.yml`, glossaries and
+Ossie models when present), `floe`, `dbt` (`gold/**` without `profiles.yml` or build output), `dagster`, `reports` (when
 a dashboard exists), `image` (a repository plus an immutable `@sha256:` digest;
 mutable tags are rejected) and `distribution`. The Floe runtime version is
 covered by the image digest, not duplicated in `floe`. Each component's paths:
@@ -154,3 +154,5 @@ target. Enforced by: `packages/core/openlakeforge_core/project_activation.py`.
   single Gold project and `floe` follows the Floe project layout.
 - 2026-11-17 (#1208): D1 changed: `descriptors` also freezes `alerts.yml`.
 - 2026-11-23: Rewritten in the standard form; no decision changed.
+- 2026-11-28 (#922): D1 changed: `descriptors` also freezes `semantic/<product>/*.ossie.yaml`, so the platform API can
+  serve metrics and join paths from the activated revision. A project without Ossie files keeps its digest.
