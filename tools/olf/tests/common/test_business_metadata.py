@@ -180,3 +180,12 @@ def test_a_team_listed_as_expert_fails_before_any_write(tmp_path: Path, monkeypa
         _deploy(tmp_path, fake, monkeypatch)
 
     assert fake.writes == []
+
+
+def test_removals_name_the_position_in_the_stored_list_not_in_the_filtered_one() -> None:
+    glossary = {"tagFQN": "Business.Revenue", "source": "Glossary", "labelType": "Manual"}
+    stale = {"tagFQN": "Tier.Tier4", "source": "Classification", "labelType": "Manual"}
+
+    operations = tag_operations({"tags": [glossary, stale]}, ["Tier.Tier1"])
+
+    assert operations[0] == {"op": "remove", "path": "/tags/1"}

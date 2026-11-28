@@ -89,20 +89,21 @@ def tag_operations(current: Mapping[str, Any], wanted: Sequence[str]) -> list[di
         return []
     have = current.get("tags")
     # A glossary term has the same `<name>.<term>` shape; only classification labels are ours to compare or remove.
+    # Indices are positions in the stored list, which is what a JSON Patch path names.
     held = [
-        tag
-        for tag in have or []
+        (index, tag)
+        for index, tag in enumerate(have or [])
         if isinstance(tag, Mapping) and tag.get("source", "Classification") == "Classification"
     ]
     classifications = {fqn.partition(".")[0] for fqn in wanted}
     operations: list[dict[str, Any]] = [
         {"op": "remove", "path": f"/tags/{index}"}
-        for index in reversed(range(len(held)))
-        if held[index]["tagFQN"].partition(".")[0] in classifications
-        and held[index]["tagFQN"] not in wanted
-        and held[index].get("labelType") != "Derived"
+        for index, tag in reversed(held)
+        if tag["tagFQN"].partition(".")[0] in classifications
+        and tag["tagFQN"] not in wanted
+        and tag.get("labelType") != "Derived"
     ]
-    present = {tag["tagFQN"] for tag in held}
+    present = {tag["tagFQN"] for _, tag in held}
     missing = [tag_ref(fqn) for fqn in wanted if fqn not in present]
     if not missing:
         return operations
