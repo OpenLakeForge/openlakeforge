@@ -15,7 +15,7 @@ columns, human tags, comments, followers) alone.
 from __future__ import annotations
 
 import html
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 MARKER_PROPERTY = "olfManaged"
@@ -72,3 +72,35 @@ def patch_operations(current: Mapping[str, Any], desired: Mapping[str, Any]) -> 
         elif not _same(have, wanted):
             operations.append({"op": "replace", "path": f"/{field}", "value": wanted})
     return operations
+
+
+def tag_ref(tag_fqn: str) -> dict[str, str]:
+    return {"tagFQN": tag_fqn, "source": "Classification", "labelType": "Manual", "state": "Confirmed"}
+
+
+def tag_operations(current: Mapping[str, Any], wanted: Sequence[str]) -> list[dict[str, Any]]:
+    """JSON Patch that gives an entity the `wanted` tag FQNs and touches no other tag.
+
+    A tag is only removed when it belongs to the same classification as a wanted one: Tier and the
+    DataSensitivity classification are mutually exclusive, so a second value would be refused. A tag a person
+    added from another classification stays, and so does a derived one, which is not ours to remove.
+    """
+    if not wanted:
+        return []
+    have = current.get("tags")
+    held = [tag for tag in have or [] if isinstance(tag, Mapping)]
+    classifications = {fqn.partition(".")[0] for fqn in wanted}
+    operations: list[dict[str, Any]] = [
+        {"op": "remove", "path": f"/tags/{index}"}
+        for index in reversed(range(len(held)))
+        if held[index]["tagFQN"].partition(".")[0] in classifications
+        and held[index]["tagFQN"] not in wanted
+        and held[index].get("labelType") != "Derived"
+    ]
+    present = {tag["tagFQN"] for tag in held}
+    missing = [tag_ref(fqn) for fqn in wanted if fqn not in present]
+    if not missing:
+        return operations
+    if have is None:
+        return [{"op": "add", "path": "/tags", "value": missing}]
+    return operations + [{"op": "add", "path": "/tags/-", "value": tag} for tag in missing]

@@ -254,6 +254,16 @@ so on a deployed stage treat it as a data migration, not an edit.
 [the `governance.yml` reference](../reference/descriptors.md#governanceyml))
 are metadata only.
 
+`olf infra deploy` publishes `owner`, `experts`, `reviewers`, `tier`,
+`classification`, `lifecycle` and `termsOfUse` to OpenMetadata: owners and
+experts on the domain and data product pages, a Tier and a DataSensitivity tag
+on the product and on its Gold tables, and the lifecycle and terms of use as
+the custom properties `olfLifecycle` and `olfTermsOfUse`. An owner is an
+existing OpenMetadata team of type Group; create it in OpenMetadata first.
+`classification` only labels data: it does not change who can read a table.
+[The descriptors reference](../reference/descriptors.md#what-appears-in-openmetadata)
+lists every field.
+
 To record who owns a product and how critical it is, set them on the product
 and run the strict check, which fails for a product that resolves no `owner`,
 `tier` or `lifecycle`:
