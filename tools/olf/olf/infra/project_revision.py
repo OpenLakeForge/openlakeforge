@@ -31,6 +31,7 @@ from openlakeforge_core.project_revision import (
     sidecar_key,
     sidecar_payload,
 )
+from openlakeforge_core.semantic import discover_semantic_files
 
 from olf.common.project import ProjectSpec, validate_project
 from olf.common.runtime_contract import RuntimeContract
@@ -375,6 +376,9 @@ def _descriptors_component(project: ProjectSpec, inventory: Any) -> ComponentEnt
         paths.append(project.bronze_root / source.name / "source.yaml")
     # The loaded inventory resolves term links against them, so a revision without them cannot be loaded.
     paths.extend(glossary.path for glossary in inventory.glossaries)
+    # The platform API serves metrics and join paths from the activated revision (#922), which has no working tree to
+    # read them from. A project without `semantic/` adds no entry, so its digest is what it was before this.
+    paths.extend(path for _, path in discover_semantic_files(project.code_root, [p.id for p in inventory.products])[0])
     entries = {
         (key := _relative_key(project, path)): _hash_and_scan(key, path, project_root=project.root) for path in paths
     }

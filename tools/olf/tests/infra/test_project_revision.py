@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -46,6 +47,35 @@ def test_alerts_yml_is_part_of_the_descriptors_component_only_when_the_project_h
     assert "lakehouse_code/alerts.yml" not in descriptors_without.entries
     assert "lakehouse_code/alerts.yml" in descriptors_with.entries
     assert without.revision != with_alerts.revision
+
+
+def test_semantic_models_are_frozen_and_a_project_without_them_adds_no_entry(
+    external_project: Path, tmp_path: Path
+) -> None:
+    semantic = external_project / "lakehouse_code" / "semantic"
+    with_models = _build(external_project)
+    descriptors = with_models.component("descriptors")
+    assert descriptors is not None
+    frozen = {key for key in descriptors.entries if key.startswith("lakehouse_code/semantic/")}
+    assert frozen == {"lakehouse_code/semantic/sales_core/sales.ossie.yaml"}
+
+    shutil.rmtree(semantic)
+    without = _build(external_project)
+    bare = without.component("descriptors")
+    assert bare is not None
+    # Same entries as before semantic files were frozen, so the descriptors digest and the revision are unchanged.
+    assert set(bare.entries) == set(descriptors.entries) - frozen
+    assert without.revision != with_models.revision
+
+
+def test_a_semantic_folder_that_names_no_product_is_not_frozen(external_project: Path) -> None:
+    stray = external_project / "lakehouse_code" / "semantic" / "not_a_product"
+    stray.mkdir()
+    (stray / "x.ossie.yaml").write_text("version: 0.1.1\n")
+
+    descriptors = _build(external_project).component("descriptors")
+    assert descriptors is not None
+    assert not any("not_a_product" in key for key in descriptors.entries)
 
 
 def test_the_published_example_image_is_frozen_into_the_revision_without_docker(external_project: Path) -> None:
