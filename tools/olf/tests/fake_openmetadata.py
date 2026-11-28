@@ -27,7 +27,16 @@ class FakeOpenMetadata:
 
     def seed(self, collection: str, fqn: str, entity: dict) -> dict:
         self._ids += 1
-        stored = {"id": f"id-{self._ids}", "name": fqn.rpartition(".")[2], "fullyQualifiedName": fqn, **entity}
+        entity_id = f"id-{self._ids}"
+        stored = {
+            "id": entity_id,
+            "name": fqn.rpartition(".")[2],
+            "fullyQualifiedName": fqn,
+            "version": 0.1,
+            "updatedBy": "admin",
+            "href": f"http://localhost:8585/api/v1/{collection}/{entity_id}",
+            **entity,
+        }
         self.entities.setdefault(collection, {})[fqn] = stored
         return stored
 
@@ -57,7 +66,10 @@ class FakeOpenMetadata:
             return self.types[route.rsplit("/", 1)[1]]
         if route.startswith("/api/v1/metadata/types/"):
             entity_type = next(t for t in self.types.values() if t["id"] == route.rsplit("/", 1)[1])
-            entity_type["customProperties"].append(json_body)
+            string = self.types["string"]
+            entity_type["customProperties"].append(
+                {**json_body, "propertyType": {**json_body["propertyType"], "name": string["name"]}}
+            )
             return entity_type
         if route == "/api/v1/tables" and method == "GET" and "databaseSchema=" in path:
             schema = urllib.parse.parse_qs(path.partition("?")[2])["databaseSchema"][0]
@@ -76,8 +88,9 @@ class FakeOpenMetadata:
             product = self.entities["dataProducts"][urllib.parse.unquote(collection.split("/")[2])]
             held = product.get("assets", [])
             offset, limit = params["offset"], min(params["limit"], 1000)
-            paging = {"total": len(held), "offset": offset, "limit": limit}
-            return {"data": held[offset : offset + limit], "paging": paging}
+            # 1.13.6 lists every kind of asset (test cases too) with a name and an FQN, and pages with `total`.
+            items = [{**ref, "name": ref["id"], "fullyQualifiedName": ref["id"], "deleted": False} for ref in held]
+            return {"data": items[offset : offset + limit], "paging": {"total": len(held)}}
         if "/name/" in collection:
             collection, _, fqn = collection.partition("/name/")
             found = self.entities.get(collection, {}).get(urllib.parse.unquote(fqn))
