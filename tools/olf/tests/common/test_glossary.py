@@ -290,7 +290,9 @@ def test_column_links_in_nested_model_folders_belong_to_the_top_level_product(tm
     links = read_column_term_links(repo / "lakehouse_code/gold/models")
     result = _check_glossary_conformance(repo)
 
-    assert {(link.product, link.model) for link in links} >= {("order_revenue", "fct_order_lines")}
+    nested_links = [link for link in links if link.path == nested / "schema.yml"]
+    assert nested_links
+    assert {link.product for link in nested_links} == {"order_revenue"}
     assert not result.ok
     assert "order_revenue/facts/schema.yml" in result.detail
     assert "'sales.Typo' is not a known term" in result.detail
