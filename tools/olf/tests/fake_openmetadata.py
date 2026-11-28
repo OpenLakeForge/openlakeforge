@@ -76,6 +76,11 @@ class FakeOpenMetadata:
             collection, _, fqn = collection.partition("/name/")
             found = self.entities.get(collection, {}).get(urllib.parse.unquote(fqn))
             return dict(found) if found else {"code": 404, "message": "not found"}
+        if method == "GET" and collection.endswith("/assets"):
+            product = self.entities["dataProducts"][urllib.parse.unquote(collection.split("/")[1])]
+            held = product.get("assets", [])
+            offset = params["offset"]
+            return {"data": held[offset : offset + params["limit"]], "paging": {"total": len(held)}}
         if collection.endswith("/assets/add"):
             product = self.entities["dataProducts"][urllib.parse.unquote(collection.split("/")[1])]
             product.setdefault("assets", []).extend(json_body["assets"])

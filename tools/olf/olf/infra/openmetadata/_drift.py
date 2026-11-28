@@ -14,6 +14,8 @@ from olf.common.project import ProjectSpec
 from olf.infra.openmetadata._config import OpenMetadataConfig
 from olf.infra.openmetadata._orchestration import OpenMetadataDeployer
 
+_LOGIN_PATH = "/api/v1/users/login"
+
 
 @dataclass
 class _SpyClient(OpenMetadataClient):
@@ -78,4 +80,5 @@ def redeploy_writes(
     """
     spy = _SpyClient(client.base_url, token=client.token, session=client.session)
     _deployer(environ, spy, admin_email=admin_email, admin_password=admin_password).deploy()
-    return [f"{method} {path}" for method, path, _ in spy.exchanges if method != "GET"]
+    # The login POST creates a session, not metadata.
+    return [f"{method} {path}" for method, path, _ in spy.exchanges if method != "GET" and path != _LOGIN_PATH]
