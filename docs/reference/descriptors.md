@@ -285,7 +285,8 @@ set one uses its domain's. `tier`, `lifecycle`, `type`, `reviewers` and
 resolved values, so every consumer reads the same answer.
 
 `classification` is metadata. It does not grant or revoke access in Trino or
-Polaris.
+Polaris, in OpenMetadata or anywhere else; enforcement is tracked in
+[#924](https://github.com/OpenLakeForge/openlakeforge/issues/924).
 
 `status` was removed from domains and products. A `v1beta2` document that
 sets it fails with a hint to use `lifecycle`; domains have no lifecycle, so
@@ -293,10 +294,43 @@ drop it there. `olf project migrate` refuses a `v1beta1` file that sets
 `status` for the same reason, leaving it unchanged, and the migrated file
 needs `lifecycle` written by hand.
 
-> [!NOTE]
-> The deployer does not publish these fields to OpenMetadata yet. It only
-> stopped appending `status` to domain descriptions. Publishing owners, tiers,
-> lifecycle and the rest is a separate change.
+#### What appears in OpenMetadata
+
+`olf infra deploy` publishes the resolved fields to OpenMetadata 1.13.6 when
+the stage runs it. A field you do not declare is not written, so a value a
+person set in OpenMetadata stays.
+
+| Field | OpenMetadata | Where |
+| --- | --- | --- |
+| `owner` | `owners` | Domain and data product |
+| `experts` | `experts` | Domain and data product |
+| `reviewers` | `reviewers` | Data product |
+| `domainType` | `domainType` | Domain |
+| `type` | `dataProductType` | Data product |
+| `tier` | `Tier.Tier1` to `Tier.Tier5` tag | Data product and its Gold tables in the stage being deployed |
+| `classification` | `DataSensitivity.<value>` tag | Domain, data product and the product's Gold tables in the stage being deployed |
+| `lifecycle` | Custom property `olfLifecycle` | Data product |
+| `termsOfUse` | Custom property `olfTermsOfUse`, a JSON string | Data product |
+
+- A reference resolves to an existing OpenMetadata user or team by name. An
+  `owner` must be an existing user or a team of type `Group`: OpenMetadata
+  refuses the Organization team. `experts` must be users. A reference that
+  does not resolve, an owner team that is not a Group, or a team under
+  `experts` fails the deploy before it writes anything, and the error names
+  the `governance.yml` path.
+- `Tier` and `DataSensitivity` allow one value each, so a different value on
+  a table is replaced; tags from any other classification stay. OpenLakeForge
+  creates the `DataSensitivity` classification with `Public`, `Internal`,
+  `Confidential` and `Restricted` as needed. `Tier` ships with OpenMetadata.
+- OpenMetadata 1.13.6 ignores a write to a data product's `lifecycleStage`
+  (it answers 200 and keeps `DEVELOPMENT`), so `lifecycle` is stored in
+  `olfLifecycle` and the native field stays at `DEVELOPMENT`.
+- After a write the deploy reads the entity back and fails if OpenMetadata
+  did not keep a field, instead of trusting the 200.
+- A second deploy of the same descriptor writes nothing.
+
+`consumesFrom`, `providesTo`, `sla` and glossary terms are published by other
+changes.
 
 A root `products:` list, a `domain` inside a product, or the same `id` under
 two domains is rejected, with the location written as

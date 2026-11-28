@@ -70,6 +70,8 @@ class FakeOpenMetadata:
             )
         }
         self.calls: list[tuple[str, str]] = []
+        # Paths the server answers 200 to and then does not keep, as 1.13.6 does for `lifecycleStage`.
+        self.ignored_paths: set[str] = set()
         self._ids = 0
 
     @property
@@ -94,6 +96,8 @@ class FakeOpenMetadata:
     def _fqn_of(self, collection: str, body: dict) -> str:
         if collection == "tables":
             return f"{body['databaseSchema']}.{body['name']}"
+        if collection == "tags":
+            return f"{body['classification']}.{body['name']}"
         if collection == "databaseSchemas":
             return f"{body['database']}.{body['name']}"
         if collection == "containers":
@@ -184,20 +188,31 @@ class FakeOpenMetadata:
                 if e["id"] == collection.rpartition("/")[2]
             )
             for op in json_body:
-                if op["path"].startswith("/relatedTerms"):  # TermRelation: `id` is an unknown field there (HTTP 500)
+                if op["path"] in self.ignored_paths:
+                    continue
+                if (
+                    op["path"].startswith("/relatedTerms") and "value" in op
+                ):  # TermRelation: `id` is an unknown field there (HTTP 500)
                     relations = op["value"] if isinstance(op["value"], list) else [op["value"]]
                     assert all(set(r) == {"term", "relationType"} for r in relations), "bad TermRelation"
                 if op["path"] == "/entityStatus":  # type/status.json, 1.13.6
                     assert op["value"] in _ENTITY_STATUSES, f"bad entityStatus {op['value']!r}"
-                if "/tags" in op["path"]:
+                if "/tags" in op["path"] and "value" in op:
                     labels = op["value"] if isinstance(op["value"], list) else [op["value"]]
                     assert all(set(t) == {"tagFQN", "source", "labelType", "state"} for t in labels), "bad tag label"
                 *parents, leaf = op["path"].strip("/").split("/")
-                node = entity
+                node: Any = entity
                 for key in parents:
                     # RFC 6902: only the last member of an `add` is created; a missing parent is an error.
-                    node = node[int(key)] if isinstance(node, list) else node[key]
-                if op["op"] == "remove":
+                    node = node[int(key) if isinstance(node, list) else key]
+                if isinstance(node, list):
+                    if op["op"] == "remove":
+                        node.pop(int(leaf))
+                    elif leaf == "-":
+                        node.append(copy.deepcopy(op["value"]))
+                    else:
+                        node[int(leaf)] = copy.deepcopy(op["value"])
+                elif op["op"] == "remove":
                     node.pop(leaf)
                 elif leaf == "-":
                     node.append(copy.deepcopy(op["value"]))

@@ -632,7 +632,16 @@ _EXAMPLES = {
                 "stockout_events",
             )
         ),
-        gold_assets=("mart_inventory_position", "mart_supplier_delivery_reliability", "mart_stockout_risk"),
+        gold_assets=(
+            "dim_warehouse",
+            "dim_supplier",
+            "fct_inventory_snapshots",
+            "fct_purchase_order_receipts",
+            "fct_stockout_events",
+            "mart_inventory_position",
+            "mart_supplier_delivery_reliability",
+            "mart_stockout_risk",
+        ),
     ),
 }
 
