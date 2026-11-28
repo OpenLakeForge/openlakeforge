@@ -11,6 +11,7 @@ from openlakeforge_core import (
     LakehouseDescriptorError,
     governance_products,
     load_governance_descriptor,
+    scan_gold_roles,
     scan_product_dependencies,
 )
 from openlakeforge_core.governance import resolve_product
@@ -107,3 +108,21 @@ def _check_product_dependencies(repo_root: Path) -> CheckResult:
         return CheckResult(name, ok=True, detail="no product reads another product's models")
     edges = ", ".join(f"{d.consumer} -> {d.producer} ({', '.join(d.models)})" for d in found.dependencies)
     return CheckResult(name, ok=True, detail=f"product dependencies: {edges}")
+
+
+def _check_gold_roles(repo_root: Path) -> CheckResult:
+    """Every Gold model resolves a role (`fct_`, `dim_`, `mart_` or `meta.openlakeforge.role`): the deploy tags
+    each Gold table with it, and agents and the catalog tell facts and dimensions from presentation marts by it."""
+    name = "gold_roles"
+    code = repo_root / "lakehouse_code"
+    path = code / "governance.yml"
+    if not path.is_file():
+        return CheckResult(name, ok=True, detail="no governance.yml")
+    try:
+        products = [p["id"] for p in governance_products(load_governance_descriptor(path))]
+    except LakehouseDescriptorError:
+        return CheckResult(name, ok=True, detail="governance.yml unreadable; see governance_conformance")
+    roles, problems = scan_gold_roles(code / "gold", products)
+    if problems:
+        return CheckResult(name, ok=False, detail="; ".join(problems))
+    return CheckResult(name, ok=True, detail=f"{sum(len(models) for models in roles.values())} Gold models have a role")

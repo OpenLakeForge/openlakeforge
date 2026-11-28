@@ -213,6 +213,7 @@ def _stub_openmetadata(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     )
     monkeypatch.setattr(_assertions, "assert_openmetadata_stage_roots", lambda _c, **kw: seen.update(roots=kw))
     monkeypatch.setattr(_assertions, "assert_openmetadata_stage_lineage", lambda *_a, **_kw: None)
+    monkeypatch.setattr(_assertions, "assert_openmetadata_product_graph", lambda *_a, **_kw: None)
     monkeypatch.setattr(_assertions, "load_provider_contracts_or_raise", lambda _cfg: {"stages": {"prod": {}}})
     monkeypatch.setattr(_assertions, "product_gold_tables", lambda *_a, **_kw: [])
     return seen

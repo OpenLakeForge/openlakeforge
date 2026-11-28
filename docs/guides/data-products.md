@@ -174,8 +174,40 @@ row-level fact (`fct_order_lines`) and conformed dimensions (`dim_account`,
 model and column described and its keys tested (`unique` and `not_null`, plus
 `relationships` from each fact key to its dimension). Marts aggregate such
 models; business filters such as "fulfilled orders only" belong to the metric
-that uses them, not to the fact. The existing marts do not read `sales_core`
-yet.
+that uses them, not to the fact. `order_revenue`, `customer_health` and
+`inventory_reliability` read `sales_core`.
+
+### Roles and dependencies in OpenMetadata
+
+A deploy publishes the Gold graph to OpenMetadata, so a person or an agent can
+tell a conformed fact from a presentation mart and see which products a product
+builds on:
+
+- **Role.** Every Gold table carries one tag of the `GoldRole` classification,
+  which OpenLakeForge creates: `Fact` for `fct_`, `Dimension` for `dim_`, `Mart`
+  for `mart_`. To give a model another name, set its role in its `schema.yml`
+  entry, as `Fact`, `Dimension` or `Mart` in any letter case:
+
+  ```yaml
+  models:
+    - name: order_lines_wide
+      meta:
+        openlakeforge:
+          role: fact
+  ```
+
+  A declared role wins over the prefix. `olf check contracts` fails
+  (`gold_roles`) on a model that resolves neither. Tags of other
+  classifications, and glossary terms, are left alone.
+- **Dependencies.** The `ref()` graph above becomes `consumesFrom` on the
+  consuming data product, so `order_revenue` lists `sales_core`. A deploy adds
+  a missing edge and never removes one. The consumed tables are not attached to
+  the consuming product: it holds only the tables in its own `<product>_gold`
+  schema, facts and dimensions included.
+
+`olf infra openmetadata drift` reports a dependency dropped from Git while
+OpenMetadata still holds it, a missing edge, and a table without its role tag
+([Metadata ownership](operations/metadata-ownership.md)).
 
 `gold/dbt_project.yml` sets `+persist_docs` for every Gold model, so the
 descriptions in `schema.yml` are written as table and column comments.
