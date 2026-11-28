@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 import yaml
-from openlakeforge_core import LakehouseDescriptorError, load_governance_descriptor, parse_glossary
+from openlakeforge_core import (
+    LakehouseDescriptorError,
+    load_governance_descriptor,
+    parse_glossary,
+    read_column_term_links,
+)
 from openlakeforge_core.inventory import load_lakehouse_inventory
 
 from olf.common import contracts_check
@@ -274,3 +279,18 @@ def test_a_non_array_columns_value_is_a_diagnostic_not_a_crash(tmp_path: Path, c
 
     assert not result.ok
     assert "models[fct_demo].columns must be an array" in result.detail
+
+
+def test_column_links_in_nested_model_folders_belong_to_the_top_level_product(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    nested = repo / "lakehouse_code/gold/models/order_revenue/facts"
+    nested.mkdir()
+    (nested / "schema.yml").write_text(SCHEMA_YML.replace("sales.NetRevenue", "sales.Typo"), encoding="utf-8")
+
+    links = read_column_term_links(repo / "lakehouse_code/gold/models")
+    result = _check_glossary_conformance(repo)
+
+    assert {(link.product, link.model) for link in links} >= {("order_revenue", "fct_order_lines")}
+    assert not result.ok
+    assert "order_revenue/facts/schema.yml" in result.detail
+    assert "'sales.Typo' is not a known term" in result.detail

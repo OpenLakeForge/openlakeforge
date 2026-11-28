@@ -281,10 +281,18 @@ def unresolved_term_refs(refs: Mapping[str, tuple[str, ...]], glossaries: tuple[
 
 
 def read_column_term_links(gold_models: str | Path) -> tuple[ColumnTermLink, ...]:
-    """Column links in ``<product>/*.yml`` dbt files: ``columns[].meta.openlakeforge.glossaryTerms``."""
+    """Column links in the dbt ``<product>/**/*.yml`` files: ``columns[].meta.openlakeforge.glossaryTerms``."""
     root = Path(gold_models)
     links: list[ColumnTermLink] = []
-    for path in sorted(p for pattern in ("*.yml", "*.yaml") for p in root.glob(f"[!_.]*/{pattern}")):
+    # Recursive, like `scan_product_dependencies`: a product may split its models into subfolders, and the
+    # product is the top-level folder, not the file's immediate parent.
+    files = [
+        (product.name, path)
+        for product in sorted(root.glob("[!_.]*"))
+        if product.is_dir()
+        for path in sorted([*product.rglob("*.yml"), *product.rglob("*.yaml")])
+    ]
+    for product_name, path in files:
         document = _load_yaml(path)
         models = document.get("models") if isinstance(document, Mapping) else None
         for model in models if isinstance(models, list) else ():
@@ -302,7 +310,7 @@ def read_column_term_links(gold_models: str | Path) -> tuple[ColumnTermLink, ...
                 links.append(
                     ColumnTermLink(
                         path=path,
-                        product=path.parent.name,
+                        product=product_name,
                         model=str(model.get("name")),
                         column=str(column.get("name")),
                         terms=parse_term_refs(openlakeforge["glossaryTerms"], field="glossaryTerms", where=where),
