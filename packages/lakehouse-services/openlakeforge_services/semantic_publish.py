@@ -421,8 +421,28 @@ class SemanticPublisher:
                 self._progress.warn(f"Table {fqn} {reason}; its Ossie key constraints are not published yet.")
                 waiting.append((fqn, reason))
                 continue
-            found.append((fqn, table, wanted))
+            # OpenMetadata refuses the whole PATCH when a foreign key's referred table or column is missing, which
+            # would also block the table's other keys, so such a key waits for the referred table's crawl.
+            ready = []
+            for constraint in wanted:
+                lacking = self._missing_referred(constraint)
+                if lacking:
+                    self._progress.warn(f"Table {fqn}: foreign key to {lacking} waits for its crawl.")
+                    waiting.append((fqn, f"has a foreign key to {lacking}, which is not in OpenMetadata yet"))
+                else:
+                    ready.append(constraint)
+            found.append((fqn, table, ready))
         return found, waiting
+
+    def _missing_referred(self, constraint: Mapping[str, Any]) -> str | None:
+        """The first `referredColumns` entry whose table or column OpenMetadata does not hold yet."""
+        for referred in constraint.get("referredColumns") or ():
+            table_fqn, _, column = referred.rpartition(".")
+            table = self._reconciler.lookup("tables", table_fqn, "columns")
+            columns = {str(c["name"]).lower() for c in (table or {}).get("columns") or []}
+            if column.strip('"').lower() not in columns:
+                return str(referred)
+        return None
 
     def _publish_constraints(self) -> None:
         for fqn, table, wanted in self._constrained_tables()[0]:

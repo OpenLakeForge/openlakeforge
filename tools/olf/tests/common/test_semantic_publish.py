@@ -496,3 +496,16 @@ def test_logical_dataset_schemas_resolve_through_the_contracts_stage_prefixed_ph
 
     assert len(fake.edges) == 2
     assert fake.entities["tables"][f"{physical}.fct_order_lines"]["tableConstraints"]
+
+
+def test_a_foreign_key_waits_for_its_referred_table_so_the_other_keys_are_not_blocked(om: FakeWithMetrics) -> None:
+    del om.entities["tables"][f"{SCHEMA}.dim_account"]
+
+    _publisher(om).publish()
+
+    held = om.entities["tables"][f"{SCHEMA}.fct_order_lines"]["tableConstraints"]
+    assert {"constraintType": "PRIMARY_KEY", "columns": ["line_id"]} in held
+    assert not any(c["columns"] == ["account_id"] for c in held)
+    assert any(c["columns"] == ["channel_id"] for c in held)
+    drift = _publisher(om).drift()
+    assert any("dim_account" in d.detail and d.kind == "unresolved" for d in drift)
