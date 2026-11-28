@@ -108,12 +108,12 @@ def check_glossary_publication(cfg: E2EConfig) -> None:
         pending = []
         for table_fqn, columns in _column_links(inventory, database_fqn).items():
             table = _get(client, "tables", table_fqn, "columns,tags")
-            held = {column["name"]: column for column in table.get("columns") or []}
+            held = {column["name"].lower(): column for column in table.get("columns") or []}
             for column, wanted in columns.items():
-                if column not in held:
+                if column.lower() not in held:
                     pending.append(f"{table_fqn}.{column}")
                     continue
-                have = _tag_fqns(held[column])
+                have = _tag_fqns(held[column.lower()])
                 if wanted - have:
                     problems.append(f"column {table_fqn}.{column} lacks glossary tags {sorted(wanted - have)}")
                 else:

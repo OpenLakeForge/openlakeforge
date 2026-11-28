@@ -220,7 +220,8 @@ def detect_glossary_drift(
             if owner is None:
                 detail = f"owner {glossary.owner.type} {glossary.owner.ref!r} not found"
                 items.append(DriftItem(UNRESOLVED, "glossary", glossary.name, SHARED, detail))
-            elif owner["id"] not in {o.get("id") for o in entity.get("owners") or []}:
+            # A deploy sets the owners to the declared one, so any other set is a difference.
+            elif {o.get("id") for o in entity.get("owners") or []} != {owner["id"]}:
                 fields.append("owners")
         if fields:
             items.append(DriftItem(CHANGED, "glossary", glossary.name, SHARED, ", ".join(fields)))
@@ -242,6 +243,8 @@ def detect_glossary_drift(
                 "synonyms": list(term.synonyms),
                 "references": [{"name": ref.name, "endpoint": ref.endpoint} for ref in term.references],
             }
+            if term.status:
+                wanted["entityStatus"] = term.status
             fields = [op["path"].lstrip("/") for op in patch_operations(current, wanted)]
             # Declared relations must be present; ones a person added, and the reverse ones OpenMetadata keeps, are not
             # a difference.

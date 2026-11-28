@@ -259,3 +259,21 @@ def test_a_column_whose_last_declaration_left_git_keeps_its_tag_and_is_warned_ab
     assert "sales.NetRevenue" in [tag["tagFQN"] for tag in column["tags"]]  # kept, never removed
     warnings = [message for level, message in progress.messages if level == "warn"]
     assert any("revenue -> sales.NetRevenue" in message for message in warnings)
+
+
+def test_drift_reports_an_extra_owner_and_a_status_that_differs_from_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deploy(tmp_path, monkeypatch)
+    deployer.deploy()
+    assert not [line for line in _drift_lines(deployer) if "glossary" in line]
+
+    fake.seed("teams", "other_team", {"teamType": "Group"})
+    owners = fake.entities["glossaries"]["sales"]["owners"]
+    owners.append({"id": fake.entities["teams"]["other_team"]["id"], "type": "team"})
+    fake.entities["glossaryTerms"]["sales.NetRevenue"]["entityStatus"] = "Draft"
+
+    lines = _drift_lines(deployer)
+
+    assert any("glossary sales" in line and "owners" in line for line in lines)
+    assert any("sales.NetRevenue" in line and "entityStatus" in line for line in lines)
