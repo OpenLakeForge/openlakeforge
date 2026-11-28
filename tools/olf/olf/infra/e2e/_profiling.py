@@ -123,10 +123,10 @@ def check_openmetadata_profiles(cfg: E2EConfig) -> None:
                     problems.append(f"{fqn}.{column.name}: missing nullCount or distinctCount")
             if "min" in target.metrics:
                 for column in stats.columns:
-                    # A column with no non-null value has no extremum to store.
+                    # A column with no non-null value (valuesCount explicitly 0) has no extremum to store.
                     if (
                         types[column.name].upper() in _VALUE_TYPES
-                        and (column.values_count or 0) > 0
+                        and column.values_count != 0
                         and (column.minimum is None or column.maximum is None)
                     ):
                         problems.append(f"{fqn}.{column.name}: min and max were not stored")
