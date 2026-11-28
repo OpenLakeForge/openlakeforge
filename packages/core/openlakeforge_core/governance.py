@@ -47,7 +47,7 @@ TERM_REF_PATTERN = r"^[a-z][a-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$"
 
 _COMMON_FIELDS = {"displayName", "description", "owner", "experts", "classification", "glossaryTerms"}
 _DOMAIN_FIELDS = _COMMON_FIELDS | {"domainType", "products"}
-_PRODUCT_FIELDS = _COMMON_FIELDS | {"reviewers", "type", "tier", "lifecycle", "termsOfUse"}
+_PRODUCT_FIELDS = _COMMON_FIELDS | {"reviewers", "type", "tier", "lifecycle", "termsOfUse", "profiling"}
 _INHERITED = ("owner", "experts", "classification")
 
 
@@ -94,6 +94,11 @@ def parse_term_refs(value: object, *, field: str, where: str) -> tuple[str, ...]
     if len(set(value)) != len(value):
         raise LakehouseDescriptorError(f"{where}: {field} lists a term twice")
     return tuple(value)
+
+
+def _profiling(value: object, *, where: str) -> None:
+    if not isinstance(value, Mapping) or set(value) - {"enabled"} or not isinstance(value.get("enabled"), bool):
+        raise LakehouseDescriptorError(f"{where}: profiling must be an object {{enabled: true|false}}, got {value!r}")
 
 
 def _terms_of_use(value: object, *, where: str) -> None:
@@ -143,6 +148,8 @@ def _check_entry(entry: object, *, id_field: str, where: str, fields: set[str]) 
             _enum(entry[field], field=field, allowed=allowed, where=where)
     if "termsOfUse" in entry:
         _terms_of_use(entry["termsOfUse"], where=where)
+    if "profiling" in entry:
+        _profiling(entry["profiling"], where=where)
     if "glossaryTerms" in entry:
         parse_term_refs(entry["glossaryTerms"], field="glossaryTerms", where=where)
     return entry
