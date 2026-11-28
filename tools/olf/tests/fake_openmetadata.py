@@ -19,7 +19,16 @@ class FakeOpenMetadata:
         self.entities: dict[str, dict[str, dict]] = {}
         self.types = {
             name: {"id": f"type-{name}", "name": name, "customProperties": []}
-            for name in ("domain", "dataProduct", "databaseSchema", "table", "container", "string")
+            for name in (
+                "domain",
+                "dataProduct",
+                "databaseSchema",
+                "table",
+                "container",
+                "glossary",
+                "glossaryTerm",
+                "string",
+            )
         }
         self.calls: list[tuple[str, str]] = []
         self._ids = 0
@@ -56,6 +65,8 @@ class FakeOpenMetadata:
                 else body["service"]
             )
             return f"{parent_fqn}.{body['name']}"
+        if collection == "glossaryTerms":
+            return f"{body.get('parent') or body['glossary']}.{body['name']}"
         return body["name"]
 
     def request(
@@ -86,6 +97,10 @@ class FakeOpenMetadata:
             tables = [t for fqn, t in self.entities.get("tables", {}).items() if fqn.rpartition(".")[0] == schema]
             return {"data": tables, "paging": {}}
         collection = route.removeprefix("/api/v1/")
+        if route == "/api/v1/glossaryTerms" and method == "GET":
+            glossary = urllib.parse.parse_qs(path.partition("?")[2])["glossary"][0]
+            terms = [t for fqn, t in self.entities.get("glossaryTerms", {}).items() if fqn.startswith(f"{glossary}.")]
+            return {"data": terms, "paging": {}}
         if method == "GET" and collection.startswith("dataProducts/name/") and collection.endswith("/assets"):
             product = self.entities["dataProducts"][urllib.parse.unquote(collection.split("/")[2])]
             held = product.get("assets", [])
@@ -120,9 +135,11 @@ class FakeOpenMetadata:
                 node = entity
                 for key in parents:
                     # RFC 6902: only the last member of an `add` is created; a missing parent is an error.
-                    node = node[key]
+                    node = node[int(key)] if isinstance(node, list) else node[key]
                 if op["op"] == "remove":
                     node.pop(leaf)
+                elif leaf == "-":
+                    node.append(copy.deepcopy(op["value"]))
                 else:
                     node[leaf] = copy.deepcopy(op["value"])
             return entity

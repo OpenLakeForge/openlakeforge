@@ -23,6 +23,7 @@ from openlakeforge_core import (
     load_source_descriptor,
 )
 
+from .glossary_publish import GlossaryPublisher
 from .openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 from .ownership import (
     MARKED_ENTITY_TYPES,
@@ -604,6 +605,10 @@ class MetadataDeployer:
                 container["description"],
             )
 
+        # Glossaries and terms exist before anything is tagged with them.
+        glossary = GlossaryPublisher.from_descriptors(self._reconciler, self.domain_files())
+        glossary.publish()
+
         # Phase C: Reconcile domains and data products from governance YAML. A
         # domain is set on the databaseSchema entity rather than on each table:
         # OpenMetadata resolves a table's domain from its schema when the table
@@ -619,6 +624,7 @@ class MetadataDeployer:
                 {key: domain_body[key] for key in ("displayName", "description", "domainType")},
             )
             self.progress.info(f"Reconciled OpenMetadata domain: {domain_body['name']}")
+            glossary.tag_entity("domains", domain.name, glossary.domain_terms(domain.name))
             silver_fqn = self.config.catalog_silver_schema_fqns[domain.name]
             self.ensure_database_schema(silver_fqn, domain_entity)
             # Every table a pipeline writes is registered before it runs, so
@@ -643,6 +649,8 @@ class MetadataDeployer:
                 self.ensure_database_schema(schema_fqn, domain_entity)
                 for table in product.gold_tables:
                     self.ensure_table(schema_fqn, table)
+                glossary.tag_entity("dataProducts", product.id, glossary.product_terms(product.id))
+                glossary.tag_columns(product.id, schema_fqn)
 
                 # A schema is a valid data-product asset, but a table does not
                 # inherit `dataProducts` from its schema (no inheritDataProducts
@@ -657,6 +665,8 @@ class MetadataDeployer:
                 self.progress.info(
                     f"OpenMetadata data product {product_body['name']} holds {len(refs)} asset(s); attached {added}"
                 )
+
+        glossary.log_report()
 
         if missing_assets:
             message = "\n".join(f"  - {fqn}" for fqn in sorted(set(missing_assets)))
