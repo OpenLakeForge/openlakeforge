@@ -1,0 +1,10 @@
+{
+  "file": "ossie-0.1.1.schema.json",
+  "upstream": "apache/ossie",
+  "path": "core-spec/osi-schema.json",
+  "tag": "osi-0.1.1-rc1",
+  "commit": "faf581054dcf7964d5fe0ceae7d6f415c8ce32a5",
+  "url": "https://raw.githubusercontent.com/apache/ossie/osi-0.1.1-rc1/core-spec/osi-schema.json",
+  "sha256": "c1e9adec39562786aa78809665fba568797b15f4c53a0847d9cbcf2dead1bc94",
+  "license": "Apache-2.0"
+}

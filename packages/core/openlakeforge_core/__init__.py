@@ -150,6 +150,17 @@ from .quality import (
     manifest_key,
 )
 from .runs import FLOE_FULL_REFRESH_TAG, FULL_REFRESH_SCOPES, FULL_REFRESH_TAG, full_refresh_scope, full_refresh_tags
+from .semantic import (
+    SUPPORTED_OSSIE_VERSION,
+    SemanticDataset,
+    SemanticDiagnostic,
+    SemanticField,
+    SemanticInventory,
+    SemanticMetric,
+    SemanticModel,
+    SemanticRelationship,
+)
+from .semantic_validate import load_semantic_inventory
 
 __all__ = [
     "GLOSSARY_API_VERSION",
@@ -282,6 +293,15 @@ __all__ = [
     "load_lakehouse_inventory_from_descriptors",
     "load_transitional_lakehouse_inventory",
     "scan_product_dependencies",
+    "SUPPORTED_OSSIE_VERSION",
+    "SemanticDataset",
+    "SemanticDiagnostic",
+    "SemanticField",
+    "SemanticInventory",
+    "SemanticMetric",
+    "SemanticModel",
+    "SemanticRelationship",
+    "load_semantic_inventory",
     "load_source",
     "load_source_descriptor",
     "validate_governance_descriptor",
