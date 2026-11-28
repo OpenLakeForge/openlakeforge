@@ -422,6 +422,15 @@ class MetadataReconciler:
         )
         stored = self.lookup(collection, fqn, fields) or {}
         ignored = sorted({op["path"] for op in patch_operations(stored, desired) + tag_operations(stored, tags)})
+        if ignored and all(path == "/sla" or path.startswith("/sla/") for path in ignored):
+            # 1.13.6's data product updater records no change for `sla`, so a patch that changes only it can be
+            # dropped. The policy extension, which moves with every declared edit, did read back, so this is a
+            # hand edit of the native field that a person repairs, not a failed write: it must not block the deploy.
+            self.progress.warn(
+                f"{collection} {fqn!r}: OpenMetadata 1.13.6 does not record an sla-only change, so the native "
+                "sla still differs from governance.yml; see `olf infra openmetadata drift`."
+            )
+            return current
         if ignored:
             raise OpenMetadataError(
                 f"OpenMetadata accepted the update of {collection} {fqn!r} but reads back without {ignored}; "

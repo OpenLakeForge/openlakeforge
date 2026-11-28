@@ -238,13 +238,31 @@ def test_drift_reports_a_changed_sla_and_is_empty_after_a_clean_deploy(
     assert "extension/olfFreshnessPolicy" in changed[0]
 
 
-def test_a_server_that_ignores_the_sla_fails_the_deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_hand_edited_native_sla_that_the_server_will_not_rewrite_warns_and_the_deploy_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _fake()
+    fake.seed("databases", "polaris.lakehouse_dev", {})
+    deployer = _deploy_sla(tmp_path / "first", fake, monkeypatch)
+    fake.entities["dataProducts"]["order_revenue"]["sla"]["dataFreshness"] = 60
+    fake.ignored_paths.add("/sla/dataFreshness")  # 1.13.6 stores an sla-only patch only by accident
+
+    deployer = _deploy_sla(tmp_path / "second", fake, monkeypatch)
+
+    warnings = [text for level, text in deployer.progress.messages if level == "warn"]
+    assert any("order_revenue" in text and "does not record an sla-only change" in text for text in warnings)
+    assert "sla/dataFreshness" in " ".join(item.detail for item in deployer.drift() if item.fqn == "order_revenue")
+
+
+def test_a_policy_extension_that_does_not_read_back_still_fails_the_deploy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from openlakeforge_services.openmetadata import OpenMetadataError
 
     fake = _fake()
-    fake.ignored_paths.add("/sla")
+    fake.ignored_paths.add("/extension/olfFreshnessPolicy")
 
-    with pytest.raises(OpenMetadataError, match="sla"):
+    with pytest.raises(OpenMetadataError, match="olfFreshnessPolicy"):
         _deploy_sla(tmp_path, fake, monkeypatch)
 
 

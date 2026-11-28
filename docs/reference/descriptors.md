@@ -373,10 +373,15 @@ person set in OpenMetadata stays.
 - After a write the deploy reads the entity back and fails if OpenMetadata
   did not keep a field, instead of trusting the 200.
 - A second deploy of the same descriptor writes nothing.
-- OpenMetadata 1.13.6 records no change for a data product's `sla`, so a patch
-  that only changed it could answer 200 and store nothing. `olfFreshnessPolicy`
-  therefore moves with every SLA edit, and the deploy still reads the native
-  fields back and fails if they were not kept.
+- OpenMetadata 1.13.6 records no change for a data product's `sla`, so a
+  patch that only changed it can answer 200 and store nothing.
+  `olfFreshnessPolicy` therefore moves with every SLA edit, which keeps a first
+  deploy, an edit to `governance.yml` and a new revision persisted. The
+  deploy reads both back and fails if `olfFreshnessPolicy` is not kept. If only
+  the native `sla` differs after a write, which is what a hand edit in the
+  OpenMetadata UI followed by a redeploy of the same revision produces, the
+  deploy warns and continues: `olf infra openmetadata drift` lists the
+  difference and a person repairs it, for example by committing a revision.
 - The native `sla` is written field by field, so an `availability` or
   `responseTime` a person set in OpenMetadata stays. A field removed from
   `governance.yml` is not removed from OpenMetadata; the deploy never
