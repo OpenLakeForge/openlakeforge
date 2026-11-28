@@ -89,7 +89,8 @@ class FakeOpenMetadata:
             return dict(found) if found else {"code": 404, "message": "not found"}
         if collection.endswith("/assets/add"):
             product = self.entities["dataProducts"][urllib.parse.unquote(collection.split("/")[1])]
-            product.setdefault("assets", []).extend(json_body["assets"])
+            held = product.setdefault("assets", [])
+            held += [ref for ref in json_body["assets"] if ref["id"] not in {asset["id"] for asset in held}]
             return {}
         if method == "POST":
             fqn = self._fqn_of(collection, json_body)

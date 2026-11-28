@@ -261,11 +261,33 @@ class MetadataReconciler:
             )
             self.progress.info(f"Created OpenMetadata storage service: {name}")
             return
-        have = ((current.get("connection") or {}).get("config") or {}).get("awsConfig") or {}
         operations = patch_operations(
             {"displayName": current.get("displayName")}, {"displayName": self.config.storage_display_name}
         )
-        operations += [
+        operations += self._storage_connection_operations(current, aws_config)
+        if operations:
+            self.client.request(
+                "PATCH",
+                f"/api/v1/services/storageServices/{current['id']}",
+                json_body=operations,
+                content_type="application/json-patch+json",
+            )
+
+    @staticmethod
+    def _storage_connection_operations(current: Mapping[str, Any], aws_config: Mapping[str, str]) -> list[dict]:
+        """JSON Patch for the S3 connection: leaf by leaf where the structure exists, so unrelated connection
+        fields survive, and the missing parent object added whole where it does not (a service can have no
+        connection, and JSON Patch cannot add below an absent object)."""
+        connection = current.get("connection") or {}
+        config = connection.get("config") or {}
+        have = config.get("awsConfig") or {}
+        if not connection:
+            return [{"op": "add", "path": "/connection", "value": {"config": {"type": "S3", "awsConfig": aws_config}}}]
+        if not config:
+            return [{"op": "add", "path": "/connection/config", "value": {"type": "S3", "awsConfig": aws_config}}]
+        if not have:
+            return [{"op": "add", "path": "/connection/config/awsConfig", "value": dict(aws_config)}]
+        operations: list[dict] = [
             {
                 "op": "add" if key not in have else "replace",
                 "path": f"/connection/config/awsConfig/{key}",
@@ -277,13 +299,7 @@ class MetadataReconciler:
         # An empty endpoint means native AWS S3, so a leftover custom endpoint is removed, as the old PUT did.
         if "endPointURL" in have and "endPointURL" not in aws_config:
             operations.append({"op": "remove", "path": "/connection/config/awsConfig/endPointURL"})
-        if operations:
-            self.client.request(
-                "PATCH",
-                f"/api/v1/services/storageServices/{current['id']}",
-                json_body=operations,
-                content_type="application/json-patch+json",
-            )
+        return operations
 
     def ensure_container(self, name, parent_fqn, full_path, description) -> None:
         fqn = f"{parent_fqn or self.config.storage_service}.{name}"
@@ -341,7 +357,8 @@ class MetadataReconciler:
         )
 
     def held_asset_ids(self, product_name: str) -> set[str] | None:
-        """The ids of the assets a data product holds, or None when OpenMetadata does not answer with a list.
+        """The ids of the assets a data product holds, or None when OpenMetadata does not answer with a list
+        (an error answer included).
 
         `GET /dataProducts/name/{name}?fields=assets` returns no assets on 1.13.6 (a live run re-sent every
         attach), so the by-name assets listing (`getDataProductAssetsByName`, a ResultList paged by limit and
@@ -350,12 +367,15 @@ class MetadataReconciler:
         held: set[str] = set()
         offset = 0
         while True:
-            page = self.client.request(
-                "GET",
-                f"/api/v1/dataProducts/name/{urllib.parse.quote(product_name, safe='')}/assets",
-                params={"limit": 1000, "offset": offset},
-                ok_statuses=(200, 404),
-            )
+            try:
+                page = self.client.request(
+                    "GET",
+                    f"/api/v1/dataProducts/name/{urllib.parse.quote(product_name, safe='')}/assets",
+                    params={"limit": 1000, "offset": offset},
+                    ok_statuses=(200, 404),
+                )
+            except OpenMetadataError:  # the attach below is the call that must succeed; it raises on its own
+                return None
             if "data" not in page:
                 return None
             held |= {asset["id"] for asset in page["data"]}
