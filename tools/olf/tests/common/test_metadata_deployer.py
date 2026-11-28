@@ -425,3 +425,27 @@ def test_a_failing_asset_listing_still_attaches_the_tables(
     deployer.deploy()
 
     assert len(fake.entities["dataProducts"]["order_revenue"]["assets"]) == 1
+
+
+def test_another_stages_managed_containers_are_not_stale_here(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    marked = {"extension": {"olfManaged": "git:old"}}
+    fake.seed("containers", "seaweedfs.lakehouse-prod-bronze", marked)
+    fake.seed("containers", "seaweedfs.lakehouse-bronze.removed_source", marked)
+
+    stale = {item.fqn for item in deployer.drift() if item.kind == "stale"}
+
+    assert stale == {"seaweedfs.lakehouse-bronze.removed_source"}
+
+
+def test_a_product_moved_to_another_domain_is_reported_as_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+    other = fake.seed("domains", "finance", {})
+    fake.entities["dataProducts"]["order_revenue"]["domains"] = [{"id": other["id"], "type": "domain"}]
+
+    changed = [(item.entity, item.fqn, item.detail) for item in deployer.drift() if item.kind == "changed"]
+
+    assert changed == [("data product", "order_revenue", "domains")]
+    assert fake.writes == []

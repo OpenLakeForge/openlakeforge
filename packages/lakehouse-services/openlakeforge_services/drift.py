@@ -52,6 +52,13 @@ def stage_of(config: MetadataConfig) -> str:
     return config.catalog_database.removeprefix("lakehouse_")
 
 
+def _in_stage_buckets(config: MetadataConfig, fqn: str) -> bool:
+    """Whether a container FQN sits under one of this stage's buckets. Every stage shares one storage service, so
+    another stage's marked containers are not stale here."""
+    buckets = {config.storage_bronze_bucket, config.storage_silver_bucket, config.storage_gold_bucket} - {""}
+    return any(fqn == root or fqn.startswith(f"{root}.") for root in (f"{config.storage_service}.{b}" for b in buckets))
+
+
 def detect_drift(
     reconciler: MetadataReconciler,
     config: MetadataConfig,
@@ -80,14 +87,13 @@ def detect_drift(
         )
         for product in domain.products:
             pbody = product_payload(product)
+            owned = {k: pbody[k] for k in ("displayName", "description")}
+            if entity:
+                # A deploy sets a product's domain only when it creates it, so a product moved to another domain is
+                # reported here for a person to repair rather than overwritten.
+                owned["domains"] = [{"id": entity["id"], "type": "domain"}]
             declared.append(
-                _Declared(
-                    "data product",
-                    "dataProducts",
-                    product.id,
-                    SHARED,
-                    {k: pbody[k] for k in ("displayName", "description")},
-                )
+                _Declared("data product", "dataProducts", product.id, SHARED, owned, "domains,extension")
             )
             if not entity:
                 items.append(
@@ -148,6 +154,8 @@ def detect_drift(
     for collection, label, params, item_stage in searches:
         for found in reconciler.client.list_entities(f"/api/v1/{collection}", {"fields": "extension", **params}, _PAGE):
             fqn = found.get("fullyQualifiedName") or found["name"]
+            if collection == "containers" and not _in_stage_buckets(config, fqn):
+                continue
             if marker_of(found) and (collection, fqn) not in held:
                 items.append(
                     DriftItem(STALE, label, fqn, item_stage, "marked as OpenLakeForge-managed, absent from Git")
