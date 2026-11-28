@@ -7,7 +7,6 @@ import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
@@ -18,7 +17,7 @@ from olf.common.profile import DeploymentProfileError
 from olf.common.project import ProjectSpec
 from olf.infra.commands._shared import PROVIDER_HELP
 from olf.infra.openmetadata._ingestion import run_trino_ingestion
-from olf.infra.openmetadata._profiler import profiling_targets, run_trino_profiling
+from olf.infra.openmetadata._profiler import deployed_profiling_targets, run_trino_profiling
 
 if TYPE_CHECKING:
     from olf.common.provider_contracts import ProviderContracts
@@ -168,10 +167,7 @@ def deploy_openmetadata_metadata(
     # After the seeding, so a slow or failing profile never delays or blocks it: the profile only adds statistics
     # for the products that opted in (ADR 0007 D15), and a failure is a warning that leaves them marked stale.
     log.step("Profiling opted-in Gold tables in OpenMetadata...")
-    targets = profiling_targets(
-        Path(config.env("OPENMETADATA_METADATA_ROOT", str(project.code_root), environ=source)),
-        source.get("OPENMETADATA_METADATA_SOURCE_DIR", ""),
-    )
+    targets = deployed_profiling_targets(source, project.code_root)
     run_trino_profiling(source, namespace=namespace, service=cfg.catalog_service, targets=targets)
     typer.echo("Deployed OpenMetadata governance metadata.")
 

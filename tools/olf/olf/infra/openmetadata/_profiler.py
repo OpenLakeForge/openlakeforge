@@ -25,7 +25,7 @@ from openlakeforge_core import (
 )
 from openlakeforge_services.openmetadata import OpenMetadataError
 
-from olf.common import log
+from olf.common import config, log
 from olf.infra import k8s, trino
 from olf.infra.openmetadata._config import resolve_metadata_descriptor_paths
 from olf.infra.openmetadata._ingestion import (
@@ -142,6 +142,12 @@ def profiling_targets(metadata_root: Path, metadata_source_dir: str = "") -> tup
         return ()
     roles, _ = scan_gold_roles(code_root / "gold", [product.id for product in inventory.products])
     return resolve_profiling(inventory.products, roles)
+
+
+def deployed_profiling_targets(environ: Mapping[str, str], default_root: Path) -> tuple[ProfilingTarget, ...]:
+    """`profiling_targets` for the descriptors `deploy-metadata` reads in this environment."""
+    root = Path(config.env("OPENMETADATA_METADATA_ROOT", str(default_root), environ=environ))
+    return profiling_targets(root, environ.get("OPENMETADATA_METADATA_SOURCE_DIR", ""))
 
 
 def run_trino_profiling(

@@ -273,7 +273,7 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
         openmetadata, "OpenMetadataDeployer", lambda *_args: SimpleNamespace(deploy=lambda: order.append("seed"))
     )
     monkeypatch.setattr(command, "run_trino_ingestion", lambda *_args, **_kwargs: order.append("ingest"))
-    monkeypatch.setattr(command, "profiling_targets", lambda *_args, **_kwargs: ("target",))
+    monkeypatch.setattr(command, "deployed_profiling_targets", lambda *_args, **_kwargs: ("target",))
     monkeypatch.setattr(command, "run_trino_profiling", lambda *_args, **_kwargs: order.append("profile") or False)
 
     command.deploy_openmetadata_metadata()

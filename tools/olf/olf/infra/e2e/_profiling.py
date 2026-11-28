@@ -23,7 +23,7 @@ from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl
 from olf.infra.e2e._trino import product_gold_tables
 from olf.infra.openmetadata._auth import admin_password
 from olf.infra.openmetadata._ingestion import RESOURCES
-from olf.infra.openmetadata._profiler import PROFILER_JOB_NAME, profiling_targets, run_trino_profiling
+from olf.infra.openmetadata._profiler import PROFILER_JOB_NAME, deployed_profiling_targets, run_trino_profiling
 from olf.infra.openmetadata._quality_sync import schema_map
 
 # Trino types whose min and max are real values; text columns store lengths.
@@ -64,7 +64,7 @@ def check_openmetadata_profiles(cfg: E2EConfig) -> None:
     own requests only, and the checks above them cover the profiler's output.
     """
     environ = cfg_environ(cfg)
-    targets = profiling_targets(cfg.inventory.lakehouse_root)
+    targets = deployed_profiling_targets(environ, cfg.inventory.lakehouse_root)
     started = datetime.now(UTC)
     catalog = environ["OPENLAKEFORGE_CATALOG_NAME"]
     if not targets:

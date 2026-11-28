@@ -63,7 +63,12 @@ def _latest(client: OpenMetadataClient, fqn: str, kind: str, *, start: datetime,
 def read_table_statistics(
     client: OpenMetadataClient, table_fqn: str, columns: Iterable[str], *, now: datetime | None = None
 ) -> TableStatistics:
-    """The latest table and column profiles of `table_fqn`; stale when absent or older than the refresh period."""
+    """The latest table and column profiles of `table_fqn`; stale when absent or older than the refresh period.
+
+    A requested column with no row in the lookback comes back with every statistic and `profiled_at` None: no number
+    is shown for it, so none can be mistaken for current. It does not make the table stale, because the profiler
+    skips column types it cannot compute (so a column can have no row however fresh the table is).
+    """
     end = now or datetime.now(UTC)
     start = end - _LOOKBACK
     table = _latest(client, table_fqn, "tableProfile", start=start, end=end)

@@ -279,3 +279,17 @@ def test_turning_profiling_off_stops_a_profile_job_a_timed_out_deploy_left_runni
     run_trino_profiling(DEV, namespace="olf-system", service="polaris", targets=())
 
     assert cluster.live == set()
+
+
+def test_deployed_targets_follow_the_environments_descriptor_selection(capsys: pytest.CaptureFixture[str]):
+    from olf.infra.openmetadata._profiler import deployed_profiling_targets
+
+    code = REPO_ROOT / "lakehouse_code"
+
+    default = deployed_profiling_targets({}, code)
+    by_root = deployed_profiling_targets({"OPENMETADATA_METADATA_ROOT": str(code)}, REPO_ROOT / "nowhere")
+    by_source = deployed_profiling_targets(
+        {"OPENMETADATA_METADATA_SOURCE_DIR": str(code / "governance.yml")}, REPO_ROOT / "nowhere"
+    )
+
+    assert default == by_root == by_source and default
