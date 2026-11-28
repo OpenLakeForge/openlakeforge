@@ -337,7 +337,17 @@ def run_smoke(cfg: E2EConfig) -> None:
     if cfg.env == "local":
         product = cfg.inventory.default_product
         log.step(f"Running smoke path for descriptor-selected product {product.id}...")
-        launch_and_poll_dagster_jobs(cfg, products=(product,))
+        # The product reads other products' public models, which only their own jobs build.
+        needed = {product.id}
+        pending = [product.id]
+        while pending:
+            for producer in cfg.inventory.product_dependencies.producers_by_consumer.get(pending.pop(), ()):
+                if producer not in needed:
+                    needed.add(producer)
+                    pending.append(producer)
+        launch_and_poll_dagster_jobs(
+            cfg, products=tuple(candidate for candidate in cfg.inventory.products if candidate.id in needed)
+        )
         check_trino_product_tables_and_marts(cfg, product)
         check_real_quality_evidence(cfg, product)
         # Slim is the profile that turns metrics off (ADR 0024); it does nothing on a deployment that has them.
