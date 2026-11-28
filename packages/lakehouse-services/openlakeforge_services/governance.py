@@ -337,10 +337,35 @@ class MetadataReconciler:
             "tables", f"{schema_fqn}.{name}", {"name": name, "databaseSchema": schema_fqn, "columns": []}, {}
         )
 
+    def held_asset_ids(self, product_name: str) -> set[str] | None:
+        """The ids of the assets a data product holds, or None when OpenMetadata does not answer with a list.
+
+        `GET /dataProducts/name/{name}?fields=assets` returns no assets on 1.13.6 (the first live run re-sent
+        every attach), so the product's own assets listing is read, a page at a time.
+        """
+        held: set[str] = set()
+        offset = 0
+        while True:
+            page = self.client.request(
+                "GET",
+                f"/api/v1/dataProducts/{urllib.parse.quote(product_name, safe='')}/assets",
+                params={"limit": 1000, "offset": offset},
+                ok_statuses=(200, 404),
+            )
+            if "data" not in page:
+                return None
+            held |= {asset["id"] for asset in page["data"]}
+            offset += len(page["data"])
+            if not page["data"] or offset >= (page.get("paging") or {}).get("total", offset):
+                return held
+
     def attach_assets(self, product_name: str, refs: list[dict]) -> int:
-        """Add the tables the product does not hold yet; returns how many were added."""
-        current = self.lookup("dataProducts", product_name, "assets") or {}
-        held = {asset.get("id") for asset in current.get("assets") or []}
+        """Add the tables the product does not hold yet; returns how many were added.
+
+        When the held assets cannot be read, every table is sent: the attach is an idempotent upsert, so this
+        costs one write and never loses an asset.
+        """
+        held = self.held_asset_ids(product_name) or set()
         missing = [ref for ref in refs if ref["id"] not in held]
         if missing:
             self.client.request(

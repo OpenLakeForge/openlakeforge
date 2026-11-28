@@ -237,3 +237,20 @@ def test_a_wrong_stage_mapping_is_rejected_before_any_write(
         deployer.deploy()
 
     assert fake.writes == []
+
+
+def test_an_unreadable_asset_listing_costs_one_idempotent_attach_and_loses_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deployed(tmp_path, monkeypatch)
+
+    def request(method: str, path: str, **kwargs):
+        if method == "GET" and path.endswith("/assets"):
+            return {"code": 404, "message": "not found"}
+        return fake.request(method, path, **kwargs)
+
+    monkeypatch.setattr(deployer.client, "request", request)
+
+    deployer.deploy()
+
+    assert fake.writes == [("PUT", "/api/v1/dataProducts/order_revenue/assets/add")]
