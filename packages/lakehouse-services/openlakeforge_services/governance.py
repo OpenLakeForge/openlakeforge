@@ -24,6 +24,7 @@ from openlakeforge_core import (
     load_source_descriptor,
 )
 
+from .glossary_publish import GlossaryPublisher, om_fqns
 from .openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError, fqn_part
 from .ownership import (
     MARKED_ENTITY_TYPES,
@@ -751,13 +752,15 @@ class MetadataDeployer:
         for diagnostic in semantic.diagnostics:
             self.progress.warn(str(diagnostic))
         domain_of = {product.id: domain.name for domain in domains for product in domain.products}
+        # The FQN OpenMetadata gives a term (parent terms included), not the `<glossary>.<Term>` Git references.
+        term_fqns = om_fqns(inventory.glossaries)
         return SemanticPublisher(
             self._reconciler,
             self.config,
             semantic.models,
             # Every product's tagged columns: a model may read a public table of a product it depends on.
             {
-                column: tuple(term.fqn for term in terms)
+                column: tuple(term_fqns[term.fqn] for term in terms)
                 for product in inventory.products
                 for column, terms in inventory.column_terms(product.id).items()
             },
@@ -793,7 +796,7 @@ class MetadataDeployer:
 
     def drift(self) -> list[DriftItem]:
         """What differs between Git and OpenMetadata for this stage; reads only (see `drift.detect_drift`)."""
-        from .drift import detect_drift
+        from .drift import detect_drift, detect_glossary_drift
 
         self.login()
         domains = self._domain_specs()
@@ -802,6 +805,8 @@ class MetadataDeployer:
             self.bronze_container_specs(domains)
         )
         items = detect_drift(self._reconciler, self.config, domains, containers)
+        glossary = GlossaryPublisher.from_descriptors(self._reconciler, self.domain_files())
+        items += detect_glossary_drift(self._reconciler, glossary.inventory, self.config)
         items += self._semantic_publisher(domains).drift()
         return sorted(items, key=lambda item: (item.stage, item.entity, item.fqn, item.kind))
 
@@ -813,6 +818,8 @@ class MetadataDeployer:
         self.validate_deployment_inputs(domains)
         # Resolved before the first write: an owner that does not exist must fail the deploy with nothing changed.
         people = self._resolve_people(domains)
+        glossary = GlossaryPublisher.from_descriptors(self._reconciler, self.domain_files())
+        glossary.resolve_owners()
         # Likewise the semantic models: an invalid or colliding one must fail the deploy with nothing changed.
         semantic = self._semantic_publisher(domains)
         semantic.validate()
@@ -844,6 +851,9 @@ class MetadataDeployer:
                 container["description"],
             )
 
+        # Glossaries and terms exist before anything is tagged with them.
+        glossary.publish()
+
         # Phase C: Reconcile domains and data products from governance YAML. A
         # domain is set on the databaseSchema entity rather than on each table:
         # OpenMetadata resolves a table's domain from its schema when the table
@@ -865,6 +875,7 @@ class MetadataDeployer:
                 tags=tag_fqns(None, domain.classification),
             )
             self.progress.info(f"Reconciled OpenMetadata domain: {domain_body['name']}")
+            glossary.tag_entity("domains", domain.name, glossary.domain_terms(domain.name))
             silver_fqn = self.config.catalog_silver_schema_fqns[domain.name]
             self.ensure_database_schema(silver_fqn, domain_entity)
             # Every table a pipeline writes is registered before it runs, so
@@ -897,6 +908,8 @@ class MetadataDeployer:
                 self.ensure_database_schema(schema_fqn, domain_entity)
                 for table in product.gold_tables:
                     self.ensure_table(schema_fqn, table, product_tags)
+                glossary.tag_entity("dataProducts", product.id, glossary.product_terms(product.id))
+                glossary.tag_columns(product.id, schema_fqn)
 
                 # A schema is a valid data-product asset, but a table does not
                 # inherit `dataProducts` from its schema (no inheritDataProducts
@@ -912,6 +925,7 @@ class MetadataDeployer:
                     f"OpenMetadata data product {product_body['name']} holds {len(refs)} asset(s); attached {added}"
                 )
 
+        glossary.log_report()
         # Metrics, their lineage and the key constraints need the products and Gold tables reconciled above.
         semantic.publish()
 
