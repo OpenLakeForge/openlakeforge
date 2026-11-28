@@ -338,7 +338,11 @@ def _dataset(item: Mapping[str, Any], where: tuple[str | int, ...], fail: Any) -
         )
         parts = [source, ""]
     fields: list[SemanticField] = []
-    for index, raw in enumerate(item.get("fields") or ()):
+    declared_fields = item.get("fields") or []
+    if not isinstance(declared_fields, list):
+        fail((*where, "fields"), "schema", "`fields` must be a list")
+        declared_fields = []
+    for index, raw in enumerate(declared_fields):
         if not isinstance(raw, Mapping):
             continue
         at = (*where, "fields", index)

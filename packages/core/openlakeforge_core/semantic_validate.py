@@ -69,8 +69,16 @@ def _tests(node: Mapping[str, Any]) -> Iterable[tuple[str, Mapping[str, Any]]]:
             elif isinstance(test, Mapping):
                 for name, config in test.items():
                     config = config if isinstance(config, Mapping) else {}
+                    settings = config.get("config")
+                    settings = settings if isinstance(settings, Mapping) else {}
                     arguments = config.get("arguments")
-                    yield str(name).rsplit(".", 1)[-1], arguments if isinstance(arguments, Mapping) else config
+                    arguments = arguments if isinstance(arguments, Mapping) else config
+                    # A disabled test proves nothing, and a `where` filter proves a key only for some rows.
+                    if False in (config.get("enabled"), settings.get("enabled")):
+                        continue
+                    if "where" in config or "where" in settings or "where" in arguments:
+                        continue
+                    yield str(name).rsplit(".", 1)[-1], arguments
 
 
 def _dbt_model(product: str, entry: Mapping[str, Any]) -> DbtModel:

@@ -201,9 +201,17 @@ def test_a_source_that_dbt_does_not_declare_is_refused(tmp_path: Path) -> None:
 
 
 def test_a_source_in_another_product_needs_a_dependency_on_it(tmp_path: Path) -> None:
-    detail = _breaks(tmp_path, "widgets_alpha_gold.dim_account", "widgets_beta_gold.dim_account")
+    root = _project(tmp_path, OSSIE.replace("widgets_alpha_gold.dim_account", "widgets_beta_gold.dim_account"))
+    beta = root / "lakehouse_code" / "gold" / "models" / "widgets_beta"
+    beta.joinpath("schema.yml").write_text(
+        "version: 2\nmodels:\n  - name: dim_account\n    access: public\n    columns:\n"
+        "      - name: account_id\n        data_tests: [unique, not_null]\n",
+        encoding="utf-8",
+    )
 
-    assert "[source-exists]" in detail
+    ok, detail = _check(root)
+
+    assert not ok and "[source-exists]" in detail and "depends on" in detail
 
 
 def test_a_declared_field_without_a_dbt_column_is_refused(tmp_path: Path) -> None:
@@ -374,3 +382,38 @@ def test_the_sales_core_model_in_the_repository_is_valid() -> None:
     assert len(model.relationships) == 4
     assert {m.name for m in model.metrics} == {"net_revenue", "gross_revenue"}
     assert next(f for f in model.datasets[0].fields if f.name == "order_date").is_time
+
+
+@pytest.mark.parametrize(
+    "unique_test",
+    [
+        '- unique:\n              config: {where: "line_id > 0"}',
+        "- unique:\n              config: {enabled: false}",
+    ],
+)
+def test_a_filtered_or_disabled_dbt_test_does_not_prove_a_key(tmp_path: Path, unique_test: str) -> None:
+    schema = SCHEMA_YML.replace(
+        "        data_tests: [unique, not_null]\n      - name: account_id\n        data_tests:",
+        f"        data_tests:\n          - not_null\n          {unique_test}\n      - name: account_id\n        data_tests:",
+        1,
+    )
+    root = _project(tmp_path, schema=schema)
+
+    ok, detail = _check(root)
+
+    assert not ok and "[key-test]" in detail
+
+
+def test_dataset_fields_that_are_not_a_list_are_a_diagnostic_not_a_crash(tmp_path: Path) -> None:
+    root = _project(
+        tmp_path,
+        OSSIE.replace(
+            "        fields:\n          - name: account_id",
+            "        fields: 42\n        ignored:\n          - name: account_id",
+            1,
+        ),
+    )
+
+    ok, detail = _check(root)
+
+    assert not ok and "`fields` must be a list" in detail
