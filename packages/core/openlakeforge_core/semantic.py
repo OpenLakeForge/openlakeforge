@@ -173,24 +173,34 @@ def load_ossie_document(path: Path) -> tuple[Any, dict[tuple[str | int, ...], in
     duplicates: list[tuple[int, str]] = []
     constructor = yaml.SafeLoader("")
 
-    flattened: set[int] = set()
+    scanned: set[int] = set()
 
-    def build(node: yaml.Node, where: tuple[str | int, ...]) -> Any:
-        lines[where] = node.start_mark.line + 1
+    def scan(node: yaml.Node) -> None:
+        """Count repeated keys on every mapping as written, merge sources included, before anything is flattened.
+
+        `flatten_mapping` rewrites a node in place, after which an explicit key that overrides a merged one looks
+        like a repeat, and a repeat inside a merge source is no longer visible at all.
+        """
+        if id(node) in scanned:
+            return
+        scanned.add(id(node))
         if isinstance(node, yaml.MappingNode):
-            # `<<: *anchor` is flattened into the node, after which an explicit key that overrides a merged one is
-            # indistinguishable from a repeat. Repeats are therefore counted on the keys as written, once per node.
-            if id(node) not in flattened:
-                flattened.add(id(node))
-                written: set[Any] = set()
-                for key_node, _ in node.value:
-                    if key_node.tag == "tag:yaml.org,2002:merge":
-                        continue
+            written: set[Any] = set()
+            for key_node, value_node in node.value:
+                if key_node.tag != "tag:yaml.org,2002:merge":
                     key = constructor.construct_object(key_node, deep=True)
                     if key in written:
                         duplicates.append((key_node.start_mark.line + 1, str(key)))
                     written.add(key)
-                constructor.flatten_mapping(node)
+                scan(value_node)
+        elif isinstance(node, yaml.SequenceNode):
+            for item in node.value:
+                scan(item)
+
+    def build(node: yaml.Node, where: tuple[str | int, ...]) -> Any:
+        lines[where] = node.start_mark.line + 1
+        if isinstance(node, yaml.MappingNode):
+            constructor.flatten_mapping(node)
             built: dict[Any, Any] = {}
             for key_node, value_node in node.value:
                 key = constructor.construct_object(key_node, deep=True)
@@ -202,6 +212,7 @@ def load_ossie_document(path: Path) -> tuple[Any, dict[tuple[str | int, ...], in
 
     if root is None:
         return None, lines, duplicates
+    scan(root)
     return build(root, ()), lines, duplicates
 
 

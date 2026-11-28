@@ -474,3 +474,38 @@ def test_the_inventory_refuses_a_model_missing_required_properties(tmp_path: Pat
 
     assert found.models == ()
     assert any(d.rule == "schema" and "`name` is required" in d.message for d in found.diagnostics)
+
+
+_CONTEXT = "        ai_context:\n          synonyms: [net sales]\n          instructions: fulfilled orders only\n"
+_GROSS = (
+    "      - name: gross_revenue\n        expression:\n          dialects:\n"
+    "            - dialect: ANSI_SQL\n              expression: SUM(fct_lines.net_amount)\n"
+)
+
+
+def test_a_repeated_key_inside_a_merge_source_is_refused(tmp_path: Path) -> None:
+    ossie = OSSIE.replace(
+        _CONTEXT,
+        "        ai_context:\n          <<: {instructions: first, instructions: second}\n"
+        "          synonyms: [net sales]\n",
+    )
+
+    ok, detail = _check(_project(tmp_path, ossie))
+
+    assert not ok and "[duplicate-key]" in detail and "'instructions'" in detail
+
+
+def test_an_inline_merge_anchor_reused_later_is_not_a_duplicate(tmp_path: Path) -> None:
+    ossie = OSSIE.replace(
+        _CONTEXT,
+        "        ai_context:\n          <<: &ctx\n            <<: {instructions: base}\n"
+        "            instructions: override\n          synonyms: [net sales]\n" + _GROSS + "        ai_context: *ctx\n",
+    )
+    root = _project(tmp_path, ossie)
+
+    ok, detail = _check(root)
+    found = load_lakehouse_inventory(root / "lakehouse_code").semantic_inventory
+
+    assert ok, detail
+    gross = next(m for m in found.models[0].metrics if m.name == "gross_revenue")
+    assert gross.ai_context is not None and gross.ai_context.instructions == "override"
