@@ -249,7 +249,12 @@ def test_a_column_whose_last_declaration_left_git_keeps_its_tag_and_is_warned_ab
     deployer, fake = _deploy(tmp_path, monkeypatch)
     deployer.deploy()
     schema = tmp_path / "gold" / "models" / "order_revenue" / "schema.yml"
-    schema.write_text(SCHEMA.replace("glossaryTerms: [sales.NetRevenue]", "glossaryTerms: [sales.GrossRevenue]", 1))
+    # `revenue` loses its declaration; `not_crawled` keeps one, so the table is still looked up.
+    without_revenue = SCHEMA.replace(
+        "        meta:\n          openlakeforge:\n            glossaryTerms: [sales.NetRevenue]\n", "", 1
+    )
+    assert without_revenue != SCHEMA
+    schema.write_text(without_revenue)
     progress = _Recorder()
     deployer.progress = deployer._reconciler.progress = progress
 
