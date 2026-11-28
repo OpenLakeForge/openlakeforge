@@ -7,14 +7,21 @@ import typer
 from olf.common.commands.checks._shared import _distribution_root_for, _root
 
 
-def contracts(repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate.")) -> None:
+def contracts(
+    repo_root: str = typer.Option("", "--repo-root", help="Checkout or project root to validate."),
+    strict: bool = typer.Option(
+        False, "--strict", help="Also require every product to declare owner, tier and lifecycle."
+    ),
+) -> None:
     """Run the existing parsed provider-contract validation."""
     from olf.common import contracts_check
     from olf.common.project import ProjectSpec
 
     root = _root(repo_root)
     project = ProjectSpec(root=root, distribution_root=_distribution_root_for(root))
-    report = contracts_check.run_contracts_check(project.root, distribution_root=project.distribution_root)
+    report = contracts_check.run_contracts_check(
+        project.root, distribution_root=project.distribution_root, strict=strict
+    )
     typer.echo(report.render())
     if not report.ok:
         raise typer.Exit(code=1)

@@ -199,12 +199,19 @@ domains:
   - name: marketing
     displayName: Marketing
     description: Marketing analytics data products.
-    status: active
+    domainType: Consumer-aligned
+    owner: {type: team, ref: marketing_data}
+    classification: Internal
     products:
       - id: campaign_performance
         displayName: Campaign Performance
         description: Campaign spend and conversion performance.
-        status: active
+        type: REPORTS
+        tier: Tier2
+        lifecycle: PRODUCTION
+        termsOfUse:
+          allowed: [internal_reporting]
+          prohibited: [external_redistribution]
 ```
 
 The file names domains and the data products nested under them, and nothing
@@ -235,7 +242,10 @@ serves the products whose `<product>_gold` schema its dataset files read.
 | `name` | identifier | yes | Unique across the lakehouse; also the directory `silver/<name>/`. |
 | `displayName` | string, non-empty | yes | Human-readable name. |
 | `description` | string | no | |
-| `status` | string, non-empty | no | Free text. |
+| `domainType` | enum | no | `Source-aligned`, `Consumer-aligned` or `Aggregate`. |
+| `owner` | reference | no | The accountable team or user. Inherited by the domain's products. |
+| `experts` | array of references, non-empty | no | Subject-matter experts. Inherited by the products. |
+| `classification` | enum | no | `Public`, `Internal`, `Confidential` or `Restricted`. Inherited by the products. |
 | `products` | array, may be empty or omitted | no | The data products of this domain. A project needs at least one product across all its domains to be checked or deployed. |
 
 ### `domains[].products[]`
@@ -249,7 +259,41 @@ read, so it is a deliberate edit of the directory layout as well as the file.
 | `id` | identifier | yes | Unique across the whole lakehouse, not only within its domain; also the directory `gold/<id>/`. |
 | `displayName` | string, non-empty | yes | Human-readable name. |
 | `description` | string | no | |
-| `status` | string, non-empty | no | Free text. |
+| `owner` | reference | no | Overrides the domain's `owner`. |
+| `experts` | array of references, non-empty | no | Overrides the domain's `experts`. |
+| `reviewers` | array of references, non-empty | no | Who reviews changes to the product. Not inherited. |
+| `classification` | enum | no | Overrides the domain's `classification`. |
+| `type` | enum | no | What the product is. One of `RAW_DATA`, `DERIVED_DATA`, `DATASET`, `REPORTS`, `ANALYTIC_VIEW`, `VISUALISATION_3D`, `ALGORITHM`, `DECISION_SUPPORT`, `AUTOMATED_DECISION_MAKING`, `DATA_ENHANCED_PRODUCT`, `DATA_DRIVEN_SERVICE`, `DATA_ENABLED_PERFORMANCE`, `BI_DIRECTIONAL`. |
+| `tier` | enum | no | `Tier1` (most critical) to `Tier5`. |
+| `lifecycle` | enum | no | `IDEATION`, `DESIGN`, `DEVELOPMENT`, `TESTING`, `PRODUCTION`, `DEPRECATED` or `RETIRED`. |
+| `termsOfUse` | object | no | `allowed` and/or `prohibited`: non-empty arrays of strings. |
+
+A reference is `{type: user, ref: <name>}` or `{type: team, ref: <name>}`. It
+names an existing user or team; OpenLakeForge never creates one.
+
+The enums are the OpenMetadata 1.13.6 ones (`Domain.domainType`,
+`DataProduct.dataProductType` and `lifecycleStage`, the `Tier` tags), so a value
+that validates here is a value OpenMetadata accepts. Every field above is
+optional.
+
+`owner`, `experts` and `classification` are inherited: a product that does not
+set one uses its domain's. `tier`, `lifecycle`, `type`, `reviewers` and
+`termsOfUse` belong to the product alone. The loaded inventory carries the
+resolved values, so every consumer reads the same answer.
+
+`classification` is metadata. It does not grant or revoke access in Trino or
+Polaris.
+
+`status` was removed from domains and products. A `v1beta2` document that
+sets it fails with a hint to use `lifecycle`; domains have no lifecycle, so
+drop it there. `olf project migrate` refuses a `v1beta1` file that sets
+`status` for the same reason, leaving it unchanged, and the migrated file
+needs `lifecycle` written by hand.
+
+> [!NOTE]
+> The deployer does not publish these fields to OpenMetadata yet. It only
+> stopped appending `status` to domain descriptions. Publishing owners, tiers,
+> lifecycle and the rest is a separate change.
 
 A root `products:` list, a `domain` inside a product, or the same `id` under
 two domains is rejected, with the location written as
@@ -269,7 +313,9 @@ names (see [ADR 0012](../adr/0012-project-revisions-and-promotion.md)).
 domain and one `gold/models/<product>/` directory per product, and rejects
 a dbt model that dbt resolved into any schema but its folder's
 `<product>_gold` (when the Gold project's `target/manifest.json` exists),
-since its tables would belong to no product.
+since its tables would belong to no product. `olf check contracts --strict`
+also reports each product that resolves no `owner`, `tier` or `lifecycle`;
+without `--strict` they may be omitted.
 
 ## `alerts.yml`
 

@@ -29,7 +29,8 @@ from .descriptors import (
     LakehouseDescriptorError,
     load_source_descriptor,
 )
-from .governance import load_governance_lakehouse_document
+from .governance import EntityRef, load_governance_lakehouse_document
+from .product_dependencies import ProductDependencies, scan_product_dependencies
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -126,6 +127,17 @@ class Product:
     domain_name: str
     id: str
     display_name: str
+    # Resolved values: `owner`, `experts` and `classification` already carry what
+    # the product inherits from its domain, so every consumer sees the same answer.
+    description: str = ""
+    owner: EntityRef | None = None
+    experts: tuple[EntityRef, ...] = ()
+    reviewers: tuple[EntityRef, ...] = ()
+    classification: str | None = None
+    type: str | None = None
+    tier: str | None = None
+    lifecycle: str | None = None
+    terms_of_use: Mapping[str, tuple[str, ...]] | None = None
 
     @property
     def name(self) -> str:
@@ -164,6 +176,11 @@ class Domain:
     name: str
     display_name: str
     products: tuple[Product, ...]
+    description: str = ""
+    domain_type: str | None = None
+    owner: EntityRef | None = None
+    experts: tuple[EntityRef, ...] = ()
+    classification: str | None = None
 
     @property
     def artifact_prefixes(self) -> ArtifactPrefixes:
@@ -264,10 +281,7 @@ class LakehouseInventory:
 
     @property
     def catalog_namespaces(self) -> tuple[str, ...]:
-        return tuple(
-            namespace
-            for namespace in (*self.silver_namespace_names, *self.gold_namespace_names)
-        )
+        return tuple(namespace for namespace in (*self.silver_namespace_names, *self.gold_namespace_names))
 
     @property
     def default_product(self) -> Product:
@@ -294,6 +308,11 @@ class LakehouseInventory:
     @property
     def silver_namespace_names(self) -> frozenset[str]:
         return frozenset(domain.silver_namespace for domain in self.domains)
+
+    @property
+    def product_dependencies(self) -> ProductDependencies:
+        """Which products read which others through dbt `ref()`, for consumesFrom and freshness propagation."""
+        return scan_product_dependencies(self.lakehouse_root / "gold", [product.id for product in self.products])
 
     def domain_for_product(self, product: Product) -> Domain:
         return next(domain for domain in self.domains if domain.name == product.domain_name)
@@ -381,7 +400,29 @@ def _product(path: Path, domain_name: str, product: Mapping[str, Any], index: in
         raise LakehouseDescriptorError(
             f"{path}: product {label!r}: displayName is required and must be a non-empty string"
         )
-    return Product(domain_name=domain_name, id=product_id, display_name=display_name)
+    terms = product.get("termsOfUse")
+    return Product(
+        domain_name=domain_name,
+        id=product_id,
+        display_name=display_name,
+        description=product.get("description", ""),
+        owner=_ref(product.get("owner")),
+        experts=_refs(product.get("experts")),
+        reviewers=_refs(product.get("reviewers")),
+        classification=product.get("classification"),
+        type=product.get("type"),
+        tier=product.get("tier"),
+        lifecycle=product.get("lifecycle"),
+        terms_of_use={key: tuple(items) for key, items in terms.items()} if terms else None,
+    )
+
+
+def _ref(value: Mapping[str, Any] | None) -> EntityRef | None:
+    return EntityRef(value["type"], value["ref"]) if value else None
+
+
+def _refs(values: Sequence[Mapping[str, Any]] | None) -> tuple[EntityRef, ...]:
+    return tuple(EntityRef(v["type"], v["ref"]) for v in values or ())
 
 
 def _resource_load(load: Mapping[str, Any] | None) -> ResourceLoad:
@@ -495,6 +536,11 @@ def load_lakehouse_inventory_from_descriptors(
                 name=domain_name,
                 display_name=domain["displayName"],
                 products=products,
+                description=domain.get("description", ""),
+                domain_type=domain.get("domainType"),
+                owner=_ref(domain.get("owner")),
+                experts=_refs(domain.get("experts")),
+                classification=domain.get("classification"),
             )
         )
     dashboards = tuple(
@@ -547,4 +593,3 @@ def _cached_lakehouse_inventory(resolved_path: str) -> LakehouseInventory:
 def inventory_for(repo_root: str | Path) -> LakehouseInventory:
     """Load and cache the canonical lakehouse inventory for a repository root."""
     return _cached_lakehouse_inventory(str(Path(repo_root).resolve()))
-

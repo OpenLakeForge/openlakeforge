@@ -21,12 +21,10 @@ domains:
   - name: {domain}
     displayName: {domain.title()}
     description: {domain} domain.
-    status: planned
     products:
       - id: {product_id}
         displayName: {product_id.replace('_', ' ').title()}
         description: {product_id} product.
-        status: planned
 """
 
 
@@ -61,11 +59,13 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     assert [product.name for product in inventory.products] == [
         "order_revenue",
         "customer_health",
+        "sales_core",
         "inventory_reliability",
     ]
     assert [product.job_name for product in inventory.products] == [
         "order_revenue_pipeline",
         "customer_health_pipeline",
+        "sales_core_pipeline",
         "inventory_reliability_pipeline",
     ]
     assert sorted(inventory.catalog_namespaces) == sorted(
@@ -74,6 +74,7 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
             "supply_chain_silver",
             "order_revenue_gold",
             "customer_health_gold",
+            "sales_core_gold",
             "inventory_reliability_gold",
         }
     )
@@ -97,11 +98,12 @@ def test_seed_inventory_derives_every_product_expectation() -> None:
     assert inventory.openmetadata_data_products == {
         "order_revenue": ("order_revenue", "sales.order_revenue"),
         "customer_health": ("customer_health", "sales.customer_health"),
+        "sales_core": ("sales_core", "sales.sales_core"),
         "inventory_reliability": ("inventory_reliability", "supply_chain.inventory_reliability"),
     }
     assert inventory.silver_namespace_names == frozenset({"sales_silver", "supply_chain_silver"})
     assert inventory.gold_namespace_names == frozenset(
-        {"order_revenue_gold", "customer_health_gold", "inventory_reliability_gold"}
+        {"order_revenue_gold", "customer_health_gold", "sales_core_gold", "inventory_reliability_gold"}
     )
     assert inventory.dashboards[0].report_source_dir == "lakehouse_code/dashboards/superset/sales_customer_health"
 
@@ -207,16 +209,13 @@ domains:
   - name: hr
     displayName: Hr
     description: hr domain.
-    status: planned
   - name: sales
     displayName: Sales
     description: sales domain.
-    status: planned
     products:
       - id: revenue
         displayName: Revenue
         description: revenue product.
-        status: planned
 """,
         encoding="utf-8",
     )
@@ -249,7 +248,6 @@ domains:
   - name: hr
     displayName: Hr
     description: hr domain.
-    status: planned
     products: []
 """,
         encoding="utf-8",

@@ -1,0 +1,165 @@
+version: 2
+
+groups:
+  - name: sales_core
+    owner:
+      name: sales_core
+
+models:
+  - name: fct_order_lines
+    access: public
+    description: >-
+      Sales order lines with the order header attributes a revenue metric needs. One row per order line, every order
+      status; filter order_status for fulfilled-only figures. cost_amount uses the current product unit cost, because
+      there is no cost history.
+    columns:
+      - name: line_id
+        data_type: varchar
+        description: Order line identifier; the primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: order_id
+        data_type: varchar
+        description: Order the line belongs to.
+        data_tests:
+          - not_null
+      - name: order_date
+        data_type: date
+        description: Date the order was placed.
+      - name: order_status
+        data_type: varchar
+        description: Order status, for example fulfilled. Lines of orders in any status are kept.
+      - name: order_region
+        data_type: varchar
+        description: Region the order was placed in. Not the account's region; see dim_account.account_region.
+      - name: account_id
+        data_type: varchar
+        description: Account that placed the order; joins dim_account.account_id.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_account')
+                field: account_id
+      - name: channel_id
+        data_type: varchar
+        description: Sales channel of the order; joins dim_channel.channel_id.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_channel')
+                field: channel_id
+      - name: promotion_id
+        data_type: varchar
+        description: Promotion applied to the order; joins dim_promotion.promotion_id.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_promotion')
+                field: promotion_id
+      - name: product_id
+        data_type: varchar
+        description: Product on the line; joins dim_product.product_id.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_id
+      - name: quantity
+        data_type: integer
+        description: Units on the line.
+      - name: unit_price
+        data_type: decimal(18,4)
+        description: Price of one unit before discount.
+      - name: gross_amount
+        data_type: decimal(18,2)
+        description: Quantity times unit price, before discount.
+      - name: discount_amount
+        data_type: decimal(18,2)
+        description: Discount applied to the line.
+      - name: net_amount
+        data_type: decimal(18,2)
+        description: Gross amount minus discount amount.
+      - name: cost_amount
+        data_type: decimal(18,2)
+        description: Quantity times the product's current unit cost. Not historical cost.
+  - name: dim_account
+    access: public
+    description: Customer accounts. One row per account.
+    columns:
+      - name: account_id
+        data_type: varchar
+        description: Account identifier; the primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_name
+        data_type: varchar
+        description: Account display name.
+      - name: segment
+        data_type: varchar
+        description: Account segment.
+      - name: account_region
+        data_type: varchar
+        description: Region the account is based in. Not the region of an order; see fct_order_lines.order_region.
+      - name: signup_date
+        data_type: date
+        description: Date the account signed up.
+      - name: arr
+        data_type: decimal(18,2)
+        description: Annual recurring revenue of the account.
+  - name: dim_product
+    access: public
+    description: Products sold. One row per product.
+    columns:
+      - name: product_id
+        data_type: varchar
+        description: Product identifier; the primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: product_name
+        data_type: varchar
+        description: Product display name.
+      - name: category
+        data_type: varchar
+        description: Product category.
+      - name: unit_cost
+        data_type: decimal(18,4)
+        description: Current cost of one unit. Overwritten on change; there is no history.
+  - name: dim_channel
+    access: public
+    description: Sales channels. One row per channel.
+    columns:
+      - name: channel_id
+        data_type: varchar
+        description: Channel identifier; the primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: channel_name
+        data_type: varchar
+        description: Channel display name.
+      - name: channel_type
+        data_type: varchar
+        description: Kind of channel.
+  - name: dim_promotion
+    access: public
+    description: Promotions that can apply to an order. One row per promotion.
+    columns:
+      - name: promotion_id
+        data_type: varchar
+        description: Promotion identifier; the primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: promotion_name
+        data_type: varchar
+        description: Promotion display name.
+      - name: discount_type
+        data_type: varchar
+        description: Kind of discount the promotion gives.

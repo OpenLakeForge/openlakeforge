@@ -56,7 +56,7 @@ def all_checks(
         ("docs", lambda: docs(repo_root)),
         ("skills", lambda: skills(ctx, repo_root)),
         ("components", lambda: components(repo_root)),
-        ("contracts", lambda: contracts(repo_root)),
+        ("contracts", lambda: contracts(repo_root, strict=False)),
         ("flows", lambda: flows(repo_root)),
         ("infra", lambda: infra(repo_root)),
         ("resources", lambda: resources(repo_root)),

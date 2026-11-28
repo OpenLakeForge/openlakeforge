@@ -7,7 +7,13 @@ from pathlib import Path
 
 import jsonschema
 import yaml
-from openlakeforge_core import LakehouseDescriptorError, governance_products, load_governance_descriptor
+from openlakeforge_core import (
+    LakehouseDescriptorError,
+    governance_products,
+    load_governance_descriptor,
+    scan_product_dependencies,
+)
+from openlakeforge_core.governance import resolve_product
 
 from olf.common.contracts_check._report import CheckResult
 
@@ -37,10 +43,13 @@ def _out_of_schema_models(project: Path) -> list[str]:
     ]
 
 
-def _check_governance_conformance(repo_root: Path, *, schema_root: Path | None = None) -> CheckResult:
+def _check_governance_conformance(
+    repo_root: Path, *, schema_root: Path | None = None, strict: bool = False
+) -> CheckResult:
     """When `governance.yml` exists, it must match its JSON Schema and the code:
     one governance domain per `silver/<domain>/`, one product per `gold/models/<product>/`,
-    and no dbt model outside `<product>_gold`. Offline; nothing reads a cluster."""
+    and no dbt model outside `<product>_gold`. With `strict`, every product must also resolve an owner (its own or
+    its domain's), a tier and a lifecycle. Offline; nothing reads a cluster."""
     name = "governance_conformance"
     code = repo_root / "lakehouse_code"
     path = code / "governance.yml"
@@ -62,7 +71,39 @@ def _check_governance_conformance(repo_root: Path, *, schema_root: Path | None =
     ):
         errors += [f"{kind} {n!r} has no lakehouse_code directory" for n in sorted(declared - found)]
         errors += [f"{kind} {n!r} has a directory but is not in governance.yml" for n in sorted(found - declared)]
+    if strict:
+        for domain in document["domains"]:
+            for product in domain.get("products", []):
+                resolved = resolve_product(domain, product)
+                missing = [f for f in ("owner", "tier", "lifecycle") if f not in resolved]
+                if missing:
+                    errors.append(f"product {product['id']!r} is missing {', '.join(missing)} (--strict)")
     errors += _out_of_schema_models(code / "gold")
     if errors:
         return CheckResult(name, ok=False, detail="; ".join(errors))
     return CheckResult(name, ok=True, detail="governance.yml matches project code")
+
+
+def _check_product_dependencies(repo_root: Path) -> CheckResult:
+    """A `ref()` across products must reach a model with `access: public`; the products it joins are reported.
+
+    A cycle between products is refused too: every product's job reads its producers' tables, so a cycle has no
+    run order. Offline, from the SQL and `schema.yml` files.
+    """
+    name = "product_dependencies"
+    code = repo_root / "lakehouse_code"
+    path = code / "governance.yml"
+    if not path.is_file():
+        return CheckResult(name, ok=True, detail="no governance.yml")
+    try:
+        products = [p["id"] for p in governance_products(load_governance_descriptor(path))]
+    except LakehouseDescriptorError:
+        # The governance check reports the broken descriptor.
+        return CheckResult(name, ok=True, detail="governance.yml unreadable; see governance_conformance")
+    found = scan_product_dependencies(code / "gold", products)
+    if found.violations:
+        return CheckResult(name, ok=False, detail="; ".join(found.violations))
+    if not found.dependencies:
+        return CheckResult(name, ok=True, detail="no product reads another product's models")
+    edges = ", ".join(f"{d.consumer} -> {d.producer} ({', '.join(d.models)})" for d in found.dependencies)
+    return CheckResult(name, ok=True, detail=f"product dependencies: {edges}")
