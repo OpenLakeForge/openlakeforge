@@ -6,6 +6,7 @@ import urllib.parse
 from typing import Any
 
 from openlakeforge_core import LakehouseInventory
+from openlakeforge_services.glossary_publish import om_fqns
 from openlakeforge_services.openmetadata import OpenMetadataClient
 
 from olf.common import config, log
@@ -25,23 +26,25 @@ def _tag_fqns(entity: dict[str, Any]) -> set[str]:
 
 def _targets(inventory: LakehouseInventory) -> list[tuple[str, str, str, set[str]]]:
     """(collection, fqn, fields, wanted term FQNs) for every entity a deploy tags."""
+    om = om_fqns(inventory.glossaries)
     targets: list[tuple[str, str, str, set[str]]] = []
     for domain in inventory.domains:
         if domain.glossary_terms:
-            targets.append(("domains", domain.name, "tags", set(domain.glossary_terms)))
+            targets.append(("domains", domain.name, "tags", {om[ref] for ref in domain.glossary_terms}))
         for product in domain.products:
             if product.glossary_terms:
-                targets.append(("dataProducts", product.id, "tags", set(product.glossary_terms)))
+                targets.append(("dataProducts", product.id, "tags", {om[ref] for ref in product.glossary_terms}))
     return targets
 
 
 def _column_links(inventory: LakehouseInventory, database_fqn: str) -> dict[str, dict[str, set[str]]]:
     """table FQN -> column -> wanted term FQNs, on this stage's own Gold schemas."""
+    om = om_fqns(inventory.glossaries)
     links: dict[str, dict[str, set[str]]] = {}
     for product in inventory.products:
         for (model, column), terms in inventory.column_terms(product.id).items():
             table = f"{database_fqn}.{product.gold_namespace}.{model}"
-            links.setdefault(table, {})[column] = {term.fqn for term in terms}
+            links.setdefault(table, {})[column] = {om[term.fqn] for term in terms}
     return links
 
 
@@ -50,7 +53,7 @@ def _snapshot(client: OpenMetadataClient, inventory: LakehouseInventory, databas
     versions: dict[str, Any] = {}
     for glossary in inventory.glossaries:
         versions[f"glossary:{glossary.name}"] = _get(client, "glossaries", glossary.name, "").get("version")
-    for fqn in inventory.terms:
+    for fqn in om_fqns(inventory.glossaries).values():
         versions[f"term:{fqn}"] = _get(client, "glossaryTerms", fqn, "").get("version")
     for collection, fqn, fields, _ in _targets(inventory):
         versions[f"{collection}:{fqn}"] = _get(client, collection, fqn, fields).get("version")
@@ -81,7 +84,9 @@ def check_glossary_publication(cfg: E2EConfig) -> None:
             found = _get(client, "glossaries", glossary.name, "owners,extension")
             if not found:
                 problems.append(f"glossary {glossary.name} is missing")
-        for fqn, term in inventory.terms.items():
+        om = om_fqns(inventory.glossaries)
+        for ref, term in inventory.terms.items():
+            fqn = om[ref]
             found = _get(client, "glossaryTerms", fqn, "relatedTerms,extension")
             if not found:
                 problems.append(f"term {fqn} is missing")

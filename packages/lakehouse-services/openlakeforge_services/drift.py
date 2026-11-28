@@ -14,6 +14,7 @@ from typing import Any
 
 from openlakeforge_core.inventory import LakehouseInventory
 
+from .glossary_publish import om_fqns
 from .governance import DomainSpec, MetadataConfig, MetadataReconciler, domain_payload, product_payload
 from .openmetadata import fqn_part
 from .ownership import marker_of, patch_operations
@@ -198,11 +199,12 @@ def detect_glossary_drift(
     """Glossaries, terms and term links: what a deploy would write or what a person must repair. Reads only.
 
     A term or glossary marked as OpenLakeForge-managed but absent from Git is `stale`, never deleted. A column
-    link whose table or column the crawl has not produced is `unresolved`.
+    link whose table or column the crawl has not produced is pending, which is not drift.
     """
     items: list[DriftItem] = []
     stage = stage_of(config)
-    known_terms = set(inventory.terms)
+    om = om_fqns(inventory.glossaries)
+    known_terms = set(om.values())
     for glossary in inventory.glossaries:
         entity = reconciler.lookup("glossaries", glossary.name, "extension")
         if entity is None:
@@ -222,9 +224,9 @@ def detect_glossary_drift(
                 detail = "marked as OpenLakeForge-managed, absent from Git"
                 items.append(DriftItem(STALE, "glossary term", fqn, SHARED, detail))
         for term in glossary.terms:
-            current = reconciler.lookup("glossaryTerms", term.fqn, "extension")
+            current = reconciler.lookup("glossaryTerms", om[term.fqn], "extension")
             if current is None:
-                items.append(DriftItem(MISSING, "glossary term", term.fqn, SHARED))
+                items.append(DriftItem(MISSING, "glossary term", om[term.fqn], SHARED))
                 continue
             wanted = {
                 "displayName": term.display_name,
@@ -236,7 +238,7 @@ def detect_glossary_drift(
             if marker_of(current) is None:
                 fields.append("olfManaged")
             if fields:
-                items.append(DriftItem(CHANGED, "glossary term", term.fqn, SHARED, ", ".join(fields)))
+                items.append(DriftItem(CHANGED, "glossary term", om[term.fqn], SHARED, ", ".join(fields)))
     glossary_names = {glossary.name.lower() for glossary in inventory.glossaries}
     for found in reconciler.client.list_entities("/api/v1/glossaries", {"fields": "extension"}, _PAGE):
         if marker_of(found) and found["name"].lower() not in glossary_names:
@@ -252,7 +254,7 @@ def detect_glossary_drift(
             ("domains", domain.name, domain.glossary_terms, "domain"),
             *(("dataProducts", p.id, p.glossary_terms, "data product") for p in domain.products),
         ]:
-            if terms and (lacking := missing_tags(collection, name, terms)):
+            if terms and (lacking := missing_tags(collection, name, [om[ref] for ref in terms])):
                 items.append(DriftItem(CHANGED, label, name, SHARED, f"glossary tags not attached: {lacking}"))
     for product in inventory.products:
         schema_fqn = config.catalog_gold_schema_fqns.get(product.id)
@@ -263,11 +265,11 @@ def detect_glossary_drift(
             table = reconciler.lookup("tables", table_fqn, "columns,tags")
             held = {col["name"].lower(): col for col in (table or {}).get("columns") or []}
             if column.lower() not in held:
-                detail = f"column {column}: not crawled yet, its glossary link is pending"
-                items.append(DriftItem(UNRESOLVED, "table", table_fqn, stage, detail))
+                # Gold tables reach OpenMetadata only through a crawl, so a link on a column not crawled yet is
+                # pending (the deploy warns), not a difference between Git and OpenMetadata.
                 continue
             have = {tag.get("tagFQN") for tag in held[column.lower()].get("tags") or []}
-            if lacking := [term.fqn for term in column_terms if term.fqn not in have]:
+            if lacking := [om[term.fqn] for term in column_terms if om[term.fqn] not in have]:
                 detail = f"column {column}: glossary tags not attached: {lacking}"
                 items.append(DriftItem(CHANGED, "table", table_fqn, stage, detail))
     return items

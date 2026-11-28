@@ -19,7 +19,7 @@ from openlakeforge_core.glossary import Glossary, GlossaryTerm
 from openlakeforge_core.governance import EntityRef
 from openlakeforge_core.inventory import LakehouseInventory
 
-from .openmetadata import OpenMetadataError
+from .openmetadata import OpenMetadataError, OpenMetadataTransientError
 from .ownership import marker_of
 
 if TYPE_CHECKING:
@@ -27,6 +27,21 @@ if TYPE_CHECKING:
 
 _TERM_FIELDS = "owners,relatedTerms,extension"
 _RELATION = "relatedTo"
+
+
+def om_fqns(glossaries: tuple[Glossary, ...]) -> dict[str, str]:
+    """`<glossary>.<Term>` (the reference Git uses, stable when a term moves) -> the FQN OpenMetadata gives it, which
+    includes the parent terms: `sales.NetRevenue.Emea` for a term `Emea` under `NetRevenue`."""
+    fqns: dict[str, str] = {}
+    for glossary in glossaries:
+        parents = {term.name: term.parent for term in glossary.terms}
+        for term in glossary.terms:
+            chain, current = [term.name], term.parent
+            while current is not None:
+                chain.append(current)
+                current = parents.get(current)
+            fqns[term.fqn] = ".".join([glossary.name, *reversed(chain)])
+    return fqns
 
 
 def term_tag(term_fqn: str) -> dict[str, str]:
@@ -56,6 +71,7 @@ class GlossaryPublisher:
         self.report = GlossaryReport()
         self._owner_ids: dict[tuple[str, str], str] = {}
         self._term_ids: dict[str, str] = {}
+        self._om = om_fqns(inventory.glossaries)
         self._glossary_ids: dict[str, str] = {}
 
     @classmethod
@@ -137,13 +153,13 @@ class GlossaryPublisher:
                 "references": references,
             }
             if term.parent:
-                create["parent"] = f"{term.glossary}.{term.parent}"
+                create["parent"] = self._om[f"{term.glossary}.{term.parent}"]
         else:
             self._attach_related_terms(term)
             self._set_status(term)
             return
-        entity = self._reconciler.reconcile("glossaryTerms", term.fqn, create, owned, fields=_TERM_FIELDS)
-        self._term_ids[term.fqn] = entity["id"]
+        entity = self._reconciler.reconcile("glossaryTerms", self._om[term.fqn], create, owned, fields=_TERM_FIELDS)
+        self._term_ids[self._om[term.fqn]] = entity["id"]
         self._progress.info(f"Reconciled OpenMetadata glossary term: {term.fqn}")
 
     def _attach_related_terms(self, term: GlossaryTerm) -> None:
@@ -152,13 +168,13 @@ class GlossaryPublisher:
         because a relation can point forward or into another glossary."""
         if not term.related_terms:
             return
-        entity = self._reconciler.reconcile("glossaryTerms", term.fqn, {}, {}, fields=_TERM_FIELDS)
+        entity = self._reconciler.reconcile("glossaryTerms", self._om[term.fqn], {}, {}, fields=_TERM_FIELDS)
         have = entity.get("relatedTerms")
         held = {relation["term"]["id"] for relation in have or []}
         missing = [
-            {"term": {"id": self._term_ids[ref], "type": "glossaryTerm"}, "relationType": _RELATION}
+            {"term": {"id": self._term_ids[self._om[ref]], "type": "glossaryTerm"}, "relationType": _RELATION}
             for ref in term.related_terms
-            if self._term_ids[ref] not in held
+            if self._term_ids[self._om[ref]] not in held
         ]
         if not missing:
             return
@@ -176,13 +192,13 @@ class GlossaryPublisher:
             return
         try:
             self._reconciler.reconcile(
-                "glossaryTerms", term.fqn, {}, {"entityStatus": term.status}, fields=_TERM_FIELDS
+                "glossaryTerms", self._om[term.fqn], {}, {"entityStatus": term.status}, fields=_TERM_FIELDS
             )
-        except OpenMetadataError as exc:
+        except (OpenMetadataError, OpenMetadataTransientError) as exc:
             self._progress.warn(f"Glossary term {term.fqn}: status {term.status!r} was not applied: {exc}")
 
     def _collect_removed_terms(self, glossaries: tuple[Glossary, ...]) -> None:
-        known = {term.fqn for glossary in glossaries for term in glossary.terms}
+        known = set(self._om.values())
         for glossary in glossaries:
             # The list endpoint filters by glossary id, not name.
             query = f"glossary={self._glossary_ids[glossary.name]}&fields=extension&limit=1000"
@@ -225,8 +241,8 @@ class GlossaryPublisher:
         entity = self._reconciler.lookup(collection, fqn, "tags")
         if entity is None:
             return
-        self._report_removed_links(fqn, entity, list(terms))
-        self._patch(collection, entity["id"], self._append_tags(entity, "", list(terms)))
+        self._report_removed_links(fqn, entity, [self._om[ref] for ref in terms])
+        self._patch(collection, entity["id"], self._append_tags(entity, "", [self._om[ref] for ref in terms]))
 
     def tag_columns(self, product: str, schema_fqn: str) -> None:
         """Tag the columns of this stage's canonical tables with the terms the dbt `meta` declares.
@@ -247,7 +263,7 @@ class GlossaryPublisher:
                     self.report.pending_columns.append(f"{table_fqn}.{column}")
                     continue
                 index, current = held[column.lower()]
-                wanted = [term.fqn for term in terms]
+                wanted = [self._om[term.fqn] for term in terms]
                 self._report_removed_links(f"{table_fqn}.{column}", current, wanted)
                 operations += self._append_tags(current, f"/columns/{index}", wanted)
             if table is not None:

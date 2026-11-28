@@ -28,6 +28,10 @@ terms:
   - name: GrossRevenue
     displayName: Gross Revenue
     description: Revenue at list price.
+  - name: EmeaNetRevenue
+    displayName: EMEA Net Revenue
+    description: Net revenue booked in EMEA.
+    parent: NetRevenue
 """
 
 SCHEMA = """\
@@ -99,6 +103,14 @@ def test_terms_are_published_with_the_marker_before_anything_is_tagged(
     writes = [(method, path) for method, path in fake.writes if "glossaryTerms" in path or "/tags" in path]
     first_tag = next(i for i, (method, path) in enumerate(fake.calls) if method == "PATCH" and "dataProducts" in path)
     assert all(fake.calls.index(call) < first_tag for call in writes if call[0] == "POST")
+
+
+def test_a_nested_term_is_published_under_its_parents_fqn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deployer, fake = _deploy(tmp_path, monkeypatch)
+
+    deployer.deploy()
+
+    assert "sales.NetRevenue.EmeaNetRevenue" in fake.entities["glossaryTerms"]
 
 
 def test_product_domain_and_crawled_column_are_tagged_and_an_uncrawled_column_is_pending(
@@ -188,4 +200,17 @@ def test_drift_is_empty_after_a_deploy_and_reports_what_git_dropped_or_the_crawl
     assert any(line.startswith("stale") and "sales.Retired" in line for line in lines)
     assert any(line.startswith("changed") and "sales.NetRevenue" in line and "synonyms" in line for line in lines)
     assert any("order_revenue" in line and "glossary tags not attached" in line for line in lines)
-    assert any(line.startswith("unresolved") and "not_crawled" in line for line in lines)
+    assert not any("not_crawled" in line for line in lines)  # pending, not drift
+
+
+def test_a_link_on_an_uncrawled_column_is_warned_as_pending_on_deploy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, _ = _deploy(tmp_path, monkeypatch)
+    progress = _Recorder()
+    deployer.progress = deployer._reconciler.progress = progress
+
+    deployer.deploy()
+
+    warnings = [message for level, message in progress.messages if level == "warn"]
+    assert any("pending" in message and f"{GOLD}.order_revenue.not_crawled" in message for message in warnings)

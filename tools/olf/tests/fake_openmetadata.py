@@ -44,6 +44,9 @@ _CREATE_FIELDS = {
 }
 
 
+_ENTITY_STATUSES = {"Draft", "In Review", "Approved", "Archived", "Deprecated", "Rejected", "Unprocessed"}
+
+
 class FakeOpenMetadata:
     """An in-memory OpenMetadata 1.13.6 holding what its REST API returns for the endpoints the reconciler uses.
 
@@ -184,6 +187,11 @@ class FakeOpenMetadata:
                 if op["path"].startswith("/relatedTerms"):  # TermRelation: `id` is an unknown field there (HTTP 500)
                     relations = op["value"] if isinstance(op["value"], list) else [op["value"]]
                     assert all(set(r) == {"term", "relationType"} for r in relations), "bad TermRelation"
+                if op["path"] == "/entityStatus":  # type/status.json, 1.13.6
+                    assert op["value"] in _ENTITY_STATUSES, f"bad entityStatus {op['value']!r}"
+                if "/tags" in op["path"]:
+                    labels = op["value"] if isinstance(op["value"], list) else [op["value"]]
+                    assert all(set(t) == {"tagFQN", "source", "labelType", "state"} for t in labels), "bad tag label"
                 *parents, leaf = op["path"].strip("/").split("/")
                 node = entity
                 for key in parents:

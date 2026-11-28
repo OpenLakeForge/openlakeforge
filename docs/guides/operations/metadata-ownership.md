@@ -56,7 +56,8 @@ e2e (`olf infra e2e run --env local`) runs it after a deploy and fails if the re
 Domains and data products are shared by every stage, so they report under stage `shared`. Today's report covers
 domains, data products, schemas, tables, containers, glossaries, glossary terms and term links. A term or glossary
 removed from Git reports as `stale` and stays in OpenMetadata; a glossary tag missing from a product, domain or column
-reports as `changed`; a column link whose table or column the crawl has not produced yet reports as `unresolved`.
+reports as `changed`; a column link whose table or column the crawl has not produced yet is pending: the
+deploy warns about it and the report leaves it out.
 
 ## Repair by hand
 
