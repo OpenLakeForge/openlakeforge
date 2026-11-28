@@ -394,7 +394,8 @@ def test_the_sales_core_model_in_the_repository_is_valid() -> None:
 def test_a_filtered_or_disabled_dbt_test_does_not_prove_a_key(tmp_path: Path, unique_test: str) -> None:
     schema = SCHEMA_YML.replace(
         "        data_tests: [unique, not_null]\n      - name: account_id\n        data_tests:",
-        f"        data_tests:\n          - not_null\n          {unique_test}\n      - name: account_id\n        data_tests:",
+        "        data_tests:\n          - not_null\n"
+        f"          {unique_test}\n      - name: account_id\n        data_tests:",
         1,
     )
     root = _project(tmp_path, schema=schema)
