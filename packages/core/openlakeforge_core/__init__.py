@@ -84,6 +84,7 @@ from .glossary import (
     parse_glossary,
     read_column_term_links,
 )
+from .gold_roles import GOLD_ROLE_CLASSIFICATION, GOLD_ROLES, gold_role_tag, scan_gold_roles
 from .governance import (
     GOVERNANCE_API_VERSION,
     GOVERNANCE_KIND,
@@ -139,6 +140,15 @@ from .inventory import (
     load_transitional_lakehouse_inventory,
 )
 from .product_dependencies import ProductDependencies, ProductDependency, scan_product_dependencies
+from .profiling import (
+    PROFILING_METRICS_COUNTS,
+    PROFILING_METRICS_VALUES,
+    PROFILING_ROLES,
+    ProfilingTarget,
+    profiling_conflicts,
+    profiling_metrics,
+    resolve_profiling,
+)
 from .quality import (
     HealthQualityFields,
     PipelineOutcome,
@@ -164,6 +174,9 @@ from .semantic_validate import load_semantic_inventory
 from .sla import SLA_TIERS, ProductSla, duration_minutes, parse_duration, parse_sla, validate_cron
 
 __all__ = [
+    "GOLD_ROLES",
+    "GOLD_ROLE_CLASSIFICATION",
+    "gold_role_tag",
     "GLOSSARY_API_VERSION",
     "GLOSSARY_KIND",
     "TERM_STATUSES",
@@ -299,6 +312,14 @@ __all__ = [
     "load_lakehouse_inventory",
     "load_lakehouse_inventory_from_descriptors",
     "load_transitional_lakehouse_inventory",
+    "scan_gold_roles",
+    "PROFILING_METRICS_COUNTS",
+    "PROFILING_METRICS_VALUES",
+    "PROFILING_ROLES",
+    "ProfilingTarget",
+    "profiling_conflicts",
+    "profiling_metrics",
+    "resolve_profiling",
     "scan_product_dependencies",
     "SUPPORTED_OSSIE_VERSION",
     "SemanticDataset",

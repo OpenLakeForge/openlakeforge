@@ -226,6 +226,11 @@ def test_drift_reports_a_changed_sla_and_is_empty_after_a_clean_deploy(
 ) -> None:
     fake = _fake()
     fake.seed("databases", "polaris.lakehouse_dev", {})
+    models = tmp_path / "gold" / "models" / "order_revenue"
+    models.mkdir(parents=True)
+    (models / "schema.yml").write_text(
+        "version: 2\nmodels:\n  - name: order_revenue\n    meta: {openlakeforge: {role: mart}}\n", encoding="utf-8"
+    )
     deployer = _deploy_sla(tmp_path, fake, monkeypatch)
     assert deployer.drift() == []
 

@@ -32,6 +32,8 @@ domains:
         tier: Tier1
         lifecycle: DEVELOPMENT
         classification: Internal
+        profiling:
+          enabled: true
         # Demo values, set to fit the daily 01:30 UTC cadence in pipelines/products.py; not a real commitment.
         sla:
           tier: SILVER
