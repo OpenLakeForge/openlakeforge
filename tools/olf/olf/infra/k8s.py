@@ -276,8 +276,15 @@ def delete_cronjobs(selector: str, namespace: str, *, environ: Mapping[str, str]
 
 
 def delete_job(name: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
-    """Delete one Job by name and wait for its pods to go; absent is not an error."""
-    _kubectl(["delete", "job", name, "-n", namespace, "--ignore-not-found"], capture=True, environ=environ)
+    """Delete one Job by name and wait for its pods to go; absent is not an error.
+
+    Foreground cascading is what makes the wait cover the pods: the default background deletion returns once the
+    Job object is gone, while its pods can run on."""
+    _kubectl(
+        ["delete", "job", name, "-n", namespace, "--ignore-not-found", "--cascade=foreground"],
+        capture=True,
+        environ=environ,
+    )
 
 
 def delete_cronjob(name: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
