@@ -435,3 +435,13 @@ def test_the_e2e_check_compares_metric_owners_with_the_products_and_allows_none(
     om.entities["dataProducts"]["sales_core"]["owners"] = [{"id": "team-1", "type": "team"}]
     problems = semantic_problems(client, [_model()], stage="dev", gold_schema_fqns=gold, column_terms=COLUMN_TERMS)
     assert any("net_revenue_dev: owners differ" in p for p in problems)
+
+
+def test_constraints_that_cannot_be_published_yet_are_unresolved_in_the_drift_report(om: FakeWithMetrics) -> None:
+    om.entities["tables"][f"{SCHEMA}.fct_order_lines"]["columns"] = []
+    _publisher(om).publish()
+
+    unresolved = [d for d in _publisher(om).drift() if d.kind == "unresolved"]
+
+    assert [(d.entity, d.fqn) for d in unresolved] == [("table", f"{SCHEMA}.fct_order_lines")]
+    assert "lacks column(s)" in unresolved[0].detail

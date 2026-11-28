@@ -108,9 +108,14 @@ def _metric_problems(
 
 
 def check_openmetadata_semantic_publication(cfg: E2EConfig) -> None:
-    """After the crawl has given the Gold tables their columns: a deploy publishes the Ossie models, the published
-    state holds what Git declares, and a further deploy writes nothing and leaves an empty drift report."""
+    """Crawl the Gold tables into OpenMetadata, then a deploy publishes the Ossie models, the published state holds
+    what Git declares, and a further deploy writes nothing and leaves an empty drift report.
+
+    The crawl runs here, before the redeploy and drift assertions, because the key constraints wait for the crawled
+    columns: a crawl that landed between those assertions would otherwise make their "writes nothing" fail.
+    """
     from olf.infra.openmetadata._drift import drift_report, redeploy_writes
+    from olf.infra.openmetadata._ingestion import run_trino_ingestion
 
     log.step("Publishing the Ossie semantic models and checking them in OpenMetadata...")
     environ = cfg_environ(cfg)
@@ -121,6 +126,12 @@ def check_openmetadata_semantic_publication(cfg: E2EConfig) -> None:
         for product in cfg.inventory.products
         for column, terms in cfg.inventory.column_terms(product.id).items()
     }
+    run_trino_ingestion(
+        environ,
+        namespace=cfg.platform_namespace,
+        service=config.env("OPENMETADATA_CATALOG_SERVICE", environ=environ)
+        or config.env("OPENLAKEFORGE_CATALOG_PROVIDER", environ=environ),
+    )
     with openmetadata_client(cfg) as (client, token):
         login = _admin_login(cfg, token)
         try:

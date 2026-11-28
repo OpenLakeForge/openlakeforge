@@ -400,9 +400,11 @@ class SemanticPublisher:
         kept = [c for c in held if c.get("constraintType") not in _OLF_CONSTRAINTS]
         return [{"op": "replace" if held else "add", "path": "/tableConstraints", "value": [*kept, *wanted]}]
 
-    def _constrained_tables(self) -> list[tuple[str, Mapping[str, Any], list[dict]]]:
-        """Each declared table OpenMetadata holds with its crawled columns, and the constraints to write on it."""
+    def _constrained_tables(self) -> tuple[list[tuple[str, Mapping[str, Any], list[dict]]], list[tuple[str, str]]]:
+        """Each declared table OpenMetadata holds with its crawled columns and the constraints to write on it, and
+        the `(table, reason)` of those that cannot be reconciled yet."""
         found = []
+        waiting = []
         for fqn, wanted in self._wanted_constraints().items():
             table = self._reconciler.lookup("tables", fqn, "tableConstraints,columns")
             columns = {str(column["name"]).lower() for column in (table or {}).get("columns") or []}
@@ -410,12 +412,13 @@ class SemanticPublisher:
             if table is None or not used <= columns:
                 reason = "is not in OpenMetadata yet" if table is None else f"lacks column(s) {sorted(used - columns)}"
                 self._progress.warn(f"Table {fqn} {reason}; its Ossie key constraints are not published yet.")
+                waiting.append((fqn, reason))
                 continue
             found.append((fqn, table, wanted))
-        return found
+        return found, waiting
 
     def _publish_constraints(self) -> None:
-        for fqn, table, wanted in self._constrained_tables():
+        for fqn, table, wanted in self._constrained_tables()[0]:
             operations = self._constraint_operations(table, wanted)
             if operations:
                 self._client.request(
@@ -473,9 +476,12 @@ class SemanticPublisher:
                     fields.append(f"lineage from {table_fqn}")
             if fields:
                 items.append(DriftItem(CHANGED, "metric", plan.fqn, stage, ", ".join(dict.fromkeys(fields))))
-        for fqn, table, wanted in self._constrained_tables():
+        constrained, waiting = self._constrained_tables()
+        for fqn, table, wanted in constrained:
             if self._constraint_operations(table, wanted):
                 items.append(DriftItem(CHANGED, "table", fqn, stage, "tableConstraints"))
+        # Never read as matching Git what cannot be compared yet.
+        items += [DriftItem(UNRESOLVED, "table", fqn, stage, f"tableConstraints: table {why}") for fqn, why in waiting]
         for found in self._client.list_entities("/api/v1/metrics", {"fields": "extension"}):
             fqn = found.get("fullyQualifiedName") or found["name"]
             held_extension = found.get("extension") or {}

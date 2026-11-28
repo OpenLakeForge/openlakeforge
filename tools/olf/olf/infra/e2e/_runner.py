@@ -419,14 +419,14 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
             FullAssertion("OpenMetadata governance assets", check_openmetadata_assets, layer="governance"),
             FullAssertion(
+                "OpenMetadata semantic publication", check_openmetadata_semantic_publication, layer="governance"
+            ),
+            FullAssertion(
                 "OpenMetadata redeploy writes nothing", check_openmetadata_redeploy_is_idempotent, layer="governance"
             ),
             FullAssertion("OpenMetadata drift report", check_openmetadata_drift, layer="governance"),
             FullAssertion(
                 "OpenMetadata crawled descriptions", check_openmetadata_crawled_descriptions, layer="governance"
-            ),
-            FullAssertion(
-                "OpenMetadata semantic publication", check_openmetadata_semantic_publication, layer="governance"
             ),
             FullAssertion("OpenMetadata quality publication", check_quality_publication, layer="governance"),
             FullAssertion(
