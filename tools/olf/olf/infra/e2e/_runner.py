@@ -48,6 +48,7 @@ from olf.infra.e2e._network import check_network_and_rbac
 from olf.infra.e2e._perimeter import check_perimeter
 from olf.infra.e2e._perimeter_latency import check_perimeter_latency
 from olf.infra.e2e._preflight import check_aws_provider_contracts, check_aws_storage_and_glue
+from olf.infra.e2e._profiling import check_openmetadata_profiles
 from olf.infra.e2e._quality_evidence import check_real_quality_evidence
 from olf.infra.e2e._quality_publication import check_quality_publication
 from olf.infra.e2e._quality_writer import check_quality_writer_permissions
@@ -426,6 +427,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
             FullAssertion(
                 "OpenMetadata crawled descriptions", check_openmetadata_crawled_descriptions, layer="governance"
             ),
+            FullAssertion("OpenMetadata profiles follow the policy", check_openmetadata_profiles, layer="governance"),
             FullAssertion("OpenMetadata quality publication", check_quality_publication, layer="governance"),
             FullAssertion(
                 "OpenMetadata quality writer permissions", check_quality_writer_permissions, layer="governance"

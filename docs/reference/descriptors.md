@@ -303,11 +303,49 @@ may be stored:
 
 Only tables with the `GoldRole.Fact` or `GoldRole.Dimension` role in
 `<product>_gold` are eligible; marts, Silver and Bronze never are. `min`, `max`
-and `mean` of a text column are string lengths, not values. Profiling reads
-rows through Trino and writes no sample rows. Remove the block, or set
-`enabled: false`, to turn it off. The policy resolver is
-`openlakeforge_core.resolve_profiling`; the profiler Job that applies it is a
-separate change.
+and `mean` of a text column are string lengths, not values.
+
+What runs:
+
+- `olf infra openmetadata deploy-metadata` profiles each governed stage once,
+  after the crawl and the seeding, with the Job `openmetadata-trino-profiler`
+  beside the stage's coordinator. A CronJob
+  (`openmetadata-trino-profiler-<catalog>`, daily at 04:30 UTC) refreshes it.
+  A stage with no eligible table gets neither, and a CronJob left by an earlier
+  policy is removed.
+- Each stage profiles only its own `lakehouse_<stage>` tables, with its own Job.
+  The Job uses the crawl's image, resources and `openmetadata` principal, one
+  thread and a 10-minute limit per product.
+- A stage's Gold tables exist only after its pipelines ran. A first deploy
+  therefore finds nothing to profile; the next `deploy-metadata`, or the daily
+  CronJob, profiles them.
+
+What is read and stored:
+
+- Trino reads the eligible tables' rows to compute the metrics in the table
+  above. Nothing else is read: no marts, no other product, and no query other
+  than the profiler's. OpenMetadata stores the statistics as time series
+  (`/api/v1/tables/<table fqn>/tableProfile` and
+  `/api/v1/tables/<column fqn>/columnProfile`), not as fields of the table.
+- No sample rows are requested or stored, there are no custom SQL metrics, and
+  no row sampling is configured, so every metric covers the whole table.
+
+A failed profile is a warning, not a failed deploy: the Job's status stays
+visible with `kubectl get jobs -n <stage namespace>` for an hour, and the
+last statistics stay in place. Statistics older than 30 hours (the daily period
+plus 6 hours) are stale, and readers such as
+`openlakeforge_services.profile_statistics.read_table_statistics` mark them so.
+
+Cost: each profile runs a handful of aggregate queries per table and column on
+the stage's Trino. Cost grows with table size, which is why only opted-in
+facts and dimensions are profiled and why `threadCount` is 1. Keep
+`profiling.enabled` off for a product whose tables are large until its profile
+time is known.
+
+To turn it off, remove `profiling` or set `enabled: false` and run
+`olf infra openmetadata deploy-metadata`: the CronJob is deleted and the next
+deploy runs no profile. Statistics already stored are not deleted; readers mark
+them stale after 30 hours.
 
 `status` was removed from domains and products. A `v1beta2` document that
 sets it fails with a hint to use `lifecycle`; domains have no lifecycle, so

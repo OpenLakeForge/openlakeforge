@@ -275,6 +275,11 @@ def delete_cronjobs(selector: str, namespace: str, *, environ: Mapping[str, str]
     )
 
 
+def delete_cronjob(name: str, namespace: str, *, environ: Mapping[str, str] | None = None) -> None:
+    """Delete one CronJob by name; absent is not an error."""
+    _kubectl(["delete", "cronjob", name, "-n", namespace, "--ignore-not-found"], capture=True, environ=environ)
+
+
 def certificates_issued_by(
     cluster_issuer: str, *, environ: Mapping[str, str] | None = None
 ) -> list[tuple[str, str, str]]:
