@@ -12,6 +12,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from openlakeforge_core.inventory import LakehouseInventory
+
+from .glossary_publish import om_fqns
 from .governance import (
     FRESHNESS_POLICY_PROPERTY,
     DomainSpec,
@@ -200,3 +203,104 @@ def detect_drift(
     for schema_fqn in [*declared_schemas, *stale_schemas]:
         stale_entities("tables", "table", {"databaseSchema": schema_fqn}, stage)
     return sorted(items, key=lambda item: (item.stage, item.entity, item.fqn, item.kind))
+
+
+def detect_glossary_drift(
+    reconciler: MetadataReconciler, inventory: LakehouseInventory, config: MetadataConfig
+) -> list[DriftItem]:
+    """Glossaries, terms and term links: what a deploy would write or what a person must repair. Reads only.
+
+    A term or glossary marked as OpenLakeForge-managed but absent from Git is `stale`, never deleted. A column
+    link whose table or column the crawl has not produced is pending, which is not drift.
+    """
+    items: list[DriftItem] = []
+    stage = stage_of(config)
+    om = om_fqns(inventory.glossaries)
+    known_terms = set(om.values())
+    for glossary in inventory.glossaries:
+        entity = reconciler.lookup("glossaries", glossary.name, "owners,extension")
+        if entity is None:
+            items.append(DriftItem(MISSING, "glossary", glossary.name, SHARED))
+            continue
+        owned = {"displayName": glossary.display_name, "description": glossary.description}
+        fields = [op["path"].lstrip("/") for op in patch_operations(entity, owned)]
+        if marker_of(entity) is None:
+            fields.append("olfManaged")
+        if glossary.owner:
+            collection = "teams" if glossary.owner.type == "team" else "users"
+            owner = reconciler.lookup(collection, glossary.owner.ref, "")
+            if owner is None:
+                detail = f"owner {glossary.owner.type} {glossary.owner.ref!r} not found"
+                items.append(DriftItem(UNRESOLVED, "glossary", glossary.name, SHARED, detail))
+            # A deploy sets the owners to the declared one, so any other set is a difference.
+            elif {o.get("id") for o in entity.get("owners") or []} != {owner["id"]}:
+                fields.append("owners")
+        if fields:
+            items.append(DriftItem(CHANGED, "glossary", glossary.name, SHARED, ", ".join(fields)))
+        for found in reconciler.client.list_entities(
+            "/api/v1/glossaryTerms", {"glossary": entity["id"], "fields": "extension"}, _PAGE
+        ):
+            fqn = found.get("fullyQualifiedName", "")
+            if marker_of(found) and fqn not in known_terms:
+                detail = "marked as OpenLakeForge-managed, absent from Git"
+                items.append(DriftItem(STALE, "glossary term", fqn, SHARED, detail))
+        for term in glossary.terms:
+            current = reconciler.lookup("glossaryTerms", om[term.fqn], "relatedTerms,extension")
+            if current is None:
+                items.append(DriftItem(MISSING, "glossary term", om[term.fqn], SHARED))
+                continue
+            wanted = {
+                "displayName": term.display_name,
+                "description": term.description,
+                "synonyms": list(term.synonyms),
+                "references": [{"name": ref.name, "endpoint": ref.endpoint} for ref in term.references],
+            }
+            if term.status:
+                wanted["entityStatus"] = term.status
+            fields = [op["path"].lstrip("/") for op in patch_operations(current, wanted)]
+            # Declared relations must be present; ones a person added, and the reverse ones OpenMetadata keeps, are not
+            # a difference.
+            related = {relation["term"].get("fullyQualifiedName") for relation in current.get("relatedTerms") or []}
+            if {om[ref] for ref in term.related_terms} - related:
+                fields.append("relatedTerms")
+            if marker_of(current) is None:
+                fields.append("olfManaged")
+            if fields:
+                items.append(DriftItem(CHANGED, "glossary term", om[term.fqn], SHARED, ", ".join(fields)))
+    glossary_names = {glossary.name.lower() for glossary in inventory.glossaries}
+    for found in reconciler.client.list_entities("/api/v1/glossaries", {"fields": "extension"}, _PAGE):
+        if marker_of(found) and found["name"].lower() not in glossary_names:
+            detail = "marked as OpenLakeForge-managed, absent from Git"
+            items.append(DriftItem(STALE, "glossary", found["name"], SHARED, detail))
+
+    def missing_tags(collection: str, fqn: str, wanted: Sequence[str], fields: str = "tags") -> list[str]:
+        entity = reconciler.lookup(collection, fqn, fields) or {}
+        return [t for t in wanted if t not in {tag.get("tagFQN") for tag in entity.get("tags") or []}]
+
+    for domain in inventory.domains:
+        for collection, name, terms, label in [
+            ("domains", domain.name, domain.glossary_terms, "domain"),
+            *(("dataProducts", p.id, p.glossary_terms, "data product") for p in domain.products),
+        ]:
+            if terms and (lacking := missing_tags(collection, name, [om[ref] for ref in terms])):
+                items.append(DriftItem(CHANGED, label, name, SHARED, f"glossary tags not attached: {lacking}"))
+    for product in inventory.products:
+        schema_fqn = config.catalog_gold_schema_fqns.get(product.id)
+        if not schema_fqn:
+            continue
+        tables: dict[str, Mapping[str, Any] | None] = {}
+        for (model, column), column_terms in inventory.column_terms(product.id).items():
+            table_fqn = f"{schema_fqn}.{model}"
+            if table_fqn not in tables:
+                tables[table_fqn] = reconciler.lookup("tables", table_fqn, "columns,tags")
+            table = tables[table_fqn]
+            held = {col["name"].lower(): col for col in (table or {}).get("columns") or []}
+            if column.lower() not in held:
+                # Gold tables reach OpenMetadata only through a crawl, so a link on a column not crawled yet is
+                # pending (the deploy warns), not a difference between Git and OpenMetadata.
+                continue
+            have = {tag.get("tagFQN") for tag in held[column.lower()].get("tags") or []}
+            if lacking := [om[term.fqn] for term in column_terms if om[term.fqn] not in have]:
+                detail = f"column {column}: glossary tags not attached: {lacking}"
+                items.append(DriftItem(CHANGED, "table", table_fqn, stage, detail))
+    return items

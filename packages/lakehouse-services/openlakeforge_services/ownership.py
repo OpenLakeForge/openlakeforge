@@ -21,7 +21,7 @@ from typing import Any
 MARKER_PROPERTY = "olfManaged"
 MARKER_DESCRIPTION = "Set by OpenLakeForge: the Git revision that last reconciled this entity from the project."
 # OpenMetadata keys custom properties by entity type name, not collection.
-MARKED_ENTITY_TYPES = ("domain", "dataProduct", "databaseSchema", "table", "container")
+MARKED_ENTITY_TYPES = ("domain", "dataProduct", "databaseSchema", "table", "container", "glossary", "glossaryTerm")
 _MARKER_PREFIX = "git:"
 _MERGED_FIELDS = ("extension", "sla")
 
