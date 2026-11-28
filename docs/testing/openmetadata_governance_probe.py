@@ -809,7 +809,7 @@ def stored_profile(ctx: Ctx, table: dict[str, Any]) -> dict[str, Any]:
     found: dict[str, Any] = {}
     for label, (path, params) in routes.items():
         r = om(ctx, "GET", path, params=params)
-        found[label] = {"result": r.brief(), "body": summarise(r.data)}
+        found[label] = {"result": r.brief(), "status": r.status, "body": summarise(r.data)}
     columns: dict[str, Any] = {}
     for column in table["columns"]:
         r = om(ctx, "GET", f"/api/v1/tables/{quote(column['fullyQualifiedName'])}/columnProfile", params=window)
@@ -836,9 +836,14 @@ def column_statistics(found: dict[str, Any]) -> list[str]:
     return sorted(seen)
 
 
-def has_sample_data(found: dict[str, Any]) -> bool:
+def has_sample_data(found: dict[str, Any]) -> bool | None:
+    """True if any route carries sample data, False if the sampleData route answered (200 or 404) and none did, None if
+    it failed (403, 5xx) so absence cannot be told from an unreadable endpoint."""
     bodies = [found["table fields=columns,profile,sampleData"]["body"], found["sampleData"]["body"]]
-    return any(isinstance(b, dict) and b.get("sampleData") for b in bodies)
+    if any(isinstance(b, dict) and b.get("sampleData") for b in bodies):
+        return True
+    status = found["sampleData"].get("status")
+    return False if isinstance(status, int) and (200 <= status < 300 or status == 404) else None
 
 
 PROFILE_TABLE = f"{P}_profile"
@@ -918,6 +923,10 @@ def probe_profile(ctx: Ctx) -> None:
             return
         if sample:
             f.verdict = "SAMPLE DATA STORED"
+            return
+        if sample is None:
+            f.verdict = "INCONCLUSIVE"
+            f.detail += "; the sampleData endpoint could not be read, so the absence of sample data is unconfirmed"
             return
         if column_stats:
             f.verdict = "ACCEPTED"
@@ -1102,6 +1111,22 @@ def render(ctx: Ctx) -> str:
     return "\n".join(rows)
 
 
+def undo_everything(ctx: Ctx, harness_error: str | None) -> str | None:
+    """Restore the Gold tables, run every cleanup, and only then judge `restore_errors`, so a cleanup that records a
+    failure (the custom property) is reported too. Returns the harness error, set if anything stayed changed."""
+    restore(ctx)
+    for name, undo in reversed(ctx.cleanups):
+        try:
+            undo()
+        except Exception as exc:  # noqa: BLE001 - cleanup is best effort
+            print(f"cleanup {name}: {JWT.sub('***', str(exc))[:200]}", file=sys.stderr)
+    if ctx.restore_errors:
+        harness_error = harness_error or "the probe's changes were not all undone"
+        ctx.finding("R", "The patched Gold tables were restored").verdict = "ERROR"
+        ctx.findings["R"].detail = "; ".join(ctx.restore_errors)
+    return harness_error
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-f", "--file", required=True, help="Deployment Profile v1 the deployment was created from")
@@ -1143,16 +1168,7 @@ def main() -> int:
                 ctx.finding("H", "The probe ran to the end").verdict = "ERROR"
                 ctx.findings["H"].detail = harness_error
             finally:
-                restore(ctx)
-                if ctx.restore_errors:
-                    harness_error = harness_error or "the Gold tables were not restored"
-                    ctx.finding("R", "The patched Gold tables were restored").verdict = "ERROR"
-                    ctx.findings["R"].detail = "; ".join(ctx.restore_errors)
-                for name, undo in reversed(ctx.cleanups):
-                    try:
-                        undo()
-                    except Exception as exc:  # noqa: BLE001 - cleanup is best effort
-                        print(f"cleanup {name}: {JWT.sub('***', str(exc))[:200]}", file=sys.stderr)
+                harness_error = undo_everything(ctx, harness_error)
     table = render(ctx)
     print("\n" + table)
     if args.json:
