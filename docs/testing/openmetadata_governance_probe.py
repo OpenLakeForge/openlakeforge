@@ -497,6 +497,9 @@ def probe_native_fields(ctx: Ctx) -> None:
 def remove_custom_property(ctx: Ctx, type_id: str, name: str) -> None:
     """Remove the custom property this run added to a type, by its index in the type's current property list."""
     current = om(ctx, "GET", f"/api/v1/metadata/types/{type_id}", params={"fields": "customProperties"})
+    if not current.ok:
+        ctx.restore_errors.append(f"custom property {name}: cannot read the type, {current.brief()}")
+        return
     names = [c.get("name") for c in (current.data or {}).get("customProperties") or []]
     if name not in names:
         return
