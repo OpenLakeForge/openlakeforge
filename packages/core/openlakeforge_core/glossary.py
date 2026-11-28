@@ -289,7 +289,10 @@ def read_column_term_links(gold_models: str | Path) -> tuple[ColumnTermLink, ...
         for model in models if isinstance(models, list) else ():
             if not isinstance(model, Mapping):
                 continue
-            for column in model.get("columns") or ():
+            columns = model.get("columns")
+            if columns is not None and not isinstance(columns, list):
+                raise LakehouseDescriptorError(f"{path}: models[{model.get('name')}].columns must be an array")
+            for column in columns or ():
                 meta = column.get("meta") if isinstance(column, Mapping) else None
                 openlakeforge = meta.get("openlakeforge") if isinstance(meta, Mapping) else None
                 if not isinstance(openlakeforge, Mapping) or "glossaryTerms" not in openlakeforge:

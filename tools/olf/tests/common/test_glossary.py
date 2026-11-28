@@ -260,3 +260,13 @@ def test_the_sales_core_columns_carry_their_terms() -> None:
         ("fct_order_lines", "discount_amount"): ["sales.Discount"],
         ("fct_order_lines", "net_amount"): ["sales.NetRevenue"],
     }
+
+
+@pytest.mark.parametrize("columns", ["7", "{a: 1}"])
+def test_a_non_array_columns_value_is_a_diagnostic_not_a_crash(tmp_path: Path, columns: str) -> None:
+    schema = f"models:\n  - name: fct_demo\n    columns: {columns}\n"
+
+    result = _check_glossary_conformance(_repo(tmp_path, schema=schema))
+
+    assert not result.ok
+    assert "models[fct_demo].columns must be an array" in result.detail
