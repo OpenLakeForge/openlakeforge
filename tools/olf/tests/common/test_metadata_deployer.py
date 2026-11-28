@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -509,3 +510,14 @@ def test_the_stamped_revision_is_read_from_the_stage_not_derived_again(
     assert _stamped_revision(deployer.client) == ""
     fake.entities["domains"]["sales"]["extension"]["olfManaged"] = "git:abc123"
     assert _stamped_revision(deployer.client) == "abc123"
+
+
+def test_a_dotted_bucket_name_matches_its_quoted_container_fqn(tmp_path: Path) -> None:
+    from openlakeforge_services.drift import _in_stage_buckets
+
+    config = _deployer(tmp_path, allow_missing_assets=True, progress=_Recorder()).config
+    config = replace(config, storage_bronze_bucket="lakehouse.dev.bronze")
+
+    assert _in_stage_buckets(config, 'seaweedfs."lakehouse.dev.bronze".removed_source')
+    assert _in_stage_buckets(config, 'seaweedfs."lakehouse.dev.bronze"')
+    assert not _in_stage_buckets(config, 'seaweedfs."lakehouse.dev.bronze2".other')
