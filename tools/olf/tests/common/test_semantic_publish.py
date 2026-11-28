@@ -412,3 +412,28 @@ def test_the_e2e_check_does_not_demand_a_glossary_tag_of_a_metric_with_no_term(o
     )
 
     assert not any("glossary tag" in p for p in problems)
+
+
+def test_a_metric_whose_product_is_not_in_openmetadata_yet_is_unresolved_not_stale(om: FakeWithMetrics) -> None:
+    _publisher(om).publish()
+    del om.entities["dataProducts"]["sales_core"]
+
+    drift = _publisher(om).drift()
+
+    assert {(d.kind, d.fqn) for d in drift} == {("unresolved", "net_revenue_dev"), ("unresolved", "gross_revenue_dev")}
+
+
+def test_the_e2e_check_compares_metric_owners_with_the_products_and_allows_none(om: FakeWithMetrics) -> None:
+    from olf.infra.e2e._semantic import semantic_problems
+
+    om.entities["dataProducts"]["sales_core"]["owners"] = []
+    _publisher(om).publish()
+    client = OpenMetadataClient("http://x")
+    client.request = om.request  # type: ignore[method-assign]
+    gold = {"sales_core": SCHEMA}
+
+    assert semantic_problems(client, [_model()], stage="dev", gold_schema_fqns=gold, column_terms=COLUMN_TERMS) == []
+
+    om.entities["dataProducts"]["sales_core"]["owners"] = [{"id": "team-1", "type": "team"}]
+    problems = semantic_problems(client, [_model()], stage="dev", gold_schema_fqns=gold, column_terms=COLUMN_TERMS)
+    assert any("net_revenue_dev: owners differ" in p for p in problems)

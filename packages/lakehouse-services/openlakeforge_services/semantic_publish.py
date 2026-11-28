@@ -452,7 +452,8 @@ class SemanticPublisher:
         """What differs between the semantic models in Git and this stage's metrics, lineage and constraints."""
         stage = self._stage
         plans, items = self._plans()
-        declared = {plan.fqn for plan in plans}
+        # Every metric Git declares, resolved or not: one whose product is missing in OpenMetadata is unresolved.
+        declared = {metric_name(metric, stage) for model in self._models for metric in model.metrics}
         for plan in plans:
             current = self._reconciler.lookup("metrics", plan.fqn, METRIC_FIELDS)
             if current is None:

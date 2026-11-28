@@ -63,9 +63,10 @@ def semantic_problems(
                 for c in held
             ):
                 problems.append(f"{relationship.name}: no FOREIGN_KEY on {relationship.from_dataset} (has {held})")
+        product_owners = {o["id"] for o in _get(client, "dataProducts", model.product, "owners").get("owners") or []}
         for declared in model.metrics:
             terms, _why = metric_terms(model, declared, column_terms.get(model.product, {}))
-            problems += _metric_problems(client, declared, stage, tables, bool(terms))
+            problems += _metric_problems(client, declared, stage, tables, bool(terms), product_owners)
     return problems
 
 
@@ -75,6 +76,7 @@ def _metric_problems(
     stage: str,
     tables: Mapping[str, Mapping[str, Any]],
     tagged: bool,
+    product_owners: set[str],
 ) -> list[str]:
     fqn = f"{declared.name}_{stage}"
     metric = _get(client, "metrics", fqn, _METRIC_FIELDS)
@@ -84,9 +86,11 @@ def _metric_problems(
         problems.append(f"{fqn}: no SQL expression")
     if metric.get("metricType") != metric_type(declared.expression):
         problems.append(f"{fqn}: metricType {metric.get('metricType')!r}")
-    for field in ("domains", "dataProducts", "owners"):
+    for field in ("domains", "dataProducts"):
         if not metric.get(field):
             problems.append(f"{fqn}: no {field}")
+    if {o["id"] for o in metric.get("owners") or []} != product_owners:
+        problems.append(f"{fqn}: owners differ from the data product's")
     if tagged and not any(tag.get("source") == "Glossary" for tag in metric.get("tags") or []):
         problems.append(f"{fqn}: no glossary tag")
     extension = metric.get("extension") or {}
