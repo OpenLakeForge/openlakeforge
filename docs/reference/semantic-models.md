@@ -84,8 +84,9 @@ A composite key matches a model-level `unique_combination_of_columns` test on
 the same columns. A field description that differs from the dbt column
 description is a warning, because dbt owns column text.
 
-Glossary references are not validated yet: Ossie 0.1.1 has no term field, and
-the glossary inventory is not in the repository.
+Glossary references are not validated against Ossie models yet: Ossie 0.1.1 has
+no term field, so there is no reference to check. Glossary terms are linked from
+`governance.yml` and `schema.yml`, not from the Ossie file.
 
 ## Unsupported-feature matrix
 

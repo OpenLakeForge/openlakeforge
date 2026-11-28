@@ -154,7 +154,12 @@ def _verify(
         verify_lakehouse = Path(tmp) / "lakehouse_code"
         (verify_lakehouse / "bronze").mkdir(parents=True)
         resolved_schema_root = schema_root or repo_root / "docs" / "schema"
-        for descriptor in sorted((*lakehouse_src.glob("bronze/*/source.yaml"), *lakehouse_src.glob(_FLOE_GLOB))):
+        descriptors = (
+            *lakehouse_src.glob("bronze/*/source.yaml"),
+            *lakehouse_src.glob(_FLOE_GLOB),
+            *lakehouse_src.glob("glossaries/*.yml"),
+        )
+        for descriptor in sorted(descriptors):
             destination = verify_lakehouse / descriptor.relative_to(lakehouse_src)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(descriptor, destination)

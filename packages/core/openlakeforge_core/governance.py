@@ -7,6 +7,7 @@ under them. Tables belong to a domain or product by their schema
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,8 +42,10 @@ LIFECYCLES = ("IDEATION", "DESIGN", "DEVELOPMENT", "TESTING", "PRODUCTION", "DEP
 TIERS = ("Tier1", "Tier2", "Tier3", "Tier4", "Tier5")
 CLASSIFICATIONS = ("Public", "Internal", "Confidential", "Restricted")
 REF_TYPES = ("user", "team")
+# `<glossary>.<Term>`; the glossary part is a descriptor identifier, the term part has no `.`.
+TERM_REF_PATTERN = r"^[a-z][a-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$"
 
-_COMMON_FIELDS = {"displayName", "description", "owner", "experts", "classification"}
+_COMMON_FIELDS = {"displayName", "description", "owner", "experts", "classification", "glossaryTerms"}
 _DOMAIN_FIELDS = _COMMON_FIELDS | {"domainType", "products"}
 _PRODUCT_FIELDS = _COMMON_FIELDS | {"reviewers", "type", "tier", "lifecycle", "termsOfUse"}
 _INHERITED = ("owner", "experts", "classification")
@@ -79,6 +82,18 @@ def _entity_refs(value: object, *, field: str, where: str) -> tuple[EntityRef, .
     if not isinstance(value, list) or not value:
         raise LakehouseDescriptorError(f"{where}: {field} must be a non-empty array of {{type, ref}} objects")
     return tuple(_entity_ref(item, field=f"{field}[{index}]", where=where) for index, item in enumerate(value))
+
+
+def parse_term_refs(value: object, *, field: str, where: str) -> tuple[str, ...]:
+    """A non-empty array of ``<glossary>.<Term>`` references; whether they resolve is checked elsewhere."""
+    if not isinstance(value, list) or not value or not all(isinstance(v, str) and v.strip() for v in value):
+        raise LakehouseDescriptorError(f"{where}: {field} must be a non-empty array of non-empty strings")
+    for index, ref in enumerate(value):
+        if not re.fullmatch(TERM_REF_PATTERN, ref):
+            raise LakehouseDescriptorError(f"{where}: {field}[{index}] must look like '<glossary>.<Term>', got {ref!r}")
+    if len(set(value)) != len(value):
+        raise LakehouseDescriptorError(f"{where}: {field} lists a term twice")
+    return tuple(value)
 
 
 def _terms_of_use(value: object, *, where: str) -> None:
@@ -128,6 +143,8 @@ def _check_entry(entry: object, *, id_field: str, where: str, fields: set[str]) 
             _enum(entry[field], field=field, allowed=allowed, where=where)
     if "termsOfUse" in entry:
         _terms_of_use(entry["termsOfUse"], where=where)
+    if "glossaryTerms" in entry:
+        parse_term_refs(entry["glossaryTerms"], field="glossaryTerms", where=where)
     return entry
 
 

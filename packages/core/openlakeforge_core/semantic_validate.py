@@ -188,8 +188,8 @@ def validate_semantic_model(
                     "metric-reference",
                     f"metric {metric.name!r} reads {owner_dataset}.{column}, which is not a declared field",
                 )
-    # Glossary references (rule 6) are validated here once the glossary inventory exists: the 0.1.1 schema has no
-    # term field, so the reference syntax is decided with the glossary descriptor, not guessed here.
+    # Glossary references (rule 6) are not validated here: the 0.1.1 schema has no term field, so an Ossie model
+    # holds no reference to check. A follow-up decides how a model names a term.
     return problems
 
 
