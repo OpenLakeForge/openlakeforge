@@ -418,3 +418,20 @@ def test_dataset_fields_that_are_not_a_list_are_a_diagnostic_not_a_crash(tmp_pat
     ok, detail = _check(root)
 
     assert not ok and "`fields` must be a list" in detail
+
+
+def test_both_sales_core_revenue_metrics_count_fulfilled_order_lines_only() -> None:
+    repo = Path(__file__).resolve().parents[4]
+    (model,) = (
+        m
+        for m in load_lakehouse_inventory(repo / "lakehouse_code").semantic_inventory.models
+        if m.product == "sales_core"
+    )
+
+    revenue = {m.name: m for m in model.metrics if m.name in {"net_revenue", "gross_revenue"}}
+
+    assert set(revenue) == {"net_revenue", "gross_revenue"}
+    for metric in revenue.values():
+        assert "fct_order_lines.order_status = 'fulfilled'" in metric.expression
+    assert ("fct_order_lines", "gross_amount") in revenue["gross_revenue"].references
+    assert ("fct_order_lines", "net_amount") in revenue["net_revenue"].references

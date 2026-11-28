@@ -115,11 +115,11 @@ semantic_model:
           synonyms: [net sales, net revenue]
           instructions: Fulfilled orders only; use for revenue questions.
       - name: gross_revenue
-        description: Gross amount of all order lines, before discounts and whatever their status.
+        description: Gross amount of fulfilled order lines at list price, before line discounts.
         expression:
           dialects:
             - dialect: ANSI_SQL
-              expression: SUM(fct_order_lines.gross_amount)
+              expression: SUM(CASE WHEN fct_order_lines.order_status = 'fulfilled' THEN fct_order_lines.gross_amount END)
         ai_context:
           synonyms: [gross sales]
-          instructions: Includes every order status; use net_revenue for revenue questions.
+          instructions: Fulfilled orders only, before discounts; net_revenue is gross_revenue minus discounts.
