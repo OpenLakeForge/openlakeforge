@@ -25,8 +25,10 @@ removes it by hand.
 dbt owns them. `persist_docs` writes each model's and column's description as a Trino comment, and every crawl (the
 one `deploy-metadata` runs and the hourly refresh) copies those comments into OpenMetadata and overwrites the
 description already there. Edit a description in the model's dbt `schema.yml`, not in OpenMetadata: an edit made in
-OpenMetadata lasts until the next crawl. The crawl leaves glossary tags, table constraints and the columns dbt does
-not describe alone.
+OpenMetadata lasts until the next crawl. The crawl leaves glossary tags and table constraints alone. It covers the
+whole stage catalog, not only the dbt-managed Gold tables: any table or column that has a Trino comment, Silver
+included, gets that comment as its description, and only one with no Trino comment keeps a description set in
+OpenMetadata.
 
 ## The ownership marker
 

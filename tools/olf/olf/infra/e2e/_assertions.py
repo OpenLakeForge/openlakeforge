@@ -24,7 +24,7 @@ from olf.infra.contracts import CONTRACT_STAGE_ENV
 from olf.infra.e2e._shell import E2EConfig, E2EError, cfg_environ, kubectl, load_provider_contracts_or_raise
 from olf.infra.e2e._trino import product_gold_tables, stage_catalog_name
 from olf.infra.openmetadata._auth import admin_password, automation_token
-from olf.infra.openmetadata._ingestion import JOB_NAME
+from olf.infra.openmetadata._ingestion import JOB_NAME, run_trino_ingestion
 
 
 @contextmanager
@@ -215,7 +215,7 @@ def check_openmetadata_crawled_descriptions(cfg: E2EConfig) -> None:
     found has the description (and a column description) `persist_docs` wrote as Trino comments.
 
     A table OpenMetadata already held before its first crawl (`deploy-metadata` registers them) gets its
-    descriptions from the crawl only with `overrideMetadata`.
+    descriptions from the crawl only with `overrideMetadata`, so this check runs a crawl itself.
     """
     log.step("Checking the OpenMetadata crawl refreshes descriptions...")
     namespace = trino.service_namespace(cfg_environ(cfg), cfg.namespace)
@@ -233,6 +233,16 @@ def check_openmetadata_crawled_descriptions(cfg: E2EConfig) -> None:
         raise E2EError(f"the crawl workflow of {without} does not set overrideMetadata")
     database_fqn = config.env("OPENLAKEFORGE_CATALOG_DATABASE_FQN", "", environ=cfg_environ(cfg))
     gold_tables = [table for product in cfg.inventory.products for table in product_gold_tables(cfg, product)]
+    # `deploy-metadata` crawls once, before the pipelines build the Gold tables, and the schedule is hourly: a crawl
+    # that sees them has to be run here, as `deploy-metadata` runs it.
+    environ = cfg_environ(cfg)
+    log.step("Crawling Trino into OpenMetadata after the pipelines...")
+    run_trino_ingestion(
+        environ,
+        namespace=cfg.platform_namespace,
+        service=config.env("OPENMETADATA_CATALOG_SERVICE", environ=environ)
+        or config.env("OPENLAKEFORGE_CATALOG_PROVIDER", environ=environ),
+    )
     with openmetadata_client(cfg) as (client, token):
         password = (
             "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ)
