@@ -91,6 +91,7 @@ class Ctx:
     findings: dict[str, Finding] = field(default_factory=dict)
     fix: dict[str, Any] = field(default_factory=dict)
     cleanups: list[tuple[str, Callable[[], None]]] = field(default_factory=list)
+    restore_errors: list[str] = field(default_factory=list)
 
     def finding(self, id: str, question: str) -> Finding:
         return self.findings.setdefault(id, Finding(id, question))
@@ -143,14 +144,14 @@ def get_table(ctx: Ctx, fqn: str, fields: str = "columns,tableConstraints,tags")
     return om(ctx, "GET", f"/api/v1/tables/name/{quote(fqn)}", params={"fields": fields})
 
 
-def run_crawl(ctx: Ctx, label: str) -> str:
+def run_crawl(ctx: Ctx, label: str) -> tuple[bool, str]:
     """The OLF-owned Trino crawl (ADR 0007 D15), exactly as `olf infra openmetadata deploy-metadata` runs it."""
     started = time.monotonic()
     try:
         _ingestion.run_trino_ingestion(cfg_environ(ctx.cfg), namespace=ctx.cfg.platform_namespace, service=ctx.service)
     except k8s.KubectlError as exc:
-        return f"crawl {label} FAILED: {JWT.sub('***', str(exc))[-600:]}"
-    return f"crawl {label} ok in {time.monotonic() - started:.0f}s"
+        return False, f"crawl {label} FAILED: {JWT.sub('***', str(exc))[-600:]}"
+    return True, f"crawl {label} ok in {time.monotonic() - started:.0f}s"
 
 
 def job_namespace(ctx: Ctx) -> str:
@@ -186,20 +187,23 @@ def run_in_ingestion_image(ctx: Ctx, name: str, code: str, *, timeout: int = 300
             ],
         },
     }
-    kubectl(ctx.cfg, ["delete", "pod", name, "-n", namespace, "--ignore-not-found"], capture=True)
-    kubectl(ctx.cfg, ["apply", "-f", "-"], capture=True, input_text=json.dumps(pod))
+    delete = ["delete", "pod", name, "-n", namespace, "--ignore-not-found"]
+    kubectl(ctx.cfg, delete, capture=True)
     phase = ""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline and phase not in ("Succeeded", "Failed"):
-        time.sleep(4)
-        try:
-            phase = kubectl(
-                ctx.cfg, ["get", "pod", name, "-n", namespace, "-o", "jsonpath={.status.phase}"], capture=True
-            ).strip()
-        except E2EError:
-            continue
-    logs = kubectl(ctx.cfg, ["logs", name, "-n", namespace], capture=True)
-    kubectl(ctx.cfg, ["delete", "pod", name, "-n", namespace, "--ignore-not-found", "--wait=false"], capture=True)
+    try:
+        kubectl(ctx.cfg, ["apply", "-f", "-"], capture=True, input_text=json.dumps(pod))
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and phase not in ("Succeeded", "Failed"):
+            time.sleep(4)
+            try:
+                phase = kubectl(
+                    ctx.cfg, ["get", "pod", name, "-n", namespace, "-o", "jsonpath={.status.phase}"], capture=True
+                ).strip()
+            except E2EError:
+                continue
+        logs = kubectl(ctx.cfg, ["logs", name, "-n", namespace], capture=True)
+    finally:
+        kubectl(ctx.cfg, [*delete, "--wait=false"], capture=True)
     return phase == "Succeeded", JWT.sub("***", logs)
 
 
@@ -314,7 +318,12 @@ def setup(ctx: Ctx) -> None:
         raise E2EError(f"need two crawled Gold tables with two columns in {ctx.database_fqn}; found {len(tables)}")
     ctx.fix["table_a"], ctx.fix["table_b"] = tables[0], tables[1]
     ctx.fix["originals"] = {
-        t["id"]: {"constraints": t.get("tableConstraints"), "columns": t["columns"]} for t in tables[:2]
+        t["id"]: {
+            "constraints": t.get("tableConstraints"),
+            "columns": t["columns"],
+            "description": t.get("description"),
+        }
+        for t in tables[:2]
     }
 
 
@@ -330,6 +339,16 @@ def stored(ctx: Ctx, kind: str, entity_id: str, name: str) -> Any:
     return (read(ctx, kind, entity_id, READ_FIELDS[kind]).data or {}).get(name)
 
 
+def same(got: Any, want: Any) -> bool:
+    """Whether the server's read-back carries `want`: entity references may come back expanded, so a wanted dict is
+    matched as a subset and a wanted list element by element."""
+    if isinstance(want, dict) and isinstance(got, dict):
+        return all(same(got.get(k), v) for k, v in want.items())
+    if isinstance(want, list) and isinstance(got, list):
+        return len(want) == len(got) and all(any(same(g, w) for g in got) for w in want)
+    return got == want
+
+
 def try_candidates(
     ctx: Ctx, id: str, question: str, kind: str, entity_id: str, name: str, candidates: list[Any]
 ) -> Finding:
@@ -339,11 +358,11 @@ def try_candidates(
     for value in candidates:
         r = patch(ctx, kind, entity_id, add(f"/{name}", value))
         got = stored(ctx, kind, entity_id, name) if r.ok else None
-        attempts.append({"payload": value, "result": r.brief(), "read_back": got})
-        if r.ok and got not in (None, [], {}):
+        attempts.append({"payload": value, "result": r.brief(), "ok": r.ok, "read_back": got})
+        if r.ok and same(got, value):
             f.verdict, f.payload, f.response = "ACCEPTED", {"op": "add", "path": f"/{name}", "value": value}, attempts
             return f
-    ignored = any(a["result"] == "HTTP 200" for a in attempts)
+    ignored = any(a["ok"] for a in attempts)
     f.verdict = "IGNORED" if ignored else "REFUSED"
     f.detail = "every candidate shape was tried; see response"
     f.payload, f.response = candidates, attempts
@@ -390,6 +409,9 @@ def probe_lifecycle(ctx: Ctx) -> None:
         )
     except Exception as exc:  # noqa: BLE001 - evidence only
         attempts.append({"step": "governance workflow definitions", "result": f"error {exc}"})
+    after = (read(ctx, "dataProducts", product["id"], "").data or {}).get("lifecycleStage")
+    time.sleep(20)  # a lifecycle workflow, if one is active, runs on the update event within seconds
+    later = (read(ctx, "dataProducts", product["id"], "").data or {}).get("lifecycleStage")
     replaced = patch(
         ctx, "dataProducts", product["id"], {"op": "replace", "path": "/lifecycleStage", "value": "TESTING"}
     )
@@ -400,9 +422,6 @@ def probe_lifecycle(ctx: Ctx) -> None:
             "read_back": (read(ctx, "dataProducts", product["id"], "").data or {}).get("lifecycleStage"),
         }
     )
-    after = (read(ctx, "dataProducts", product["id"], "").data or {}).get("lifecycleStage")
-    time.sleep(20)  # a lifecycle workflow, if one is active, runs on the update event within seconds
-    later = (read(ctx, "dataProducts", product["id"], "").data or {}).get("lifecycleStage")
     second = patch(ctx, "dataProducts", product["id"], add("/lifecycleStage", "DEPRECATED"))
     again = (read(ctx, "dataProducts", product["id"], "").data or {}).get("lifecycleStage")
     attempts.append({"step": "PATCH again to DEPRECATED", "result": second.brief(), "read_back": again})
@@ -826,7 +845,9 @@ def profile_target(ctx: Ctx) -> dict[str, Any]:
     )
     if not created[1]["ok"]:
         raise E2EError(f"cannot create the profile table: {created[1]['output']}")
-    run_crawl(ctx, "P")
+    crawled, text = run_crawl(ctx, "P")
+    if not crawled:
+        raise E2EError(text)
     row = get_table(ctx, fqn, "columns")
     if not row.ok:
         raise E2EError(f"the crawl did not register {fqn}: {row.brief()}")
@@ -882,7 +903,14 @@ def probe_profile(ctx: Ctx) -> None:
 def probe_override_crawl(ctx: Ctx) -> None:
     f = ctx.finding("5b", "Crawl with overrideMetadata: refreshes descriptions, and what else it overwrites")
     workflow = _ingestion.ingestion_config(cfg_environ(ctx.cfg), service=ctx.service, om_api=om_api(ctx))
-    workflow["source"]["sourceConfig"]["config"]["overrideMetadata"] = True
+    # Only tables with a restoration snapshot (the two patched Gold tables) and the probe's own table: a catalog-wide
+    # override crawl would rewrite the description of every table whose Trino comment differs.
+    targets = [ctx.fix[k]["fullyQualifiedName"] for k in ("table_a", "table_b")]
+    targets.append(table_fqn(ctx, ctx.fix["probe_schema"], TRINO_TABLE))
+    config_ = workflow["source"]["sourceConfig"]["config"]
+    config_["overrideMetadata"] = True
+    config_["useFqnForFiltering"] = True
+    config_["tableFilterPattern"] = {"includes": [f"^{re.escape(fqn)}$" for fqn in targets]}
     outcome, logs = run_workflow(ctx, f"{P}-override-crawl", workflow, "ingest")
     row = get_table(ctx, table_fqn(ctx, ctx.fix["probe_schema"], TRINO_TABLE), "columns").data or {}
     columns = {c["name"]: c.get("description") for c in row.get("columns") or []}
@@ -917,28 +945,40 @@ def probe_override_crawl(ctx: Ctx) -> None:
 
 
 def restore(ctx: Ctx) -> None:
-    """Put the two patched Gold tables back as they were crawled."""
+    """Put the two patched Gold tables back as they were crawled; every failure is recorded, none stops the rest."""
     for key in ("table_a", "table_b"):
         table = ctx.fix.get(key)
         if not table:
             continue
-        original = ctx.fix["originals"][table["id"]]
-        ops: list[dict[str, Any]] = [{"op": "remove", "path": "/tableConstraints"}]
-        if original["constraints"]:
-            ops = [add("/tableConstraints", original["constraints"])]
-        current = (
-            om(ctx, "GET", f"/api/v1/tables/{table['id']}", params={"fields": "columns,tableConstraints"}).data or {}
-        )
-        if not current.get("tableConstraints") and not original["constraints"]:
-            ops = []
-        for index, column in enumerate(original["columns"][:2]):
-            ops.append(add(f"/columns/{index}/tags", column.get("tags") or []))
-            if column.get("description"):
-                ops.append(add(f"/columns/{index}/description", column["description"]))
-            elif index < len(current.get("columns") or []) and current["columns"][index].get("description"):
-                ops.append({"op": "remove", "path": f"/columns/{index}/description"})
-        if ops:
-            patch(ctx, "tables", table["id"], *ops)
+        try:
+            original = ctx.fix["originals"][table["id"]]
+            current = (
+                om(ctx, "GET", f"/api/v1/tables/{table['id']}", params={"fields": "columns,tableConstraints,tags"}).data
+                or {}
+            )
+            ops: list[dict[str, Any]] = []
+            if original["constraints"]:
+                ops.append(add("/tableConstraints", original["constraints"]))
+            elif current.get("tableConstraints"):
+                ops.append({"op": "remove", "path": "/tableConstraints"})
+            if original["description"] and current.get("description") != original["description"]:
+                ops.append(add("/description", original["description"]))
+            now = current.get("columns") or []
+            for index, column in enumerate(original["columns"]):
+                if index >= len(now):
+                    break
+                if (now[index].get("tags") or []) != (column.get("tags") or []):
+                    ops.append(add(f"/columns/{index}/tags", column.get("tags") or []))
+                if column.get("description") and now[index].get("description") != column["description"]:
+                    ops.append(add(f"/columns/{index}/description", column["description"]))
+                elif not column.get("description") and now[index].get("description"):
+                    ops.append({"op": "remove", "path": f"/columns/{index}/description"})
+            if ops:
+                done = patch(ctx, "tables", table["id"], *ops)
+                if not done.ok:
+                    ctx.restore_errors.append(f"{table['fullyQualifiedName']}: {done.brief()}")
+        except Exception as exc:  # noqa: BLE001 - the other table and the cleanup still need to run
+            ctx.restore_errors.append(f"{key}: {JWT.sub('***', str(exc))[:200]}")
 
 
 def guarded(ctx: Ctx, ids: tuple[str, ...], step: Callable[[Ctx], None]) -> None:
@@ -971,23 +1011,26 @@ def run_probe(ctx: Ctx) -> None:
     guarded(ctx, ("S",), probe_schemas)
     # The suite builds the Gold tables after activation; OpenMetadata learns of them only at the next crawl, and the
     # hourly CronJob may not have run since.
-    ctx.finding("C", "Gold tables reach OpenMetadata only through a crawl after the pipelines run").note(
-        run_crawl(ctx, "0")
-    )
-    ctx.findings["C"].verdict = "RECORDED"
+    ok, text = run_crawl(ctx, "0")
+    crawl = ctx.finding("C", "Gold tables reach OpenMetadata only through a crawl after the pipelines run")
+    crawl.note(text)
+    crawl.verdict = "RECORDED" if ok else "ERROR"
     setup(ctx)
     guarded(ctx, ("1",), probe_lifecycle)
     guarded(ctx, ("2a", "2b", "2c", "2d", "2e", "2f", "2g"), probe_native_fields)
     guarded(ctx, ("3", "3b"), probe_metric)
     guarded(ctx, ("5",), probe_trino_comments)
     guarded(ctx, ("4", "6"), apply_constraints_and_tags)
-    first = run_crawl(ctx, "A")
+    crawled_a, first = run_crawl(ctx, "A")
     for id in ("4", "5", "6"):
         if id in ctx.findings:
             ctx.findings[id].note(first)
-    guarded(ctx, ("4", "6"), lambda c: verify_after_crawl(c, "crawl A"))
-    guarded(ctx, ("5",), lambda c: verify_descriptions(c, "crawl A", "probe table comment", "probe id comment"))
-    if "5" in ctx.findings and ctx.fix.get("probe_schema"):
+            if not crawled_a:
+                ctx.findings[id].verdict = "INCONCLUSIVE"
+    if crawled_a:
+        guarded(ctx, ("4", "6"), lambda c: verify_after_crawl(c, "crawl A"))
+        guarded(ctx, ("5",), lambda c: verify_descriptions(c, "crawl A", "probe table comment", "probe id comment"))
+    if crawled_a and "5" in ctx.findings and ctx.fix.get("probe_schema"):
         t = f"{ctx.catalog}.{ctx.fix['probe_schema']}.{TRINO_TABLE}"
         fqn = table_fqn(ctx, ctx.fix["probe_schema"], TRINO_TABLE)
         human = patch(
@@ -998,18 +1041,20 @@ def run_probe(ctx: Ctx) -> None:
             trino_try(ctx, f"COMMENT ON TABLE {t} IS 'probe table comment v2'"),
             trino_try(ctx, f"COMMENT ON COLUMN {t}.id IS 'probe id comment v2'"),
         ]
-        ctx.findings["5"].note(run_crawl(ctx, "B"))
-        guarded(
-            ctx,
-            ("5",),
-            lambda c: verify_descriptions(
-                c,
-                "crawl B (Trino comments now v2, id column edited by a human)",
-                "probe table comment v2",
-                "probe id comment v2",
-            ),
-        )
-        guarded(ctx, ("4", "6"), lambda c: verify_after_crawl(c, "crawl B"))
+        crawled_b, second = run_crawl(ctx, "B")
+        ctx.findings["5"].note(second)
+        if crawled_b:
+            guarded(
+                ctx,
+                ("5",),
+                lambda c: verify_descriptions(
+                    c,
+                    "crawl B (Trino comments now v2, id column edited by a human)",
+                    "probe table comment v2",
+                    "probe id comment v2",
+                ),
+            )
+            guarded(ctx, ("4", "6"), lambda c: verify_after_crawl(c, "crawl B"))
     guarded(ctx, ("5b",), probe_override_crawl)
     guarded(ctx, ("7",), probe_profile)
 
@@ -1065,6 +1110,10 @@ def main() -> int:
                 ctx.findings["H"].detail = harness_error
             finally:
                 restore(ctx)
+                if ctx.restore_errors:
+                    harness_error = harness_error or "the Gold tables were not restored"
+                    ctx.finding("R", "The patched Gold tables were restored").verdict = "ERROR"
+                    ctx.findings["R"].detail = "; ".join(ctx.restore_errors)
                 for name, undo in reversed(ctx.cleanups):
                     try:
                         undo()

@@ -189,9 +189,12 @@ descriptions current the crawl needs `overrideMetadata: true`, at the price
 that Trino's comment then wins over a human edit of that description;
 nothing else the probe set was overwritten. Without it, the fallback is to
 write the descriptions through the OpenMetadata API from the dbt manifest.
-The `overrideMetadata` crawl touches every table of the catalog (46
-records updated in the probe's run), so its effect on other human edits was
-checked only for the three kinds above.
+The `overrideMetadata` crawl in the measured runs was catalog-wide (46
+records updated), so its effect on other tables was not recorded beyond the
+three kinds above; the probe now restricts it to the tables it can restore
+(`tableFilterPattern` with `useFqnForFiltering`). A catalog-wide
+`overrideMetadata` crawl in a real deployment would replace every human
+description whose Trino comment differs.
 
 ## 6. Glossary tags on columns
 

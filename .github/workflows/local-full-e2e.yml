@@ -516,6 +516,7 @@ jobs:
           e2e-checks: ${{ inputs.checks == 'none' && 'core' || inputs.checks || 'all' }}
 
       - name: OpenMetadata governance probe (DEV)
+        id: governance_probe
         # A refused or ignored write is a verdict the probe reports, not a failure, so a probe that cannot
         # finish must not stop the rest of the job: continue-on-error, and the summary says what happened.
         if: (inputs.suite || 'full') != 'smoke' && inputs.governance_probe && inputs.checks != 'none'
@@ -532,6 +533,17 @@ jobs:
           "$(uv tool dir)/openlakeforge/bin/python" "${GITHUB_WORKSPACE}/docs/testing/openmetadata_governance_probe.py" \
             -f "${PROJECT_DIR}/openlakeforge.yaml" --stage dev --json "${out}/probe.json" \
             --summary "${GITHUB_STEP_SUMMARY}" | tee "${out}/probe.log"
+
+      - name: Report a failed governance probe
+        # continue-on-error keeps the job green, so say in the run summary when the probe itself did not finish.
+        if: always() && steps.governance_probe.outcome == 'failure'
+        run: |
+          {
+            echo "### OpenMetadata governance probe"
+            echo ""
+            echo "**The probe did not finish** (step outcome: failure). Its results, if any, are in the"
+            echo "governance-probe-${{ github.run_id }} artifact and the step log; do not read a missing table as a pass."
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload the governance probe results
         if: always() && (inputs.suite || 'full') != 'smoke' && inputs.governance_probe && inputs.checks != 'none'
