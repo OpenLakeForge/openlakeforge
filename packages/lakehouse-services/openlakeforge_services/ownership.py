@@ -23,6 +23,7 @@ MARKER_DESCRIPTION = "Set by OpenLakeForge: the Git revision that last reconcile
 # OpenMetadata keys custom properties by entity type name, not collection.
 MARKED_ENTITY_TYPES = ("domain", "dataProduct", "databaseSchema", "table", "container")
 _MARKER_PREFIX = "git:"
+_MERGED_FIELDS = ("extension", "sla")
 
 
 def marker_value(revision: str) -> str:
@@ -53,19 +54,20 @@ def _same(current: Any, wanted: Any) -> bool:
 def patch_operations(current: Mapping[str, Any], desired: Mapping[str, Any]) -> list[dict[str, Any]]:
     """RFC 6902 operations that bring `current` to `desired` on the fields `desired` names; none when equal.
 
-    `extension` is merged key by key so a custom property a person set survives. An empty wanted value on an
+    `extension` and `sla` are merged key by key, so a custom property or an SLA field a person set (the SLA also
+    holds `availability` and `responseTime`, which OLF does not declare) survives. An empty wanted value on an
     absent field is no difference: OpenMetadata omits empty fields from what it returns, so writing one would
     repeat on every deploy.
     """
     operations: list[dict[str, Any]] = []
     for field, wanted in desired.items():
         have = current.get(field)
-        if field == "extension" and isinstance(have, Mapping):
+        if field in _MERGED_FIELDS and isinstance(have, Mapping):
             for key, value in wanted.items():
                 if key not in have:
-                    operations.append({"op": "add", "path": f"/extension/{key}", "value": value})
+                    operations.append({"op": "add", "path": f"/{field}/{key}", "value": value})
                 elif have[key] != value:
-                    operations.append({"op": "replace", "path": f"/extension/{key}", "value": value})
+                    operations.append({"op": "replace", "path": f"/{field}/{key}", "value": value})
         elif _is_empty(have):
             if not _is_empty(wanted):
                 operations.append({"op": "add", "path": f"/{field}", "value": wanted})

@@ -10,6 +10,17 @@ domains:
         description: Curated revenue, channel, discount, and product margin marts for Sales.
         lifecycle: DEVELOPMENT
         glossaryTerms: [sales.NetRevenue, sales.GrossRevenue]
+        # Demo values, set to fit the daily 02:00 UTC cadence in pipelines/products.py; not a real commitment.
+        sla:
+          tier: GOLD
+          freshness:
+            maximumAge: PT27H
+            readyBy: "06:00"
+            timezone: Europe/Paris
+          availability:
+            schedule: "0 2 * * *"
+            gracePeriod: PT1H
+          minimumQualityScore: 95
       - id: customer_health
         displayName: Sales Customer Health
         description: Curated customer health, churn risk, support SLA, and NPS marts for Sales.
@@ -21,6 +32,11 @@ domains:
         tier: Tier1
         lifecycle: DEVELOPMENT
         classification: Internal
+        # Demo values, set to fit the daily 01:30 UTC cadence in pipelines/products.py; not a real commitment.
+        sla:
+          tier: SILVER
+          freshness:
+            maximumAge: PT26H
   - name: supply_chain
     displayName: Supply Chain
     description: Supply Chain proof-of-concept domain for inventory and supplier reliability analytics.

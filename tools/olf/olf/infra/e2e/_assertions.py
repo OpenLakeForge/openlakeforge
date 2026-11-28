@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from openlakeforge_core import LakehouseInventory
+from openlakeforge_core import LakehouseInventory, ProductSla
 from openlakeforge_services import reports
 from openlakeforge_services.base import ServiceClientError
+from openlakeforge_services.governance import FRESHNESS_POLICY_PROPERTY, freshness_policy, sla_payload
 from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError
 from openlakeforge_services.superset import SupersetClient
 
@@ -352,6 +353,40 @@ def assert_openmetadata_assets(client: OpenMetadataClient, inventory: LakehouseI
     for product, candidates in inventory.openmetadata_data_products.items():
         if not _first_existing_data_product(client, candidates):
             raise E2EError(f"missing OpenMetadata data product {product}")
+
+
+def sla_mismatches(product_id: str, entity: Mapping[str, Any], sla: ProductSla) -> list[str]:
+    """How a data product read from OpenMetadata differs from the SLA its descriptor declares; empty when it matches."""
+    problems = [
+        f"{product_id}: sla.{key} is {(entity.get('sla') or {}).get(key)!r}, declared {value!r}"
+        for key, value in sla_payload(sla)["sla"].items()
+        if (entity.get("sla") or {}).get(key) != value
+    ]
+    policy = freshness_policy(sla)
+    if policy and (entity.get("extension") or {}).get(FRESHNESS_POLICY_PROPERTY) != policy:
+        problems.append(f"{product_id}: extension {FRESHNESS_POLICY_PROPERTY} is not the declared policy {policy}")
+    return problems
+
+
+def check_openmetadata_product_sla(cfg: E2EConfig) -> None:
+    """Each product that declares an `sla` shows it natively in OpenMetadata, with the rest in the policy extension."""
+    declared = [(product.id, product.sla) for product in cfg.inventory.products if product.sla]
+    if not declared:
+        log.info("No product declares an sla; nothing to check in OpenMetadata.")
+        return
+    log.step("Checking the SLA of each data product in OpenMetadata...")
+    problems: list[str] = []
+    with openmetadata_client(cfg) as (client, token):
+        _openmetadata_e2e_login(
+            client,
+            "" if token else admin_password(cfg.platform_namespace, kube_context=cfg.kube_context, environ=cfg.environ),
+        )
+        for product_id, sla in declared:
+            entity = client.request("GET", f"/api/v1/dataProducts/name/{product_id}", params={"fields": "extension"})
+            problems += sla_mismatches(product_id, entity, sla)
+    if problems:
+        raise E2EError("OpenMetadata does not hold the declared SLA:\n" + "\n".join(problems))
+    log.info(f"{len(declared)} data product SLA(s) match governance.yml.")
 
 
 def _openmetadata_e2e_login(client: OpenMetadataClient, password: str) -> None:

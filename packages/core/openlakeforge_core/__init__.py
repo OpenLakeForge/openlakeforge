@@ -161,6 +161,7 @@ from .semantic import (
     SemanticRelationship,
 )
 from .semantic_validate import load_semantic_inventory
+from .sla import SLA_TIERS, ProductSla, duration_minutes, parse_duration, parse_sla, validate_cron
 
 __all__ = [
     "GLOSSARY_API_VERSION",
@@ -285,6 +286,12 @@ __all__ = [
     "full_refresh_tags",
     "ProductDependencies",
     "ProductDependency",
+    "ProductSla",
+    "SLA_TIERS",
+    "duration_minutes",
+    "parse_duration",
+    "parse_sla",
+    "validate_cron",
     "inventory_for",
     "governance_products",
     "load_governance_descriptor",

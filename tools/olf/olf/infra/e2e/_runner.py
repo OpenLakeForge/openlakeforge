@@ -25,6 +25,7 @@ from olf.infra.e2e._assertions import (
     check_openmetadata_assets,
     check_openmetadata_crawled_descriptions,
     check_openmetadata_drift,
+    check_openmetadata_product_sla,
     check_openmetadata_redeploy_is_idempotent,
     check_superset_dashboards,
 )
@@ -417,6 +418,7 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
         [
             FullAssertion("Superset dashboards", check_superset_dashboards, layer="analytics"),
             FullAssertion("OpenMetadata governance assets", check_openmetadata_assets, layer="governance"),
+            FullAssertion("OpenMetadata product SLA", check_openmetadata_product_sla, layer="governance"),
             FullAssertion(
                 "OpenMetadata redeploy writes nothing", check_openmetadata_redeploy_is_idempotent, layer="governance"
             ),

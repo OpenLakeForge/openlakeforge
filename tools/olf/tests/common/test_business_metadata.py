@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from fake_openmetadata import FakeOpenMetadata
+from openlakeforge_services.governance import MetadataDeployer
 from openlakeforge_services.openmetadata import OpenMetadataError
 from openlakeforge_services.ownership import tag_operations
 from test_metadata_deployer import GOLD, _deployer, _descriptors, _Recorder
@@ -44,7 +45,9 @@ def _fake(*, org_owner: bool = False) -> FakeOpenMetadata:
     return fake
 
 
-def _deploy(root: Path, fake: FakeOpenMetadata, monkeypatch: pytest.MonkeyPatch, revision: str = "rev1") -> None:
+def _deploy(
+    root: Path, fake: FakeOpenMetadata, monkeypatch: pytest.MonkeyPatch, revision: str = "rev1"
+) -> MetadataDeployer:
     paths = _descriptors(root)
     paths[0].write_text(GOVERNANCE)
     model = root / "gold" / "models" / "order_revenue" / "order_revenue.sql"
@@ -55,6 +58,7 @@ def _deploy(root: Path, fake: FakeOpenMetadata, monkeypatch: pytest.MonkeyPatch,
     )
     monkeypatch.setattr(deployer.client, "request", fake.request)
     deployer.deploy()
+    return deployer
 
 
 def _tag_names(entity: dict) -> set[str]:

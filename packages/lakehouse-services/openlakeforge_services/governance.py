@@ -19,9 +19,11 @@ from typing import TYPE_CHECKING, Any
 
 from openlakeforge_core import (
     LakehouseDescriptorError,
+    ProductSla,
     load_governance_lakehouse_document,
     load_lakehouse_inventory_from_descriptors,
     load_source_descriptor,
+    parse_sla,
 )
 
 from .openmetadata import OpenMetadataClient, OpenMetadataError, OpenMetadataTransientError, fqn_part
@@ -42,9 +44,15 @@ if TYPE_CHECKING:
 # terms of use live in custom properties on the data product. See docs/testing/openmetadata-governance-findings.md.
 LIFECYCLE_PROPERTY = "olfLifecycle"
 TERMS_PROPERTY = "olfTermsOfUse"
+FRESHNESS_POLICY_PROPERTY = "olfFreshnessPolicy"
 PRODUCT_PROPERTIES = (
     (LIFECYCLE_PROPERTY, "Lifecycle stage declared in governance.yml; the native lifecycleStage is not writable."),
     (TERMS_PROPERTY, "Terms of use declared in governance.yml, as JSON with `allowed` and `prohibited` lists."),
+    (
+        FRESHNESS_POLICY_PROPERTY,
+        "SLA fields OpenMetadata's DataProduct.sla has no place for (readyBy, timezone, schedule, gracePeriod), "
+        "declared in governance.yml, as JSON.",
+    ),
 )
 SENSITIVITY_CLASSIFICATION = "DataSensitivity"
 SENSITIVITY_DESCRIPTION = (
@@ -100,6 +108,7 @@ class ProductSpec:
     lifecycle: str | None = None
     terms_of_use: Mapping[str, Any] | None = None
     classification: str | None = None
+    sla: ProductSla | None = None
 
 
 @dataclass(frozen=True)
@@ -150,8 +159,47 @@ def _people(
     return {field: [resolved[(ref["type"], ref["ref"])] for ref in refs] for field, refs in named.items() if refs}
 
 
+def sla_payload(sla: ProductSla | None) -> dict[str, Any]:
+    """The native `DataProduct.sla` fields OLF owns. `availability` and `responseTime` are not declared, so they
+    are never written and a person's values stay."""
+    if sla is None:
+        return {}
+    native: dict[str, Any] = {"tier": sla.tier}
+    if sla.maximum_age_minutes is not None:
+        native["dataFreshness"] = sla.maximum_age_minutes
+    if sla.minimum_quality_score is not None:
+        native["dataQuality"] = sla.minimum_quality_score
+    return {"sla": native}
+
+
+def freshness_policy(sla: ProductSla | None) -> str | None:
+    """The declared SLA fields that have no native OpenMetadata home, as stable JSON; None when none are declared."""
+    if sla is None:
+        return None
+    policy = {
+        key: value
+        for key, value in (
+            ("readyBy", sla.ready_by),
+            ("timezone", sla.timezone),
+            ("schedule", sla.schedule),
+            ("gracePeriod", sla.grace_period),
+        )
+        if value
+    }
+    return json.dumps(policy, sort_keys=True) if policy else None
+
+
+def _product_sla(domain: str, product: Mapping[str, Any]) -> ProductSla | None:
+    if "sla" not in product:
+        return None
+    return parse_sla(product["sla"], where=f"governance.yml: domains[{domain}].products[{product['id']}]")
+
+
 def _product_extension(product: ProductSpec) -> dict[str, str]:
     extension = {}
+    policy = freshness_policy(product.sla)
+    if policy:
+        extension[FRESHNESS_POLICY_PROPERTY] = policy
     if product.lifecycle:
         extension[LIFECYCLE_PROPERTY] = product.lifecycle
     if product.terms_of_use:
@@ -715,6 +763,11 @@ class MetadataDeployer:
                     lifecycle=product.get("lifecycle"),
                     terms_of_use=product.get("termsOfUse"),
                     classification=product.get("classification"),
+                    sla=parse_sla(
+                        product["sla"], where=f"governance.yml: domains[{domain['name']}].products[{product['id']}]"
+                    )
+                    if "sla" in product
+                    else None,
                 )
                 for product in domain["products"]
             )
@@ -850,6 +903,7 @@ class MetadataDeployer:
                         **{key: product_body[key] for key in ("displayName", "description")},
                         **({"dataProductType": product.product_type} if product.product_type else {}),
                         **_people(people, product.owner, product.experts, product.reviewers),
+                        **sla_payload(product.sla),
                     },
                     fields="owners,experts,reviewers,tags,extension",
                     extension=_product_extension(product),

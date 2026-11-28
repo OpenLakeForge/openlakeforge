@@ -265,6 +265,12 @@ create them in OpenMetadata first.
 [The descriptors reference](../reference/descriptors.md#what-appears-in-openmetadata)
 lists every field.
 
+A product can also declare how fresh it promises to be, with an `sla` block.
+The deploy publishes it as the data product's native SLA and keeps the fields
+OpenMetadata has no place for in the `olfFreshnessPolicy` custom property. It
+is a promise only: nothing yet reports whether the product keeps it. See
+[Product SLA](../reference/descriptors.md#product-sla).
+
 To record who owns a product and how critical it is, set them on the product
 and run the strict check, which fails for a product that resolves no `owner`,
 `tier` or `lifecycle`:
