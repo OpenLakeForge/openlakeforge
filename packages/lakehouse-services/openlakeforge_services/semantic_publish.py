@@ -250,7 +250,8 @@ class SemanticPublisher:
             fqn = self._table_fqn(table) if table else None
             if fqn and (dataset_name, fqn) not in sources:
                 sources.append((dataset_name, fqn))
-        return _Plan(model, metric, name, create, owned, extension, expression, terms, tuple(sources))
+        # The identity OpenMetadata gives the entity: a name with a dot is quoted inside its FQN.
+        return _Plan(model, metric, fqn_part(name), create, owned, extension, expression, terms, tuple(sources))
 
     def _present_terms(self, plan: _Plan) -> tuple[str, ...]:
         """The plan's glossary terms OpenMetadata holds; a tag naming a missing term would be refused."""
@@ -498,7 +499,7 @@ class SemanticPublisher:
         stage = self._stage
         plans, items = self._plans()
         # Every metric Git declares, resolved or not: one whose product is missing in OpenMetadata is unresolved.
-        declared = {metric_name(metric, stage) for model in self._models for metric in model.metrics}
+        declared = {fqn_part(metric_name(metric, stage)) for model in self._models for metric in model.metrics}
         for plan in plans:
             current = self._reconciler.lookup("metrics", plan.fqn, METRIC_FIELDS)
             if current is None:

@@ -13,7 +13,7 @@ from fake_openmetadata import FakeOpenMetadata
 from openlakeforge_core import SemanticModel, inventory_for
 from openlakeforge_core.semantic import parse_ossie_model
 from openlakeforge_services.governance import MetadataConfig, MetadataReconciler
-from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError, fqn_part
 from openlakeforge_services.progress import SILENT
 from openlakeforge_services.semantic_publish import SemanticPublisher, metric_terms, metric_type
 
@@ -40,6 +40,10 @@ class FakeWithMetrics(FakeOpenMetadata):
         super().__init__()
         self.types["metric"] = {"id": "type-metric", "name": "metric", "customProperties": []}
         self.edges: list[tuple[str, str]] = []
+
+    def _fqn_of(self, collection: str, body: dict) -> str:
+        # 1.13.6 quotes a name that contains a dot inside the entity's FQN.
+        return fqn_part(body["name"]) if collection == "metrics" else super()._fqn_of(collection, body)
 
     def request(self, method: str, path: str, **kwargs: Any) -> Any:
         route = path.partition("?")[0]
@@ -527,3 +531,18 @@ def test_a_foreign_key_to_a_dotted_column_name_is_found_once_the_column_is_crawl
 
     assert publisher._missing_referred({"referredColumns": [f'{dim}."customer.id"']}) is None
     assert publisher._missing_referred({"referredColumns": [f'{dim}."other.id"']}) is not None
+
+
+def test_a_metric_whose_name_has_a_dot_is_found_by_its_quoted_identity(om: FakeWithMetrics) -> None:
+    model = _model()
+    dotted = dataclasses.replace(
+        model, metrics=tuple(dataclasses.replace(m, name=f"sales.{m.name}") for m in model.metrics)
+    )
+
+    _publisher(om, [dotted]).publish()
+    om.calls.clear()
+    _publisher(om, [dotted]).publish()
+
+    assert '"sales.net_revenue_dev"' in om.entities["metrics"]
+    assert om.writes == []
+    assert _publisher(om, [dotted]).drift() == []

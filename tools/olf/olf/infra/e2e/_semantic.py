@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from openlakeforge_core import SemanticMetric, SemanticModel
-from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError
+from openlakeforge_services.openmetadata import OpenMetadataClient, OpenMetadataError, fqn_part
 from openlakeforge_services.semantic_publish import metric_terms, metric_type
 
 from olf.common import config, log
@@ -79,7 +79,7 @@ def _metric_problems(
     tagged: bool,
     product_owners: set[str],
 ) -> list[str]:
-    fqn = f"{declared.name}_{stage}"
+    fqn = fqn_part(f"{declared.name}_{stage}")
     metric = _get(client, "metrics", fqn, _METRIC_FIELDS)
     problems: list[str] = []
     expression = metric.get("metricExpression") or {}
