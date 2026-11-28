@@ -14,6 +14,11 @@ models:
     +database: "{{ env_var('OPENLAKEFORGE_CATALOG_NAME') }}"
     +materialized: table
     +on_table_exists: replace
+    # Descriptions in schema.yml become table and column comments, which Trino DESCRIBE and the OpenMetadata Trino
+    # crawl read; Gold has no other path to them.
+    +persist_docs:
+      relation: true
+      columns: true
     # A definer view is re-read by Polaris without the caller's token (#967).
     +view_security: invoker
     # Another product can ref() a model only once its owner marks it public.
@@ -25,3 +30,5 @@ models:
       +group: inventory_reliability
     order_revenue:
       +group: order_revenue
+    sales_core:
+      +group: sales_core

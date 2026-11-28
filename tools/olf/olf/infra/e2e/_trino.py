@@ -88,6 +88,39 @@ def _check_gold_rows(cfg: E2EConfig, product: Product) -> None:
             raise E2EError(f"expected {catalog}.{prefix}{mart} to contain rows, got {count}")
 
 
+# Gold facts and dimensions are the documented interface, so they must reach Trino with their dbt descriptions
+# (`+persist_docs`). Marts are not held to this by name.
+DOCUMENTED_GOLD_PREFIXES = ("fct_", "dim_")
+
+
+def _check_gold_comments(cfg: E2EConfig, product: Product) -> None:
+    catalog = stage_catalog_name(cfg)
+    schema = f"{_glue_namespace_prefix(cfg)}{product.gold_namespace}"
+    checked: list[str] = []
+    for table in list_tables(cfg, schema):
+        if not table.startswith(DOCUMENTED_GOLD_PREFIXES):
+            continue
+        commented = trino_scalar(
+            cfg,
+            "SELECT count(*) FROM system.metadata.table_comments "
+            f"WHERE catalog_name = '{catalog}' AND schema_name = '{schema}' AND table_name = '{table}' "
+            "AND comment IS NOT NULL AND comment <> ''",
+        )
+        if int(commented) != 1:
+            raise E2EError(f"expected {catalog}.{schema}.{table} to carry a table comment from its dbt description")
+        columns = (
+            f"FROM {catalog}.information_schema.columns WHERE table_schema = '{schema}' AND table_name = '{table}'"
+        )
+        if int(trino_scalar(cfg, f"SELECT count(*) {columns}")) <= 0:
+            raise E2EError(f"Trino lists no columns for {catalog}.{schema}.{table}")
+        bare = int(trino_scalar(cfg, f"SELECT count(*) {columns} AND (comment IS NULL OR comment = '')"))
+        if bare:
+            raise E2EError(f"{bare} column(s) of {catalog}.{schema}.{table} have no comment from their dbt description")
+        checked.append(f"{schema}.{table}")
+    if checked:
+        log.info("Gold comments present: " + ", ".join(checked))
+
+
 def check_trino_tables_and_marts(cfg: E2EConfig) -> None:
     check_trino_catalog(cfg)
     log.step("Checking Silver and Gold tables...")
@@ -95,6 +128,7 @@ def check_trino_tables_and_marts(cfg: E2EConfig) -> None:
         _check_silver_tables(cfg, domain)
     for product in cfg.inventory.products:
         _check_gold_rows(cfg, product)
+        _check_gold_comments(cfg, product)
 
 
 def check_trino_product_tables_and_marts(cfg: E2EConfig, product: Product) -> None:
