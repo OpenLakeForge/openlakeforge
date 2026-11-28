@@ -39,12 +39,15 @@ _MINT = (
 )
 
 
+RESOURCES = {"requests": {"cpu": "250m", "memory": "512Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}}
+
+
 def _polaris(environ: Mapping[str, str]) -> bool:
     return bool(environ.get("OPENLAKEFORGE_CATALOG_TOKEN_URI"))
 
 
-def ingestion_config(environ: Mapping[str, str], *, service: str, om_api: str) -> dict[str, Any]:
-    """The workflow `metadata ingest -c` runs, as the pipeline client generates it."""
+def trino_connection(environ: Mapping[str, str]) -> dict[str, Any]:
+    """The Trino service connection of the crawl and the profiler: one principal, one token."""
     port = environ["OPENLAKEFORGE_QUERY_TRINO_PORT"]
     connection: dict[str, Any] = {
         "type": "Trino",
@@ -56,6 +59,22 @@ def ingestion_config(environ: Mapping[str, str], *, service: str, om_api: str) -
         arguments["extra_credential"] = [["token", _POLARIS_TOKEN_PLACEHOLDER]]
     if arguments:
         connection["connectionArguments"] = arguments
+    return connection
+
+
+def server_config(om_api: str) -> dict[str, Any]:
+    return {
+        "openMetadataServerConfig": {
+            "hostPort": om_api,
+            "authProvider": "openmetadata",
+            "securityConfig": {"jwtToken": _TOKEN_PLACEHOLDER},
+        }
+    }
+
+
+def ingestion_config(environ: Mapping[str, str], *, service: str, om_api: str) -> dict[str, Any]:
+    """The workflow `metadata ingest -c` runs, as the pipeline client generates it."""
+    connection = trino_connection(environ)
     return {
         "source": {
             "type": "trino",
@@ -82,13 +101,7 @@ def ingestion_config(environ: Mapping[str, str], *, service: str, om_api: str) -
             },
         },
         "sink": {"type": "metadata-rest", "config": {}},
-        "workflowConfig": {
-            "openMetadataServerConfig": {
-                "hostPort": om_api,
-                "authProvider": "openmetadata",
-                "securityConfig": {"jwtToken": _TOKEN_PLACEHOLDER},
-            }
-        },
+        "workflowConfig": server_config(om_api),
     }
 
 
@@ -96,21 +109,57 @@ def ingestion_job(
     environ: Mapping[str, str], *, image: str, namespace: str, service: str, om_api: str
 ) -> dict[str, Any]:
     workflow = ingestion_config(environ, service=service, om_api=om_api)
+    return workflow_job(
+        environ,
+        name=JOB_NAME,
+        container="ingest",
+        image=image,
+        namespace=namespace,
+        workflows={"OM_WORKFLOW": workflow},
+        verb="ingest",
+        backoff_limit=1,
+        deadline_seconds=3600,
+    )
+
+
+def workflow_job(
+    environ: Mapping[str, str],
+    *,
+    name: str,
+    container: str,
+    image: str,
+    namespace: str,
+    workflows: Mapping[str, dict[str, Any]],
+    verb: str,
+    backoff_limit: int,
+    deadline_seconds: int,
+) -> dict[str, Any]:
+    """The Job that runs `metadata <verb> -c` on each workflow, with the crawl's pod spec, identity and token minting.
+
+    `workflows` maps the environment variable that carries a workflow to its config; each is written to
+    `/tmp/<name>.yaml` after the bot JWT and the Polaris token are substituted. A single workflow keeps the crawl's
+    one-command shape; several run one after the other, and the Job fails if any of them did.
+    """
     mint = f'POLARIS_JWT=$(python -c "${_MINT_ENV}") && ' if _polaris(environ) else ""
-    container: dict[str, Any] = {
-        "name": "ingest",
+    files = {env: f"/tmp/{env.lower().removeprefix('om_')}.yaml" for env in workflows}
+    writes = " && ".join(
+        f'printf \'%s\' "${env}" | sed -e "s|{_TOKEN_PLACEHOLDER}|${_TOKEN_ENV}|"'
+        + (f' -e "s|{_POLARIS_TOKEN_PLACEHOLDER}|$POLARIS_JWT|"' if mint else "")
+        + f" > {file}"
+        for env, file in files.items()
+    )
+    if len(files) == 1:
+        runs = f"metadata {verb} -c {next(iter(files.values()))}"
+    else:
+        runs = "rc=0; " + "; ".join(f"metadata {verb} -c {file} || rc=1" for file in files.values()) + "; exit $rc"
+    pod_container: dict[str, Any] = {
+        "name": container,
         "image": image,
         # The pipeline client's values (openmetadata.yaml); without them the pod is BestEffort.
-        "resources": {"requests": {"cpu": "250m", "memory": "512Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}},
-        "command": [
-            "sh",
-            "-c",
-            f'{mint}printf \'%s\' "$OM_WORKFLOW" | sed -e "s|{_TOKEN_PLACEHOLDER}|${_TOKEN_ENV}|"'
-            + (f' -e "s|{_POLARIS_TOKEN_PLACEHOLDER}|$POLARIS_JWT|"' if mint else "")
-            + " > /tmp/workflow.yaml && metadata ingest -c /tmp/workflow.yaml",
-        ],
+        "resources": RESOURCES,
+        "command": ["sh", "-c", f"{mint}{writes} && {runs}"],
         "env": [
-            {"name": "OM_WORKFLOW", "value": yaml.safe_dump(workflow)},
+            *({"name": env, "value": yaml.safe_dump(workflow)} for env, workflow in workflows.items()),
             {
                 "name": _TOKEN_ENV,
                 "valueFrom": {
@@ -124,30 +173,30 @@ def ingestion_job(
     }
     if mint:
         scope = environ.get("OPENLAKEFORGE_CATALOG_OAUTH_SCOPE") or "PRINCIPAL_ROLE:ALL"
-        container["env"] += [
+        pod_container["env"] += [
             {"name": _MINT_ENV, "value": _MINT},
             {"name": "POLARIS_TOKEN_URI", "value": environ["OPENLAKEFORGE_CATALOG_TOKEN_URI"]},
             {"name": "POLARIS_SCOPE", "value": scope},
         ]
-        for name in ("CLIENT_ID", "CLIENT_SECRET"):
-            ref = {"secretKeyRef": {"name": POLARIS_SECRET, "key": f"POLARIS_OM_{name}"}}
-            container["env"].append({"name": f"POLARIS_{name}", "valueFrom": ref})
-    pod: dict[str, Any] = {"restartPolicy": "Never", "containers": [container]}
-    labels = {"openlakeforge.io/job": JOB_NAME}
+        for key in ("CLIENT_ID", "CLIENT_SECRET"):
+            ref = {"secretKeyRef": {"name": POLARIS_SECRET, "key": f"POLARIS_OM_{key}"}}
+            pod_container["env"].append({"name": f"POLARIS_{key}", "valueFrom": ref})
+    pod: dict[str, Any] = {"restartPolicy": "Never", "containers": [pod_container]}
+    labels = {"openlakeforge.io/job": name}
     return {
         "apiVersion": "batch/v1",
         "kind": "Job",
-        "metadata": {"name": JOB_NAME, "namespace": namespace, "labels": labels},
+        "metadata": {"name": name, "namespace": namespace, "labels": labels},
         "spec": {
-            "backoffLimit": 1,
-            "activeDeadlineSeconds": 3600,
+            "backoffLimit": backoff_limit,
+            "activeDeadlineSeconds": deadline_seconds,
             "ttlSecondsAfterFinished": 3600,
             "template": {"metadata": {"labels": labels}, "spec": pod},
         },
     }
 
 
-def ingestion_cronjob(job: dict[str, Any], *, catalog: str) -> dict[str, Any]:
+def ingestion_cronjob(job: dict[str, Any], *, catalog: str, schedule: str = REFRESH_SCHEDULE) -> dict[str, Any]:
     """The hourly refresh: `job`'s pod, spec and labels, so the two cannot diverge.
 
     Built here rather than in Terraform so the workflow config exists once; the
@@ -158,9 +207,9 @@ def ingestion_cronjob(job: dict[str, Any], *, catalog: str) -> dict[str, Any]:
     return {
         "apiVersion": "batch/v1",
         "kind": "CronJob",
-        "metadata": {**job["metadata"], "name": f"{JOB_NAME}-{catalog.replace('_', '-')}"},
+        "metadata": {**job["metadata"], "name": f"{job['metadata']['name']}-{catalog.replace('_', '-')}"},
         "spec": {
-            "schedule": REFRESH_SCHEDULE,
+            "schedule": schedule,
             "concurrencyPolicy": "Forbid",
             "successfulJobsHistoryLimit": 3,
             "failedJobsHistoryLimit": 3,
@@ -169,7 +218,7 @@ def ingestion_cronjob(job: dict[str, Any], *, catalog: str) -> dict[str, Any]:
     }
 
 
-def _copy_polaris_secret(source: str, target: str, *, environ: Mapping[str, str]) -> None:
+def copy_polaris_secret(source: str, target: str, *, environ: Mapping[str, str]) -> None:
     """The `openmetadata` principal's Secret lives with Polaris; a secretKeyRef cannot cross namespaces."""
     if source == target:
         return
@@ -181,23 +230,31 @@ def _copy_polaris_secret(source: str, target: str, *, environ: Mapping[str, str]
     k8s.write_secret(POLARIS_SECRET, target, values, overwrite=False, environ=environ)
 
 
-def run_trino_ingestion(environ: Mapping[str, str], *, namespace: str, service: str) -> None:
+def ingestion_image(environ: Mapping[str, str]) -> str:
     catalog = yaml.safe_load((config.distribution_root(environ=environ) / "release/component-catalog.yaml").read_text())
-    # `namespace` is OpenMetadata's. The Job runs beside the stage's coordinator, where the `openmetadata`
-    # principal's Secret is (a secretKeyRef cannot cross namespaces), so OpenMetadata is addressed with its own.
-    om_host = (
+    return str(catalog["components"]["images"]["openmetadata_ingestion"])
+
+
+def om_api_url(environ: Mapping[str, str], namespace: str) -> str:
+    """`namespace` is OpenMetadata's. The Jobs run beside the stage's coordinator, where the `openmetadata`
+    principal's Secret is (a secretKeyRef cannot cross namespaces), so OpenMetadata is addressed with its own."""
+    host = (
         f"{config.env('OPENMETADATA_SERVICE', 'openmetadata', environ=environ)}.{namespace}:"
         f"{config.env('OPENMETADATA_SERVICE_PORT', '8585', environ=environ)}"
     )
+    return f"http://{host}/api"
+
+
+def run_trino_ingestion(environ: Mapping[str, str], *, namespace: str, service: str) -> None:
     job_namespace = trino.service_namespace(environ, namespace)
     if _polaris(environ):
-        _copy_polaris_secret(namespace, job_namespace, environ=environ)
+        copy_polaris_secret(namespace, job_namespace, environ=environ)
     job = ingestion_job(
         environ,
-        image=catalog["components"]["images"]["openmetadata_ingestion"],
+        image=ingestion_image(environ),
         namespace=job_namespace,
         service=service,
-        om_api=f"http://{om_host}/api",
+        om_api=om_api_url(environ, namespace),
     )
     # Applied first so the schedule survives a failed first crawl.
     k8s.apply_manifest(ingestion_cronjob(job, catalog=environ["OPENLAKEFORGE_CATALOG_NAME"]), environ=environ)

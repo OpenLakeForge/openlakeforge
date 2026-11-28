@@ -182,9 +182,17 @@ description edited in OpenMetadata. Glossary tags, table constraints and the
 columns a comment does not describe are left alone (probe,
 `docs/testing/openmetadata-governance-findings.md` section 5). OpenMetadata registers no
 ingestion pipeline for the lakehouse service, and the Job and its credential
-are revoked from a stage that drops governance. Enforced by:
-`run_trino_ingestion` in `tools/olf/olf/infra/openmetadata/_ingestion.py` and
-`tools/olf/tests/infra/test_openmetadata_ingestion.py`.
+are revoked from a stage that drops governance. The profiler is the crawl's
+sibling: the Job `openmetadata-trino-profiler` and a daily CronJob per governed
+stage, from the same pod spec and credentials, running `metadata profile` for
+the products that set `profiling.enabled` (#1465). It profiles only the Gold
+facts and dimensions of those products, with the metrics their classification
+allows, and a failure is a warning that leaves statistics stale, never a failed
+deploy. Its output is time-series data in OpenMetadata, separate from the entity
+fields the reconciler owns (D4). Enforced by: `run_trino_ingestion` in
+`tools/olf/olf/infra/openmetadata/_ingestion.py`, `run_trino_profiling` in
+`_profiler.py`, `tools/olf/tests/infra/test_openmetadata_ingestion.py` and
+`test_openmetadata_profiler.py`.
 
 ## Consequences
 
@@ -260,3 +268,5 @@ are revoked from a stage that drops governance. Enforced by:
 - 2026-11-28: D15 sets `overrideMetadata` on the crawl, so dbt owns table and
   column descriptions; before, a description changed only on a table's first
   crawl.
+- 2026-11-28 (#1465): D15 adds the policy-gated profiler Job and CronJob; the
+  profile is optional and its failure never blocks a deploy.

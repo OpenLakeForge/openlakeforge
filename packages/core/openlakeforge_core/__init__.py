@@ -141,10 +141,14 @@ from .inventory import (
 )
 from .product_dependencies import ProductDependencies, ProductDependency, scan_product_dependencies
 from .profiling import (
+    PROFILING_CRON,
     PROFILING_METRICS_COUNTS,
     PROFILING_METRICS_VALUES,
+    PROFILING_PERIOD,
     PROFILING_ROLES,
+    PROFILING_STALE_SLACK,
     ProfilingTarget,
+    profile_is_stale,
     profiling_conflicts,
     profiling_metrics,
     resolve_profiling,
@@ -306,6 +310,10 @@ __all__ = [
     "load_lakehouse_inventory_from_descriptors",
     "load_transitional_lakehouse_inventory",
     "scan_gold_roles",
+    "PROFILING_CRON",
+    "PROFILING_PERIOD",
+    "PROFILING_STALE_SLACK",
+    "profile_is_stale",
     "PROFILING_METRICS_COUNTS",
     "PROFILING_METRICS_VALUES",
     "PROFILING_ROLES",

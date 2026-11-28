@@ -9,17 +9,22 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .governance import resolve_product
 from .inventory import Product
 
 __all__ = [
+    "PROFILING_CRON",
+    "PROFILING_PERIOD",
+    "PROFILING_STALE_SLACK",
     "PROFILING_METRICS_COUNTS",
     "PROFILING_METRICS_VALUES",
     "PROFILING_ROLES",
     "ProfilingTarget",
     "profiling_conflicts",
+    "profile_is_stale",
     "profiling_metrics",
     "resolve_profiling",
 ]
@@ -29,6 +34,11 @@ PROFILING_METRICS_COUNTS = ("rowCount", "valuesCount", "nullCount", "nullProport
 # `min` and `max` are real column values for numeric and date columns (lengths for varchar), so only the
 # classifications that allow values may request them.
 PROFILING_METRICS_VALUES = ("min", "max", "mean")
+# The daily refresh, UTC. Product cadences end by 03:00 (lakehouse_code/pipelines/products.py), so the profile reads
+# the day's tables; the slack covers a run that starts late or a crawl that has to precede it.
+PROFILING_CRON = "30 4 * * *"
+PROFILING_PERIOD = timedelta(hours=24)
+PROFILING_STALE_SLACK = timedelta(hours=6)
 _VALUE_CLASSIFICATIONS = ("Public", "Internal")
 _COUNT_CLASSIFICATIONS = ("Confidential",)
 
@@ -85,3 +95,15 @@ def resolve_profiling(
         if tables:
             targets.append(ProfilingTarget(product.id, product.gold_namespace, tables, metrics))
     return tuple(targets)
+
+
+def profile_is_stale(timestamp_ms: int | float | None, *, now: datetime | None = None) -> bool:
+    """A profile is stale when it is absent or older than the refresh period plus its slack.
+
+    A failed or overdue profiler run leaves the last profile in place, so age is the only signal a reader has:
+    statistics past this age must not be presented as current.
+    """
+    if timestamp_ms is None:
+        return True
+    taken = datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC)
+    return (now or datetime.now(UTC)) - taken > PROFILING_PERIOD + PROFILING_STALE_SLACK

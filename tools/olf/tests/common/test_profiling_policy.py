@@ -130,3 +130,19 @@ def test_a_domain_cannot_set_profiling(tmp_path: Path) -> None:
     path.write_text(text, encoding="utf-8")
     with pytest.raises(LakehouseDescriptorError, match="profiling"):
         load_governance_descriptor(path)
+
+
+def test_a_profile_is_stale_when_absent_or_older_than_the_period_plus_slack():
+    from datetime import UTC, datetime, timedelta
+
+    from openlakeforge_core import PROFILING_PERIOD, PROFILING_STALE_SLACK, profile_is_stale
+
+    now = datetime(2026, 11, 28, 12, tzinfo=UTC)
+
+    def at(age: timedelta) -> float:
+        return (now - age).timestamp() * 1000
+
+    assert profile_is_stale(None, now=now)
+    assert not profile_is_stale(at(PROFILING_PERIOD), now=now)
+    assert not profile_is_stale(at(PROFILING_PERIOD + PROFILING_STALE_SLACK), now=now)
+    assert profile_is_stale(at(PROFILING_PERIOD + PROFILING_STALE_SLACK + timedelta(minutes=1)), now=now)

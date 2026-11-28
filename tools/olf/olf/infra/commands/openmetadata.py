@@ -17,6 +17,7 @@ from olf.common.profile import DeploymentProfileError
 from olf.common.project import ProjectSpec
 from olf.infra.commands._shared import PROVIDER_HELP
 from olf.infra.openmetadata._ingestion import run_trino_ingestion
+from olf.infra.openmetadata._profiler import profiling_targets, run_trino_profiling
 
 if TYPE_CHECKING:
     from olf.common.provider_contracts import ProviderContracts
@@ -163,6 +164,12 @@ def deploy_openmetadata_metadata(
             om.OpenMetadataDeployer(cfg, client).deploy()
         except (om.OpenMetadataError, k8s.KubectlError) as exc:
             raise typer.Exit(code=fail(str(exc))) from exc
+    # After the seeding, so a slow or failing profile never delays or blocks it: the profile only adds statistics
+    # for the products that opted in (ADR 0007 D15), and a failure is a warning that leaves them marked stale.
+    log.step("Profiling opted-in Gold tables in OpenMetadata...")
+    run_trino_profiling(
+        source, namespace=namespace, service=cfg.catalog_service, targets=profiling_targets(project.code_root)
+    )
     typer.echo("Deployed OpenMetadata governance metadata.")
 
 

@@ -17,7 +17,6 @@ APPLIED_DEV_CONTRACT = {
 }
 
 
-
 def _write_lakehouse(root: Path, domain: str = "sales", product_id: str = "widgets") -> Path:
     """Write a canonical project layout: governance.yml plus one bronze source."""
     lakehouse_path = root / "governance.yml"
@@ -32,7 +31,7 @@ domains:
     description: {domain} domain.
     products:
       - id: {product_id}
-        displayName: {product_id.replace('_', ' ').title()}
+        displayName: {product_id.replace("_", " ").title()}
         description: {product_id} product.
 """,
         encoding="utf-8",
@@ -274,11 +273,14 @@ def test_openmetadata_command_anchors_its_default_metadata_root_to_the_project(
         openmetadata, "OpenMetadataDeployer", lambda *_args: SimpleNamespace(deploy=lambda: order.append("seed"))
     )
     monkeypatch.setattr(command, "run_trino_ingestion", lambda *_args, **_kwargs: order.append("ingest"))
+    monkeypatch.setattr(command, "profiling_targets", lambda *_args, **_kwargs: ("target",))
+    monkeypatch.setattr(command, "run_trino_profiling", lambda *_args, **_kwargs: order.append("profile") or False)
 
     command.deploy_openmetadata_metadata()
 
     assert captured["metadata_root"] == str(project / "lakehouse_code")
-    assert order == ["ingest", "seed"]
+    # The profile follows the crawl and the seeding, and a profile that did not complete does not fail the deploy.
+    assert order == ["ingest", "seed", "profile"]
 
 
 def test_openmetadata_command_reports_configuration_errors(

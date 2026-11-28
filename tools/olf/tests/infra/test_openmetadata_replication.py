@@ -48,8 +48,8 @@ class _Cluster:
 
     def __init__(self) -> None:
         self.secrets: dict[tuple[str, str], dict[str, Any]] = {}
-        # The Trino crawl's workloads, by (namespace, kind); olf deletes them by label, never by name.
-        self.crawls: set[tuple[str, str]] = set()
+        # The Trino crawl's and profiler's workloads, by (namespace, kind, job label); olf deletes them by label.
+        self.crawls: set[tuple[str, str, str]] = set()
         self.argv: list[list[str]] = []
 
     def writes(self) -> list[list[str]]:
@@ -67,8 +67,12 @@ class _Cluster:
         elif argv[:2] == ["delete", "secret"]:
             self.secrets.pop((argv[4], argv[2]), None)
         elif argv[0] == "delete" and argv[1] in {"cronjob", "job"}:
-            assert argv[2:4] == ["-l", "openlakeforge.io/job=openmetadata-trino-ingestion"]
-            self.crawls.discard((argv[5], argv[1]))
+            assert argv[2] == "-l" and argv[3] in {
+                "openlakeforge.io/job=openmetadata-trino-ingestion",
+                "openlakeforge.io/job=openmetadata-trino-profiler",
+            }
+            job = argv[3].split("=")[1]
+            self.crawls.discard((argv[5], argv[1], job))
         elif argv[0] in {"create", "apply"}:
             manifest = json.loads(input_text or "{}")
             key = (manifest["metadata"]["namespace"], manifest["metadata"]["name"])
@@ -179,7 +183,8 @@ def _with_crawl(cluster: _Cluster, namespace: str) -> None:
         **_secret(namespace, {"POLARIS_OM_CLIENT_ID": "openmetadata", "POLARIS_OM_CLIENT_SECRET": "s" * 32}),
         "metadata": {"name": _OM_CREDS, "namespace": namespace},
     }
-    cluster.crawls |= {(namespace, "cronjob"), (namespace, "job")}
+    for job in ("openmetadata-trino-ingestion", "openmetadata-trino-profiler"):
+        cluster.crawls |= {(namespace, "cronjob", job), (namespace, "job", job)}
 
 
 def test_a_stage_that_drops_governance_loses_the_crawl_and_its_polaris_credential(cluster: _Cluster) -> None:
@@ -190,7 +195,7 @@ def test_a_stage_that_drops_governance_loses_the_crawl_and_its_polaris_credentia
     revoke_trino_crawl("olf-system", revoked, environ=_ENVIRON)
 
     assert ("olf-prod", _OM_CREDS) not in cluster.secrets
-    assert {namespace for namespace, _ in cluster.crawls} == {"olf-system", "olf-dev"}
+    assert {namespace for namespace, *_ in cluster.crawls} == {"olf-system", "olf-dev"}
     assert ("olf-dev", _OM_CREDS) in cluster.secrets and ("olf-system", _OM_CREDS) in cluster.secrets
 
 
@@ -216,7 +221,7 @@ def test_with_no_governed_stage_the_crawl_and_every_stage_credential_are_revoked
         _contracts(dev=False, prod=False), environ={**_ENVIRON, "OPENLAKEFORGE_SHARED_NAMESPACE": "olf-system"}
     )
 
-    assert ("olf-prod", "cronjob") not in cluster.crawls
+    assert not [crawl for crawl in cluster.crawls if crawl[0] == "olf-prod"]
     # Deleted by exact name only: the admin password stays, since OpenMetadata's database outlives the release.
     assert set(cluster.secrets) == {("olf-system", "openmetadata-admin")}
     assert {(argv[4], argv[2]) for argv in cluster.writes() if argv[1] == "secret"} == {

@@ -15,6 +15,7 @@ from olf.common.provider_contracts import ProviderContracts
 from olf.infra import k8s
 from olf.infra.openmetadata._auth import INGESTION_BOT_SECRET
 from olf.infra.openmetadata._ingestion import JOB_NAME, POLARIS_SECRET
+from olf.infra.openmetadata._profiler import PROFILER_JOB_NAME
 
 
 def revoke_trino_crawl(
@@ -31,13 +32,14 @@ def revoke_trino_crawl(
         if namespace == shared_namespace:
             continue
         # The CronJob first: a crawl it starts after the Secret is gone would fail on a missing key.
-        selector = f"openlakeforge.io/job={JOB_NAME}"
-        k8s.delete_cronjobs(selector, namespace, environ=environ)
-        k8s.delete_jobs(selector, namespace, environ=environ)
+        for job_name in (JOB_NAME, PROFILER_JOB_NAME):
+            selector = f"openlakeforge.io/job={job_name}"
+            k8s.delete_cronjobs(selector, namespace, environ=environ)
+            k8s.delete_jobs(selector, namespace, environ=environ)
         if k8s.secret_data(POLARIS_SECRET, namespace, environ=environ) is not None:
             k8s.delete_secret(POLARIS_SECRET, namespace, environ=environ)
             # The name is spelled out: CodeQL treats any value named like a secret as one, and this is only a name.
-            log.info(f"Revoked Secret 'polaris-om-creds' and the Trino crawl from '{namespace}'.")
+            log.info(f"Revoked Secret 'polaris-om-creds', the Trino crawl and the profiler from '{namespace}'.")
 
 
 def replication_namespaces(contracts: ProviderContracts) -> tuple[tuple[str, ...], tuple[str, ...]]:
