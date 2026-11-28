@@ -494,12 +494,28 @@ def probe_native_fields(ctx: Ctx) -> None:
     )
 
 
+def remove_custom_property(ctx: Ctx, type_id: str, name: str) -> None:
+    """Remove the custom property this run added to a type, by its index in the type's current property list."""
+    current = om(ctx, "GET", f"/api/v1/metadata/types/{type_id}", params={"fields": "customProperties"})
+    names = [c.get("name") for c in (current.data or {}).get("customProperties") or []]
+    if name not in names:
+        return
+    r = patch(ctx, "metadata/types", type_id, {"op": "remove", "path": f"/customProperties/{names.index(name)}"})
+    if not r.ok:
+        ctx.restore_errors.append(f"custom property {name} was not removed: {r.brief()}")
+
+
 def probe_metric(ctx: Ctx) -> None:
     f = ctx.finding("3", "Create a Metric (expression, type, owners, domain, data product, glossary tag, extension)")
     metric_type = om(ctx, "GET", "/api/v1/metadata/types/name/metric", params={"fields": "customProperties"})
     string_type = om(ctx, "GET", "/api/v1/metadata/types/name/string")
     prop = {"name": "olfProbeNote", "description": "probe", "propertyType": ref(string_type.data.get("id", ""), "type")}
-    added = om(ctx, "PUT", f"/api/v1/metadata/types/{metric_type.data.get('id', '')}", prop)
+    type_id = metric_type.data.get("id", "")
+    existed = any(c.get("name") == prop["name"] for c in metric_type.data.get("customProperties") or [])
+    added = om(ctx, "PUT", f"/api/v1/metadata/types/{type_id}", prop)
+    if added.ok and not existed:
+        # Registered before the metric, so the reversed cleanup removes the property after the metric is gone.
+        ctx.cleanups.append(("metric custom property", lambda: remove_custom_property(ctx, type_id, prop["name"])))
     custom = ctx.finding("3a", "Provision an extension custom property on Metric")
     custom.verdict, custom.payload, custom.response = ("ACCEPTED" if added.ok else "REFUSED"), prop, added.brief()
     body = {
@@ -672,6 +688,7 @@ def apply_constraints_and_tags(ctx: Ctx) -> None:
     f4.response = {"PATCH PK+FK": r.brief(), "PATCH UNIQUE": unique.brief()}
     f4.verdict = "ACCEPTED" if r.ok else "REFUSED"
     ctx.fix["constraints"] = constraints
+    ctx.fix["constraints_b"] = [{"constraintType": "UNIQUE", "columns": [b["columns"][0]["name"]]}]
 
     f6 = ctx.finding("6", "Glossary term tag PATCHed onto a column survives the re-crawl")
     tag = [{"tagFQN": TERM_FQN, "source": "Glossary", "labelType": "Manual", "state": "Confirmed"}]
@@ -688,12 +705,15 @@ def verify_after_crawl(ctx: Ctx, label: str) -> None:
     b = get_table(ctx, ctx.fix["table_b"]["fullyQualifiedName"]).data
     f4, f6 = ctx.findings["4"], ctx.findings["6"]
     got = a.get("tableConstraints") or []
+    got_b = b.get("tableConstraints") or []
     kept = {c.get("constraintType") for c in got}
-    unique = {c.get("constraintType") for c in b.get("tableConstraints") or []}
+    unique = {c.get("constraintType") for c in got_b}
     f4.response[f"after {label}"] = {"A": got, "B": b.get("tableConstraints")}
     if f4.verdict in ("ACCEPTED", "SURVIVES", "PARTIAL"):
-        f4.verdict = "SURVIVES" if {"PRIMARY_KEY", "FOREIGN_KEY"} <= kept else "PARTIAL" if kept else "WIPED"
-        f4.detail = f"after {label}: A keeps {sorted(kept)}, B keeps {sorted(unique)}"
+        # The whole patched constraint (columns, referred columns, relationship) must come back, on both tables.
+        whole = same(got, ctx.fix["constraints"]) and same(got_b, ctx.fix["constraints_b"])
+        f4.verdict = "SURVIVES" if whole else "PARTIAL" if got or got_b else "WIPED"
+        f4.detail = f"after {label}: A keeps {sorted(kept)}, B keeps {sorted(unique)}; complete match: {whole}"
     cols = a.get("columns") or []
     tags = [t.get("tagFQN") for t in cols[0].get("tags") or []]
     f6.response[f"after {label}"] = {"column 0 tags": tags, "column 1 description": cols[1].get("description")}
