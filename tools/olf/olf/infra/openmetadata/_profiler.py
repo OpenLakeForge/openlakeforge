@@ -35,6 +35,7 @@ from olf.infra.openmetadata._ingestion import (
     trino_connection,
     workflow_job,
 )
+from olf.infra.openmetadata._quality_sync import QualitySyncError, schema_map
 
 PROFILER_JOB_NAME = "openmetadata-trino-profiler"
 # One thread and a per-workflow timeout keep a profile from loading the coordinator; the Job's own deadline is the
@@ -47,6 +48,16 @@ _WAIT_SECONDS = 900
 
 def _exact(names: Sequence[str]) -> list[str]:
     return [f"^{re.escape(name)}$" for name in names]
+
+
+def physical_schema(environ: Mapping[str, str], target: ProfilingTarget) -> str:
+    """The schema Trino lists the product's Gold tables under: the deployed mapping's, else the logical name.
+
+    On AWS Glue the physical schema carries the catalog name as a prefix, which the contract's
+    `OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON` records as `<service>.<database>.<schema>` per product.
+    """
+    fqn = (schema_map("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", environ) or {}).get(target.product)
+    return fqn.rsplit(".", 1)[-1].strip('"') if fqn else target.schema
 
 
 def profiler_config(
@@ -72,7 +83,7 @@ def profiler_config(
                     "timeoutSeconds": _WORKFLOW_TIMEOUT_SECONDS,
                     "includeViews": False,
                     "databaseFilterPattern": {"includes": _exact([environ["OPENLAKEFORGE_CATALOG_NAME"]])},
-                    "schemaFilterPattern": {"includes": _exact([target.schema])},
+                    "schemaFilterPattern": {"includes": _exact([physical_schema(environ, target)])},
                     "tableFilterPattern": {"includes": _exact(target.tables)},
                 }
             },
@@ -151,7 +162,7 @@ def run_trino_profiling(
         )
         k8s.apply_manifest(profiler_cronjob(job, catalog=catalog), environ=environ)
         k8s.run_job(job, timeout_seconds=_WAIT_SECONDS, environ=environ)
-    except k8s.KubectlError as exc:
+    except (k8s.KubectlError, QualitySyncError) as exc:
         log.warn(
             f"The OpenMetadata profile of {catalog} did not complete; statistics stay as they were and will show "
             f"as stale. The deploy continues. {exc}"

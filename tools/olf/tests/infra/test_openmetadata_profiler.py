@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -186,30 +187,44 @@ def test_the_repo_policy_selects_the_sales_core_facts_and_dimensions_and_no_mart
     }
 
 
-def _stubs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
-    calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(k8s, "apply_manifest", lambda manifest, **_: calls.append(("apply", manifest["kind"])))
-    monkeypatch.setattr(k8s, "run_job", lambda job, **_: calls.append(("run", job["metadata"]["name"])))
-    monkeypatch.setattr(k8s, "delete_cronjob", lambda name, namespace, **_: calls.append(("delete", name)))
-    monkeypatch.setattr(_profiler, "copy_polaris_secret", lambda *_a, **_k: calls.append(("secret", "")))
-    return calls
+class _Cluster:
+    """The CronJobs and Jobs olf leaves behind, by name; `fail_job` makes the profile Job fail."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, *, fail_job: bool = False) -> None:
+        self.cronjobs: dict[str, dict] = {}
+        self.jobs: list[str] = []
+        monkeypatch.setattr(k8s, "apply_manifest", lambda m, **_: self.cronjobs.__setitem__(m["metadata"]["name"], m))
+        monkeypatch.setattr(k8s, "delete_cronjob", lambda name, _ns, **_: self.cronjobs.pop(name, None))
+        monkeypatch.setattr(_profiler, "copy_polaris_secret", lambda *_a, **_k: None)
+
+        def run_job(job, **_):  # noqa: ANN001, ANN003, ANN202
+            self.jobs.append(job["metadata"]["name"])
+            if fail_job:
+                raise k8s.KubectlError("Job openmetadata-trino-profiler failed:\nboom")
+
+        monkeypatch.setattr(k8s, "run_job", run_job)
 
 
-def test_the_cronjob_is_kept_before_the_first_profile_runs(monkeypatch: pytest.MonkeyPatch):
-    calls = _stubs(monkeypatch)
+def test_the_daily_schedule_is_installed_even_when_the_first_profile_fails(monkeypatch: pytest.MonkeyPatch):
+    cluster = _Cluster(monkeypatch, fail_job=True)
+
+    assert run_trino_profiling(DEV, namespace="olf-system", service="polaris", targets=(TARGET,)) is False
+
+    cron = cluster.cronjobs["openmetadata-trino-profiler-lakehouse-dev"]
+    assert cron["spec"]["schedule"] == PROFILING_CRON
+
+
+def test_a_profile_runs_the_job_and_leaves_the_schedule(monkeypatch: pytest.MonkeyPatch):
+    cluster = _Cluster(monkeypatch)
 
     assert run_trino_profiling(DEV, namespace="olf-system", service="polaris", targets=(TARGET,)) is True
 
-    assert calls == [("secret", ""), ("apply", "CronJob"), ("run", PROFILER_JOB_NAME)]
+    assert cluster.jobs == [PROFILER_JOB_NAME]
+    assert list(cluster.cronjobs) == ["openmetadata-trino-profiler-lakehouse-dev"]
 
 
 def test_a_failed_profile_warns_and_does_not_raise(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
-    _stubs(monkeypatch)
-
-    def fail(*_a, **_k):
-        raise k8s.KubectlError("Job openmetadata-trino-profiler failed:\nboom")
-
-    monkeypatch.setattr(k8s, "run_job", fail)
+    _Cluster(monkeypatch, fail_job=True)
 
     assert run_trino_profiling(DEV, namespace="olf-system", service="polaris", targets=(TARGET,)) is False
 
@@ -217,9 +232,24 @@ def test_a_failed_profile_warns_and_does_not_raise(monkeypatch: pytest.MonkeyPat
     assert "did not complete" in output.out + output.err and "stale" in output.out + output.err
 
 
-def test_a_stage_with_nothing_to_profile_runs_no_job_and_drops_a_stale_cronjob(monkeypatch: pytest.MonkeyPatch):
-    calls = _stubs(monkeypatch)
+def test_turning_profiling_off_removes_the_schedule_and_runs_nothing(monkeypatch: pytest.MonkeyPatch):
+    cluster = _Cluster(monkeypatch)
+    run_trino_profiling(PROD, namespace="olf-system", service="polaris", targets=(TARGET,))
+    assert cluster.cronjobs
 
     assert run_trino_profiling(PROD, namespace="olf-system", service="polaris", targets=()) is True
 
-    assert calls == [("delete", "openmetadata-trino-profiler-lakehouse-prod")]
+    assert cluster.cronjobs == {}
+    assert cluster.jobs == [PROFILER_JOB_NAME]
+
+
+def test_on_glue_the_filter_names_the_physical_schema_the_contract_maps_to():
+    glue = {
+        **DEV,
+        "OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON": json.dumps(
+            {"sales_core": "polaris.lakehouse_dev.lakehouse_dev_sales_core_gold"}
+        ),
+    }
+
+    source = profiler_config(glue, service="polaris", om_api="http://om", target=TARGET)["source"]["sourceConfig"]
+    assert source["config"]["schemaFilterPattern"] == {"includes": ["^lakehouse_dev_sales_core_gold$"]}
