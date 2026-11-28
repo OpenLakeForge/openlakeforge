@@ -35,7 +35,11 @@ def _check_glossary_conformance(repo_root: Path, *, schema_root: Path | None = N
         validator = jsonschema.Draft202012Validator(json.loads(schema_path.read_text(encoding="utf-8")))
     for path in paths:
         label = rel_path(path, repo_root)
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            errors.append(f"{label}: invalid YAML: {exc}")
+            continue
         errors += [
             f"{label}: schema violation at {'/'.join(str(part) for part in error.absolute_path) or '<root>'}: "
             f"{error.message}"

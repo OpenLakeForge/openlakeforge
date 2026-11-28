@@ -119,6 +119,12 @@ def test_warning_does_not_fail_the_report(tmp_path: Path) -> None:
         (_edit_term(GLOSSARY, name="netrevenue").replace("GrossRevenue", "NetRevenue"), "collides with term"),
         (_edit_term(GLOSSARY, name="Net.Revenue"), "name must match"),
         (_edit_term(GLOSSARY, surprise=1), "must not contain ['surprise']"),
+        (_edit_term(GLOSSARY, references=None), "references must be an array"),
+        (_edit_term(GLOSSARY, references={}), "references must be an array"),
+        (
+            _edit_term(GLOSSARY, references=[{"name": "Policy", "endpoint": "http://example.internal/p"}]),
+            "endpoint must be an https URL",
+        ),
     ],
 )
 def test_invalid_terms_fail_with_the_term_path(tmp_path: Path, glossary: str, expected: str) -> None:
@@ -233,3 +239,24 @@ def test_inventory_rejects_a_dangling_reference_and_exposes_column_terms(tmp_pat
     )
     with pytest.raises(LakehouseDescriptorError, match="'sales.Typo' is not a known term"):
         load_lakehouse_inventory(tmp_path)
+
+
+def test_malformed_yaml_is_reported_with_its_file_and_keeps_other_diagnostics(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, glossaries={"sales.yml": GLOSSARY, "broken.yml": "terms: ["}, schema="models: [")
+
+    result = _check_glossary_conformance(repo)
+
+    assert not result.ok
+    assert "lakehouse_code/glossaries/broken.yml: invalid YAML" in result.detail
+    assert "order_revenue/schema.yml: invalid YAML" in result.detail
+
+
+def test_the_sales_core_columns_carry_their_terms() -> None:
+    inventory = load_lakehouse_inventory(ROOT)
+
+    terms = {key: [t.fqn for t in value] for key, value in inventory.column_terms("sales_core").items()}
+    assert terms == {
+        ("fct_order_lines", "gross_amount"): ["sales.GrossRevenue"],
+        ("fct_order_lines", "discount_amount"): ["sales.Discount"],
+        ("fct_order_lines", "net_amount"): ["sales.NetRevenue"],
+    }

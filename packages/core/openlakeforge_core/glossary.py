@@ -28,7 +28,8 @@ GLOSSARY_KIND = "Glossary"
 TERM_STATUSES = ("Draft", "In Review", "Approved", "Archived", "Deprecated", "Rejected", "Unprocessed")
 # No `.` (the FQN separator) and no whitespace or quotes, so a term never needs FQN escaping.
 TERM_NAME_PATTERN = r"^[A-Za-z][A-Za-z0-9_]*$"
-REFERENCE_ENDPOINT_PATTERN = r"^https?://\S+$"
+# https only: the revision build rejects any `http://` as a stage-bound endpoint (project_revision.py).
+REFERENCE_ENDPOINT_PATTERN = r"^https://\S+$"
 
 _GLOSSARY_FIELDS = {"apiVersion", "kind", "name", "displayName", "description", "owner", "terms"}
 _TERM_FIELDS = {
@@ -123,13 +124,16 @@ def _term(glossary: str, entry: object, index: int, *, source: str) -> GlossaryT
     if parent is not None and (not isinstance(parent, str) or not _TERM_NAME.fullmatch(parent)):
         raise LakehouseDescriptorError(f"{where}: parent must be the name of a term in this glossary, got {parent!r}")
     references = []
-    for ref_index, ref in enumerate(entry.get("references", [])):
+    raw_references = entry.get("references", [])
+    if not isinstance(raw_references, list):
+        raise LakehouseDescriptorError(f"{where}: references must be an array of {{name, endpoint}} objects")
+    for ref_index, ref in enumerate(raw_references):
         ref_where = f"{where}: references[{ref_index}]"
         if not isinstance(ref, Mapping) or set(ref) != {"name", "endpoint"}:
             raise LakehouseDescriptorError(f"{ref_where} must be an object {{name, endpoint}}")
         _non_empty_string(ref["name"], field="name", source=ref_where)
         if not isinstance(ref["endpoint"], str) or not _ENDPOINT.fullmatch(ref["endpoint"]):
-            raise LakehouseDescriptorError(f"{ref_where}: endpoint must be an http(s) URL, got {ref['endpoint']!r}")
+            raise LakehouseDescriptorError(f"{ref_where}: endpoint must be an https URL, got {ref['endpoint']!r}")
         references.append(TermReference(ref["name"], ref["endpoint"]))
     return GlossaryTerm(
         glossary=glossary,
@@ -176,9 +180,16 @@ def parse_glossary(document: object, *, path: str | Path = "glossary.yml") -> Gl
     )
 
 
+def _load_yaml(path: Path) -> object:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            return yaml.safe_load(handle)
+    except yaml.YAMLError as exc:
+        raise LakehouseDescriptorError(f"{path}: invalid YAML: {exc}") from exc
+
+
 def load_glossary_descriptor(path: str | Path) -> Glossary:
-    with Path(path).open(encoding="utf-8") as handle:
-        return parse_glossary(yaml.safe_load(handle), path=path)
+    return parse_glossary(_load_yaml(Path(path)), path=path)
 
 
 def glossary_paths(lakehouse_root: str | Path) -> list[Path]:
@@ -273,8 +284,7 @@ def read_column_term_links(gold_models: str | Path) -> tuple[ColumnTermLink, ...
     root = Path(gold_models)
     links: list[ColumnTermLink] = []
     for path in sorted(p for pattern in ("*.yml", "*.yaml") for p in root.glob(f"[!_.]*/{pattern}")):
-        with path.open(encoding="utf-8") as handle:
-            document = yaml.safe_load(handle)
+        document = _load_yaml(path)
         models = document.get("models") if isinstance(document, Mapping) else None
         for model in models if isinstance(models, list) else ():
             if not isinstance(model, Mapping):

@@ -134,7 +134,7 @@
               },
               "endpoint": {
                 "type": "string",
-                "pattern": "^https?://\\S+$"
+                "pattern": "^https://\\S+$"
               }
             }
           }

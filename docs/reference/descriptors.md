@@ -369,7 +369,7 @@ Each term:
 | `synonyms` | array of strings | no | Other names for the term. |
 | `status` | enum | no | `Draft`, `In Review`, `Approved`, `Archived`, `Deprecated`, `Rejected` or `Unprocessed`. |
 | `relatedTerms` | array of term references | no | `<glossary>.<Term>`; may point into another glossary. |
-| `references` | array of `{name, endpoint}` | no | External pages for the term; `endpoint` is an `http(s)` URL. |
+| `references` | array of `{name, endpoint}` | no | External pages for the term; `endpoint` is an `https` URL. |
 | `parent` | string | no | The `name` of another term in the same glossary. |
 
 `status` takes the OpenMetadata 1.13.6 `EntityStatus` values. A term is
