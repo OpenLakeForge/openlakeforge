@@ -598,11 +598,17 @@ _EXAMPLES = {
     ("sales", "customer_health"): ProductDefinitionSpec(
         domain="sales",
         product="customer_health",
-        silver_inputs=("accounts", "subscriptions", "support_tickets", "nps_responses"),
-        bronze_inputs=tuple(
-            ("crm", name) for name in ("accounts", "subscriptions", "support_tickets", "nps_responses")
+        # Its facts read these Silver tables; the account dimension comes from sales_core through ref().
+        silver_inputs=("subscriptions", "support_tickets", "nps_responses"),
+        bronze_inputs=tuple(("crm", name) for name in ("subscriptions", "support_tickets", "nps_responses")),
+        gold_assets=(
+            "fct_support_tickets",
+            "fct_nps_responses",
+            "fct_subscriptions",
+            "mart_customer_health_score",
+            "mart_churn_risk_by_segment",
+            "mart_support_sla_by_customer",
         ),
-        gold_assets=("mart_customer_health_score", "mart_churn_risk_by_segment", "mart_support_sla_by_customer"),
     ),
     ("supply_chain", "inventory_reliability"): ProductDefinitionSpec(
         domain="supply_chain",

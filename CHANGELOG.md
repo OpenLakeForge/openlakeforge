@@ -24,6 +24,10 @@ for how a release is cut and verified.
 
 ### Changed
 
+- `customer_health` gets `fct_support_tickets`, `fct_nps_responses` and `fct_subscriptions` (one row per Silver
+  record, keyed, `account_id` tested against `sales_core.dim_account`), and its marts read them and
+  `dim_account` with the same names, columns and types (#1464). Account attributes now come from `sales_core`, so
+  `customer_health` needs `sales_core` built first. `monthly_recurring_revenue` is summed from `decimal(18,2)`.
 - The `order_revenue` marts read the `sales_core` fact and dimensions instead of Silver, with the same
   names, columns and types (#1464). `order_revenue` now loads no Silver of its own and needs `sales_core` built first.
   Money is summed from `decimal(18,2)` amounts and cast to `double`, so totals can differ from before in the last cent.

@@ -23,6 +23,7 @@ from olf.infra.e2e._alerts import check_alert_delivery
 from olf.infra.e2e._artifacts import check_ops_artifacts
 from olf.infra.e2e._assertions import (
     check_openmetadata_assets,
+    check_openmetadata_crawled_descriptions,
     check_openmetadata_drift,
     check_openmetadata_redeploy_is_idempotent,
     check_superset_dashboards,
@@ -422,6 +423,9 @@ def full_assertions(cfg: E2EConfig) -> tuple[FullAssertion, ...]:
                 "OpenMetadata redeploy writes nothing", check_openmetadata_redeploy_is_idempotent, layer="governance"
             ),
             FullAssertion("OpenMetadata drift report", check_openmetadata_drift, layer="governance"),
+            FullAssertion(
+                "OpenMetadata crawled descriptions", check_openmetadata_crawled_descriptions, layer="governance"
+            ),
             FullAssertion("OpenMetadata quality publication", check_quality_publication, layer="governance"),
             FullAssertion(
                 "OpenMetadata quality writer permissions", check_quality_writer_permissions, layer="governance"
