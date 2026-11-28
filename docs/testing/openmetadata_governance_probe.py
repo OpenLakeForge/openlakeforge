@@ -967,8 +967,11 @@ def restore(ctx: Ctx) -> None:
                 ops.append(add("/tableConstraints", original["constraints"]))
             elif current.get("tableConstraints"):
                 ops.append({"op": "remove", "path": "/tableConstraints"})
-            if original["description"] and current.get("description") != original["description"]:
-                ops.append(add("/description", original["description"]))
+            if original["description"]:
+                if current.get("description") != original["description"]:
+                    ops.append(add("/description", original["description"]))
+            elif current.get("description"):
+                ops.append({"op": "remove", "path": "/description"})
             now = current.get("columns") or []
             for index, column in enumerate(original["columns"]):
                 if index >= len(now):
