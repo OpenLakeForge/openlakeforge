@@ -70,6 +70,11 @@ run and runs on Slim. It reports as `semantic_models`.
 | `duplicate-name`, `duplicate-key` | two datasets, relationships, metrics or models share a name, or a YAML key is written twice |
 | `product-exists` | the folder under `semantic/` is not a product |
 
+Metric expressions are scanned as text, not parsed. The bare words a metric may use are
+SQL keywords, type names and interval units, plus function calls; a legitimate
+construct outside that list is refused until it is added in
+`openlakeforge_core/semantic.py`.
+
 A composite key matches a model-level `unique_combination_of_columns` test on
 the same columns. A field description that differs from the dbt column
 description is a warning, because dbt owns column text.
