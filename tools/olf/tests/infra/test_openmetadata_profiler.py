@@ -193,12 +193,15 @@ class _Cluster:
     def __init__(self, monkeypatch: pytest.MonkeyPatch, *, fail_job: bool = False) -> None:
         self.cronjobs: dict[str, dict] = {}
         self.jobs: list[str] = []
+        self.live: set[str] = set()
         monkeypatch.setattr(k8s, "apply_manifest", lambda m, **_: self.cronjobs.__setitem__(m["metadata"]["name"], m))
         monkeypatch.setattr(k8s, "delete_cronjob", lambda name, _ns, **_: self.cronjobs.pop(name, None))
+        monkeypatch.setattr(k8s, "delete_job", lambda name, _ns, **_: self.live.discard(name))
         monkeypatch.setattr(_profiler, "copy_polaris_secret", lambda *_a, **_k: None)
 
         def run_job(job, **_):  # noqa: ANN001, ANN003, ANN202
             self.jobs.append(job["metadata"]["name"])
+            self.live.add(job["metadata"]["name"])
             if fail_job:
                 raise k8s.KubectlError("Job openmetadata-trino-profiler failed:\nboom")
 
@@ -266,3 +269,13 @@ def test_the_policy_is_read_from_the_descriptors_the_deploy_reads(capsys: pytest
     assert from_source == from_root and from_root
     assert unreadable == ()
     assert "Profiling skipped" in capsys.readouterr().err
+
+
+def test_turning_profiling_off_stops_a_profile_job_a_timed_out_deploy_left_running(monkeypatch: pytest.MonkeyPatch):
+    cluster = _Cluster(monkeypatch, fail_job=True)
+    run_trino_profiling(DEV, namespace="olf-system", service="polaris", targets=(TARGET,))
+    assert cluster.live == {PROFILER_JOB_NAME}
+
+    run_trino_profiling(DEV, namespace="olf-system", service="polaris", targets=())
+
+    assert cluster.live == set()

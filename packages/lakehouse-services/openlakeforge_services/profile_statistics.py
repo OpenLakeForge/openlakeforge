@@ -3,7 +3,7 @@
 Statistics are not fields of the table entity in 1.13.6: `GET /tables/name/<fqn>?fields=profile` returns none. They are
 time series read from `/tables/<table fqn>/tableProfile` and `/tables/<column fqn>/columnProfile`. A reader gets back
 only what the stored metric list allowed (a Confidential product has no min, max or mean), and `stale` is set for an
-absent or overdue profile so a caller never presents old numbers as current.
+absent or overdue profile, table or column, so a caller never presents old numbers as current.
 """
 
 from __future__ import annotations
@@ -33,6 +33,8 @@ class ColumnStatistics:
     minimum: Any = None
     maximum: Any = None
     mean: float | None = None
+    # When this column's row was written: a column with no result in a later run keeps its older row.
+    profiled_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,10 @@ class TableStatistics:
     profiled_at: datetime | None
     stale: bool
     columns: tuple[ColumnStatistics, ...]
+
+
+def _at(timestamp_ms: float | None) -> datetime | None:
+    return datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC) if timestamp_ms is not None else None
 
 
 def _latest(client: OpenMetadataClient, fqn: str, kind: str, *, start: datetime, end: datetime) -> Mapping[str, Any]:
@@ -75,12 +81,16 @@ def read_table_statistics(
                 minimum=row.get("min"),
                 maximum=row.get("max"),
                 mean=row.get("mean"),
+                profiled_at=_at(row.get("timestamp")),
             )
         )
     return TableStatistics(
         table_fqn=table_fqn,
         row_count=table.get("rowCount"),
-        profiled_at=datetime.fromtimestamp(timestamp / 1000, tz=UTC) if timestamp is not None else None,
-        stale=profile_is_stale(timestamp, now=end),
+        profiled_at=_at(timestamp),
+        stale=profile_is_stale(timestamp, now=end)
+        or any(
+            c.profiled_at is not None and profile_is_stale(c.profiled_at.timestamp() * 1000, now=end) for c in stats
+        ),
         columns=tuple(stats),
     )

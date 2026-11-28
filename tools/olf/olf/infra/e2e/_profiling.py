@@ -127,7 +127,9 @@ def check_openmetadata_profiles(cfg: E2EConfig) -> None:
                         column.minimum is None or column.maximum is None
                     ):
                         problems.append(f"{fqn}.{column.name}: min and max were not stored")
-            if "min" not in target.metrics and any(c.minimum is not None or c.mean is not None for c in stats.columns):
+            if "min" not in target.metrics and any(
+                c.minimum is not None or c.maximum is not None or c.mean is not None for c in stats.columns
+            ):
                 problems.append(f"{fqn}: stored values the classification does not allow")
             table_id = client.request("GET", f"/api/v1/tables/name/{urllib.parse.quote(fqn, safe='')}")["id"]
             if _sample_rows(client, table_id):

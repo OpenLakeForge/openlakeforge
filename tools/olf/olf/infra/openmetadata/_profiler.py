@@ -92,7 +92,9 @@ def profiler_config(
         },
         "processor": {"type": "orm-profiler", "config": {}},
         "sink": {"type": "metadata-rest", "config": {}},
-        "workflowConfig": {**server_config(om_api), "raiseOnError": True, "successThreshold": 100},
+        # `successThreshold` is not set: 1.13.6's ProfilerWorkflow forces it to 80, so a run where most tables
+        # profile exits 0 and the reader's per-table staleness is what reveals one that did not.
+        "workflowConfig": {**server_config(om_api), "raiseOnError": True},
     }
 
 
@@ -156,6 +158,8 @@ def run_trino_profiling(
     try:
         if not targets:
             k8s.delete_cronjob(cron_name, job_namespace, environ=environ)
+            # A Job a timed-out deploy left running is not owned by the CronJob and keeps reading until its deadline.
+            k8s.delete_job(PROFILER_JOB_NAME, job_namespace, environ=environ)
             return True
         if environ.get("OPENLAKEFORGE_CATALOG_TOKEN_URI"):
             copy_polaris_secret(namespace, job_namespace, environ=environ)

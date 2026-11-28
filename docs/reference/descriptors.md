@@ -330,6 +330,10 @@ What is read and stored:
 - No sample rows are requested or stored, there are no custom SQL metrics, and
   no row sampling is configured, so every metric covers the whole table.
 
+A profile that fails for some tables is still reported as complete when most
+tables profile (OpenMetadata 1.13.6 fixes the threshold at 80%), so a table whose
+statistics stop refreshing is found by its age, not by a failed Job.
+
 A failed profile is a warning, not a failed deploy: the Job's status stays
 visible with `kubectl get jobs -n <stage namespace>` for an hour, and the
 last statistics stay in place. Statistics older than 30 hours (the daily period
@@ -343,8 +347,10 @@ facts and dimensions are profiled and why `threadCount` is 1. Keep
 time is known.
 
 To turn it off, remove `profiling` or set `enabled: false` and run
-`olf infra openmetadata deploy-metadata`: the CronJob is deleted and the next
-deploy runs no profile. Statistics already stored are not deleted; readers mark
+`olf infra openmetadata deploy-metadata`: the product leaves the profile's
+tables. The stage's CronJob and any profile Job still running are deleted only
+when no product of the project has anything left to profile; while another
+product remains eligible, the CronJob stays and covers it alone. Statistics already stored are not deleted; readers mark
 them stale after 30 hours.
 
 `status` was removed from domains and products. A `v1beta2` document that

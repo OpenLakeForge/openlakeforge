@@ -65,3 +65,20 @@ def test_an_absent_or_overdue_profile_is_marked_stale_never_current():
 
     assert absent.stale and absent.profiled_at is None and absent.row_count is None
     assert overdue.stale and overdue.row_count == 5
+
+
+def test_a_recent_table_profile_does_not_hide_a_column_row_that_is_overdue():
+    client = _Client(
+        {
+            "/tableProfile": [{"timestamp": _ms(timedelta(hours=1)), "rowCount": 5}],
+            "old/columnProfile": [{"timestamp": _ms(timedelta(days=3)), "nullCount": 0}],
+            "new/columnProfile": [{"timestamp": _ms(timedelta(hours=1)), "nullCount": 0}],
+        }
+    )
+
+    fresh = read_table_statistics(client, TABLE, ["new"], now=NOW)  # type: ignore[arg-type]
+    mixed = read_table_statistics(client, TABLE, ["new", "old"], now=NOW)  # type: ignore[arg-type]
+
+    assert not fresh.stale
+    assert mixed.stale
+    assert {c.name: c.profiled_at is not None for c in mixed.columns} == {"new": True, "old": True}
