@@ -124,7 +124,9 @@ def check_glossary_publication(cfg: E2EConfig) -> None:
             raise E2EError("glossary publication is incomplete:\n" + "\n".join(problems))
         deploy_openmetadata_metadata(environ=environ)
         after = _snapshot(client, inventory, database_fqn)
-        changed = sorted(key for key in before if before[key] != after[key])
+        # A table with a pending column may gain it in the second crawl: that is the crawl, not a rewrite.
+        pending_tables = {f"table:{column.rpartition('.')[0]}" for column in pending}
+        changed = sorted(key for key in before if before[key] != after[key] and key not in pending_tables)
         if changed:
             raise E2EError(f"a repeat deploy rewrote glossary-managed entities: {changed}")
         log.info("A repeat deploy left every glossary, term, tagged product and tagged table at its version.")

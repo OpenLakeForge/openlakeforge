@@ -203,11 +203,20 @@ class FakeOpenMetadata:
                     node.append(copy.deepcopy(op["value"]))
                 else:
                     node[leaf] = copy.deepcopy(op["value"])
+            by_id = {e["id"]: e for e in self.entities.get("glossaryTerms", {}).values()}
             for relation in entity.get("relatedTerms") or []:
-                # 1.13.6 keeps a relation on both terms.
-                other = next(e for e in self.entities["glossaryTerms"].values() if e["id"] == relation["term"]["id"])
+                # 1.13.6 keeps a relation on both terms and returns the related term's FQN in the reference.
+                other = by_id[relation["term"]["id"]]
+                relation["term"].setdefault("fullyQualifiedName", other["fullyQualifiedName"])
                 if entity["id"] not in {r["term"]["id"] for r in other.get("relatedTerms") or []}:
-                    reverse = {"term": {"id": entity["id"], "type": "glossaryTerm"}, "relationType": "relatedTo"}
+                    reverse = {
+                        "term": {
+                            "id": entity["id"],
+                            "type": "glossaryTerm",
+                            "fullyQualifiedName": entity["fullyQualifiedName"],
+                        },
+                        "relationType": "relatedTo",
+                    }
                     other.setdefault("relatedTerms", []).append(reverse)
             return entity
         raise AssertionError(f"unhandled request {method} {path}")

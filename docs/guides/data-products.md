@@ -253,8 +253,10 @@ publishes each glossary and its terms first, then attaches them:
 
 Glossaries and terms OLF publishes carry the `olfManaged` property. A repeat
 deploy of the same revision writes nothing. OLF never deletes: a term removed
-from Git stays in OpenMetadata and the deploy warns about it, and a glossary,
-term or tag a person created is left alone. A column the Trino crawl has not
+from Git stays in OpenMetadata and the deploy warns about it. A glossary, term
+or tag a person created under another name is left alone; one created by hand
+under the same name as a Git term is adopted, marked `olfManaged` and kept in
+step with Git on the fields Git declares. A column the Trino crawl has not
 produced yet is reported as pending and tagged on the first deploy after the
 crawl; OLF never creates a column for it.
 

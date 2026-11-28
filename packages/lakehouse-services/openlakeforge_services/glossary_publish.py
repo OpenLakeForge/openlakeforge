@@ -201,9 +201,8 @@ class GlossaryPublisher:
         known = set(self._om.values())
         for glossary in glossaries:
             # The list endpoint filters by glossary id, not name.
-            query = f"glossary={self._glossary_ids[glossary.name]}&fields=extension&limit=1000"
-            page = self._client.request("GET", f"/api/v1/glossaryTerms?{query}")
-            for entry in page.get("data", []):
+            params = {"glossary": self._glossary_ids[glossary.name], "fields": "extension"}
+            for entry in self._client.list_entities("/api/v1/glossaryTerms", params, 1000):
                 fqn = entry.get("fullyQualifiedName", "")
                 if marker_of(entry) and fqn not in known:
                     self.report.removed_terms.append(fqn)
@@ -264,8 +263,15 @@ class GlossaryPublisher:
                     continue
                 index, current = held[column.lower()]
                 wanted = [self._om[term.fqn] for term in terms]
-                self._report_removed_links(f"{table_fqn}.{column}", current, wanted)
                 operations += self._append_tags(current, f"/columns/{index}", wanted)
+            # A column whose last declaration left Git keeps its tag; say so.
+            for name, (_, current) in held.items():
+                if name not in {column.lower() for column in columns}:
+                    self._report_removed_links(f"{table_fqn}.{current['name']}", current, [])
+            for column in columns:
+                if column.lower() in held:
+                    wanted = [self._om[term.fqn] for term in columns[column]]
+                    self._report_removed_links(f"{table_fqn}.{column}", held[column.lower()][1], wanted)
             if table is not None:
                 self._patch("tables", table["id"], operations)
 

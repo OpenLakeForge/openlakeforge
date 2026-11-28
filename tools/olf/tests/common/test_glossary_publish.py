@@ -99,7 +99,7 @@ def test_terms_are_published_with_the_marker_before_anything_is_tagged(
     assert glossary["owners"] == [{"id": fake.entities["teams"]["sales_data"]["id"], "type": "team"}]
     assert term["synonyms"] == ["Net Sales"] and term["entityStatus"] == "Approved"
     gross = fake.entities["glossaryTerms"]["sales.GrossRevenue"]["id"]
-    assert term["relatedTerms"] == [{"term": {"id": gross, "type": "glossaryTerm"}, "relationType": "relatedTo"}]
+    assert [(r["term"]["id"], r["relationType"]) for r in term["relatedTerms"]] == [(gross, "relatedTo")]
     held_by_gross = fake.entities["glossaryTerms"]["sales.GrossRevenue"]["relatedTerms"]
     assert [relation["term"]["id"] for relation in held_by_gross] == [term["id"]]  # the reciprocal relation
     writes = [(method, path) for method, path in fake.writes if "glossaryTerms" in path or "/tags" in path]
@@ -216,3 +216,46 @@ def test_a_link_on_an_uncrawled_column_is_warned_as_pending_on_deploy(
 
     warnings = [message for level, message in progress.messages if level == "warn"]
     assert any("pending" in message and f"{GOLD}.order_revenue.not_crawled" in message for message in warnings)
+
+
+def test_drift_reports_a_changed_owner_and_a_missing_declared_relation_but_not_extra_relations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deploy(tmp_path, monkeypatch)
+    deployer.deploy()
+    net = fake.entities["glossaryTerms"]["sales.NetRevenue"]
+    assert not [line for line in _drift_lines(deployer) if "glossary" in line]
+
+    fake.seed("teams", "other_team", {"teamType": "Group"})
+    fake.entities["glossaries"]["sales"]["owners"] = [
+        {"id": fake.entities["teams"]["other_team"]["id"], "type": "team"}
+    ]
+    net["relatedTerms"].append({"term": {"id": "x", "fullyQualifiedName": "ops.Uptime"}, "relationType": "relatedTo"})
+    assert any("glossary sales" in line and "owners" in line for line in _drift_lines(deployer))
+    assert not any("relatedTerms" in line for line in _drift_lines(deployer))
+
+    net["relatedTerms"] = []
+    fake.entities["glossaries"]["sales"]["owners"] = [
+        {"id": fake.entities["teams"]["sales_data"]["id"], "type": "team"}
+    ]
+    lines = _drift_lines(deployer)
+    assert any("sales.NetRevenue" in line and "relatedTerms" in line for line in lines)
+    assert not any("owners" in line for line in lines)
+
+
+def test_a_column_whose_last_declaration_left_git_keeps_its_tag_and_is_warned_about(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployer, fake = _deploy(tmp_path, monkeypatch)
+    deployer.deploy()
+    schema = tmp_path / "gold" / "models" / "order_revenue" / "schema.yml"
+    schema.write_text(SCHEMA.replace("glossaryTerms: [sales.NetRevenue]", "glossaryTerms: [sales.GrossRevenue]", 1))
+    progress = _Recorder()
+    deployer.progress = deployer._reconciler.progress = progress
+
+    deployer.deploy()
+
+    column = fake.entities["tables"][f"{GOLD}.order_revenue"]["columns"][0]
+    assert "sales.NetRevenue" in [tag["tagFQN"] for tag in column["tags"]]  # kept, never removed
+    warnings = [message for level, message in progress.messages if level == "warn"]
+    assert any("revenue -> sales.NetRevenue" in message for message in warnings)

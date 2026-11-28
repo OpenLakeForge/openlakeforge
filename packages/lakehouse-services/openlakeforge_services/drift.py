@@ -206,7 +206,7 @@ def detect_glossary_drift(
     om = om_fqns(inventory.glossaries)
     known_terms = set(om.values())
     for glossary in inventory.glossaries:
-        entity = reconciler.lookup("glossaries", glossary.name, "extension")
+        entity = reconciler.lookup("glossaries", glossary.name, "owners,extension")
         if entity is None:
             items.append(DriftItem(MISSING, "glossary", glossary.name, SHARED))
             continue
@@ -214,6 +214,14 @@ def detect_glossary_drift(
         fields = [op["path"].lstrip("/") for op in patch_operations(entity, owned)]
         if marker_of(entity) is None:
             fields.append("olfManaged")
+        if glossary.owner:
+            collection = "teams" if glossary.owner.type == "team" else "users"
+            owner = reconciler.lookup(collection, glossary.owner.ref, "")
+            if owner is None:
+                detail = f"owner {glossary.owner.type} {glossary.owner.ref!r} not found"
+                items.append(DriftItem(UNRESOLVED, "glossary", glossary.name, SHARED, detail))
+            elif owner["id"] not in {o.get("id") for o in entity.get("owners") or []}:
+                fields.append("owners")
         if fields:
             items.append(DriftItem(CHANGED, "glossary", glossary.name, SHARED, ", ".join(fields)))
         for found in reconciler.client.list_entities(
@@ -224,7 +232,7 @@ def detect_glossary_drift(
                 detail = "marked as OpenLakeForge-managed, absent from Git"
                 items.append(DriftItem(STALE, "glossary term", fqn, SHARED, detail))
         for term in glossary.terms:
-            current = reconciler.lookup("glossaryTerms", om[term.fqn], "extension")
+            current = reconciler.lookup("glossaryTerms", om[term.fqn], "relatedTerms,extension")
             if current is None:
                 items.append(DriftItem(MISSING, "glossary term", om[term.fqn], SHARED))
                 continue
@@ -235,6 +243,11 @@ def detect_glossary_drift(
                 "references": [{"name": ref.name, "endpoint": ref.endpoint} for ref in term.references],
             }
             fields = [op["path"].lstrip("/") for op in patch_operations(current, wanted)]
+            # Declared relations must be present; ones a person added, and the reverse ones OpenMetadata keeps, are not
+            # a difference.
+            related = {relation["term"].get("fullyQualifiedName") for relation in current.get("relatedTerms") or []}
+            if {om[ref] for ref in term.related_terms} - related:
+                fields.append("relatedTerms")
             if marker_of(current) is None:
                 fields.append("olfManaged")
             if fields:
