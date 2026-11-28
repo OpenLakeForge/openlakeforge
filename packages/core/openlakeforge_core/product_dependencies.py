@@ -44,6 +44,8 @@ class ProductDependencies:
     dependencies: tuple[ProductDependency, ...]
     # Human-readable rule breaks: a ref() to a model that is not public, or a cycle between products.
     violations: tuple[str, ...]
+    # `(producer, model)` pairs read across products that are not `access: public`.
+    private_refs: frozenset[tuple[str, str]] = frozenset()
 
     @property
     def producers_by_consumer(self) -> dict[str, tuple[str, ...]]:
@@ -59,7 +61,6 @@ class ProductDependencies:
         for dependency in self.dependencies:
             found.setdefault(dependency.producer, []).append(dependency.consumer)
         return {producer: tuple(sorted(consumers)) for producer, consumers in sorted(found.items())}
-
 
     def launch_order(self, products: Sequence[str]) -> list[str]:
         """`products` with each one after the products it consumes (among `products`), otherwise in the given order.
@@ -122,6 +123,7 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
     texts = {name: _JINJA_COMMENT.sub("", path.read_text(encoding="utf-8")) for name, path in sql.items()}
     edges: dict[tuple[str, str], set[str]] = {}
     violations: list[str] = []
+    private: set[tuple[str, str]] = set()
 
     def consider(consumer: str, reader: str, package: str, referenced: str) -> None:
         if package and package != project_name:
@@ -131,6 +133,7 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
             return
         edges.setdefault((consumer, producer), set()).add(referenced)
         if access_of(referenced, texts[referenced]) != "public":
+            private.add((producer, referenced))
             violations.append(
                 f"{consumer}.{reader} refs {producer}.{referenced}, which is not `access: public` "
                 f"(set it on that model in {producer}'s schema.yml)"
@@ -155,7 +158,7 @@ def scan_product_dependencies(gold_root: Path, products: Collection[str]) -> Pro
         for (consumer, producer), models in sorted(edges.items())
     )
     violations.extend(_cycles(dependencies))
-    return ProductDependencies(dependencies, tuple(violations))
+    return ProductDependencies(dependencies, tuple(violations), frozenset(private))
 
 
 def _executable(text: str) -> str:

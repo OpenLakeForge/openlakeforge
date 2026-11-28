@@ -39,8 +39,15 @@ _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _STRING_LITERAL = re.compile(r"'(?:[^']|'')*'")
 _QUALIFIED = re.compile(r"(?<![\w.])([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\b(?!\s*\()")
 _BARE = re.compile(r"(?<![\w.])([A-Za-z_]\w*)\b(?!\s*[.(])(?!\s*\.)")
+# Bare words a metric may use without qualifying: SQL keywords, type names and interval units. Any other bare word is
+# read as an unqualified field, so a misspelled column cannot pass as a keyword.
 _SQL_WORDS = frozenset(
-    "and or not in is null case when then else end distinct as between like true false cast asc desc".split()
+    (
+        "and or not in is null case when then else end distinct as between like true false cast asc desc filter where "
+        "over partition by order rows range unbounded preceding following current row interval from for date time "
+        "timestamp year quarter month week day hour minute second integer int bigint smallint double float real "
+        "decimal numeric varchar char string boolean"
+    ).split()
 )
 
 
@@ -229,20 +236,24 @@ def parse_ossie_model(
         fail(base, "schema", "the model must be a mapping")
         return None, problems
     _forbid_extensions(raw, base, fail)
+    for key in ("datasets", "relationships", "metrics"):
+        if not isinstance(raw.get(key) or [], list):
+            fail((*base, key), "schema", f"`{key}` must be a list")
+    if problems:
+        return None, problems
 
     datasets = tuple(
         _dataset(item, (*base, "datasets", index), fail)
         for index, item in enumerate(raw.get("datasets") or ())
         if isinstance(item, Mapping)
     )
-    field_names = {dataset.name: {f.name for f in dataset.fields} for dataset in datasets}
     relationships = tuple(
         _relationship(item, (*base, "relationships", index))
         for index, item in enumerate(raw.get("relationships") or ())
         if isinstance(item, Mapping)
     )
     metrics = tuple(
-        _metric(item, (*base, "metrics", index), field_names, fail)
+        _metric(item, (*base, "metrics", index), fail)
         for index, item in enumerate(raw.get("metrics") or ())
         if isinstance(item, Mapping)
     )
@@ -376,9 +387,7 @@ def _relationship(item: Mapping[str, Any], where: tuple[str | int, ...]) -> Sema
     )
 
 
-def _metric(
-    item: Mapping[str, Any], where: tuple[str | int, ...], field_names: Mapping[str, set[str]], fail: Any
-) -> SemanticMetric:
+def _metric(item: Mapping[str, Any], where: tuple[str | int, ...], fail: Any) -> SemanticMetric:
     name = str(item.get("name", ""))
     expression = _ansi_expression(item)
     if expression is None:
@@ -389,14 +398,14 @@ def _metric(
     for dataset, column in _QUALIFIED.findall(stripped):
         if (dataset, column) not in references:
             references.append((dataset, column))
-    unqualified = {word for word in _BARE.findall(stripped) if word.lower() not in _SQL_WORDS}
-    declared = {column for names in field_names.values() for column in names}
-    for word in sorted(unqualified & declared - set(field_names)):
+    # A qualified reference is masked first so its column is not read again as a bare word.
+    bare = {word for word in _BARE.findall(_QUALIFIED.sub(" ", stripped)) if word.lower() not in _SQL_WORDS}
+    for word in sorted(bare):
         fail(
             (*where, "expression"),
             "metric-qualified-references",
-            f"metric {name!r} reads `{word}` unqualified; write it as `<dataset>.{word}` (Ossie 0.1.1 metrics are "
-            "model-scoped)",
+            f"metric {name!r} reads `{word}` unqualified; write fields as `<dataset>.<field>` (Ossie 0.1.1 metrics "
+            "are model-scoped)",
         )
     return SemanticMetric(
         name=name,

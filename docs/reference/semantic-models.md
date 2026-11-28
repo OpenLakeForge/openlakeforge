@@ -50,7 +50,7 @@ way. Each rule below is named in the diagnostic (`file:line: [rule] message`).
 | `logical-source` | a dataset `source` is `<schema>.<table>`, such as `sales_core_gold.fct_order_lines`; no catalog, stage or query |
 | `ansi-expression` | every field and metric has an `ANSI_SQL` expression; other dialects are kept, not validated |
 | `field-equals-column` | a field's expression is its own name, so field names equal column names |
-| `metric-qualified-references` | a metric reads fields as `<dataset>.<field>` |
+| `metric-qualified-references` | a metric reads fields as `<dataset>.<field>`; a bare word that is not a SQL keyword, type name or interval unit is refused |
 | `single-column-relationships` | a relationship joins one column to one column |
 
 ## What `olf check contracts` verifies
@@ -61,10 +61,11 @@ run and runs on Slim. It reports as `semantic_models`.
 | Rule | Fails when |
 | --- | --- |
 | `schema` | the file does not match the vendored JSON Schema |
-| `source-exists` | a dataset source is not a model of the owning product, or a model of a product it depends on through `ref()` |
+| `source-exists` | a dataset source is not a model of the owning product, or an `access: public` model of a product it depends on through `ref()` |
 | `field-is-column` | a field is not a column the model's `schema.yml` declares |
 | `key-test` | a `primary_key` or `unique_keys` entry has no dbt `unique` test; a primary key also needs `not_null` on each column |
 | `relationship-test` | a relationship has no dbt `relationships` test between the same columns |
+| `relationship-target-key` | the `to` column of a relationship has no dbt `unique` test |
 | `metric-reference` | a metric reads a field that its dataset does not declare |
 | `duplicate-name`, `duplicate-key` | two datasets, relationships, metrics or models share a name, or a YAML key is written twice |
 | `product-exists` | the folder under `semantic/` is not a product |

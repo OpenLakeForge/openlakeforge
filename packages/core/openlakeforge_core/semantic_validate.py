@@ -115,7 +115,11 @@ def validate_semantic_model(
         for name, count in Counter(names).items():
             if count > 1:
                 fail((f"{label}s",), "duplicate-name", f"{label} name {name!r} is declared {count} times")
-    allowed = {d.producer: set(d.models) for d in dependencies.dependencies if d.consumer == model.product}
+    allowed = {
+        d.producer: {m for m in d.models if (d.producer, m) not in dependencies.private_refs}
+        for d in dependencies.dependencies
+        if d.consumer == model.product
+    }
     resolved: dict[str, DbtModel] = {}
     for index, dataset in enumerate(model.datasets):
         at = ("datasets", index)
@@ -232,6 +236,12 @@ def _check_relationship(
             f"relationship {relationship.name!r} has no dbt `relationships` test: {source.name}.{wanted[0]} "
             f"to ref('{target.name}').{wanted[2]}",
         )
+    if (wanted[2],) not in target.unique:
+        fail(
+            at,
+            "relationship-target-key",
+            f"relationship {relationship.name!r} targets {target.name}.{wanted[2]}, which has no dbt `unique` test",
+        )
 
 
 def load_semantic_inventory(
@@ -266,4 +276,4 @@ def load_semantic_inventory(
         for m in models
         if names[m.name] > 1
     )
-    return SemanticInventory(tuple(models), tuple(problems))
+    return SemanticInventory(tuple(m for m in models if names[m.name] == 1), tuple(problems))

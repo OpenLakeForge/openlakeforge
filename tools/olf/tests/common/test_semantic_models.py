@@ -274,3 +274,84 @@ def test_the_vendored_schema_matches_its_provenance_record() -> None:
     assert hashlib.sha256(vendored).hexdigest() == record["sha256"]
     assert json.loads(vendored)["properties"]["version"]["const"] == SUPPORTED_OSSIE_VERSION
     assert record["tag"].startswith(f"osi-{SUPPORTED_OSSIE_VERSION}")
+
+
+def test_a_qualified_reference_with_spaces_around_the_dot_is_accepted(tmp_path: Path) -> None:
+    root = _project(tmp_path, OSSIE.replace("fct_lines.net_amount END", "fct_lines . net_amount END"))
+
+    ok, detail = _check(root)
+
+    assert ok, detail
+
+
+def test_a_misspelled_unqualified_metric_field_is_refused(tmp_path: Path) -> None:
+    detail = _breaks(tmp_path, "THEN fct_lines.net_amount END", "THEN net_amunt END")
+
+    assert "[metric-qualified-references]" in detail and "net_amunt" in detail
+
+
+@pytest.mark.parametrize("key", ["datasets", "relationships", "metrics"])
+def test_a_collection_that_is_not_a_list_is_a_diagnostic_not_a_crash(tmp_path: Path, key: str) -> None:
+    root = _project(tmp_path, OSSIE.replace(f"    {key}:\n", f"    {key}: 42\n    ignored_{key}:\n", 1))
+
+    ok, detail = _check(root)
+
+    assert not ok and f"`{key}` must be a list" in detail
+
+
+def test_a_relationship_into_a_column_without_a_unique_test_is_refused(tmp_path: Path) -> None:
+    detail = _breaks(
+        tmp_path, "      - name: account_id\n        data_tests: [unique, not_null]", "      - name: account_id"
+    )
+
+    assert "[relationship-target-key]" in detail
+
+
+def test_models_with_the_same_name_in_two_files_are_both_left_out(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    folder = root / "lakehouse_code" / "semantic" / "widgets_alpha"
+    (folder / "copy.ossie.yaml").write_text(OSSIE, encoding="utf-8")
+
+    ok, detail = _check(root)
+    found = load_lakehouse_inventory(root / "lakehouse_code").semantic_inventory
+
+    assert not ok and detail.count("[duplicate-name]") == 2
+    assert found.models == ()
+
+
+def test_a_semantic_folder_without_governance_fails(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    (root / "lakehouse_code" / "governance.yml").unlink()
+
+    ok, detail = _check(root)
+
+    assert not ok and "requires a readable governance.yml" in detail
+
+
+def _cross_product(root: Path, access: str) -> Path:
+    _project(root, OSSIE.replace("widgets_alpha_gold", "widgets_beta_gold"))
+    beta = root / "lakehouse_code" / "gold" / "models" / "widgets_beta"
+    (beta / "mart.sql").write_text(
+        "select * from {{ ref('fct_lines') }} join {{ ref('dim_account') }} using (account_id)"
+    )
+    alpha = root / "lakehouse_code" / "gold" / "models" / "widgets_alpha"
+    (alpha / "schema.yml").write_text(SCHEMA_YML.replace("access: public", f"access: {access}"), encoding="utf-8")
+    (alpha / "fct_lines.sql").write_text("select 1 as line_id")
+    (alpha / "dim_account.sql").write_text("select 1 as account_id")
+    folder = root / "lakehouse_code" / "semantic"
+    (folder / "widgets_beta").mkdir()
+    (folder / "widgets_beta" / "w.ossie.yaml").write_text(OSSIE.replace("widgets_alpha_gold", "widgets_alpha_gold"))
+    (folder / "widgets_alpha" / "widgets.ossie.yaml").unlink()
+    return root
+
+
+def test_a_public_model_of_a_product_it_reads_can_be_a_source(tmp_path: Path) -> None:
+    ok, detail = _check(_cross_product(tmp_path, "public"))
+
+    assert ok, detail
+
+
+def test_a_private_model_of_another_product_cannot_be_a_source(tmp_path: Path) -> None:
+    ok, detail = _check(_cross_product(tmp_path, "protected"))
+
+    assert not ok and "[source-exists]" in detail

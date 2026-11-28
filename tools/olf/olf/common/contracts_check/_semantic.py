@@ -44,7 +44,7 @@ def _check_semantic_models(repo_root: Path, *, schema_root: Path | None = None) 
     try:
         products = [p["id"] for p in governance_products(load_governance_descriptor(code / "governance.yml"))]
     except (LakehouseDescriptorError, OSError):
-        return CheckResult(name, ok=True, detail="governance.yml unreadable; see governance_conformance")
+        return CheckResult(name, ok=False, detail="lakehouse_code/semantic requires a readable governance.yml")
     errors = _schema_errors(schema_root or repo_root / "docs/schema", code)
     inventory = load_semantic_inventory(code, products, scan_dependencies(code / "gold", products))
     errors += [str(d) for d in inventory.diagnostics if d.severity == "error"]
