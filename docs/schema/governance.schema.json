@@ -248,8 +248,7 @@
           "properties": {
             "maximumAge": {
               "type": "string",
-              "pattern": "^P(\\d+W)?(\\d+D)?(T(\\d+H)?(\\d+M)?(\\d+S)?)?$",
-              "minLength": 2,
+              "pattern": "^P(?!(?:0+W)?(?:0+D)?(?:T(?:0+H)?(?:0+M)?(?:0+S)?)?$)(?=\\d|T\\d)(\\d+W)?(\\d+D)?(T(?=\\d)(\\d+H)?(\\d+M)?(\\d+S)?)?$",
               "description": "Longest acceptable age of the product's data, as an ISO 8601 duration (PT26H). Published as dataFreshness in whole minutes."
             },
             "readyBy": {
@@ -278,8 +277,7 @@
             },
             "gracePeriod": {
               "type": "string",
-              "pattern": "^P(\\d+W)?(\\d+D)?(T(\\d+H)?(\\d+M)?(\\d+S)?)?$",
-              "minLength": 2,
+              "pattern": "^P(?!(?:0+W)?(?:0+D)?(?:T(?:0+H)?(?:0+M)?(?:0+S)?)?$)(?=\\d|T\\d)(\\d+W)?(\\d+D)?(T(?=\\d)(\\d+H)?(\\d+M)?(\\d+S)?)?$",
               "description": "How long after a scheduled time the refresh may still arrive."
             }
           }

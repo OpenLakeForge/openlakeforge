@@ -18,6 +18,7 @@ from openlakeforge_core import (
     load_lakehouse_inventory,
     parse_sla,
 )
+from openlakeforge_services.governance import freshness_policy
 from test_business_metadata import GOVERNANCE as BUSINESS_GOVERNANCE
 from test_business_metadata import _deploy, _fake
 from test_product_dependencies import _model, _schema
@@ -184,7 +185,10 @@ def test_a_deploy_publishes_the_native_sla_and_the_policy_extension(
     product = fake.entities["dataProducts"]["order_revenue"]
     assert product["sla"] == {"tier": "GOLD", "dataFreshness": 1590, "dataQuality": 95}
     assert json.loads(product["extension"]["olfFreshnessPolicy"]) == {
+        "tier": "GOLD",
+        "maximumAge": "PT26H30M",
         "gracePeriod": "PT30M",
+        "minimumQualityScore": 95,
         "readyBy": "09:00",
         "schedule": "0 7 * * *",
         "timezone": "Europe/Paris",
@@ -258,8 +262,50 @@ def test_the_e2e_check_names_each_sla_field_that_differs() -> None:
 
     sla = parse_sla(SLA, where="p")
     native = {"tier": "GOLD", "dataFreshness": 240, "dataQuality": 95}
-    policy = '{"gracePeriod": "PT30M", "readyBy": "09:00", "schedule": "0 7 * * *", "timezone": "Europe/Paris"}'
+    policy = freshness_policy(sla)
 
     assert sla_mismatches("p", {"sla": native, "extension": {"olfFreshnessPolicy": policy}}, sla) == []
     problems = sla_mismatches("p", {"sla": {**native, "dataFreshness": 60}, "extension": {}}, sla)
     assert [p.split(" is ")[0] for p in problems] == ["p: sla.dataFreshness", "p: extension olfFreshnessPolicy"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"tier": "SILVER"},
+        {"freshness__maximumAge": "PT5H"},
+        {"minimumQualityScore": 90},
+        {"availability__gracePeriod": "PT1H"},
+    ],
+)
+def test_every_declared_sla_edit_changes_the_policy_extension(change: dict[str, Any]) -> None:
+    # OpenMetadata 1.13.6 records no change for `sla` itself, so each edit must also move a recorded field.
+    before = freshness_policy(parse_sla(SLA, where="p"))
+    after = freshness_policy(parse_sla(_with(**change), where="p"))
+
+    assert before != after
+
+
+def test_contracts_check_compares_exact_durations_not_rounded_minutes(tmp_path: Path) -> None:
+    _consumer_project(tmp_path, producer_age="PT61S", consumer_age="PT1M")
+
+    assert len(contracts_check._check_product_dependencies(tmp_path).warnings) == 1
+
+
+@pytest.mark.parametrize("duration", ["P", "PT", "P1DT", "PT0H", "P0D", "P0DT0M", "1H"])
+def test_the_json_schema_refuses_an_empty_or_zero_duration(duration: str) -> None:
+    schema = json.loads((REPO_ROOT / "docs/schema/governance.schema.json").read_text(encoding="utf-8"))
+    document = yaml.safe_load(BUSINESS_GOVERNANCE)
+    document["domains"][0]["products"][0]["sla"] = _with(freshness__maximumAge=duration)
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(document, schema)
+
+
+@pytest.mark.parametrize("duration", ["PT1S", "P1DT2H", "PT26H30M", "P1W", "P0DT5M"])
+def test_the_json_schema_accepts_a_positive_duration(duration: str) -> None:
+    schema = json.loads((REPO_ROOT / "docs/schema/governance.schema.json").read_text(encoding="utf-8"))
+    document = yaml.safe_load(BUSINESS_GOVERNANCE)
+    document["domains"][0]["products"][0]["sla"] = _with(freshness__maximumAge=duration)
+
+    jsonschema.validate(document, schema)

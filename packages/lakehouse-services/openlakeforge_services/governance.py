@@ -51,8 +51,8 @@ PRODUCT_PROPERTIES = (
     (TERMS_PROPERTY, "Terms of use declared in governance.yml, as JSON with `allowed` and `prohibited` lists."),
     (
         FRESHNESS_POLICY_PROPERTY,
-        "SLA fields OpenMetadata's DataProduct.sla has no place for (readyBy, timezone, schedule, gracePeriod), "
-        "declared in governance.yml, as JSON.",
+        "The SLA declared in governance.yml, as JSON: the exact maximumAge plus readyBy, timezone, schedule and "
+        "gracePeriod, which DataProduct.sla has no place for.",
     ),
 )
 SENSITIVITY_CLASSIFICATION = "DataSensitivity"
@@ -174,26 +174,29 @@ def sla_payload(sla: ProductSla | None) -> dict[str, Any]:
 
 
 def freshness_policy(sla: ProductSla | None) -> str | None:
-    """The declared SLA fields that have no native OpenMetadata home, as stable JSON; None when none are declared."""
+    """The declared SLA as stable JSON for the `olfFreshnessPolicy` property; None when none is declared.
+
+    It holds every declared field, not only the ones with no native home. OpenMetadata 1.13.6's data product
+    updater records no change for `sla` itself, so a PATCH that changed only `sla` could answer 200 and store
+    nothing; an extension that moves with every SLA edit keeps the write recorded. It also keeps the exact ISO
+    duration, which `dataFreshness` rounds up to minutes.
+    """
     if sla is None:
         return None
     policy = {
         key: value
         for key, value in (
+            ("tier", sla.tier),
+            ("maximumAge", sla.maximum_age),
             ("readyBy", sla.ready_by),
             ("timezone", sla.timezone),
             ("schedule", sla.schedule),
             ("gracePeriod", sla.grace_period),
+            ("minimumQualityScore", sla.minimum_quality_score),
         )
-        if value
+        if value is not None
     }
-    return json.dumps(policy, sort_keys=True) if policy else None
-
-
-def _product_sla(domain: str, product: Mapping[str, Any]) -> ProductSla | None:
-    if "sla" not in product:
-        return None
-    return parse_sla(product["sla"], where=f"governance.yml: domains[{domain}].products[{product['id']}]")
+    return json.dumps(policy, sort_keys=True)
 
 
 def _product_extension(product: ProductSpec) -> dict[str, str]:

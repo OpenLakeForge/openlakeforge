@@ -355,7 +355,7 @@ person set in OpenMetadata stays.
 | `lifecycle` | Custom property `olfLifecycle` | Data product |
 | `termsOfUse` | Custom property `olfTermsOfUse`, a JSON string | Data product |
 | `sla.tier`, `sla.freshness.maximumAge`, `sla.minimumQualityScore` | `sla.tier`, `sla.dataFreshness` (minutes), `sla.dataQuality` | Data product |
-| `sla.freshness.readyBy`, `timezone`, `sla.availability.*` | Custom property `olfFreshnessPolicy`, a JSON string | Data product |
+| The whole `sla` | Custom property `olfFreshnessPolicy`, a JSON string with the declared fields (the exact `maximumAge`, and the `readyBy`, `timezone` and `availability` fields OpenMetadata has no place for) | Data product |
 
 - A reference resolves to an existing OpenMetadata user or team by name. An
   `owner` must be an existing user or a team of type `Group`: OpenMetadata
@@ -373,6 +373,10 @@ person set in OpenMetadata stays.
 - After a write the deploy reads the entity back and fails if OpenMetadata
   did not keep a field, instead of trusting the 200.
 - A second deploy of the same descriptor writes nothing.
+- OpenMetadata 1.13.6 records no change for a data product's `sla`, so a patch
+  that only changed it could answer 200 and store nothing. `olfFreshnessPolicy`
+  therefore moves with every SLA edit, and the deploy still reads the native
+  fields back and fails if they were not kept.
 - The native `sla` is written field by field, so an `availability` or
   `responseTime` a person set in OpenMetadata stays. A field removed from
   `governance.yml` is not removed from OpenMetadata; the deploy never

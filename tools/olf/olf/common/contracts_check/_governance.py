@@ -12,9 +12,9 @@ import yaml
 from openlakeforge_core import (
     LakehouseDescriptorError,
     ProductDependencies,
-    duration_minutes,
     governance_products,
     load_governance_descriptor,
+    parse_duration,
     scan_product_dependencies,
 )
 from openlakeforge_core.governance import resolve_product
@@ -116,18 +116,25 @@ def _check_product_dependencies(repo_root: Path) -> CheckResult:
 
 
 def _freshness_warnings(declared: list[Mapping[str, Any]], found: ProductDependencies) -> list[str]:
-    """A consumer cannot be fresher than what it reads, so a `maximumAge` shorter than a producer's cannot hold."""
+    """A consumer cannot be fresher than what it reads, so a `maximumAge` shorter than a producer's cannot hold.
+
+    Compared as exact durations: the minute rounding belongs to the OpenMetadata publication, not to this check.
+    """
     ages = {
         p["id"]: p["sla"]["freshness"]["maximumAge"]
         for p in declared
         if "maximumAge" in (p.get("sla") or {}).get("freshness", {})
     }
-    return [
-        f"product {d.consumer!r} promises maximumAge {ages[d.consumer]} but reads {d.producer!r}, which only "
-        f"promises {ages[d.producer]}; the consumer's data can be older than its own promise when its producer is "
-        "within its own"
-        for d in found.dependencies
-        if d.consumer in ages
-        and d.producer in ages
-        and duration_minutes(ages[d.consumer]) < duration_minutes(ages[d.producer])
-    ]
+    warnings = []
+    for d in found.dependencies:
+        consumer, producer = ages.get(d.consumer), ages.get(d.producer)
+        if consumer is None or producer is None:
+            continue
+        shorter, longer = parse_duration(consumer), parse_duration(producer)
+        if shorter is not None and longer is not None and shorter < longer:
+            warnings.append(
+                f"product {d.consumer!r} promises maximumAge {consumer} but reads {d.producer!r}, which only "
+                f"promises {producer}; the consumer's data can be older than its own promise when its producer is "
+                "within its own"
+            )
+    return warnings
