@@ -19,10 +19,8 @@ from openlakeforge_services.semantic_publish import SemanticPublisher, metric_te
 
 CODE_ROOT = Path(__file__).resolve().parents[4] / "lakehouse_code"
 COLUMN_TERMS = {
-    "sales_core": {
-        key: tuple(term.fqn for term in terms)
-        for key, terms in inventory_for(CODE_ROOT.parent).column_terms("sales_core").items()
-    }
+    key: tuple(term.fqn for term in terms)
+    for key, terms in inventory_for(CODE_ROOT.parent).column_terms("sales_core").items()
 }
 SCHEMA = "polaris.lakehouse_dev.sales_core_gold"
 TABLES = {
@@ -142,7 +140,7 @@ def test_metric_type_comes_from_the_outer_aggregate(expression: str, expected: s
 def test_a_metric_takes_the_term_of_the_one_tagged_column_it_reads() -> None:
     model = _model()
     metrics = {m.name: m for m in model.metrics}
-    terms = COLUMN_TERMS["sales_core"]
+    terms = COLUMN_TERMS
 
     assert metric_terms(model, metrics["net_revenue"], terms) == (("sales.NetRevenue",), "")
     assert metric_terms(model, metrics["gross_revenue"], terms) == (("sales.GrossRevenue",), "")
@@ -151,7 +149,7 @@ def test_a_metric_takes_the_term_of_the_one_tagged_column_it_reads() -> None:
 def test_a_metric_reading_columns_with_different_terms_or_none_gets_no_term_and_a_reason() -> None:
     model = _model()
     net = next(m for m in model.metrics if m.name == "net_revenue")
-    terms = dict(COLUMN_TERMS["sales_core"])
+    terms = dict(COLUMN_TERMS)
 
     both = dataclasses.replace(net, references=(("fct_order_lines", "net_amount"), ("fct_order_lines", "gross_amount")))
     none = dataclasses.replace(net, references=(("fct_order_lines", "order_status"),))
@@ -405,7 +403,7 @@ def test_the_e2e_check_does_not_demand_a_glossary_tag_of_a_metric_with_no_term(o
     om.entities["metrics"]["gross_revenue_dev"]["tags"] = []
     client = OpenMetadataClient("http://x")
     client.request = om.request  # type: ignore[method-assign]
-    untagged = {"sales_core": {key: () for key in COLUMN_TERMS["sales_core"]}}
+    untagged = {key: () for key in COLUMN_TERMS}
 
     problems = semantic_problems(
         client, [_model()], stage="dev", gold_schema_fqns={"sales_core": SCHEMA}, column_terms=untagged

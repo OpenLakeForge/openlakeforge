@@ -755,12 +755,11 @@ class MetadataDeployer:
             self._reconciler,
             self.config,
             semantic.models,
+            # Every product's tagged columns: a model may read a public table of a product it depends on.
             {
-                model.product: {
-                    column: tuple(term.fqn for term in terms)
-                    for column, terms in inventory.column_terms(model.product).items()
-                }
-                for model in semantic.models
+                column: tuple(term.fqn for term in terms)
+                for product in inventory.products
+                for column, terms in inventory.column_terms(product.id).items()
             },
             domain_of,
             progress=self.progress,

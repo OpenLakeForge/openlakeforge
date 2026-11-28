@@ -37,7 +37,7 @@ def semantic_problems(
     *,
     stage: str,
     gold_schema_fqns: Mapping[str, str],
-    column_terms: Mapping[str, Mapping[tuple[str, str], Sequence[str]]],
+    column_terms: Mapping[tuple[str, str], Sequence[str]],
 ) -> list[str]:
     """What the published metrics, lineage and constraints of `stage` lack against `models`."""
     problems: list[str] = []
@@ -65,7 +65,7 @@ def semantic_problems(
                 problems.append(f"{relationship.name}: no FOREIGN_KEY on {relationship.from_dataset} (has {held})")
         product_owners = {o["id"] for o in _get(client, "dataProducts", model.product, "owners").get("owners") or []}
         for declared in model.metrics:
-            terms, _why = metric_terms(model, declared, column_terms.get(model.product, {}))
+            terms, _why = metric_terms(model, declared, column_terms)
             problems += _metric_problems(client, declared, stage, tables, bool(terms), product_owners)
     return problems
 
@@ -117,11 +117,9 @@ def check_openmetadata_semantic_publication(cfg: E2EConfig) -> None:
     stage = stage_catalog_name(cfg).removeprefix("lakehouse_")
     gold_schemas = json.loads(config.env("OPENLAKEFORGE_CATALOG_GOLD_SCHEMA_FQNS_JSON", "{}", environ=environ))
     column_terms = {
-        product.id: {
-            column: tuple(term.fqn for term in terms)
-            for column, terms in cfg.inventory.column_terms(product.id).items()
-        }
+        column: tuple(term.fqn for term in terms)
         for product in cfg.inventory.products
+        for column, terms in cfg.inventory.column_terms(product.id).items()
     }
     with openmetadata_client(cfg) as (client, token):
         login = _admin_login(cfg, token)

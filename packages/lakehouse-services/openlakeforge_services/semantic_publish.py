@@ -147,7 +147,7 @@ class SemanticPublisher:
         reconciler: MetadataReconciler,
         config: MetadataConfig,
         models: Sequence[SemanticModel],
-        column_terms: Mapping[str, Mapping[tuple[str, str], Sequence[str]]],
+        column_terms: Mapping[tuple[str, str], Sequence[str]],
         domain_of: Mapping[str, str],
         *,
         progress: Progress = SILENT,
@@ -205,7 +205,7 @@ class SemanticPublisher:
         name = metric_name(metric, self._stage)
         kind = metric_type(metric.expression)
         owners = [_ref(owner, owner.get("type", "team")) for owner in product.get("owners") or []]
-        terms, why_not = metric_terms(model, metric, self._column_terms.get(model.product, {}))
+        terms, why_not = metric_terms(model, metric, self._column_terms)
         if why_not:
             self._progress.info(f"Metric {name}: no glossary tag, because {why_not}.")
         expression = {"language": "SQL", "code": metric.expression}
